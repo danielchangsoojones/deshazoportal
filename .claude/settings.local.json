@@ -8,7 +8,17 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git checkout:*)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(gh auth:*)",
+      "Bash(brew install:*)",
+      "Bash(/opt/homebrew/bin/brew install:*)",
+      "Bash(/opt/homebrew/bin/gh auth:*)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal log --oneline)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal branch)",
+      "Bash(/opt/homebrew/bin/gh repo:*)",
+      "Bash(git push:*)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal status)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal diff)"
     ]
   }
 }
