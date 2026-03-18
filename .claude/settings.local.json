@@ -18,7 +18,11 @@
       "Bash(/opt/homebrew/bin/gh repo:*)",
       "Bash(git push:*)",
       "Bash(git -C /Users/danieljones/Documents/deshazoportal status)",
-      "Bash(git -C /Users/danieljones/Documents/deshazoportal diff)"
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal diff)",
+      "Bash(/opt/homebrew/bin/brew list:*)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(/Users/danieljones/Documents/deshazoportal/.env.local:*)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal remote -v)"
     ]
   }
 }

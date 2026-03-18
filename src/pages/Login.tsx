@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { supabase, isConfigured } from '../lib/supabase'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -14,6 +14,11 @@ export default function Login() {
     setError('')
     setLoading(true)
 
+    if (!isConfigured || !supabase) {
+      setError('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local')
+      setLoading(false)
+      return
+    }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) {

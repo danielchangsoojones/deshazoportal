@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { supabase, isConfigured } from '../lib/supabase'
 import type { User } from '@supabase/supabase-js'
 
 export default function Dashboard() {
@@ -8,6 +8,10 @@ export default function Dashboard() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    if (!isConfigured || !supabase) {
+      navigate('/login')
+      return
+    }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
         navigate('/login')
@@ -18,7 +22,7 @@ export default function Dashboard() {
   }, [navigate])
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    if (supabase) await supabase.auth.signOut()
     navigate('/login')
   }
 
