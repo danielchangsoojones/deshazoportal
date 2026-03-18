@@ -1,16 +1,44 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 
 export default function Signup() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // TODO: handle signup logic
-    console.log({ name, email, password, confirm })
+    setError('')
+    setMessage('')
+
+    if (password !== confirm) {
+      setError('Passwords do not match')
+      return
+    }
+
+    setLoading(true)
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name } },
+    })
+
+    if (error) {
+      setError(error.message)
+    } else if (data.session) {
+      navigate('/dashboard')
+    } else {
+      setMessage('Check your email to confirm your account.')
+    }
+
+    setLoading(false)
   }
 
   return (
@@ -18,6 +46,17 @@ export default function Signup() {
       <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8">
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white mb-1">Create an account</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Get started for free</p>
+
+        {error && (
+          <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm">
+            {error}
+          </div>
+        )}
+        {message && (
+          <div className="mb-4 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-sm">
+            {message}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -78,9 +117,10 @@ export default function Signup() {
 
           <button
             type="submit"
-            className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg text-sm transition-colors"
+            disabled={loading}
+            className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors"
           >
-            Create account
+            {loading ? 'Creating account…' : 'Create account'}
           </button>
         </form>
 
