@@ -3,59 +3,46 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import type { User } from '@supabase/supabase-js'
 
-const portalCards = [
-  {
-    eyebrow: 'Service',
-    title: 'Open Risk Items',
-    description: 'See all open risks that are currently outstanding, categorized from high to low priority.',
-  },
-  {
-    eyebrow: 'Assets',
-    title: 'Asset Fleet',
-    description: 'See what percentage of your industrial assets have been inspected and which items need attention.',
-  },
-  {
-    eyebrow: 'Analytics',
-    title: 'Spend',
-    description: 'See an analytical breakdown of your spend regarding parts, labor, and maintenance trends.',
-  },
-  {
-    eyebrow: 'Analytics',
-    title: 'Location Comparison',
-    description: 'Compare parts and labor times across different facilities and identify outliers quickly.',
-  },
-  {
-    eyebrow: 'Documents',
-    title: 'Documents & Reports',
-    description: 'Download maintenance reports, summaries, and supporting PDFs from one place.',
-  },
-  {
-    eyebrow: 'Help',
-    title: 'Add User',
-    description: 'Add new users to the portal and manage who gets access to key operational tools.',
-  },
-  {
-    eyebrow: 'Help',
-    title: 'Contact Us',
-    description: 'Contact our team for any additional feature requests, product questions, or portal support.',
-    href: '/contact-us',
-  },
+const menuItems = [
+  { label: 'Home', href: '/dashboard' },
+  { label: 'Open Risk Items' },
+  { label: 'Asset Fleet' },
+  { label: 'Spend' },
+  { label: 'Location Comparison' },
+  { label: 'Documents & Reports' },
+  { label: 'Add User' },
+  { label: 'Contact Us', href: '/contact-us' },
 ]
 
-export default function Dashboard() {
+const contactMethods = [
+  {
+    title: 'Email:',
+    detail: 'danieljones@blockstampsf.com ',
+    note: 'Best for product questions, bugs, or help using the portal.',
+  },
+  {
+    title: 'Phone',
+    detail: '(317)-690-5323',
+    note: 'For urgent service coordination',
+  },
+  // {
+  //   title: 'Account management',
+  //   detail: 'accounts@deshazo.com',
+  //   note: 'Use this for account updates, user access, and admin requests.',
+  // },
+]
+
+export default function ContactUs() {
   const [user, setUser] = useState<User | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const navigate = useNavigate()
 
-  const menuItems = useMemo(
-    () => [
-      { label: 'Home', active: true, href: '/dashboard' },
-      ...portalCards.map((card) => ({
-        label: card.title,
-        active: false,
-        href: card.title === 'Contact Us' ? '/contact-us' : undefined,
+  const activeMenuItems = useMemo(
+    () =>
+      menuItems.map((item) => ({
+        ...item,
+        active: item.label === 'Contact Us',
       })),
-    ],
     [],
   )
 
@@ -119,7 +106,7 @@ export default function Dashboard() {
             <div className="flex-1 px-4 py-5">
               <div className="rounded-[24px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/50 p-4">
                 <nav className="space-y-2">
-                  {menuItems.map((item) =>
+                  {activeMenuItems.map((item) =>
                     item.href ? (
                       <Link
                         key={item.label}
@@ -184,57 +171,37 @@ export default function Dashboard() {
                 <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>
 
-              <div className="flex flex-col items-start gap-3 sm:items-end">
-                <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
-                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
-                  <span>{portalCards.length} modules available</span>
-                </div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
+                <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
+                <span>Contact and support</span>
               </div>
             </div>
           </div>
 
-          <section className="grid w-full grid-cols-1 gap-x-8 gap-y-8 md:grid-cols-2 xl:grid-cols-3">
-            {portalCards.map((card) => (
-              <article
-                key={card.title}
-                className="group relative flex min-h-[260px] flex-col overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 pb-5 pt-5 text-left shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_26px_48px_-34px_rgba(47,86,166,0.42)]"
-              >
-                <div className="absolute inset-x-0 top-0 h-1.5 bg-[linear-gradient(90deg,var(--deshazo-blue)_0%,var(--deshazo-blue-soft)_100%)] opacity-90" />
-                <div className="mb-4 flex items-center justify-between gap-3 pt-1">
-                  <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{card.eyebrow}</p>
-                  <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]">
-                  </span>
-                </div>
-                <h2 className="text-[clamp(28px,2.3vw,32px)] font-extrabold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
-                  {card.title}
-                </h2>
-                {/* <p className="mt-4 text-[15px] font-bold text-[var(--deshazo-blue-soft)]">Description</p> */}
-                <p className="mt-2 max-w-[34ch] text-base leading-7 text-[rgba(21,24,33,0.9)]">
-                  {card.description}
-                </p>
-                <div className="mt-auto flex items-end justify-between gap-4 pt-8">
-                  <div className="h-9 w-9 rounded-2xl bg-white shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)]" />
-                  {card.href ? (
-                    <Link
-                      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[15px] font-bold text-[var(--deshazo-blue)] no-underline shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition group-hover:gap-3"
-                      to={card.href}
-                    >
-                      <span>Open</span>
-                      <span aria-hidden="true">→</span>
-                    </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[15px] font-bold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition group-hover:gap-3"
-                    >
-                      <span>Open</span>
-                      <span aria-hidden="true">→</span>
-                    </button>
-                  )}
-                </div>
-              </article>
-            ))}
-          </section>
+          <div className="grid gap-8">
+            <section className="overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 py-6 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
+              <p className="text-[15px] font-bold text-[var(--deshazo-blue)]">Contact Us</p>
+              <h2 className="mt-3 max-w-[28ch] text-[clamp(20px,2.4vw,34px)] font-bold leading-[1.1] tracking-[-0.03em] text-[var(--deshazo-text)]">
+                If you would like to request a new feature or report a bug, please contact us at:
+              </h2>
+              <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 2xl:grid-cols-3">
+                {contactMethods.map((item) => (
+                  <article
+                    key={item.title}
+                    className="min-w-0 overflow-hidden rounded-[22px] border border-[var(--deshazo-border)] bg-white/85 p-5 shadow-[0_18px_35px_-32px_rgba(47,86,166,0.35)]"
+                  >
+                    <p className="text-[14px] font-bold uppercase tracking-[0.04em] text-[var(--deshazo-blue-soft)]">
+                      {item.title}
+                    </p>
+                    <p className="mt-3 break-words text-[clamp(17px,1.8vw,21px)] font-extrabold leading-7 text-[var(--deshazo-text)]">
+                      {item.detail}
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-[rgba(21,24,33,0.72)]">{item.note}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
         </section>
       </main>
     </div>
