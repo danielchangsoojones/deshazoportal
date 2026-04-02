@@ -110,90 +110,103 @@ export default function Dashboard() {
 
       <main className="flex w-full items-stretch">
         {menuOpen && (
-          <aside className="hidden min-h-[calc(100vh-60px)] w-[255px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
-            <div className="border-b border-[var(--deshazo-border)] px-6 py-5">
-              <div className="text-[16px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
-                DESHA<span className="text-[#f2b43f]">Z</span>O
+          <aside className="hidden min-h-[calc(100vh-60px)] w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
+            <div className="flex-1 px-4 py-5">
+              <div className="rounded-[24px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/50 p-4">
+                <nav className="space-y-2">
+                  {menuItems.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium transition ${
+                        item.active
+                          ? 'bg-[#dbe5ff] text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.06)]'
+                          : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                      <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]">
+                      </span>
+                    </button>
+                  ))}
+                </nav>
               </div>
-              <div className="mt-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#b8bcc8]">
-                Cranes / Service / Automation
-              </div>
-            </div>
-
-            <div className="flex-1 px-4 py-4">
-              <h2 className="text-[18px] font-extrabold text-[var(--deshazo-text)]">Menu</h2>
-              <nav className="mt-4 space-y-2">
-                {menuItems.map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    className={`block w-full rounded-lg px-3 py-3 text-left text-[15px] font-medium transition ${
-                      item.active
-                        ? 'bg-[#dbe5ff] text-[var(--deshazo-text)]'
-                        : 'text-[rgba(21,24,33,0.7)] hover:bg-[var(--deshazo-surface)]'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </nav>
             </div>
 
             <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--deshazo-surface)] text-sm font-extrabold text-[var(--deshazo-blue)]">
-                  {initials}
+              <div className="rounded-2xl bg-[var(--deshazo-surface)] px-3 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-sm font-extrabold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-18px_rgba(47,86,166,0.45)]">
+                    {initials}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-[15px] font-bold text-[var(--deshazo-text)]">{fullName}</p>
+                    <p className="truncate text-[14px] text-[rgba(21,24,33,0.55)]">{user.email}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="truncate text-[15px] font-bold text-[var(--deshazo-text)]">{fullName}</p>
-                  <p className="truncate text-[14px] text-[rgba(21,24,33,0.55)]">{user.email}</p>
-                </div>
+                <button
+                  className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-[var(--deshazo-border)] bg-white px-4 py-2.5 text-sm font-bold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition hover:bg-[var(--deshazo-surface)]"
+                  onClick={handleSignOut}
+                  type="button"
+                >
+                  Sign out
+                </button>
               </div>
             </div>
           </aside>
         )}
 
-        <section className="min-w-0 flex-1 px-5 py-4 sm:px-8 lg:px-10">
-          <div className="mb-8 flex flex-col items-start justify-between gap-5 sm:flex-row">
-            <div>
-              <div className="text-[16px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
-                DESHA<span className="text-[#f2b43f]">Z</span>O
+        <section className="min-w-0 flex-1 px-5 py-5 sm:px-8 lg:px-10">
+          <div className="mb-8">
+            <div className="flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
+              <div>
+                <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
+                  DESHA<span className="text-[#f2b43f]">Z</span>O
+                </div>
+                <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
+                  Cranes / Service / Automation
+                </p>
+                <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>
-              <p className="mt-1 text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                Cranes / Service / Automation
-              </p>
-              <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
-            </div>
 
-            <button
-              className="inline-flex items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-2.5 text-sm font-bold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition hover:bg-[var(--deshazo-surface)]"
-              onClick={handleSignOut}
-              type="button"
-            >
-              Sign out
-            </button>
+              <div className="flex flex-col items-start gap-3 sm:items-end">
+                <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
+                  <span>{portalCards.length} modules available</span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <section className="grid w-full grid-cols-1 gap-x-[58px] gap-y-[42px] md:grid-cols-2 xl:grid-cols-3">
+          <section className="grid w-full grid-cols-1 gap-x-8 gap-y-8 md:grid-cols-2 xl:grid-cols-3">
             {portalCards.map((card) => (
               <article
                 key={card.title}
-                className="flex min-h-[246px] flex-col rounded-[22px] bg-[var(--deshazo-surface)] px-[22px] pb-[18px] pt-5 text-left transition hover:-translate-y-0.5 hover:shadow-[0_24px_45px_-35px_rgba(47,86,166,0.45)]"
+                className="group relative flex min-h-[260px] flex-col overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 pb-5 pt-5 text-left shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_26px_48px_-34px_rgba(47,86,166,0.42)]"
               >
-                <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{card.eyebrow}</p>
-                <h2 className="mt-2.5 text-[clamp(28px,2.3vw,32px)] font-extrabold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
+                <div className="absolute inset-x-0 top-0 h-1.5 bg-[linear-gradient(90deg,var(--deshazo-blue)_0%,var(--deshazo-blue-soft)_100%)] opacity-90" />
+                <div className="mb-4 flex items-center justify-between gap-3 pt-1">
+                  <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{card.eyebrow}</p>
+                  <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]">
+                  </span>
+                </div>
+                <h2 className="text-[clamp(28px,2.3vw,32px)] font-extrabold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
                   {card.title}
                 </h2>
-                <p className="mt-3 text-[15px] font-bold text-[var(--deshazo-blue-soft)]">Description</p>
-                <p className="mt-1.5 max-w-[36ch] text-base leading-[1.42] text-[rgba(21,24,33,0.92)]">
+                {/* <p className="mt-4 text-[15px] font-bold text-[var(--deshazo-blue-soft)]">Description</p> */}
+                <p className="mt-2 max-w-[34ch] text-base leading-7 text-[rgba(21,24,33,0.9)]">
                   {card.description}
                 </p>
-                <a
-                  className="mt-auto pt-7 text-base font-bold text-[var(--deshazo-blue)] no-underline"
-                  href="#"
-                >
-                  Open →
-                </a>
+                <div className="mt-auto flex items-end justify-between gap-4 pt-8">
+                  <div className="h-9 w-9 rounded-2xl bg-white shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)]" />
+                  <a
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[15px] font-bold text-[var(--deshazo-blue)] no-underline shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition group-hover:gap-3"
+                    href="#"
+                  >
+                    <span>Open</span>
+                    <span aria-hidden="true">→</span>
+                  </a>
+                </div>
               </article>
             ))}
           </section>
