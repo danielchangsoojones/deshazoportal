@@ -237,23 +237,68 @@ export default function LocationComparison() {
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
                 {locationData.map((location) => (
                   <article
                     key={location.location}
-                    className="overflow-hidden rounded-[8px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]"
+                    className="group overflow-hidden rounded-[22px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,var(--deshazo-surface)_100%)] shadow-[0_16px_34px_-30px_rgba(47,86,166,0.32)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_40px_-30px_rgba(47,86,166,0.42)]"
                   >
-                    <div className="bg-[var(--deshazo-blue)] px-4 py-3 text-center text-[18px] font-extrabold text-white">
-                      {location.location}
+                    <div className="bg-[linear-gradient(90deg,var(--deshazo-blue)_0%,var(--deshazo-blue-deep)_100%)] px-4 py-4 text-white">
+                      <h3 className="text-[clamp(22px,2.3vw,28px)] font-extrabold leading-[1.05] tracking-[-0.04em] text-white">
+                        {location.location}
+                      </h3>
                     </div>
-                    <div className="space-y-2 px-4 py-4 text-[15px] text-[rgba(21,24,33,0.88)]">
-                      <p><span className="font-bold">Total Units:</span> {location.total_units}</p>
-                      <p><span className="font-bold">Total Invoices:</span> {location.total_invoices}</p>
-                      <p><span className="font-bold">Avg. Invoice:</span> {formatCurrency(location.average_invoice_cost)}</p>
-                      <p><span className="font-bold">Total Cost:</span> {formatCurrency(location.total_invoice_cost)}</p>
-                      <p><span className="font-bold">Total Labor Cost:</span> {formatCurrency(location.total_labor_cost)}</p>
-                      <p><span className="font-bold">Total Equipment Cost:</span> {formatCurrency(location.total_equipment_cost)}</p>
-                      <p><span className="font-bold">Total Parts Cost:</span> {formatCurrency(location.total_parts_cost)}</p>
+                    <div className="space-y-3 px-4 py-4 text-[14px] text-[rgba(21,24,33,0.88)]">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-xl bg-white px-3 py-3 shadow-[0_10px_24px_-20px_rgba(47,86,166,0.22)]">
+                          <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--deshazo-blue-soft)]">
+                            Total Units
+                          </p>
+                          <p className="mt-1 text-[20px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">
+                            {location.total_units}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-white px-3 py-3 shadow-[0_10px_24px_-20px_rgba(47,86,166,0.22)]">
+                          <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--deshazo-blue-soft)]">
+                            Total Invoices
+                          </p>
+                          <p className="mt-1 text-[20px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">
+                            {location.total_invoices}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-[var(--deshazo-border)] bg-white/75 px-4 py-3">
+                        <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--deshazo-blue-soft)]">
+                          Total Cost
+                        </p>
+                        <p className="mt-2 text-[22px] font-extrabold tracking-[-0.05em] text-[var(--deshazo-text)]">
+                          {formatCurrency(location.total_invoice_cost)}
+                        </p>
+                        <p className="mt-1 text-sm text-[rgba(21,24,33,0.6)]">
+                          Avg. invoice: {formatCurrency(location.average_invoice_cost)}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        {[
+                          ['Total Labor Cost', location.total_labor_cost],
+                          ['Total Equipment Cost', location.total_equipment_cost],
+                          ['Total Parts Cost', location.total_parts_cost],
+                        ].map(([label, value]) => (
+                          <div
+                            key={label}
+                            className="flex items-center justify-between rounded-lg bg-white/80 px-4 py-2.5"
+                          >
+                            <span className="text-sm font-semibold text-[rgba(21,24,33,0.65)]">
+                              {label}
+                            </span>
+                            <span className="text-sm font-bold text-[var(--deshazo-text)]">
+                              {formatCurrency(Number(value))}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </article>
                 ))}
