@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
+import { usePortalMenu } from '../lib/usePortalMenu'
 import type { User } from '@supabase/supabase-js'
 
 const portalCards = [
@@ -46,7 +47,7 @@ const portalCards = [
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
   const menuItems = useMemo(
@@ -103,7 +104,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
-      <header className="bg-[var(--deshazo-blue)] px-5 py-3 shadow-sm">
+      <header className="sticky top-0 z-40 bg-[var(--deshazo-blue)] px-5 py-3 shadow-sm">
         <div className="flex w-full items-center justify-between gap-4">
           <button
             type="button"
@@ -124,7 +125,7 @@ export default function Dashboard() {
 
       <main className="flex w-full items-stretch">
         {menuOpen && (
-          <aside className="hidden min-h-[calc(100vh-60px)] w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
+          <aside className="sticky top-[60px] hidden h-[calc(100vh-60px)] w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
             <div className="flex-1 px-4 py-5">
               <div className="rounded-[24px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/50 p-4">
                 <nav className="space-y-2">
