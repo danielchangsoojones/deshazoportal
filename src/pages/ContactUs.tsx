@@ -10,7 +10,7 @@ const menuItems = [
   { label: 'Spend' },
   { label: 'Location Comparison' },
   { label: 'Documents & Reports' },
-  { label: 'Add User' },
+  { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
@@ -21,7 +21,7 @@ const contactMethods = [
     note: 'Best for product questions, bugs, or help using the portal.',
   },
   {
-    title: 'Phone',
+    title: 'Phone:',
     detail: '(317)-690-5323',
     note: 'For urgent service coordination',
   },
