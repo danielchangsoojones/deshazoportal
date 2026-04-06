@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import type { User } from '@supabase/supabase-js'
+import {
+  getLocationAnalytics,
+  isPortalApiConfigured,
+  type LocationAnalytics,
+} from '../lib/portalApi'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -14,34 +19,23 @@ const menuItems = [
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
-const contactMethods = [
-  {
-    title: 'Email:',
-    detail: 'danieljones@blockstampsf.com ',
-    note: 'Best for product questions, bugs, or help using the portal.',
-  },
-  {
-    title: 'Phone:',
-    detail: '(317)-690-5323',
-    note: 'For urgent service coordination',
-  },
-  // {
-  //   title: 'Account management',
-  //   detail: 'accounts@deshazo.com',
-  //   note: 'Use this for account updates, user access, and admin requests.',
-  // },
-]
+const formatCurrency = (value: number) =>
+  `$${Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2).replace(/\.00$/, '')}`
 
-export default function ContactUs() {
+export default function LocationComparison() {
   const [user, setUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [locationData, setLocationData] = useState<LocationAnalytics[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const navigate = useNavigate()
 
   const activeMenuItems = useMemo(
     () =>
       menuItems.map((item) => ({
         ...item,
-        active: item.label === 'Contact Us',
+        active: item.label === 'Location Comparison',
       })),
     [],
   )
@@ -57,12 +51,47 @@ export default function ContactUs() {
       } else {
         setUser(data.user)
       }
+      setAuthLoading(false)
     })
   }, [navigate])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadAnalytics = async () => {
+      try {
+        setLoading(true)
+        setError('')
+        const data = await getLocationAnalytics(controller.signal)
+        setLocationData(data)
+      } catch (err) {
+        if (controller.signal.aborted) return
+        setError(err instanceof Error ? err.message : 'Unable to load location analytics.')
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadAnalytics()
+
+    return () => controller.abort()
+  }, [])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
     navigate('/login')
+  }
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
+        <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
+          Loading location comparison...
+        </div>
+      </div>
+    )
   }
 
   if (!user) return null
@@ -173,35 +202,64 @@ export default function ContactUs() {
 
               <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
                 <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
-                <span>Contact and support</span>
+                <span>{loading ? 'Loading locations...' : `${locationData.length} locations compared`}</span>
               </div>
             </div>
           </div>
 
-          <div className="grid gap-8">
-            <section className="overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 py-6 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
-              <p className="text-[15px] font-bold text-[var(--deshazo-blue)]">Contact Us</p>
-              <h2 className="mt-3 max-w-[28ch] text-[clamp(20px,2.4vw,34px)] font-bold leading-[1.1] tracking-[-0.03em] text-[var(--deshazo-text)]">
-                If you would like to request a new feature or report a bug, please contact us at:
-              </h2>
-              <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 2xl:grid-cols-3">
-                {contactMethods.map((item) => (
-                  <article
-                    key={item.title}
-                    className="min-w-0 overflow-hidden rounded-[22px] border border-[var(--deshazo-border)] bg-white/85 p-5 shadow-[0_18px_35px_-32px_rgba(47,86,166,0.35)]"
+          <section className="rounded-[26px] border border-[var(--deshazo-border)] bg-white/75 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] sm:p-5">
+            {!isPortalApiConfigured && (
+              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                Add `VITE_PORTAL_PARSE_REST_API_KEY` or proxy this Parse function through your backend to load live data.
+              </div>
+            )}
+
+            {error && (
+              <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+
+            {loading ? (
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="overflow-hidden rounded-[8px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]"
                   >
-                    <p className="text-[14px] font-bold uppercase tracking-[0.04em] text-[var(--deshazo-blue-soft)]">
-                      {item.title}
-                    </p>
-                    <p className="mt-3 break-words text-[clamp(17px,1.8vw,21px)] font-extrabold leading-7 text-[var(--deshazo-text)]">
-                      {item.detail}
-                    </p>
-                    <p className="mt-3 text-sm leading-6 text-[rgba(21,24,33,0.72)]">{item.note}</p>
+                    <div className="h-[54px] animate-pulse bg-[var(--deshazo-blue)]/85" />
+                    <div className="space-y-3 px-4 py-4">
+                      {Array.from({ length: 7 }).map((__, lineIndex) => (
+                        <div key={lineIndex} className="h-4 animate-pulse rounded bg-[var(--deshazo-surface)]" />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                {locationData.map((location) => (
+                  <article
+                    key={location.location}
+                    className="overflow-hidden rounded-[8px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]"
+                  >
+                    <div className="bg-[var(--deshazo-blue)] px-4 py-3 text-center text-[18px] font-extrabold text-white">
+                      {location.location}
+                    </div>
+                    <div className="space-y-2 px-4 py-4 text-[15px] text-[rgba(21,24,33,0.88)]">
+                      <p><span className="font-bold">Total Units:</span> {location.total_units}</p>
+                      <p><span className="font-bold">Total Invoices:</span> {location.total_invoices}</p>
+                      <p><span className="font-bold">Avg. Invoice:</span> {formatCurrency(location.average_invoice_cost)}</p>
+                      <p><span className="font-bold">Total Cost:</span> {formatCurrency(location.total_invoice_cost)}</p>
+                      <p><span className="font-bold">Total Labor Cost:</span> {formatCurrency(location.total_labor_cost)}</p>
+                      <p><span className="font-bold">Total Equipment Cost:</span> {formatCurrency(location.total_equipment_cost)}</p>
+                      <p><span className="font-bold">Total Parts Cost:</span> {formatCurrency(location.total_parts_cost)}</p>
+                    </div>
                   </article>
                 ))}
               </div>
-            </section>
-          </div>
+            )}
+          </section>
         </section>
       </main>
     </div>

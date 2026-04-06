@@ -23,6 +23,7 @@ const portalCards = [
     eyebrow: 'Analytics',
     title: 'Location Comparison',
     description: 'Compare parts and labor times across different facilities and identify outliers quickly.',
+    href: '/location-comparison',
   },
   {
     eyebrow: 'Documents',
@@ -59,6 +60,8 @@ export default function Dashboard() {
             ? '/contact-us'
             : card.title === 'Add User'
               ? '/add-user'
+              : card.title === 'Location Comparison'
+                ? '/location-comparison'
               : undefined,
       })),
     ],

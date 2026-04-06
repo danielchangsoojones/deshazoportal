@@ -8,7 +8,7 @@ const menuItems = [
   { label: 'Open Risk Items' },
   { label: 'Asset Fleet' },
   { label: 'Spend' },
-  { label: 'Location Comparison' },
+  { label: 'Location Comparison', href: '/location-comparison' },
   { label: 'Documents & Reports' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
