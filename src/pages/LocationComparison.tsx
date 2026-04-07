@@ -13,7 +13,7 @@ const menuItems = [
   { label: 'Home', href: '/dashboard' },
   { label: 'Open Risk Items' },
   { label: 'Asset Fleet' },
-  { label: 'Spend' },
+  { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
   { label: 'Documents & Reports' },
   { label: 'Add User', href: '/add-user' },

@@ -73,6 +73,14 @@ export type LocationAnalytics = {
   total_parts_cost: number
 }
 
+export type TopLineSpendAnalytics = {
+  total_equipment_spend: number
+  total_labor_spend: number
+  total_spend: number
+  total_invoices: number
+  topline_start_str: string
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -95,6 +103,26 @@ function extractArrayPayload<T>(value: unknown): T[] | null {
   return null
 }
 
+function extractObjectPayload<T>(value: unknown): T | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>
+
+    if ('result' in record) {
+      const fromResult = extractObjectPayload<T>(record.result)
+      if (fromResult) return fromResult
+    }
+
+    if ('data' in record) {
+      const fromData = extractObjectPayload<T>(record.data)
+      if (fromData) return fromData
+    }
+
+    return value as T
+  }
+
+  return null
+}
+
 export async function getLocationAnalytics(signal?: AbortSignal) {
   const response = await callParseFunction<unknown>(
     'getLocationAnalytics',
@@ -108,6 +136,17 @@ export async function getLocationAnalytics(signal?: AbortSignal) {
   }
 
   throw new Error('Location analytics returned an unexpected response shape.')
+}
+
+export async function getTopLineSpendAnalytics(signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getTopLineSpendAnalytics', {}, signal)
+
+  const data = extractObjectPayload<TopLineSpendAnalytics>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Top line spend analytics returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }

@@ -19,6 +19,7 @@ const portalCards = [
     eyebrow: 'Analytics',
     title: 'Spend',
     description: 'See an analytical breakdown of your spend regarding parts, labor, and maintenance trends.',
+    href: '/spend',
   },
   {
     eyebrow: 'Analytics',
@@ -61,6 +62,8 @@ export default function Dashboard() {
             ? '/contact-us'
             : card.title === 'Add User'
               ? '/add-user'
+              : card.title === 'Spend'
+                ? '/spend'
               : card.title === 'Location Comparison'
                 ? '/location-comparison'
               : undefined,
