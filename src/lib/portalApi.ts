@@ -181,4 +181,15 @@ export async function getMoMSpend(signal?: AbortSignal) {
   throw new Error('Month over month spend returned an unexpected response shape.')
 }
 
+export async function getAvgMoM(signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getAvgMoM', {}, signal)
+
+  const data = extractArrayPayload<MoMSpendAnalytics>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Average month over month values returned an unexpected response shape.')
+}
+
 export { isPortalApiConfigured }
