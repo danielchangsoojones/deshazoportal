@@ -96,6 +96,11 @@ export type LocationSpendAnalytics = {
   spend: number
 }
 
+export type TopIssueAnalytics = {
+  category: string
+  total: number
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -206,6 +211,17 @@ export async function getLocationSpend(signal?: AbortSignal) {
   }
 
   throw new Error('Location spend returned an unexpected response shape.')
+}
+
+export async function getTopIssue(signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getTopIssue', {}, signal)
+
+  const data = extractArrayPayload<TopIssueAnalytics>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Top issue analytics returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }

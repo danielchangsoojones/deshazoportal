@@ -7,11 +7,13 @@ import {
   getLocationSpend,
   getMoMSpend,
   getSpendTypes,
+  getTopIssue,
   getTopLineSpendAnalytics,
   type LocationSpendAnalytics,
   type MoMSpendAnalytics,
   isPortalApiConfigured,
   type SpendTypeAnalytics,
+  type TopIssueAnalytics,
   type TopLineSpendAnalytics,
 } from '../lib/portalApi'
 import type { User } from '@supabase/supabase-js'
@@ -44,8 +46,6 @@ const buildBlueShades = (count: number) => {
   })
 }
 
-const openItems = [{ label: 'total', value: 2000 }]
-
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`
 
 const formatMonthLabel = (value: string) => {
@@ -59,6 +59,17 @@ const formatLocationLabel = (value: string) =>
     .split('_')
     .map((part) => (part ? part[0]!.toUpperCase() + part.slice(1) : part))
     .join(' ')
+
+const formatCategoryLabel = (value: string) =>
+  value.trim().toLowerCase() === 'undefined'
+    ? 'undefined'
+    :
+  value
+    .trim()
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0]!.toUpperCase() + part.slice(1))
+    .join(' ') || 'Unknown'
 
 const buildUniqueChartColors = (count: number) =>
   Array.from({ length: count }, (_, index) => {
@@ -80,6 +91,12 @@ const buildConicGradient = (segments: { value: number; color: string }[]) => {
   return `conic-gradient(${stops.join(', ')})`
 }
 
+const getBarHeight = (value: number, maxValue: number, plotHeight?: number) => {
+  if (value <= 0 || maxValue <= 0) return 0
+  const ratio = value / maxValue
+  return plotHeight ? ratio * plotHeight : ratio * 100
+}
+
 export default function Spend() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -99,6 +116,9 @@ export default function Spend() {
   const [locationSpendData, setLocationSpendData] = useState<Array<{ label: string; value: number; color: string; spend: number }>>([])
   const [locationSpendLoading, setLocationSpendLoading] = useState(true)
   const [locationSpendError, setLocationSpendError] = useState('')
+  const [topIssueData, setTopIssueData] = useState<Array<{ label: string; total: number }>>([])
+  const [topIssueLoading, setTopIssueLoading] = useState(true)
+  const [topIssueError, setTopIssueError] = useState('')
   const navigate = useNavigate()
 
   const activeMenuItems = useMemo(
@@ -193,6 +213,34 @@ export default function Spend() {
     }
 
     loadAvgMoM()
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadTopIssue = async () => {
+      try {
+        setTopIssueLoading(true)
+        setTopIssueError('')
+        const data = await getTopIssue(controller.signal)
+        const mapped = data.map((item: TopIssueAnalytics) => ({
+          label: formatCategoryLabel(item.category),
+          total: item.total,
+        }))
+        setTopIssueData(mapped)
+      } catch (err) {
+        if (controller.signal.aborted) return
+        setTopIssueError(err instanceof Error ? err.message : 'Unable to load top issue analytics.')
+      } finally {
+        if (!controller.signal.aborted) {
+          setTopIssueLoading(false)
+        }
+      }
+    }
+
+    loadTopIssue()
 
     return () => controller.abort()
   }, [])
@@ -298,6 +346,8 @@ export default function Spend() {
   const hasLocationSpendData = locationSpendData.length > 0 && locationSpendData.some((segment) => segment.spend > 0)
   const maxMoMSpend = momSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
   const maxAvgMoM = avgMoMData.reduce((max, item) => Math.max(max, item.spend), 0)
+  const maxTopIssue = topIssueData.reduce((max, item) => Math.max(max, item.total), 0)
+  const plotHeight = 184
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -485,8 +535,9 @@ export default function Spend() {
                   ) : (
                     <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
-                        <div className="relative h-52">
-                          <div className="absolute inset-0 flex flex-col justify-between">
+                        <div className="grid h-56 grid-rows-[1fr_auto]">
+                          <div className="relative">
+                            <div className="absolute inset-0 flex flex-col justify-between">
                             {Array.from({ length: 5 }).map((_, index) => {
                               const tickValue = Math.round((maxMoMSpend / 4) * (4 - index))
                               return (
@@ -498,19 +549,26 @@ export default function Spend() {
                                 </div>
                               )
                             })}
+                            </div>
+                            <div className="absolute inset-x-14 bottom-0 top-0 flex items-end justify-between gap-3">
+                              {momSpendData.map((point) => {
+                                const height = getBarHeight(point.spend, maxMoMSpend, plotHeight)
+                                return (
+                                  <div key={point.month} className="flex h-full min-w-[54px] flex-1 items-end justify-center">
+                                    <div className="w-full max-w-[52px] rounded-t-md bg-[var(--deshazo-blue)]/90" style={{ height: `${height}px` }} />
+                                  </div>
+                                )
+                              })}
+                            </div>
                           </div>
-                          <div className="absolute inset-x-14 bottom-0 top-2 flex items-end justify-between gap-3">
-                            {momSpendData.map((point) => {
-                              const height = maxMoMSpend > 0 ? Math.max((point.spend / maxMoMSpend) * 160, point.spend > 0 ? 8 : 2) : 2
-                              return (
-                                <div key={point.month} className="flex min-w-[54px] flex-1 flex-col items-center justify-end gap-2">
-                                  <div className="w-full max-w-[52px] rounded-t-md bg-[var(--deshazo-blue)]/90" style={{ height: `${height}px` }} />
-                                  <span className="text-center text-[11px] text-[rgba(21,24,33,0.55)]">
-                                    {formatMonthLabel(point.month)}
-                                  </span>
-                                </div>
-                              )
-                            })}
+                          <div className="mt-2 ml-14 flex justify-between gap-3">
+                            {momSpendData.map((point) => (
+                              <div key={point.month} className="flex min-w-[54px] flex-1 justify-center">
+                                <span className="text-center text-[11px] text-[rgba(21,24,33,0.55)]">
+                                  {formatMonthLabel(point.month)}
+                                </span>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       </div>
@@ -538,8 +596,9 @@ export default function Spend() {
                   ) : (
                     <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
-                        <div className="relative h-52">
-                          <div className="absolute inset-0 flex flex-col justify-between">
+                        <div className="grid h-56 grid-rows-[1fr_auto]">
+                          <div className="relative">
+                            <div className="absolute inset-0 flex flex-col justify-between">
                             {Array.from({ length: 5 }).map((_, index) => {
                               const tickValue = Math.round((maxAvgMoM / 4) * (4 - index))
                               return (
@@ -551,19 +610,26 @@ export default function Spend() {
                                 </div>
                               )
                             })}
+                            </div>
+                            <div className="absolute inset-x-14 bottom-0 top-0 flex items-end justify-between gap-3">
+                              {avgMoMData.map((point) => {
+                                const height = getBarHeight(point.spend, maxAvgMoM, plotHeight)
+                                return (
+                                  <div key={point.month} className="flex h-full min-w-[54px] flex-1 items-end justify-center">
+                                    <div className="w-full max-w-[52px] rounded-t-md bg-[var(--deshazo-blue)]/75" style={{ height: `${height}px` }} />
+                                  </div>
+                                )
+                              })}
+                            </div>
                           </div>
-                          <div className="absolute inset-x-14 bottom-0 top-2 flex items-end justify-between gap-3">
-                            {avgMoMData.map((point) => {
-                              const height = maxAvgMoM > 0 ? Math.max((point.spend / maxAvgMoM) * 160, point.spend > 0 ? 8 : 2) : 2
-                              return (
-                                <div key={point.month} className="flex min-w-[54px] flex-1 flex-col items-center justify-end gap-2">
-                                  <div className="w-full max-w-[52px] rounded-t-md bg-[var(--deshazo-blue)]/75" style={{ height: `${height}px` }} />
-                                  <span className="text-center text-[11px] capitalize text-[rgba(21,24,33,0.55)]">
-                                    {formatMonthLabel(point.month)}
-                                  </span>
-                                </div>
-                              )
-                            })}
+                          <div className="mt-2 ml-14 flex justify-between gap-3">
+                            {avgMoMData.map((point) => (
+                              <div key={point.month} className="flex min-w-[54px] flex-1 justify-center">
+                                <span className="text-center text-[11px] capitalize text-[rgba(21,24,33,0.55)]">
+                                  {formatMonthLabel(point.month)}
+                                </span>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       </div>
@@ -610,29 +676,66 @@ export default function Spend() {
               <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">
                 Top 10 Open Items Over Past 6 Months
               </h2>
+              {topIssueError && (
+                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {topIssueError}
+                </div>
+              )}
               <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
-                <div className="relative h-52">
-                  <div className="absolute inset-0 flex flex-col justify-between">
-                    {[2000, 1500, 1000, 500, 0].map((tick) => (
-                      <div key={tick} className="flex items-center gap-3">
-                        <span className="w-10 text-xs text-[rgba(21,24,33,0.45)]">{tick}</span>
-                        <div className="h-px flex-1 bg-[var(--deshazo-border)]" />
-                      </div>
-                    ))}
+                {topIssueLoading ? (
+                  <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                    Loading...
                   </div>
-                  <div className="absolute bottom-8 left-16 right-8">
-                    {openItems.map((item) => (
-                      <div key={item.label} className="flex flex-col items-center">
-                        <div className="w-full max-w-[500px] rounded-t-md bg-[var(--deshazo-blue)]" style={{ height: `${item.value / 10}px` }} />
-                        <div className="mt-1 text-[11px] text-[rgba(21,24,33,0.45)]">{item.label}</div>
-                      </div>
-                    ))}
+                ) : topIssueData.length === 0 ? (
+                  <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                    No data available
                   </div>
-                </div>
-                <div className="mt-3 flex items-center justify-center gap-2 text-sm text-[rgba(21,24,33,0.6)]">
-                  <span className="h-3 w-3 rounded-sm bg-[var(--deshazo-blue)]" />
-                  <span>total</span>
-                </div>
+                ) : (
+                  <>
+                    <div className="scrollbar-hidden overflow-x-auto">
+                      <div className="min-w-[720px]">
+                        <div className="grid h-56 grid-rows-[1fr_auto]">
+                          <div className="relative">
+                            <div className="absolute inset-0 flex flex-col justify-between">
+                            {Array.from({ length: 5 }).map((_, index) => {
+                              const tickValue = Math.round((maxTopIssue / 4) * (4 - index))
+                              return (
+                                <div key={index} className="flex items-center gap-3">
+                                  <span className="w-12 text-xs text-[rgba(21,24,33,0.45)]">{tickValue}</span>
+                                  <div className="h-px flex-1 bg-[var(--deshazo-border)]" />
+                                </div>
+                              )
+                            })}
+                            </div>
+                            <div className="absolute inset-x-14 bottom-0 top-0 flex items-end justify-between gap-3">
+                              {topIssueData.map((item) => {
+                                const height = getBarHeight(item.total, maxTopIssue)
+                                return (
+                                  <div key={item.label} className="flex h-full min-w-[120px] flex-1 items-end justify-center">
+                                    <div className="w-full rounded-t-md bg-[var(--deshazo-blue)]" style={{ height: `${height}%` }} />
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                          <div className="mt-2 ml-14 flex justify-between gap-3">
+                            {topIssueData.map((item) => (
+                              <div key={item.label} className="flex min-w-[120px] flex-1 justify-center">
+                                <span className="text-center text-[11px] text-[rgba(21,24,33,0.55)]">
+                                  {item.label}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-center gap-2 text-sm text-[rgba(21,24,33,0.6)]">
+                      <span className="h-3 w-3 rounded-sm bg-[var(--deshazo-blue)]" />
+                      <span>total</span>
+                    </div>
+                  </>
+                )}
               </div>
             </article>
           </div>
