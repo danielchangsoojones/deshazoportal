@@ -31,6 +31,7 @@ const portalCards = [
     eyebrow: 'Documents',
     title: 'Documents & Reports',
     description: 'Download maintenance reports, summaries, and supporting PDFs from one place.',
+    href: '/documents-reports',
   },
   {
     eyebrow: 'Help',
@@ -66,6 +67,8 @@ export default function Dashboard() {
                 ? '/spend'
               : card.title === 'Location Comparison'
                 ? '/location-comparison'
+              : card.title === 'Documents & Reports'
+                ? '/documents-reports'
               : undefined,
       })),
     ],

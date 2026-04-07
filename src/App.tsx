@@ -6,6 +6,7 @@ import ContactUs from './pages/ContactUs'
 import AddNewUser from './pages/AddNewUser'
 import LocationComparison from './pages/LocationComparison'
 import Spend from './pages/Spend'
+import DocumentsReports from './pages/DocumentsReports'
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
         <Route path="/add-user" element={<AddNewUser />} />
         <Route path="/location-comparison" element={<LocationComparison />} />
         <Route path="/spend" element={<Spend />} />
+        <Route path="/documents-reports" element={<DocumentsReports />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

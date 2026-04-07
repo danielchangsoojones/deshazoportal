@@ -101,6 +101,14 @@ export type TopIssueAnalytics = {
   total: number
 }
 
+export type PortalPdfDocument = {
+  inspection_date: string
+  pdf: string
+  type: string
+  display_name: string
+  location: string
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -222,6 +230,17 @@ export async function getTopIssue(signal?: AbortSignal) {
   }
 
   throw new Error('Top issue analytics returned an unexpected response shape.')
+}
+
+export async function getAllPDFs(locations: string[] = [], signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getAllPDFs', { locations }, signal)
+
+  const data = extractArrayPayload<PortalPdfDocument>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('PDF documents returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }
