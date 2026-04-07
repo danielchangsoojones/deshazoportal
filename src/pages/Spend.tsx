@@ -695,30 +695,53 @@ export default function Spend() {
                     <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
-                          <div className="relative">
-                            <div className="absolute inset-0 flex flex-col justify-between">
-                            {Array.from({ length: 5 }).map((_, index) => {
-                              const tickValue = Math.round((maxTopIssue / 4) * (4 - index))
-                              return (
-                                <div key={index} className="flex items-center gap-3">
-                                  <span className="w-12 text-xs text-[rgba(21,24,33,0.45)]">{tickValue}</span>
-                                  <div className="h-px flex-1 bg-[var(--deshazo-border)]" />
-                                </div>
-                              )
-                            })}
-                            </div>
-                            <div className="absolute inset-x-14 bottom-0 top-0 flex items-end justify-between gap-3">
-                              {topIssueData.map((item) => {
-                                const height = getBarHeight(item.total, maxTopIssue)
+                          <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-4">
+                            <div className="relative h-44">
+                              {Array.from({ length: 5 }).map((_, index) => {
+                                const tickValue = Math.round((maxTopIssue / 4) * (4 - index))
+                                const topPercent = index * 25
                                 return (
-                                  <div key={item.label} className="flex h-full min-w-[120px] flex-1 items-end justify-center">
-                                    <div className="w-full rounded-t-md bg-[var(--deshazo-blue)]" style={{ height: `${height}%` }} />
-                                  </div>
+                                  <span
+                                    key={index}
+                                    className="absolute right-0 text-xs text-[rgba(21,24,33,0.45)]"
+                                    style={{
+                                      top: `${topPercent}%`,
+                                      transform:
+                                        index === 0 ? 'translateY(0)' : index === 4 ? 'translateY(-100%)' : 'translateY(-50%)',
+                                    }}
+                                  >
+                                    {tickValue}
+                                  </span>
                                 )
                               })}
                             </div>
+                            <div className="relative h-44 overflow-hidden">
+                              {Array.from({ length: 5 }).map((_, index) => {
+                                const topPercent = index * 25
+                                return (
+                                  <div
+                                    key={index}
+                                    className="absolute inset-x-0 h-px bg-[var(--deshazo-border)]"
+                                    style={{ top: `${topPercent}%` }}
+                                  />
+                                )
+                              })}
+                              <div className="absolute inset-0 flex items-end justify-between gap-3">
+                                {topIssueData.map((item) => {
+                                  const height = getBarHeight(item.total, maxTopIssue, 176)
+                                  return (
+                                    <div key={item.label} className="flex h-full min-w-[120px] flex-1 items-end justify-center">
+                                      <div
+                                        className="w-full bg-[var(--deshazo-blue)]"
+                                        style={{ height: `${height}px` }}
+                                      />
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
                           </div>
-                          <div className="mt-2 ml-14 flex justify-between gap-3">
+                          <div className="ml-[68px] flex justify-between gap-3">
                             {topIssueData.map((item) => (
                               <div key={item.label} className="flex min-w-[120px] flex-1 justify-center">
                                 <span className="text-center text-[11px] text-[rgba(21,24,33,0.55)]">
