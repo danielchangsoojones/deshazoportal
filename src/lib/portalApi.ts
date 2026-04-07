@@ -81,6 +81,11 @@ export type TopLineSpendAnalytics = {
   topline_start_str: string
 }
 
+export type SpendTypeAnalytics = {
+  category: string
+  spend: number
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -147,6 +152,17 @@ export async function getTopLineSpendAnalytics(signal?: AbortSignal) {
   }
 
   throw new Error('Top line spend analytics returned an unexpected response shape.')
+}
+
+export async function getSpendTypes(signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getSpendTypes', {}, signal)
+
+  const data = extractArrayPayload<SpendTypeAnalytics>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Spend types returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }

@@ -3,8 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import {
+  getSpendTypes,
   getTopLineSpendAnalytics,
   isPortalApiConfigured,
+  type SpendTypeAnalytics,
   type TopLineSpendAnalytics,
 } from '../lib/portalApi'
 import type { User } from '@supabase/supabase-js'
@@ -55,11 +57,14 @@ const averageInvoice = [
   { month: 'December', value: 0.42 },
 ]
 
-const serviceTypeData = [
-  { label: 'Labor', value: 82.2, color: '#78a5ff' },
-  { label: 'Equipment', value: 16.4, color: '#4d74f5' },
-  { label: 'Parts', value: 1.38, color: '#233e96' },
-]
+const buildBlueShades = (count: number) => {
+  if (count <= 0) return []
+
+  return Array.from({ length: count }, (_, index) => {
+    const lightness = 74 - (index / Math.max(count - 1, 1)) * 36
+    return `hsl(221 68% ${lightness}%)`
+  })
+}
 
 const locationSpendData = [
   { label: 'Apollo Beach', value: 26.2, color: '#4d74f5' },
@@ -112,6 +117,9 @@ export default function Spend() {
   const [toplineSpend, setToplineSpend] = useState<TopLineSpendAnalytics>(defaultToplineSpend)
   const [toplineLoading, setToplineLoading] = useState(true)
   const [toplineError, setToplineError] = useState('')
+  const [serviceTypeData, setServiceTypeData] = useState<Array<{ label: string; value: number; color: string; spend: number }>>([])
+  const [serviceTypeLoading, setServiceTypeLoading] = useState(true)
+  const [serviceTypeError, setServiceTypeError] = useState('')
   const navigate = useNavigate()
 
   const activeMenuItems = useMemo(
@@ -162,6 +170,40 @@ export default function Spend() {
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadSpendTypes = async () => {
+      try {
+        setServiceTypeLoading(true)
+        setServiceTypeError('')
+        const data = await getSpendTypes(controller.signal)
+        const total = data.reduce((sum, item) => sum + item.spend, 0)
+        const colors = buildBlueShades(data.length)
+
+        const mapped = data.map((item: SpendTypeAnalytics, index: number) => ({
+          label: item.category,
+          value: total > 0 ? Number(((item.spend / total) * 100).toFixed(2)) : 0,
+          color: colors[index] ?? 'hsl(221 68% 52%)',
+          spend: item.spend,
+        }))
+
+        setServiceTypeData(mapped)
+      } catch (err) {
+        if (controller.signal.aborted) return
+        setServiceTypeError(err instanceof Error ? err.message : 'Unable to load spend types.')
+      } finally {
+        if (!controller.signal.aborted) {
+          setServiceTypeLoading(false)
+        }
+      }
+    }
+
+    loadSpendTypes()
+
+    return () => controller.abort()
+  }, [])
+
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
     navigate('/login')
@@ -190,6 +232,8 @@ export default function Spend() {
     .slice(0, 2)
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
+
+  const hasServiceTypeData = serviceTypeData.length > 0 && serviceTypeData.some((segment) => segment.spend > 0)
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -325,20 +369,33 @@ export default function Spend() {
             <section className="grid gap-4 xl:grid-cols-2">
               <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By Service Type</h2>
-                <div className="mt-6 flex flex-col items-center justify-center gap-5">
-                  <div
-                    className="h-44 w-44 rounded-full"
-                    style={{ background: buildConicGradient(serviceTypeData) }}
-                  >
-                    <div className="m-[26px] flex h-[124px] w-[124px] items-center justify-center rounded-full bg-white text-center text-[12px] font-semibold text-[var(--deshazo-text)]">
-                      Service Type
-                    </div>
+                {serviceTypeError && (
+                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {serviceTypeError}
                   </div>
+                )}
+                <div className="mt-6 flex flex-col items-center justify-center gap-5">
+                  {hasServiceTypeData ? (
+                    <div
+                      className="relative h-44 w-44 rounded-full"
+                      style={{ background: buildConicGradient(serviceTypeData) }}
+                    >
+                      <div className="absolute left-1/2 top-1/2 flex h-24 w-24 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-center text-[11px] font-semibold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
+                        {/* Breakdown */}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex h-44 w-44 items-center justify-center rounded-full border-2 border-dashed border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                      {serviceTypeLoading ? 'Loading...' : 'No data available'}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center justify-center gap-5 text-sm">
-                    {serviceTypeData.map((segment) => (
+                    {(hasServiceTypeData ? serviceTypeData : []).map((segment) => (
                       <div key={segment.label} className="flex items-center gap-2">
                         <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: segment.color }} />
-                        <span className="text-[rgba(21,24,33,0.66)]">{segment.label}</span>
+                        <span className="text-[rgba(21,24,33,0.66)]">
+                          {segment.label} {hasServiceTypeData ? `(${segment.value}%)` : ''}
+                        </span>
                       </div>
                     ))}
                   </div>
