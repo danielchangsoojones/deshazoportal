@@ -21,22 +21,22 @@ const menuItems = [
 ]
 
 const locationOptions = [
-  'Apollo Beach, FL',
-  'Cadiz, KY',
-  'Cleburne, TX',
-  'Elroy, WI',
-  'Fond du Lac, WI',
-  'Goshen, IN',
-  'Griffin, GA',
-  'Groveport, OH',
-  'Harrison, AK',
-  'Jonestown, PA',
-  'Ligonier, IN',
-  'Little Falls, MN',
-  'Maustin, WI',
-  'Moreno Valley, CA',
-  'New Lisbon, WI',
-  'Perris, CA',
+  { label: 'Apollo Beach, FL', value: 'apollo_beach_fl' },
+  { label: 'Cadiz, KY', value: 'cadiz_ky' },
+  { label: 'Cleburne, TX', value: 'cleburne_tx' },
+  { label: 'Elroy, WI', value: 'elroy_wi' },
+  { label: 'Fond du Lac, WI', value: 'fond_du_lac_wi' },
+  { label: 'Goshen, IN', value: 'goshen_in' },
+  { label: 'Griffin, GA', value: 'griffin_ga' },
+  { label: 'Groveport, OH', value: 'groveport_oh' },
+  { label: 'Harrison, AK', value: 'harrison_ak' },
+  { label: 'Jonestown, PA', value: 'jonestown_pa' },
+  { label: 'Ligonier, IN', value: 'ligonier_in' },
+  { label: 'Little Falls, MN', value: 'little_falls_mn' },
+  { label: 'Maustin, WI', value: 'maustin_wi' },
+  { label: 'Moreno Valley, CA', value: 'moreno_valley_ca' },
+  { label: 'New Lisbon, WI', value: 'new_lisbon_wi' },
+  { label: 'Perris, CA', value: 'perris_ca' },
 ]
 
 const pageSize = 10
@@ -72,7 +72,8 @@ export default function DocumentsReports() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
-  const [selectedLocation, setSelectedLocation] = useState('')
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([])
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false)
   const [documents, setDocuments] = useState<PortalPdfDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -111,7 +112,7 @@ export default function DocumentsReports() {
       try {
         setLoading(true)
         setError('')
-        const data = await getAllPDFs(selectedLocation ? [selectedLocation] : [], controller.signal)
+        const data = await getAllPDFs(selectedLocations, controller.signal)
         setDocuments(data)
         setCurrentPage(1)
         setSelectedPdfUrl(data[0]?.pdf ?? '')
@@ -130,7 +131,7 @@ export default function DocumentsReports() {
     loadDocuments()
 
     return () => controller.abort()
-  }, [selectedLocation])
+  }, [selectedLocations])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -170,6 +171,15 @@ export default function DocumentsReports() {
     documents.find((item) => item.pdf === selectedPdfUrl) ||
     pageDocuments[0] ||
     null
+  const selectedLocationLabels = locationOptions.filter((option) => selectedLocations.includes(option.value))
+
+  const toggleLocation = (locationValue: string) => {
+    setSelectedLocations((current) =>
+      current.includes(locationValue)
+        ? current.filter((value) => value !== locationValue)
+        : [...current, locationValue],
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -324,21 +334,71 @@ export default function DocumentsReports() {
                 </button>
               </div>
 
-              <label className="flex items-center gap-3 text-sm font-semibold text-[var(--deshazo-text)]">
+              <div className="relative flex items-start gap-3 text-sm font-semibold text-[var(--deshazo-text)]">
                 <span>Location</span>
-                <select
-                  value={selectedLocation}
-                  onChange={(event) => setSelectedLocation(event.target.value)}
-                  className="h-10 min-w-[220px] rounded-md border border-[var(--deshazo-border)] bg-white px-3 text-sm text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
-                >
-                  <option value="">Select Location</option>
-                  {locationOptions.map((location) => (
-                    <option key={location} value={location}>
-                      {location}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <div className="relative w-[320px] shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setLocationMenuOpen((open) => !open)}
+                    className="flex min-h-10 w-full flex-wrap items-center gap-2 rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-left text-sm text-[var(--deshazo-text)] outline-none transition focus:border-[var(--deshazo-blue)]"
+                  >
+                    {selectedLocationLabels.length > 0 ? (
+                      selectedLocationLabels.map((location) => (
+                        <span
+                          key={location.value}
+                          className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-2.5 py-1 text-xs font-semibold text-[var(--deshazo-blue)]"
+                        >
+                          <span>{location.label}</span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              toggleLocation(location.value)
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                toggleLocation(location.value)
+                              }
+                            }}
+                            className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[11px] text-[var(--deshazo-blue)]"
+                          >
+                            ×
+                          </span>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-[rgba(21,24,33,0.45)]">Select Location</span>
+                    )}
+                  </button>
+
+                  {locationMenuOpen ? (
+                    <div className="absolute right-0 top-[calc(100%+8px)] z-20 max-h-72 w-full overflow-y-auto rounded-[14px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-30px_rgba(47,86,166,0.35)]">
+                      {locationOptions.map((location) => {
+                        const isSelected = selectedLocations.includes(location.value)
+
+                        return (
+                          <button
+                            key={location.value}
+                            type="button"
+                            onClick={() => toggleLocation(location.value)}
+                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                              isSelected
+                                ? 'bg-[#dbe5ff] font-semibold text-[var(--deshazo-text)]'
+                                : 'text-[rgba(21,24,33,0.78)] hover:bg-[var(--deshazo-surface)]'
+                            }`}
+                          >
+                            <span>{location.label}</span>
+                            <span className="text-[var(--deshazo-blue)]">{isSelected ? '✓' : ''}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
 
             <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
@@ -401,10 +461,10 @@ export default function DocumentsReports() {
                     key={selectedDocument.pdf}
                     src={selectedDocument.pdf}
                     title={selectedDocument.display_name}
-                    className="h-[660px] w-full border-0"
+                    className="h-[700px] w-full border-0"
                   />
                 ) : (
-                  <div className="flex h-[660px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                  <div className="flex h-[700px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
                     Select a report to preview the PDF.
                   </div>
                 )}
