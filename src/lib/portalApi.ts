@@ -91,6 +91,11 @@ export type MoMSpendAnalytics = {
   spend: number
 }
 
+export type LocationSpendAnalytics = {
+  location: string
+  spend: number
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -190,6 +195,17 @@ export async function getAvgMoM(signal?: AbortSignal) {
   }
 
   throw new Error('Average month over month values returned an unexpected response shape.')
+}
+
+export async function getLocationSpend(signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getLocationSpend', {}, signal)
+
+  const data = extractArrayPayload<LocationSpendAnalytics>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Location spend returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }

@@ -52,6 +52,15 @@ body {
   background: var(--bg);
 }
 
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 h1,
 h2 {
   font-family: var(--heading);

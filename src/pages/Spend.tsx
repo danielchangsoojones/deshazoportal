@@ -4,9 +4,11 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import {
   getAvgMoM,
+  getLocationSpend,
   getMoMSpend,
   getSpendTypes,
   getTopLineSpendAnalytics,
+  type LocationSpendAnalytics,
   type MoMSpendAnalytics,
   isPortalApiConfigured,
   type SpendTypeAnalytics,
@@ -42,21 +44,27 @@ const buildBlueShades = (count: number) => {
   })
 }
 
-const locationSpendData = [
-  { label: 'Apollo Beach', value: 26.2, color: '#4d74f5' },
-  { label: 'Cadiz', value: 13, color: '#b86f1f' },
-  { label: 'Elroy', value: 12.9, color: '#7eb7ff' },
-  { label: 'Fond du Lac', value: 11.6, color: '#64d39c' },
-  { label: 'Goshen', value: 8.63, color: '#1f6c49' },
-  { label: 'Groveport', value: 8.3, color: '#35a47d' },
-  { label: 'Jonestown', value: 6.3, color: '#f4b642' },
-  { label: 'Ligonier', value: 5.1, color: '#233e96' },
-  { label: 'Other', value: 7.97, color: '#d7dff5' },
-]
-
 const openItems = [{ label: 'total', value: 2000 }]
 
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`
+
+const formatMonthLabel = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) return value
+  return trimmed.slice(0, 3).replace(/^./, (char) => char.toUpperCase())
+}
+
+const formatLocationLabel = (value: string) =>
+  value
+    .split('_')
+    .map((part) => (part ? part[0]!.toUpperCase() + part.slice(1) : part))
+    .join(' ')
+
+const buildUniqueChartColors = (count: number) =>
+  Array.from({ length: count }, (_, index) => {
+    const hue = Math.round((index * 137.508) % 360)
+    return `hsl(${hue} 62% 56%)`
+  })
 
 const buildConicGradient = (segments: { value: number; color: string }[]) => {
   let current = 0
@@ -88,6 +96,9 @@ export default function Spend() {
   const [avgMoMData, setAvgMoMData] = useState<MoMSpendAnalytics[]>([])
   const [avgMoMLoading, setAvgMoMLoading] = useState(true)
   const [avgMoMError, setAvgMoMError] = useState('')
+  const [locationSpendData, setLocationSpendData] = useState<Array<{ label: string; value: number; color: string; spend: number }>>([])
+  const [locationSpendLoading, setLocationSpendLoading] = useState(true)
+  const [locationSpendError, setLocationSpendError] = useState('')
   const navigate = useNavigate()
 
   const activeMenuItems = useMemo(
@@ -189,6 +200,40 @@ export default function Spend() {
   useEffect(() => {
     const controller = new AbortController()
 
+    const loadLocationSpend = async () => {
+      try {
+        setLocationSpendLoading(true)
+        setLocationSpendError('')
+        const data = await getLocationSpend(controller.signal)
+        const total = data.reduce((sum, item) => sum + item.spend, 0)
+        const colors = buildUniqueChartColors(data.length)
+
+        const mapped = data.map((item: LocationSpendAnalytics, index: number) => ({
+          label: formatLocationLabel(item.location),
+          value: total > 0 ? Number(((item.spend / total) * 100).toFixed(2)) : 0,
+          color: colors[index] ?? `hsl(${(index * 31) % 360} 62% 56%)`,
+          spend: item.spend,
+        }))
+
+        setLocationSpendData(mapped)
+      } catch (err) {
+        if (controller.signal.aborted) return
+        setLocationSpendError(err instanceof Error ? err.message : 'Unable to load location spend.')
+      } finally {
+        if (!controller.signal.aborted) {
+          setLocationSpendLoading(false)
+        }
+      }
+    }
+
+    loadLocationSpend()
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
     const loadSpendTypes = async () => {
       try {
         setServiceTypeLoading(true)
@@ -250,6 +295,7 @@ export default function Spend() {
     .join('') || 'DP'
 
   const hasServiceTypeData = serviceTypeData.length > 0 && serviceTypeData.some((segment) => segment.spend > 0)
+  const hasLocationSpendData = locationSpendData.length > 0 && locationSpendData.some((segment) => segment.spend > 0)
   const maxMoMSpend = momSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
   const maxAvgMoM = avgMoMData.reduce((max, item) => Math.max(max, item.spend), 0)
 
@@ -437,7 +483,7 @@ export default function Spend() {
                       No data available
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="relative h-52">
                           <div className="absolute inset-0 flex flex-col justify-between">
@@ -460,7 +506,7 @@ export default function Spend() {
                                 <div key={point.month} className="flex min-w-[54px] flex-1 flex-col items-center justify-end gap-2">
                                   <div className="w-full max-w-[52px] rounded-t-md bg-[var(--deshazo-blue)]/90" style={{ height: `${height}px` }} />
                                   <span className="text-center text-[11px] text-[rgba(21,24,33,0.55)]">
-                                    {point.month}
+                                    {formatMonthLabel(point.month)}
                                   </span>
                                 </div>
                               )
@@ -490,7 +536,7 @@ export default function Spend() {
                       No data available
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="relative h-52">
                           <div className="absolute inset-0 flex flex-col justify-between">
@@ -513,7 +559,7 @@ export default function Spend() {
                                 <div key={point.month} className="flex min-w-[54px] flex-1 flex-col items-center justify-end gap-2">
                                   <div className="w-full max-w-[52px] rounded-t-md bg-[var(--deshazo-blue)]/75" style={{ height: `${height}px` }} />
                                   <span className="text-center text-[11px] capitalize text-[rgba(21,24,33,0.55)]">
-                                    {point.month}
+                                    {formatMonthLabel(point.month)}
                                   </span>
                                 </div>
                               )
@@ -528,21 +574,34 @@ export default function Spend() {
 
               <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By Location</h2>
-                <div className="mt-6 flex flex-col items-center justify-center gap-5">
-                  <div
-                    className="h-44 w-44 rounded-full"
-                    style={{ background: buildConicGradient(locationSpendData) }}
-                  />
-                  <div className="grid w-full grid-cols-2 gap-3 text-sm">
-                    {locationSpendData.slice(0, 8).map((segment) => (
-                      <div key={segment.label} className="flex items-center gap-2">
-                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: segment.color }} />
-                        <span className="truncate text-[rgba(21,24,33,0.66)]">
-                          {segment.label} ({segment.value}%)
-                        </span>
-                      </div>
-                    ))}
+                {locationSpendError && (
+                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {locationSpendError}
                   </div>
+                )}
+                <div className="mt-6 flex flex-col items-center justify-center gap-5">
+                  {hasLocationSpendData ? (
+                    <>
+                      <div
+                        className="h-44 w-44 rounded-full"
+                        style={{ background: buildConicGradient(locationSpendData) }}
+                      />
+                      <div className="grid w-full grid-cols-1 gap-2 text-xs sm:grid-cols-2 xl:grid-cols-3">
+                        {locationSpendData.map((segment) => (
+                          <div key={segment.label} className="flex items-center gap-2">
+                            <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: segment.color }} />
+                            <span className="truncate text-[rgba(21,24,33,0.66)]">
+                              {segment.label} ({segment.value}%)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex h-44 w-44 items-center justify-center rounded-full border-2 border-dashed border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                      {locationSpendLoading ? 'Loading...' : 'No data available'}
+                    </div>
+                  )}
                 </div>
               </article>
             </section>
