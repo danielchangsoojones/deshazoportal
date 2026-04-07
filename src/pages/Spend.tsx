@@ -3,8 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import {
+  getMoMSpend,
   getSpendTypes,
   getTopLineSpendAnalytics,
+  type MoMSpendAnalytics,
   isPortalApiConfigured,
   type SpendTypeAnalytics,
   type TopLineSpendAnalytics,
@@ -29,18 +31,6 @@ const defaultToplineSpend: TopLineSpendAnalytics = {
   total_invoices: 0,
   topline_start_str: 'since....',
 }
-
-const monthlySpend = [
-  { month: 'August', value: 0.2 },
-  { month: 'September', value: 0.5 },
-  { month: 'October', value: 0.38 },
-  { month: 'November', value: 0.62 },
-  { month: 'December', value: 0.41 },
-  { month: 'January', value: 0.58 },
-  { month: 'February', value: 0.66 },
-  { month: 'March', value: 0.74 },
-  { month: 'April', value: 0.52 },
-]
 
 const averageInvoice = [
   { month: 'January', value: 0.12 },
@@ -120,6 +110,9 @@ export default function Spend() {
   const [serviceTypeData, setServiceTypeData] = useState<Array<{ label: string; value: number; color: string; spend: number }>>([])
   const [serviceTypeLoading, setServiceTypeLoading] = useState(true)
   const [serviceTypeError, setServiceTypeError] = useState('')
+  const [momSpendData, setMomSpendData] = useState<MoMSpendAnalytics[]>([])
+  const [momSpendLoading, setMomSpendLoading] = useState(true)
+  const [momSpendError, setMomSpendError] = useState('')
   const navigate = useNavigate()
 
   const activeMenuItems = useMemo(
@@ -166,6 +159,30 @@ export default function Spend() {
     }
 
     loadTopline()
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadMoMSpend = async () => {
+      try {
+        setMomSpendLoading(true)
+        setMomSpendError('')
+        const data = await getMoMSpend(controller.signal)
+        setMomSpendData(data)
+      } catch (err) {
+        if (controller.signal.aborted) return
+        setMomSpendError(err instanceof Error ? err.message : 'Unable to load month over month spend.')
+      } finally {
+        if (!controller.signal.aborted) {
+          setMomSpendLoading(false)
+        }
+      }
+    }
+
+    loadMoMSpend()
 
     return () => controller.abort()
   }, [])
@@ -234,6 +251,7 @@ export default function Spend() {
     .join('') || 'DP'
 
   const hasServiceTypeData = serviceTypeData.length > 0 && serviceTypeData.some((segment) => segment.spend > 0)
+  const maxMoMSpend = momSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -404,28 +422,54 @@ export default function Spend() {
 
               <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
-                  <div className="relative h-52">
-                    <div className="absolute inset-0 flex flex-col justify-between">
-                      {[1, 0.5, 0, -0.5, -1].map((tick) => (
-                        <div key={tick} className="flex items-center gap-3">
-                          <span className="w-6 text-xs text-[rgba(21,24,33,0.45)]">{tick}</span>
-                          <div className="h-px flex-1 bg-[var(--deshazo-border)]" />
-                        </div>
-                      ))}
-                    </div>
-                    <div
-                      className="absolute bottom-7 left-10 right-4 h-36 bg-[rgba(77,116,245,0.14)]"
-                      style={{ clipPath: buildAreaPath(monthlySpend) }}
-                    />
-                    <div className="absolute bottom-0 left-10 right-4 flex justify-between gap-2 text-[10px] text-[rgba(21,24,33,0.45)]">
-                      {monthlySpend.map((point) => (
-                        <span key={point.month} className="-rotate-35 origin-top-left">
-                          {point.month}
-                        </span>
-                      ))}
-                    </div>
+                {momSpendError && (
+                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {momSpendError}
                   </div>
+                )}
+                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                  {momSpendLoading ? (
+                    <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                      Loading...
+                    </div>
+                  ) : momSpendData.length === 0 ? (
+                    <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                      No data available
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <div className="min-w-[720px]">
+                        <div className="relative h-52">
+                          <div className="absolute inset-0 flex flex-col justify-between">
+                            {Array.from({ length: 5 }).map((_, index) => {
+                              const tickValue = Math.round((maxMoMSpend / 4) * (4 - index))
+                              return (
+                                <div key={index} className="flex items-center gap-3">
+                                  <span className="w-12 text-xs text-[rgba(21,24,33,0.45)]">
+                                    {formatCurrency(tickValue)}
+                                  </span>
+                                  <div className="h-px flex-1 bg-[var(--deshazo-border)]" />
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div className="absolute inset-x-14 bottom-0 top-2 flex items-end justify-between gap-3">
+                            {momSpendData.map((point) => {
+                              const height = maxMoMSpend > 0 ? Math.max((point.spend / maxMoMSpend) * 160, point.spend > 0 ? 8 : 2) : 2
+                              return (
+                                <div key={point.month} className="flex min-w-[54px] flex-1 flex-col items-center justify-end gap-2">
+                                  <div className="w-full max-w-[52px] rounded-t-md bg-[var(--deshazo-blue)]/90" style={{ height: `${height}px` }} />
+                                  <span className="text-center text-[11px] text-[rgba(21,24,33,0.55)]">
+                                    {point.month}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </article>
 

@@ -86,6 +86,11 @@ export type SpendTypeAnalytics = {
   spend: number
 }
 
+export type MoMSpendAnalytics = {
+  month: string
+  spend: number
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -163,6 +168,17 @@ export async function getSpendTypes(signal?: AbortSignal) {
   }
 
   throw new Error('Spend types returned an unexpected response shape.')
+}
+
+export async function getMoMSpend(signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getMoMSpend', {}, signal)
+
+  const data = extractArrayPayload<MoMSpendAnalytics>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Month over month spend returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }
