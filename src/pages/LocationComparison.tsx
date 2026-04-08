@@ -12,7 +12,7 @@ import {
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
   { label: 'Open Risk Items' },
-  { label: 'Asset Fleet' },
+  { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
   { label: 'Documents & Reports', href: '/documents-reports' },

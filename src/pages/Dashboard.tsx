@@ -14,6 +14,7 @@ const portalCards = [
     eyebrow: 'Assets',
     title: 'Asset Fleet',
     description: 'See what percentage of your industrial assets have been inspected and which items need attention.',
+    href: '/asset-fleet',
   },
   {
     eyebrow: 'Analytics',
@@ -61,8 +62,10 @@ export default function Dashboard() {
         href:
           card.title === 'Contact Us'
             ? '/contact-us'
-            : card.title === 'Add User'
+          : card.title === 'Add User'
               ? '/add-user'
+              : card.title === 'Asset Fleet'
+                ? '/asset-fleet'
               : card.title === 'Spend'
                 ? '/spend'
               : card.title === 'Location Comparison'

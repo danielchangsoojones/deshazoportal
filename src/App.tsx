@@ -7,6 +7,9 @@ import AddNewUser from './pages/AddNewUser'
 import LocationComparison from './pages/LocationComparison'
 import Spend from './pages/Spend'
 import DocumentsReports from './pages/DocumentsReports'
+import AssetFleet from './pages/AssetFleet'
+import AssetFleetAssets from './pages/AssetFleetAssets'
+import AssetInfo from './pages/AssetInfo'
 
 function App() {
   return (
@@ -20,6 +23,9 @@ function App() {
         <Route path="/location-comparison" element={<LocationComparison />} />
         <Route path="/spend" element={<Spend />} />
         <Route path="/documents-reports" element={<DocumentsReports />} />
+        <Route path="/asset-fleet" element={<AssetFleet />} />
+        <Route path="/asset-fleet-assets" element={<AssetFleetAssets />} />
+        <Route path="/asset-info" element={<AssetInfo />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

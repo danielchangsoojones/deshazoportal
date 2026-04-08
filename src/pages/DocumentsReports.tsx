@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { portalLocationOptions } from '../lib/portalLocations'
 import {
   getAllPDFs,
   isPortalApiConfigured,
@@ -12,31 +13,12 @@ import type { User } from '@supabase/supabase-js'
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
   { label: 'Open Risk Items' },
-  { label: 'Asset Fleet' },
+  { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
   { label: 'Documents & Reports', href: '/documents-reports' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
-]
-
-const locationOptions = [
-  { label: 'Apollo Beach, FL', value: 'apollo_beach_fl' },
-  { label: 'Cadiz, KY', value: 'cadiz_ky' },
-  { label: 'Cleburne, TX', value: 'cleburne_tx' },
-  { label: 'Elroy, WI', value: 'elroy_wi' },
-  { label: 'Fond du Lac, WI', value: 'fond_du_lac_wi' },
-  { label: 'Goshen, IN', value: 'goshen_in' },
-  { label: 'Griffin, GA', value: 'griffin_ga' },
-  { label: 'Groveport, OH', value: 'groveport_oh' },
-  { label: 'Harrison, AK', value: 'harrison_ak' },
-  { label: 'Jonestown, PA', value: 'jonestown_pa' },
-  { label: 'Ligonier, IN', value: 'ligonier_in' },
-  { label: 'Little Falls, MN', value: 'little_falls_mn' },
-  { label: 'Maustin, WI', value: 'maustin_wi' },
-  { label: 'Moreno Valley, CA', value: 'moreno_valley_ca' },
-  { label: 'New Lisbon, WI', value: 'new_lisbon_wi' },
-  { label: 'Perris, CA', value: 'perris_ca' },
 ]
 
 const pageSize = 10
@@ -171,7 +153,7 @@ export default function DocumentsReports() {
     documents.find((item) => item.pdf === selectedPdfUrl) ||
     pageDocuments[0] ||
     null
-  const selectedLocationLabels = locationOptions.filter((option) => selectedLocations.includes(option.value))
+  const selectedLocationLabels = portalLocationOptions.filter((option) => selectedLocations.includes(option.value))
 
   const toggleLocation = (locationValue: string) => {
     setSelectedLocations((current) =>
@@ -376,7 +358,7 @@ export default function DocumentsReports() {
 
                   {locationMenuOpen ? (
                     <div className="absolute right-0 top-[calc(100%+8px)] z-20 max-h-72 w-full overflow-y-auto rounded-[14px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-30px_rgba(47,86,166,0.35)]">
-                      {locationOptions.map((location) => {
+                      {portalLocationOptions.map((location) => {
                         const isSelected = selectedLocations.includes(location.value)
 
                         return (

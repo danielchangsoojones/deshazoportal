@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import {
+  getAssetsServiced,
+  isPortalApiConfigured,
+  type AssetsServicedAnalytics,
+  type ServicedAsset,
+} from '../lib/portalApi'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -15,34 +21,77 @@ const menuItems = [
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
-const contactMethods = [
-  {
-    title: 'Email:',
-    detail: 'danieljones@blockstampsf.com ',
-    note: 'Best for product questions, bugs, or help using the portal.',
-  },
-  {
-    title: 'Phone:',
-    detail: '(317)-690-5323',
-    note: 'For urgent service coordination',
-  },
-  // {
-  //   title: 'Account management',
-  //   detail: 'accounts@deshazo.com',
-  //   note: 'Use this for account updates, user access, and admin requests.',
-  // },
-]
+const defaultAssetsSummary: AssetsServicedAnalytics = {
+  total_serviced_str: '0/ 0 Inspected',
+  total_units_count: 0,
+  serviced_units_count: 0,
+  serviced_assets: [],
+}
 
-export default function ContactUs() {
+const buildProgressGradient = (percent: number) =>
+  `conic-gradient(var(--deshazo-blue) 0deg ${percent * 3.6}deg, rgba(219,227,245,0.9) ${percent * 3.6}deg 360deg)`
+
+const getPercent = (servicedUnits: number, totalUnits: number) =>
+  totalUnits > 0 ? Math.round((servicedUnits / totalUnits) * 100) : 0
+
+function ProgressRing({ percent, size = 56 }: { percent: number; size?: number }) {
+  const innerSize = size - 10
+
+  return (
+    <div
+      className="relative flex items-center justify-center rounded-full"
+      style={{ width: `${size}px`, height: `${size}px`, background: buildProgressGradient(percent) }}
+    >
+      <div
+        className="flex items-center justify-center rounded-full bg-white font-extrabold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]"
+        style={{ width: `${innerSize}px`, height: `${innerSize}px`, fontSize: size < 64 ? '16px' : '20px' }}
+      >
+        {percent}%
+      </div>
+    </div>
+  )
+}
+
+function AssetCard({ asset }: { asset: ServicedAsset }) {
+  const percent = getPercent(asset.serviced_units, asset.total_units)
+
+  return (
+    <Link
+      to={`/asset-fleet-assets?locations=${asset.location_value}`}
+      className="block rounded-[22px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.86)_0%,var(--deshazo-surface)_100%)] px-6 py-5 no-underline shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_42px_-34px_rgba(47,86,166,0.32)]"
+    >
+      <p className="text-[15px] font-semibold text-[rgba(21,24,33,0.7)]">Wabash National</p>
+      <h2 className="mt-2 text-[clamp(24px,2vw,34px)] font-extrabold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
+        {asset.location}
+      </h2>
+
+      <div className="mt-5 flex items-center gap-4">
+        <ProgressRing percent={percent} />
+        <div>
+          <p className="text-[15px] font-bold text-[var(--deshazo-text)]">Assets</p>
+          <p className="mt-1 text-[18px] font-extrabold tracking-[-0.03em] text-[var(--deshazo-text)]">
+            {asset.checked_in_display}
+          </p>
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+export default function AssetFleet() {
   const [user, setUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
+  const [assetSummary, setAssetSummary] = useState<AssetsServicedAnalytics>(defaultAssetsSummary)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const navigate = useNavigate()
 
   const activeMenuItems = useMemo(
     () =>
       menuItems.map((item) => ({
         ...item,
-        active: item.label === 'Contact Us',
+        active: item.label === 'Asset Fleet',
       })),
     [],
   )
@@ -58,12 +107,47 @@ export default function ContactUs() {
       } else {
         setUser(data.user)
       }
+      setAuthLoading(false)
     })
   }, [navigate])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadAssets = async () => {
+      try {
+        setLoading(true)
+        setError('')
+        const data = await getAssetsServiced(controller.signal)
+        setAssetSummary(data)
+      } catch (err) {
+        if (controller.signal.aborted) return
+        setError(err instanceof Error ? err.message : 'Unable to load asset fleet data.')
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadAssets()
+
+    return () => controller.abort()
+  }, [])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
     navigate('/login')
+  }
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
+        <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
+          Loading asset fleet...
+        </div>
+      </div>
+    )
   }
 
   if (!user) return null
@@ -79,6 +163,7 @@ export default function ContactUs() {
     .slice(0, 2)
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
+  const overallPercent = getPercent(assetSummary.serviced_units_count, assetSummary.total_units_count)
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -174,35 +259,63 @@ export default function ContactUs() {
 
               <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
                 <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
-                <span>Contact and support</span>
+                <span>{loading ? 'Loading inspected assets...' : `${assetSummary.serviced_assets.length} locations tracked`}</span>
               </div>
             </div>
           </div>
 
-          <div className="grid gap-8">
-            <section className="overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 py-6 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
-              <p className="text-[15px] font-bold text-[var(--deshazo-blue)]">Contact Us</p>
-              <h2 className="mt-3 max-w-[28ch] text-[clamp(20px,2.4vw,34px)] font-bold leading-[1.1] tracking-[-0.03em] text-[var(--deshazo-text)]">
-                If you would like to request a new feature or report a bug, please contact us at:
-              </h2>
-              <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 2xl:grid-cols-3">
-                {contactMethods.map((item) => (
-                  <article
-                    key={item.title}
-                    className="min-w-0 overflow-hidden rounded-[22px] border border-[var(--deshazo-border)] bg-white/85 p-5 shadow-[0_18px_35px_-32px_rgba(47,86,166,0.35)]"
+          {!isPortalApiConfigured && (
+            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Add `VITE_PORTAL_PARSE_REST_API_KEY` to load live asset fleet analytics.
+            </div>
+          )}
+
+          {error && (
+            <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <section className="space-y-6">
+            <article className="max-w-[460px] rounded-[22px] border border-[var(--deshazo-border)] bg-white px-6 py-5 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)]">
+              <div className="flex items-center gap-5">
+                <ProgressRing percent={overallPercent} size={64} />
+                <div>
+                  <p className="text-[15px] font-bold text-[rgba(21,24,33,0.7)]">Assets</p>
+                  <p className="mt-1 text-[24px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">
+                    {loading ? 'Loading...' : assetSummary.total_serviced_str}
+                  </p>
+                </div>
+              </div>
+            </article>
+
+            {loading ? (
+              <div className="grid gap-6 lg:grid-cols-2">
+                {Array.from({ length: 8 }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="rounded-[22px] border border-[var(--deshazo-border)] bg-white/85 px-6 py-5 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]"
                   >
-                    <p className="text-[14px] font-bold uppercase tracking-[0.04em] text-[var(--deshazo-blue-soft)]">
-                      {item.title}
-                    </p>
-                    <p className="mt-3 break-words text-[clamp(17px,1.8vw,21px)] font-extrabold leading-7 text-[var(--deshazo-text)]">
-                      {item.detail}
-                    </p>
-                    <p className="mt-3 text-sm leading-6 text-[rgba(21,24,33,0.72)]">{item.note}</p>
-                  </article>
+                    <div className="h-5 w-28 animate-pulse rounded bg-[var(--deshazo-surface)]" />
+                    <div className="mt-4 h-8 w-48 animate-pulse rounded bg-[var(--deshazo-surface)]" />
+                    <div className="mt-6 flex items-center gap-4">
+                      <div className="h-14 w-14 animate-pulse rounded-full bg-[var(--deshazo-surface)]" />
+                      <div className="space-y-2">
+                        <div className="h-5 w-20 animate-pulse rounded bg-[var(--deshazo-surface)]" />
+                        <div className="h-5 w-36 animate-pulse rounded bg-[var(--deshazo-surface)]" />
+                      </div>
+                    </div>
+                  </div>
                 ))}
               </div>
-            </section>
-          </div>
+            ) : (
+              <div className="grid gap-6 lg:grid-cols-2">
+                {assetSummary.serviced_assets.map((asset) => (
+                  <AssetCard key={asset.location_value} asset={asset} />
+                ))}
+              </div>
+            )}
+          </section>
         </section>
       </main>
     </div>

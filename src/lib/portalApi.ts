@@ -109,6 +109,58 @@ export type PortalPdfDocument = {
   location: string
 }
 
+export type ServicedAsset = {
+  location: string
+  location_value: string
+  total_units: number
+  serviced_units: number
+  checked_in_display: string
+}
+
+export type AssetsServicedAnalytics = {
+  total_serviced_str: string
+  total_units_count: number
+  serviced_units_count: number
+  serviced_assets: ServicedAsset[]
+}
+
+export type AssetUnit = {
+  unit_name: string
+  unit_id: string
+  warehouse_location: string
+  interior_location: string
+  inspection_date?: string
+  safety_issue_count: number
+  monitor_issue_count: number
+}
+
+export type AssetsPageAnalytics = {
+  unit_array: AssetUnit[]
+  total_unit_count?: number
+  total_units_count?: number
+  total_safety_issues?: number
+  total_monitor_issues?: number
+  total_pages?: number
+  current_page?: number
+  safety_issue_count?: number
+  monitor_issue_count?: number
+}
+
+export type AssetIssue = {
+  category: string
+  safety_category: string
+  remarks: string
+  component_type: string
+  inspection_date: string
+}
+
+export type AssetInfoAnalytics = {
+  unit_location: string
+  unit_internal_location: string
+  unit_name: string
+  issues: AssetIssue[]
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -241,6 +293,39 @@ export async function getAllPDFs(locations: string[] = [], signal?: AbortSignal)
   }
 
   throw new Error('PDF documents returned an unexpected response shape.')
+}
+
+export async function getAssetsServiced(signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getAssetsServiced', {}, signal)
+
+  const data = extractObjectPayload<AssetsServicedAnalytics>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Assets serviced analytics returned an unexpected response shape.')
+}
+
+export async function getAssets(locations: string[] = [], currentPage = 0, signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getAssets', { locations, current_page: currentPage }, signal)
+
+  const data = extractObjectPayload<AssetsPageAnalytics>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Assets page returned an unexpected response shape.')
+}
+
+export async function getAssetInfo(unitId: string, signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getAssetInfo', { unit_id: unitId }, signal)
+
+  const data = extractObjectPayload<AssetInfoAnalytics>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Asset info returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }
