@@ -161,6 +161,21 @@ export type AssetInfoAnalytics = {
   issues: AssetIssue[]
 }
 
+export type AssetPdfDocument = {
+  inspection_date: string
+  pdf: string
+  type: string
+  display_name: string
+}
+
+export type AssetPdfResponse = {
+  results: AssetPdfDocument[]
+  page: number
+  page_size: number
+  total_invoice_count: number
+  total_pages: number
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -326,6 +341,21 @@ export async function getAssetInfo(unitId: string, signal?: AbortSignal) {
   }
 
   throw new Error('Asset info returned an unexpected response shape.')
+}
+
+export async function getAssetPDF(unitId: string, page: number, signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>(
+    'getAssetPDF',
+    { unit_id: unitId, page: String(page), include_meta: true },
+    signal,
+  )
+
+  const data = extractObjectPayload<AssetPdfResponse>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Asset PDF documents returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }

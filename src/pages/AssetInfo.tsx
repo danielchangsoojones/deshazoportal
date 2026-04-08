@@ -5,7 +5,9 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import {
   getAssetInfo,
+  getAssetPDF,
   isPortalApiConfigured,
+  type AssetPdfResponse,
   type AssetInfoAnalytics,
   type AssetIssue,
 } from '../lib/portalApi'
@@ -29,6 +31,14 @@ const defaultAssetInfo: AssetInfoAnalytics = {
   unit_internal_location: '',
   unit_name: 'Asset Info',
   issues: [],
+}
+
+const defaultAssetDocuments: AssetPdfResponse = {
+  results: [],
+  page: 1,
+  page_size: 10,
+  total_invoice_count: 0,
+  total_pages: 1,
 }
 
 const formatDisplayDate = (value?: string) =>
@@ -63,6 +73,28 @@ const getComponentBadgeClass = (value: string) => {
     return 'bg-[#dbe7ff] text-[#355fb4]'
   }
   return 'bg-[#fff1cc] text-[#9b7400]'
+}
+
+const buildVisiblePages = (currentPage: number, totalPages: number) => {
+  if (totalPages <= 8) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }
+
+  const pages = new Set<number>([1, totalPages, currentPage - 1, currentPage, currentPage + 1])
+  if (currentPage <= 3) {
+    pages.add(2)
+    pages.add(3)
+    pages.add(4)
+  }
+  if (currentPage >= totalPages - 2) {
+    pages.add(totalPages - 1)
+    pages.add(totalPages - 2)
+    pages.add(totalPages - 3)
+  }
+
+  return Array.from(pages)
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((left, right) => left - right)
 }
 
 function AssetIssueRow({ issue, index }: { issue: AssetIssue; index: number }) {
@@ -101,6 +133,11 @@ export default function AssetInfo() {
   const [filterField, setFilterField] = useState<FilterField>('category')
   const [filterValue, setFilterValue] = useState('')
   const [assetInfo, setAssetInfo] = useState<AssetInfoAnalytics>(defaultAssetInfo)
+  const [assetDocuments, setAssetDocuments] = useState<AssetPdfResponse>(defaultAssetDocuments)
+  const [documentsLoading, setDocumentsLoading] = useState(false)
+  const [documentsError, setDocumentsError] = useState('')
+  const [documentsPage, setDocumentsPage] = useState(1)
+  const [selectedDocumentUrl, setSelectedDocumentUrl] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -162,6 +199,46 @@ export default function AssetInfo() {
 
     return () => controller.abort()
   }, [unitId])
+
+  useEffect(() => {
+    if (activeTab !== 'documents') {
+      return
+    }
+    if (!unitId) {
+      setDocumentsLoading(false)
+      setDocumentsError('A unit id is required to load documents.')
+      setAssetDocuments(defaultAssetDocuments)
+      setSelectedDocumentUrl('')
+      return
+    }
+
+    const controller = new AbortController()
+
+    const loadDocuments = async () => {
+      try {
+        setDocumentsLoading(true)
+        setDocumentsError('')
+        const data = await getAssetPDF(unitId, documentsPage, controller.signal)
+        setAssetDocuments(data)
+        setSelectedDocumentUrl((current) =>
+          data.results.some((document) => document.pdf === current) ? current : (data.results[0]?.pdf ?? ''),
+        )
+      } catch (err) {
+        if (controller.signal.aborted) return
+        setDocumentsError(err instanceof Error ? err.message : 'Unable to load asset documents.')
+        setAssetDocuments(defaultAssetDocuments)
+        setSelectedDocumentUrl('')
+      } finally {
+        if (!controller.signal.aborted) {
+          setDocumentsLoading(false)
+        }
+      }
+    }
+
+    loadDocuments()
+
+    return () => controller.abort()
+  }, [activeTab, unitId, documentsPage])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -254,6 +331,13 @@ export default function AssetInfo() {
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
   }
+
+  const documentsTotalPages = Math.max(1, assetDocuments.total_pages || 1)
+  const visibleDocumentPages = buildVisiblePages(documentsPage, documentsTotalPages)
+  const selectedDocument =
+    assetDocuments.results.find((document) => document.pdf === selectedDocumentUrl) ||
+    assetDocuments.results[0] ||
+    null
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -528,9 +612,122 @@ export default function AssetInfo() {
                   </table>
                 </div>
               ) : (
-                <div className="flex min-h-[520px] items-center justify-center rounded-[8px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/40 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                  Documents tab is ready for the next API integration.
-                </div>
+                <section className="rounded-[18px] border border-[var(--deshazo-border)] bg-white/75 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.16)] sm:p-5">
+                  {documentsError ? (
+                    <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                      {documentsError}
+                    </div>
+                  ) : null}
+
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-4 text-sm font-semibold text-[rgba(21,24,33,0.68)]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={documentsPage === 1}
+                        onClick={() => setDocumentsPage((page) => Math.max(1, page - 1))}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[var(--deshazo-blue)] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        ‹
+                      </button>
+                      {visibleDocumentPages.map((page, index) => {
+                        const previousPage = visibleDocumentPages[index - 1]
+                        const showEllipsis = previousPage && page - previousPage > 1
+
+                        return (
+                          <div key={page} className="flex items-center gap-2">
+                            {showEllipsis ? <span className="px-1 text-[rgba(21,24,33,0.45)]">...</span> : null}
+                            <button
+                              type="button"
+                              onClick={() => setDocumentsPage(page)}
+                              className={`inline-flex h-8 min-w-8 items-center justify-center rounded-md px-2 ${
+                                page === documentsPage
+                                  ? 'bg-[var(--deshazo-blue)] text-white'
+                                  : 'border border-[var(--deshazo-border)] bg-white text-[var(--deshazo-text)]'
+                              }`}
+                            >
+                              {page}
+                            </button>
+                          </div>
+                        )
+                      })}
+                      <button
+                        type="button"
+                        disabled={documentsPage >= documentsTotalPages}
+                        onClick={() => setDocumentsPage((page) => Math.min(documentsTotalPages, page + 1))}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[var(--deshazo-blue)] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        ›
+                      </button>
+                    </div>
+
+                    <div />
+                  </div>
+
+                  <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
+                    <div className="max-h-[720px] space-y-4 overflow-y-auto pr-2">
+                      {documentsLoading ? (
+                        Array.from({ length: assetDocuments.page_size || defaultAssetDocuments.page_size }).map((_, index) => (
+                          <div
+                            key={index}
+                            className="rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]"
+                          >
+                            <div className="mb-5 h-5 w-36 animate-pulse rounded bg-[var(--deshazo-surface)]" />
+                            <div className="mb-3 h-6 w-24 animate-pulse rounded-full bg-[var(--deshazo-surface)]" />
+                            <div className="h-5 w-40 animate-pulse rounded bg-[var(--deshazo-surface)]" />
+                          </div>
+                        ))
+                      ) : assetDocuments.results.length === 0 ? (
+                        <div className="flex min-h-[520px] items-center justify-center rounded-[18px] border border-dashed border-[var(--deshazo-border)] bg-white text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                          No reports available
+                        </div>
+                      ) : (
+                        assetDocuments.results.map((document) => {
+                          const isActive = selectedDocument?.pdf === document.pdf
+
+                          return (
+                            <button
+                              key={document.pdf}
+                              type="button"
+                              onClick={() => setSelectedDocumentUrl(document.pdf)}
+                              className={`w-full rounded-[18px] border bg-white px-4 py-4 text-left shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)] transition ${
+                                isActive
+                                  ? 'border-[var(--deshazo-blue)] shadow-[0_18px_32px_-24px_rgba(47,86,166,0.36)]'
+                                  : 'border-[var(--deshazo-border)] hover:border-[var(--deshazo-blue-soft)]'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-[18px] font-bold text-[var(--deshazo-blue)]">{document.display_name}</p>
+                                  <span className="mt-3 inline-flex rounded-full bg-[#dff6e6] px-2.5 py-1 text-[12px] font-semibold lowercase text-[#4a9960]">
+                                    {document.type}
+                                  </span>
+                                </div>
+                                <p className="shrink-0 text-sm font-semibold text-[rgba(21,24,33,0.72)]">
+                                  {formatDisplayDate(document.inspection_date)}
+                                </p>
+                              </div>
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+
+                    <div className="overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
+                      {selectedDocument ? (
+                        <iframe
+                          key={selectedDocument.pdf}
+                          src={selectedDocument.pdf}
+                          title={selectedDocument.display_name}
+                          className="h-[700px] w-full border-0"
+                        />
+                      ) : (
+                        <div className="flex h-[700px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                          Select a report to preview the PDF.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
               )}
             </div>
           </section>
