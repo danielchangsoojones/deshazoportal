@@ -11,7 +11,7 @@ import {
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
-  { label: 'Open Risk Items' },
+  { label: 'Open Risk Items', href: '/asset-fleet-assets?view=open-risk' },
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },

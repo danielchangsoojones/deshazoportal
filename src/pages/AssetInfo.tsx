@@ -14,7 +14,7 @@ import {
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
-  { label: 'Open Risk Items' },
+  { label: 'Open Risk Items', href: '/asset-fleet-assets?view=open-risk' },
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
@@ -141,17 +141,20 @@ export default function AssetInfo() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const unitId = searchParams.get('unit_id')?.trim() || ''
+  const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
 
   const activeMenuItems = useMemo(
     () =>
       menuItems.map((item) => ({
         ...item,
-        active: item.label === 'Asset Fleet',
+        active:
+          currentView === 'open-risk'
+            ? item.label === 'Open Risk Items'
+            : item.label === 'Asset Fleet',
       })),
-    [],
+    [currentView],
   )
-
-  const unitId = searchParams.get('unit_id')?.trim() || ''
 
   const loadAssetInfo = async (signal?: AbortSignal) => {
     if (!unitId) {
@@ -427,7 +430,7 @@ export default function AssetInfo() {
               Cranes / Service / Automation
             </p>
             <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
-            <h1 className="mt-4 text-[20px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">
+            <h1 className="text-[24px] font-black tracking-[-0.04em] text-[var(--deshazo-text)]">
               {loading ? 'Loading asset...' : assetInfo.unit_name || 'Asset Info'}
             </h1>
           </div>

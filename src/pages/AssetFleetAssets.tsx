@@ -13,7 +13,7 @@ import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
-  { label: 'Open Risk Items' },
+  { label: 'Open Risk Items', href: '/asset-fleet-assets?view=open-risk' },
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
@@ -99,7 +99,7 @@ function IssueRing({ unit }: { unit: AssetUnit }) {
   )
 }
 
-function AssetUnitCard({ unit }: { unit: AssetUnit }) {
+function AssetUnitCard({ unit, currentView }: { unit: AssetUnit; currentView: 'open-risk' | 'asset-fleet' }) {
   return (
     <article className="overflow-hidden rounded-[10px] border border-[var(--deshazo-border)] bg-white shadow-[0_14px_30px_-28px_rgba(47,86,166,0.22)]">
       <div className="space-y-1 px-4 py-4">
@@ -119,7 +119,7 @@ function AssetUnitCard({ unit }: { unit: AssetUnit }) {
       <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
         <IssueRing unit={unit} />
         <Link
-          to={`/asset-info?unit_id=${unit.unit_id}`}
+          to={`/asset-info?unit_id=${unit.unit_id}${currentView === 'open-risk' ? '&view=open-risk' : ''}`}
           className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-[4px] bg-[var(--deshazo-blue)] text-[14px] font-bold text-white"
         >
           See Details
@@ -141,14 +141,18 @@ export default function AssetFleetAssets() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
 
   const activeMenuItems = useMemo(
     () =>
       menuItems.map((item) => ({
         ...item,
-        active: item.label === 'Asset Fleet',
+        active:
+          currentView === 'open-risk'
+            ? item.label === 'Open Risk Items'
+            : item.label === 'Asset Fleet',
       })),
-    [],
+    [currentView],
   )
 
   useEffect(() => {
@@ -246,6 +250,9 @@ export default function AssetFleetAssets() {
 
   const syncFilters = (locations: string[], page: number) => {
     const next = new URLSearchParams()
+    if (currentView === 'open-risk') {
+      next.set('view', 'open-risk')
+    }
     if (locations.length > 0) {
       next.set('locations', locations.join(','))
     }
@@ -537,7 +544,7 @@ export default function AssetFleetAssets() {
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   {assetsPage.unit_array.map((unit) => (
-                    <AssetUnitCard key={unit.unit_id} unit={unit} />
+                    <AssetUnitCard key={unit.unit_id} unit={unit} currentView={currentView} />
                   ))}
                 </div>
               )}

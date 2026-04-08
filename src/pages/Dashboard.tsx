@@ -9,6 +9,7 @@ const portalCards = [
     eyebrow: 'Service',
     title: 'Open Risk Items',
     description: 'See all open risks that are currently outstanding, categorized from high to low priority.',
+    href: '/asset-fleet-assets?view=open-risk',
   },
   {
     eyebrow: 'Assets',
@@ -72,6 +73,8 @@ export default function Dashboard() {
                 ? '/location-comparison'
               : card.title === 'Documents & Reports'
                 ? '/documents-reports'
+              : card.title === 'Open Risk Items'
+                ? '/asset-fleet-assets?view=open-risk'
               : undefined,
       })),
     ],
