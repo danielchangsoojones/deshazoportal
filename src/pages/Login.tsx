@@ -6,12 +6,15 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setMessage('')
     setLoading(true)
 
     if (!isConfigured || !supabase) {
@@ -30,6 +33,35 @@ export default function Login() {
     setLoading(false)
   }
 
+  const handleForgotPassword = async () => {
+    setError('')
+    setMessage('')
+
+    if (!email.trim()) {
+      setError('Enter your email first, then click Forgot password.')
+      return
+    }
+
+    if (!isConfigured || !supabase) {
+      setError('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local')
+      return
+    }
+
+    try {
+      setResetLoading(true)
+      const redirectTo = `${window.location.origin}/reset-password`
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
+
+      if (error) {
+        setError(error.message)
+      } else {
+        setMessage('Password reset link sent. Check your email.')
+      }
+    } finally {
+      setResetLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
       <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8">
@@ -39,6 +71,12 @@ export default function Login() {
         {error && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm">
             {error}
+          </div>
+        )}
+
+        {message && (
+          <div className="mb-4 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-sm">
+            {message}
           </div>
         )}
 
@@ -62,9 +100,14 @@ export default function Login() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Password
               </label>
-              <a href="#" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-                Forgot password?
-              </a>
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={resetLoading}
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-50"
+              >
+                {resetLoading ? 'Sending…' : 'Forgot password?'}
+              </button>
             </div>
             <input
               type="password"
