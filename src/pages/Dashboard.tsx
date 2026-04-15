@@ -234,8 +234,7 @@ export default function Dashboard() {
                 <p className="mt-2 max-w-[34ch] text-base leading-7 text-[rgba(21,24,33,0.9)]">
                   {card.description}
                 </p>
-                <div className="mt-auto flex items-end justify-between gap-4 pt-8">
-                  <div className="h-9 w-9 rounded-2xl bg-white shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)]" />
+                <div className="mt-auto flex items-end justify-end gap-4 pt-8">
                   {card.href ? (
                     <Link
                       className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[15px] font-bold text-[var(--deshazo-blue)] no-underline shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition group-hover:gap-3"
