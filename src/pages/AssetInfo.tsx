@@ -571,13 +571,24 @@ export default function AssetInfo() {
                       {mockRecurringIssues.map((item) => (
                         <div
                           key={item.component}
-                          className="flex shrink-0 flex-col justify-between rounded-[12px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_8px_24px_-18px_rgba(47,86,166,0.25)] w-[180px]"
+                          className="group relative flex shrink-0 flex-col justify-between overflow-hidden rounded-[12px] border border-red-200 bg-white w-[155px] shadow-[0_8px_28px_-16px_rgba(220,38,38,0.18)] transition hover:shadow-[0_12px_32px_-12px_rgba(220,38,38,0.28)] hover:-translate-y-0.5"
                         >
-                          <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{item.component}</p>
-                          <p className="mt-2 text-[13px] font-medium text-[rgba(21,24,33,0.55)] leading-snug">
-                            <span className="text-[22px] font-black text-[var(--deshazo-blue)]">{item.failures}</span>
-                            {' '}failures out of the past 12 months
-                          </p>
+                          {/* red top accent bar */}
+                          <div className="h-1 w-full bg-gradient-to-r from-red-500 to-red-400" />
+                          <div className="px-3 py-3">
+                            {/* failure count */}
+                            <p className="text-[28px] font-black leading-none tracking-tight text-red-500">
+                              {item.failures}
+                            </p>
+                            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest text-red-400">
+                              failures
+                            </p>
+                            {/* divider */}
+                            <div className="my-2 h-px bg-red-100" />
+                            {/* component name */}
+                            <p className="text-[13px] font-bold text-[var(--deshazo-text)]">{item.component}</p>
+                            <p className="mt-0.5 text-[11px] text-[rgba(21,24,33,0.45)]">past 12 months</p>
+                          </div>
                         </div>
                       ))}
                     </div>

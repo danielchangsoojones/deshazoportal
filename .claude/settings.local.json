@@ -35,7 +35,8 @@
       "Bash(npm run *)",
       "Bash(git -C /Users/danieljones/Documents/deshazoportal diff --stat)",
       "Bash(git -C /Users/danieljones/Documents/deshazoportal add .claude/settings.local.json)",
-      "Bash(git -C /Users/danieljones/Documents/deshazoportal add src/pages/AssetInfo.tsx package.json package-lock.json)"
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal add src/pages/AssetInfo.tsx package.json package-lock.json)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal add -A)"
     ]
   }
 }
