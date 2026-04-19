@@ -275,7 +275,7 @@ export default function AssetInfo() {
   const tabs: Array<{ id: AssetInfoTab; label: string }> = [
     { id: 'issues', label: 'Open Issues' },
     { id: 'info', label: 'Asset Info' },
-    { id: 'documents', label: 'Documents' },
+    { id: 'documents', label: 'Preventative Maintenance Reports' },
   ]
 
   const filterFieldOptions: Array<{ value: FilterField; label: string }> = [
