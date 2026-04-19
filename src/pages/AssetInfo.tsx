@@ -290,7 +290,7 @@ export default function AssetInfo() {
       text,
       authorName: fullName,
       authorEmail: user.email ?? '',
-      timestamp: new Date().toLocaleString(),
+      timestamp: new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
     }
     setNotes((prev) => [newNote, ...prev])
     setNoteInput('')
