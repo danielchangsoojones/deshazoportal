@@ -65,6 +65,17 @@ const mockIssuesTrend = [
   { month: 'Apr', issues: 4 },
 ]
 
+const mockRecurringIssues = [
+  { component: 'Gears', failures: 5 },
+  { component: 'Hoist Brake', failures: 4 },
+  { component: 'End Truck Wheels', failures: 4 },
+  { component: 'Limit Switch', failures: 3 },
+  { component: 'Wire Rope', failures: 3 },
+  { component: 'Pendant Control', failures: 2 },
+  { component: 'Monorail Track', failures: 2 },
+  { component: 'Trolley Frame', failures: 1 },
+]
+
 const mockRiskRadar = [
   { subject: 'Structural', score: 72 },
   { subject: 'Electrical', score: 55 },
@@ -552,7 +563,28 @@ export default function AssetInfo() {
                   <div className="h-12 animate-pulse rounded bg-[var(--deshazo-surface)]" />
                 </div>
               ) : activeTab === 'issues' ? (
-                <div className="overflow-hidden rounded-[8px] border border-[var(--deshazo-border)]">
+                <div className="space-y-4">
+                  {/* Recurring Issues carousel */}
+                  <div>
+                    <h2 className="mb-3 text-[15px] font-bold text-[var(--deshazo-text)]">Recurring Issues</h2>
+                    <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
+                      {mockRecurringIssues.map((item) => (
+                        <div
+                          key={item.component}
+                          className="flex shrink-0 flex-col justify-between rounded-[12px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_8px_24px_-18px_rgba(47,86,166,0.25)] w-[180px]"
+                        >
+                          <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{item.component}</p>
+                          <p className="mt-2 text-[13px] font-medium text-[rgba(21,24,33,0.55)] leading-snug">
+                            <span className="text-[22px] font-black text-[var(--deshazo-blue)]">{item.failures}</span>
+                            {' '}failures out of the past 12 months
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Issues table */}
+                  <div className="overflow-hidden rounded-[8px] border border-[var(--deshazo-border)]">
                   <div className="overflow-x-auto">
                     <table className="min-w-full border-collapse">
                       <thead className="bg-[#f4f5f7]">
@@ -665,6 +697,7 @@ export default function AssetInfo() {
                       </div>
                     </div>
                   ) : null}
+                  </div>
                 </div>
               ) : activeTab === 'info' ? (
                 <div className="overflow-hidden rounded-[8px] border border-[var(--deshazo-border)]">
