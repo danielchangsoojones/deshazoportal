@@ -165,9 +165,9 @@ const buildVisiblePages = (currentPage: number, totalPages: number) => {
     .sort((left, right) => left - right)
 }
 
-function AssetIssueRow({ issue, index }: { issue: AssetIssue; index: number }) {
+function AssetIssueRow({ issue, index, onClick }: { issue: AssetIssue; index: number; onClick: () => void }) {
   return (
-    <tr className={index % 2 === 0 ? 'bg-[#f4f7ff]' : 'bg-white'}>
+    <tr onClick={onClick} className={`cursor-pointer transition hover:bg-[#dbe5ff] ${index % 2 === 0 ? 'bg-[#f4f7ff]' : 'bg-white'}`}>
       <td className="px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
         {issue.category}
       </td>
@@ -215,6 +215,7 @@ export default function AssetInfo() {
   const [notificationEmails, setNotificationEmails] = useState<{ email: string; newReports: boolean; repairDone: boolean }[]>([])
   const [emailDraft, setEmailDraft] = useState('')
   const [emailError, setEmailError] = useState('')
+  const [issueReportOpen, setIssueReportOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -645,7 +646,7 @@ export default function AssetInfo() {
                       <tbody>
                         {filteredIssues.length > 0 ? (
                           filteredIssues.map((issue, index) => (
-                            <AssetIssueRow key={`${issue.category}-${issue.component_type}-${index}`} issue={issue} index={index} />
+                            <AssetIssueRow key={`${issue.category}-${issue.component_type}-${index}`} issue={issue} index={index} onClick={() => setIssueReportOpen(true)} />
                           ))
                         ) : (
                           <tr>
@@ -1048,6 +1049,33 @@ export default function AssetInfo() {
           </section>
         </section>
       </main>
+
+      {/* Issue Report PDF Modal */}
+      {issueReportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6" onClick={() => setIssueReportOpen(false)}>
+          <div className="flex w-full max-w-4xl flex-col overflow-hidden rounded-[18px] bg-white shadow-[0_24px_60px_-20px_rgba(0,0,0,0.4)]" style={{ height: '90vh' }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[var(--deshazo-border)] px-5 py-4">
+              <div>
+                <h2 className="text-[16px] font-black text-[var(--deshazo-text)]">Inspection Report</h2>
+                <p className="text-[12px] text-[rgba(21,24,33,0.45)]">D593227 · Wabash (Perris, CA) · Apr 13, 2026</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIssueReportOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[20px] text-[rgba(21,24,33,0.4)] transition hover:bg-[var(--deshazo-surface)] hover:text-[var(--deshazo-text)]"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <iframe
+              src="/sample-inspection.pdf"
+              title="Inspection Report"
+              className="flex-1 w-full border-0"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Email Notifications Modal */}
       {emailModalOpen && (
