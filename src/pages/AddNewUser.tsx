@@ -15,11 +15,6 @@ const menuItems = [
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
-const addUserGuidelines = [
-  'Full name',
-  'Email address',
-//  'Any role or access notes for the new user',
-]
 
 export default function AddNewUser() {
   const [user, setUser] = useState<User | null>(null)
@@ -149,64 +144,29 @@ export default function AddNewUser() {
 
         <section className="min-w-0 flex-1 px-5 py-5 sm:px-8 lg:px-10">
           <div className="mb-8">
-            <div className="flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
-              <div>
-                <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
-                  DESHA<span className="text-[#f2b43f]">Z</span>O
-                </div>
-                <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                  Cranes / Service / Automation
-                </p>
-                <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
-              </div>
-
-              <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
-                <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
-                <span>User access management</span>
-              </div>
+            <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
+              DESHA<span className="text-[#f2b43f]">Z</span>O
             </div>
+            <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
+              Cranes / Service / Automation
+            </p>
+            <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
+            <h1 className="mt-2 text-[24px] font-black tracking-[-0.04em] text-[var(--deshazo-text)]">Add User</h1>
           </div>
 
-          <div className="grid gap-8">
-            <section className="overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 py-6 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
-              <p className="text-[15px] font-bold text-[var(--deshazo-blue)]">Add New Users</p>
-              <h2 className="mt-3 max-w-[24ch] text-[clamp(22px,2.6vw,40px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
-                Request access for new team members.
-              </h2>
-              <p className="mt-5 max-w-[70ch] text-base leading-7 text-[rgba(21,24,33,0.78)]">
-                Please contact us at <span className="font-semibold text-[var(--deshazo-text)]">danieljones@blockstampsf.com</span> to
-                add new users. Include the details below so we can onboard the user correctly and send them their portal invitation.
-              </p>
-
-              <div className="mt-8 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-                <article className="rounded-[22px] border border-[var(--deshazo-border)] bg-white/85 p-5 shadow-[0_18px_35px_-32px_rgba(47,86,166,0.35)]">
-                  <p className="text-[14px] font-bold uppercase tracking-[0.04em] text-[var(--deshazo-blue-soft)]">
-                    Please provide
-                  </p>
-                  <ul className="mt-4 space-y-3 text-[15px] leading-7 text-[rgba(21,24,33,0.82)]">
-                    {addUserGuidelines.map((item) => (
-                      <li key={item} className="flex items-start gap-3">
-                        <span className="mt-2 inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </article>
-
-                <article className="rounded-[22px] border border-[var(--deshazo-border)] bg-white/85 p-5 shadow-[0_18px_35px_-32px_rgba(47,86,166,0.35)]">
-                  <p className="text-[14px] font-bold uppercase tracking-[0.04em] text-[var(--deshazo-blue-soft)]">
-                    Notes
-                  </p>
-                  <p className="mt-4 text-[15px] leading-7 text-[rgba(21,24,33,0.82)]">
-                    Once we receive the user details, we will send the new user an onboarding email with the information they need to access the portal.
-                  </p>
-                  <p className="mt-4 text-[15px] leading-7 text-[rgba(21,24,33,0.82)]">
-                    If you would like to add multiple users, please email a CSV of your new users to speed up the setup process.
-                  </p>
-                </article>
-              </div>
-            </section>
-          </div>
+          <section className="overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-white px-8 py-10 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] max-w-lg">
+            <p className="text-[16px] leading-7 text-[rgba(21,24,33,0.75)]">
+              To add a new user, have them visit the link below to sign up:{' '}
+              <a
+                href="https://portal.blockstampsf.com/login"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-[var(--deshazo-blue)] hover:underline"
+              >
+                portal.blockstampsf.com/login
+              </a>
+            </p>
+          </section>
         </section>
       </main>
     </div>
