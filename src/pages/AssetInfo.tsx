@@ -23,7 +23,7 @@ const menuItems = [
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
-type AssetInfoTab = 'issues' | 'info' | 'documents'
+type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'below-hook'
 type FilterField = 'category' | 'safety_category' | 'inspection_date' | 'component_type' | 'remarks'
 
 const defaultAssetInfo: AssetInfoAnalytics = {
@@ -204,7 +204,7 @@ export default function AssetInfo() {
   }, [unitId])
 
   useEffect(() => {
-    if (activeTab !== 'documents') {
+    if (activeTab !== 'documents' && activeTab !== 'repair' && activeTab !== 'below-hook') {
       return
     }
     if (!unitId) {
@@ -276,6 +276,8 @@ export default function AssetInfo() {
     { id: 'issues', label: 'Open Issues' },
     { id: 'info', label: 'Asset Info' },
     { id: 'documents', label: 'Preventative Maintenance Reports' },
+    { id: 'repair', label: 'Repair Reports' },
+    { id: 'below-hook', label: 'Below the Hook Reports' },
   ]
 
   const filterFieldOptions: Array<{ value: FilterField; label: string }> = [
