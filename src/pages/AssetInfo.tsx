@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend, LineChart, Line, RadarChart, Radar,
+  PolarGrid, PolarAngleAxis,
+} from 'recharts'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
@@ -23,7 +28,51 @@ const menuItems = [
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
-type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'below-hook' | 'notes'
+type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'below-hook' | 'notes' | 'analytics'
+
+const ANALYTICS_COLORS = ['#2f56a6', '#f2b43f', '#e05c3a', '#4a9960', '#7b44c7', '#355fb4']
+
+const mockIssuesByCategory = [
+  { category: 'Structural', count: 14 },
+  { category: 'Electrical', count: 9 },
+  { category: 'Hydraulic', count: 7 },
+  { category: 'Mechanical', count: 11 },
+  { category: 'Controls', count: 5 },
+  { category: 'Rigging', count: 3 },
+]
+
+const mockIssuesBySafety = [
+  { name: 'Safety', value: 12 },
+  { name: 'Monitor', value: 21 },
+  { name: 'Routine', value: 16 },
+]
+
+const mockIssuesByComponent = [
+  { component: 'Hoist', count: 18 },
+  { component: 'Monorail', count: 11 },
+  { component: 'Bridge', count: 8 },
+  { component: 'Trolley', count: 6 },
+  { component: 'End Truck', count: 4 },
+  { component: 'Pendant', count: 2 },
+]
+
+const mockIssuesTrend = [
+  { month: 'Nov', issues: 6 },
+  { month: 'Dec', issues: 9 },
+  { month: 'Jan', issues: 7 },
+  { month: 'Feb', issues: 13 },
+  { month: 'Mar', issues: 10 },
+  { month: 'Apr', issues: 4 },
+]
+
+const mockRiskRadar = [
+  { subject: 'Structural', score: 72 },
+  { subject: 'Electrical', score: 55 },
+  { subject: 'Hydraulic', score: 40 },
+  { subject: 'Mechanical', score: 68 },
+  { subject: 'Controls', score: 33 },
+  { subject: 'Rigging', score: 20 },
+]
 
 type AssetNote = {
   id: string
@@ -303,6 +352,7 @@ export default function AssetInfo() {
     { id: 'repair', label: 'Repair Reports' },
     { id: 'below-hook', label: 'Below the Hook Reports' },
     { id: 'notes', label: 'Notes' },
+    { id: 'analytics', label: 'Analytics' },
   ]
 
   const filterFieldOptions: Array<{ value: FilterField; label: string }> = [
@@ -806,6 +856,112 @@ export default function AssetInfo() {
                         </div>
                       ))
                     )}
+                  </div>
+                </section>
+              ) : activeTab === 'analytics' ? (
+                <section className="space-y-6">
+                  {/* Summary cards */}
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                    {[
+                      { label: 'Total Open Issues', value: '49', color: 'text-[var(--deshazo-blue)]' },
+                      { label: 'Safety Critical', value: '12', color: 'text-[#e05c3a]' },
+                      { label: 'Monitor', value: '21', color: 'text-[#b27d00]' },
+                      { label: 'Avg Age (days)', value: '38', color: 'text-[#4a9960]' },
+                    ].map((card) => (
+                      <div key={card.label} className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                        <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.5)]">{card.label}</p>
+                        <p className={`mt-1 text-[32px] font-black tracking-tight ${card.color}`}>{card.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Issues by Category + Safety Donut */}
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                      <h3 className="mb-4 text-[15px] font-bold text-[var(--deshazo-text)]">Issues by Category</h3>
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart data={mockIssuesByCategory} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
+                          <XAxis dataKey="category" tick={{ fontSize: 12, fill: '#6b7280' }} />
+                          <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} />
+                          <Tooltip contentStyle={{ borderRadius: 10, fontSize: 13 }} />
+                          <Bar dataKey="count" name="Issues" radius={[6, 6, 0, 0]}>
+                            {mockIssuesByCategory.map((_, i) => (
+                              <Cell key={i} fill={ANALYTICS_COLORS[i % ANALYTICS_COLORS.length]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                      <h3 className="mb-4 text-[15px] font-bold text-[var(--deshazo-text)]">Issues by Safety Classification</h3>
+                      <ResponsiveContainer width="100%" height={240}>
+                        <PieChart>
+                          <Pie
+                            data={mockIssuesBySafety}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={95}
+                            paddingAngle={3}
+                            dataKey="value"
+                          >
+                            {mockIssuesBySafety.map((_, i) => (
+                              <Cell key={i} fill={['#e05c3a', '#f2b43f', '#4a9960'][i]} />
+                            ))}
+                          </Pie>
+                          <Tooltip contentStyle={{ borderRadius: 10, fontSize: 13 }} />
+                          <Legend iconType="circle" iconSize={10} wrapperStyle={{ fontSize: 13 }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Issues Trend + Component breakdown */}
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                      <h3 className="mb-4 text-[15px] font-bold text-[var(--deshazo-text)]">Issues Opened — Last 6 Months</h3>
+                      <ResponsiveContainer width="100%" height={240}>
+                        <LineChart data={mockIssuesTrend} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
+                          <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6b7280' }} />
+                          <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} />
+                          <Tooltip contentStyle={{ borderRadius: 10, fontSize: 13 }} />
+                          <Line type="monotone" dataKey="issues" name="Issues" stroke="#2f56a6" strokeWidth={2.5} dot={{ r: 4, fill: '#2f56a6' }} activeDot={{ r: 6 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                      <h3 className="mb-4 text-[15px] font-bold text-[var(--deshazo-text)]">Issues by Component</h3>
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart data={mockIssuesByComponent} layout="vertical" margin={{ top: 0, right: 8, left: 10, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" horizontal={false} />
+                          <XAxis type="number" tick={{ fontSize: 12, fill: '#6b7280' }} />
+                          <YAxis type="category" dataKey="component" tick={{ fontSize: 12, fill: '#6b7280' }} width={70} />
+                          <Tooltip contentStyle={{ borderRadius: 10, fontSize: 13 }} />
+                          <Bar dataKey="count" name="Issues" radius={[0, 6, 6, 0]}>
+                            {mockIssuesByComponent.map((_, i) => (
+                              <Cell key={i} fill={ANALYTICS_COLORS[i % ANALYTICS_COLORS.length]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Risk radar */}
+                  <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                    <h3 className="mb-4 text-[15px] font-bold text-[var(--deshazo-text)]">Risk Score by Category</h3>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <RadarChart data={mockRiskRadar} cx="50%" cy="50%" outerRadius={110}>
+                        <PolarGrid stroke="#e5e9f5" />
+                        <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: '#6b7280' }} />
+                        <Radar name="Risk Score" dataKey="score" stroke="#2f56a6" fill="#2f56a6" fillOpacity={0.18} strokeWidth={2} />
+                        <Tooltip contentStyle={{ borderRadius: 10, fontSize: 13 }} />
+                      </RadarChart>
+                    </ResponsiveContainer>
                   </div>
                 </section>
               ) : null}
