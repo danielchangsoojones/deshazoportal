@@ -23,7 +23,15 @@ const menuItems = [
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
-type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'below-hook'
+type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'below-hook' | 'notes'
+
+type AssetNote = {
+  id: string
+  text: string
+  authorName: string
+  authorEmail: string
+  timestamp: string
+}
 type FilterField = 'category' | 'safety_category' | 'inspection_date' | 'component_type' | 'remarks'
 
 const defaultAssetInfo: AssetInfoAnalytics = {
@@ -138,6 +146,8 @@ export default function AssetInfo() {
   const [documentsError, setDocumentsError] = useState('')
   const [documentsPage, setDocumentsPage] = useState(1)
   const [selectedDocumentUrl, setSelectedDocumentUrl] = useState('')
+  const [notes, setNotes] = useState<AssetNote[]>([])
+  const [noteInput, setNoteInput] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -272,12 +282,27 @@ export default function AssetInfo() {
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
 
+  const handleAddNote = () => {
+    const text = noteInput.trim()
+    if (!text || !user) return
+    const newNote: AssetNote = {
+      id: crypto.randomUUID(),
+      text,
+      authorName: fullName,
+      authorEmail: user.email ?? '',
+      timestamp: new Date().toLocaleString(),
+    }
+    setNotes((prev) => [newNote, ...prev])
+    setNoteInput('')
+  }
+
   const tabs: Array<{ id: AssetInfoTab; label: string }> = [
     { id: 'issues', label: 'Open Issues' },
     { id: 'info', label: 'Asset Info' },
     { id: 'documents', label: 'Preventative Maintenance Reports' },
     { id: 'repair', label: 'Repair Reports' },
     { id: 'below-hook', label: 'Below the Hook Reports' },
+    { id: 'notes', label: 'Notes' },
   ]
 
   const filterFieldOptions: Array<{ value: FilterField; label: string }> = [
@@ -616,7 +641,7 @@ export default function AssetInfo() {
                     </tbody>
                   </table>
                 </div>
-              ) : (
+              ) : activeTab === 'documents' || activeTab === 'repair' || activeTab === 'below-hook' ? (
                 <section className="rounded-[18px] border border-[var(--deshazo-border)] bg-white/75 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.16)] sm:p-5">
                   {documentsError ? (
                     <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -733,7 +758,57 @@ export default function AssetInfo() {
                     </div>
                   </div>
                 </section>
-              )}
+              ) : activeTab === 'notes' ? (
+                <section className="space-y-5">
+                  <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white p-5 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.16)]">
+                    <h2 className="mb-3 text-[16px] font-bold text-[var(--deshazo-text)]">Add a note</h2>
+                    <textarea
+                      value={noteInput}
+                      onChange={(e) => setNoteInput(e.target.value)}
+                      placeholder="Write a note..."
+                      rows={4}
+                      className="w-full resize-none rounded-[10px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-4 py-3 text-[15px] font-medium text-[var(--deshazo-text)] placeholder-[rgba(21,24,33,0.35)] outline-none focus:border-[var(--deshazo-blue)]"
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleAddNote}
+                        disabled={!noteInput.trim()}
+                        className="inline-flex items-center rounded-xl bg-[var(--deshazo-blue)] px-5 py-2.5 text-[14px] font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Add note
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {notes.length === 0 ? (
+                      <div className="flex min-h-[200px] items-center justify-center rounded-[14px] border border-dashed border-[var(--deshazo-border)] bg-white text-sm font-semibold text-[rgba(21,24,33,0.4)]">
+                        No notes yet. Add the first one above.
+                      </div>
+                    ) : (
+                      notes.map((note) => (
+                        <div
+                          key={note.id}
+                          className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]"
+                        >
+                          <p className="whitespace-pre-wrap text-[15px] font-medium leading-relaxed text-[var(--deshazo-text)]">
+                            {note.text}
+                          </p>
+                          <div className="mt-3 flex items-center gap-2">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--deshazo-blue)] text-[11px] font-extrabold text-white">
+                              {note.authorName.split(' ').slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')}
+                            </div>
+                            <span className="text-[13px] font-semibold text-[var(--deshazo-text)]">{note.authorName}</span>
+                            <span className="text-[13px] text-[rgba(21,24,33,0.45)]">{note.authorEmail}</span>
+                            <span className="ml-auto text-[13px] text-[rgba(21,24,33,0.45)]">{note.timestamp}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+              ) : null}
             </div>
           </section>
         </section>
