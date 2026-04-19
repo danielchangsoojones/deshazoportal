@@ -535,6 +535,29 @@ export default function AssetInfo() {
             </div>
           )}
 
+          {/* Wabash identifier + email notification buttons */}
+          <div className="mb-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="flex items-center gap-3 rounded-[10px] border border-[var(--deshazo-border)] bg-white px-4 py-3 text-left shadow-[0_4px_12px_-8px_rgba(47,86,166,0.15)] transition hover:border-[var(--deshazo-blue)] hover:bg-[var(--deshazo-surface)]"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--deshazo-surface)] text-[16px]">✏️</span>
+              <span>
+                <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">unique wabash identifier</p>
+                <p className="text-[14px] font-bold tracking-wide text-[var(--deshazo-text)]">CBHF829494030</p>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-3 rounded-[10px] border border-[var(--deshazo-border)] bg-white px-4 py-3 text-left shadow-[0_4px_12px_-8px_rgba(47,86,166,0.15)] transition hover:border-[var(--deshazo-blue)] hover:bg-[var(--deshazo-surface)]"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--deshazo-surface)] text-[16px]">✉️</span>
+              <span>
+                <p className="text-[14px] font-semibold text-[var(--deshazo-text)]">join email notifications</p>
+              </span>
+            </button>
+          </div>
+
           <section className="overflow-hidden rounded-[14px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
             <div className="border-b border-[var(--deshazo-border)] px-4 pt-3">
               <div className="flex flex-wrap gap-2">
