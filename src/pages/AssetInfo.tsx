@@ -208,6 +208,9 @@ export default function AssetInfo() {
   const [selectedDocumentUrl, setSelectedDocumentUrl] = useState('')
   const [notes, setNotes] = useState<AssetNote[]>([])
   const [noteInput, setNoteInput] = useState('')
+  const [wabashModalOpen, setWabashModalOpen] = useState(false)
+  const [wabashIdentifier, setWabashIdentifier] = useState('CBHF829494030')
+  const [wabashDraft, setWabashDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -539,12 +542,13 @@ export default function AssetInfo() {
           <div className="mb-4 flex flex-wrap gap-3">
             <button
               type="button"
+              onClick={() => { setWabashDraft(wabashIdentifier); setWabashModalOpen(true) }}
               className="flex items-center gap-3 rounded-[10px] border border-[var(--deshazo-border)] bg-white px-4 py-3 text-left shadow-[0_4px_12px_-8px_rgba(47,86,166,0.15)] transition hover:border-[var(--deshazo-blue)] hover:bg-[var(--deshazo-surface)]"
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--deshazo-surface)] text-[16px]">✏️</span>
               <span>
                 <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">unique wabash identifier</p>
-                <p className="text-[14px] font-bold tracking-wide text-[var(--deshazo-text)]">CBHF829494030</p>
+                <p className="text-[14px] font-bold tracking-wide text-[var(--deshazo-text)]">{wabashIdentifier}</p>
               </span>
             </button>
             <button
@@ -1036,6 +1040,39 @@ export default function AssetInfo() {
           </section>
         </section>
       </main>
+
+      {/* Wabash Identifier Modal */}
+      {wabashModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setWabashModalOpen(false)}>
+          <div className="w-full max-w-md rounded-[18px] bg-white p-6 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.3)]" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">Unique Wabash Identifier</h2>
+            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Edit the identifier string for this asset.</p>
+            <input
+              type="text"
+              value={wabashDraft}
+              onChange={(e) => setWabashDraft(e.target.value)}
+              className="w-full rounded-[10px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-4 py-3 text-[15px] font-bold tracking-wide text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
+              autoFocus
+            />
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setWabashModalOpen(false)}
+                className="rounded-xl border border-[var(--deshazo-border)] px-5 py-2.5 text-[14px] font-bold text-[rgba(21,24,33,0.6)] transition hover:bg-[var(--deshazo-surface)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { setWabashIdentifier(wabashDraft.trim() || wabashIdentifier); setWabashModalOpen(false) }}
+                className="rounded-xl bg-[var(--deshazo-blue)] px-5 py-2.5 text-[14px] font-bold text-white transition hover:opacity-90"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
