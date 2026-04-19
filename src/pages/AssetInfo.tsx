@@ -211,6 +211,10 @@ export default function AssetInfo() {
   const [wabashModalOpen, setWabashModalOpen] = useState(false)
   const [wabashIdentifier, setWabashIdentifier] = useState('CBHF829494030')
   const [wabashDraft, setWabashDraft] = useState('')
+  const [emailModalOpen, setEmailModalOpen] = useState(false)
+  const [notificationEmails, setNotificationEmails] = useState<{ email: string; newReports: boolean; repairDone: boolean }[]>([])
+  const [emailDraft, setEmailDraft] = useState('')
+  const [emailError, setEmailError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -553,11 +557,15 @@ export default function AssetInfo() {
             </button>
             <button
               type="button"
+              onClick={() => { setEmailDraft(''); setEmailError(''); setEmailModalOpen(true) }}
               className="flex items-center gap-3 rounded-[10px] border border-[var(--deshazo-border)] bg-white px-4 py-3 text-left shadow-[0_4px_12px_-8px_rgba(47,86,166,0.15)] transition hover:border-[var(--deshazo-blue)] hover:bg-[var(--deshazo-surface)]"
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--deshazo-surface)] text-[16px]">✉️</span>
               <span>
                 <p className="text-[14px] font-semibold text-[var(--deshazo-text)]">join email notifications</p>
+                {notificationEmails.length > 0 && (
+                  <p className="text-[12px] text-[rgba(21,24,33,0.45)]">{notificationEmails.length} subscriber{notificationEmails.length !== 1 ? 's' : ''}</p>
+                )}
               </span>
             </button>
           </div>
@@ -1040,6 +1048,109 @@ export default function AssetInfo() {
           </section>
         </section>
       </main>
+
+      {/* Email Notifications Modal */}
+      {emailModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setEmailModalOpen(false)}>
+          <div className="w-full max-w-md rounded-[18px] bg-white p-6 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.3)]" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">Email Notifications</h2>
+            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Add emails and choose what they get notified about.</p>
+
+            {/* Add email input */}
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={emailDraft}
+                onChange={(e) => { setEmailDraft(e.target.value); setEmailError('') }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const val = emailDraft.trim().toLowerCase()
+                    if (!val.includes('@')) { setEmailError('Please enter a valid email.'); return }
+                    if (notificationEmails.some((s) => s.email === val)) { setEmailError('This email is already added.'); return }
+                    setNotificationEmails((prev) => [...prev, { email: val, newReports: true, repairDone: true }])
+                    setEmailDraft('')
+                  }
+                }}
+                placeholder="name@example.com"
+                className="flex-1 rounded-[10px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-4 py-2.5 text-[14px] text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const val = emailDraft.trim().toLowerCase()
+                  if (!val.includes('@')) { setEmailError('Please enter a valid email.'); return }
+                  if (notificationEmails.some((s) => s.email === val)) { setEmailError('This email is already added.'); return }
+                  setNotificationEmails((prev) => [...prev, { email: val, newReports: true, repairDone: true }])
+                  setEmailDraft('')
+                }}
+                className="rounded-[10px] bg-[var(--deshazo-blue)] px-4 py-2.5 text-[14px] font-bold text-white transition hover:opacity-90"
+              >
+                Add
+              </button>
+            </div>
+            {emailError && <p className="mt-2 text-[12px] font-semibold text-red-500">{emailError}</p>}
+
+            {/* Subscriber list */}
+            <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto">
+              {notificationEmails.length === 0 ? (
+                <p className="rounded-[10px] border border-dashed border-[var(--deshazo-border)] py-6 text-center text-[13px] font-semibold text-[rgba(21,24,33,0.4)]">
+                  No subscribers yet
+                </p>
+              ) : (
+                notificationEmails.map((sub) => (
+                  <div key={sub.email} className="rounded-[10px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--deshazo-blue)] text-[11px] font-extrabold text-white">
+                          {sub.email[0].toUpperCase()}
+                        </div>
+                        <span className="text-[14px] font-medium text-[var(--deshazo-text)]">{sub.email}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationEmails((prev) => prev.filter((s) => s.email !== sub.email))}
+                        className="ml-2 text-[18px] leading-none text-[rgba(21,24,33,0.35)] transition hover:text-red-500"
+                        aria-label="Remove"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {/* Notification type toggles */}
+                    <div className="mt-2.5 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNotificationEmails((prev) => prev.map((s) => s.email === sub.email ? { ...s, newReports: !s.newReports } : s))}
+                        className={`rounded-full px-3 py-1 text-[12px] font-semibold transition ${sub.newReports ? 'bg-[var(--deshazo-blue)] text-white' : 'border border-[var(--deshazo-border)] bg-white text-[rgba(21,24,33,0.5)]'}`}
+                      >
+                        New Reports
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationEmails((prev) => prev.map((s) => s.email === sub.email ? { ...s, repairDone: !s.repairDone } : s))}
+                        className={`rounded-full px-3 py-1 text-[12px] font-semibold transition ${sub.repairDone ? 'bg-[#4a9960] text-white' : 'border border-[var(--deshazo-border)] bg-white text-[rgba(21,24,33,0.5)]'}`}
+                      >
+                        Repair Completed
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setEmailModalOpen(false)}
+                className="rounded-xl bg-[var(--deshazo-blue)] px-5 py-2.5 text-[14px] font-bold text-white transition hover:opacity-90"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Wabash Identifier Modal */}
       {wabashModalOpen && (
