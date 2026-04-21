@@ -206,12 +206,6 @@ export default function Dashboard() {
                 <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>
 
-              <div className="flex flex-col items-start gap-3 sm:items-end">
-                <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
-                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
-                  <span>{portalCards.length} modules available</span>
-                </div>
-              </div>
             </div>
           </div>
 
