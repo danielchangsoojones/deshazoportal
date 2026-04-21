@@ -176,6 +176,15 @@ export type AssetPdfResponse = {
   total_pages: number
 }
 
+export type AssetPdfPageMatch = {
+  document: AssetPdfDocument
+  pageNumber: number
+}
+
+export type AssetPdfPageLookupResponse = {
+  match: AssetPdfPageMatch | null
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -356,6 +365,30 @@ export async function getAssetPDF(unitId: string, page: number, signal?: AbortSi
   }
 
   throw new Error('Asset PDF documents returned an unexpected response shape.')
+}
+
+export async function findAssetPdfPage(
+  unitId: string,
+  dNumber: string,
+  targetInspectionDate: string,
+  signal?: AbortSignal,
+) {
+  const response = await callParseFunction<unknown>(
+    'findAssetPdfPage',
+    {
+      unit_id: unitId,
+      dNumber,
+      ...(targetInspectionDate ? { targetInspectionDate } : {}),
+    },
+    signal,
+  )
+
+  const payload = extractObjectPayload<AssetPdfPageLookupResponse>(response)
+  if (payload && 'match' in payload) {
+    return payload
+  }
+
+  throw new Error('Asset PDF page lookup returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }

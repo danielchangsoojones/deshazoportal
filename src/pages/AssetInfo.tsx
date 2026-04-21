@@ -10,9 +10,11 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { createAssetNote, listAssetNotes, type AssetNoteRecord } from '../lib/assetNotes'
 import {
+  findAssetPdfPage,
   getAssetInfo,
   getAssetPDF,
   isPortalApiConfigured,
+  type AssetPdfDocument,
   type AssetPdfResponse,
   type AssetInfoAnalytics,
   type AssetIssue,
@@ -95,6 +97,12 @@ type AssetNote = {
   authorEmail: string
   createdAt: string
 }
+
+type IssueReportMatch = {
+  document: AssetPdfDocument
+  pageNumber: number
+}
+
 type FilterField = 'category' | 'safety_category' | 'inspection_date' | 'component_type' | 'remarks'
 
 const defaultAssetInfo: AssetInfoAnalytics = {
@@ -136,6 +144,17 @@ const mapNoteRecord = (note: AssetNoteRecord): AssetNote => ({
   authorEmail: note.authorEmail,
   createdAt: note.createdAt,
 })
+
+const extractDocumentNumber = (...values: Array<string | undefined>) => {
+  for (const value of values) {
+    const match = value?.match(/\bD\d+\b/i)
+    if (match?.[0]) {
+      return match[0].toUpperCase()
+    }
+  }
+
+  return ''
+}
 
 const getSafetyBadgeClass = (value: string) => {
   const normalized = value.toLowerCase()
@@ -235,6 +254,10 @@ export default function AssetInfo() {
   const [emailDraft, setEmailDraft] = useState('')
   const [emailError, setEmailError] = useState('')
   const [issueReportOpen, setIssueReportOpen] = useState(false)
+  const [issueReportLoading, setIssueReportLoading] = useState(false)
+  const [issueReportError, setIssueReportError] = useState('')
+  const [selectedIssue, setSelectedIssue] = useState<AssetIssue | null>(null)
+  const [selectedIssueMatch, setSelectedIssueMatch] = useState<IssueReportMatch | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -426,6 +449,41 @@ export default function AssetInfo() {
       setNotesError(err instanceof Error ? err.message : 'Unable to save note.')
     } finally {
       setNoteSaving(false)
+    }
+  }
+
+  const findIssueDocumentMatch = async (issue: AssetIssue, docNumber: string) => {
+    const response = await findAssetPdfPage(unitId, docNumber, issue.inspection_date)
+
+    return response.match
+  }
+
+  const handleIssueRowClick = async (issue: AssetIssue) => {
+    setSelectedIssue(issue)
+    setSelectedIssueMatch(null)
+    setIssueReportError('')
+    setIssueReportOpen(true)
+
+    const docNumber = extractDocumentNumber(issue.remarks, assetInfo.unit_name, unitId)
+    if (!docNumber) {
+      setIssueReportError('No D number was found in the issue, asset name, or unit id, so a matching PDF could not be identified.')
+      return
+    }
+
+    try {
+      setIssueReportLoading(true)
+      const matchedDocument = await findIssueDocumentMatch(issue, docNumber)
+
+      if (!matchedDocument) {
+        setIssueReportError(`No asset PDF page matched ${docNumber} for this unit.`)
+        return
+      }
+
+      setSelectedIssueMatch(matchedDocument)
+    } catch (err) {
+      setIssueReportError(err instanceof Error ? err.message : 'Unable to load the matching issue PDF.')
+    } finally {
+      setIssueReportLoading(false)
     }
   }
 
@@ -711,7 +769,12 @@ export default function AssetInfo() {
                       <tbody>
                         {filteredIssues.length > 0 ? (
                           filteredIssues.map((issue, index) => (
-                            <AssetIssueRow key={`${issue.category}-${issue.component_type}-${index}`} issue={issue} index={index} onClick={() => setIssueReportOpen(true)} />
+                            <AssetIssueRow
+                              key={`${issue.category}-${issue.component_type}-${index}`}
+                              issue={issue}
+                              index={index}
+                              onClick={() => void handleIssueRowClick(issue)}
+                            />
                           ))
                         ) : (
                           <tr>
@@ -1140,7 +1203,13 @@ export default function AssetInfo() {
             <div className="flex items-center justify-between border-b border-[var(--deshazo-border)] px-5 py-4">
               <div>
                 <h2 className="text-[16px] font-black text-[var(--deshazo-text)]">Inspection Report</h2>
-                <p className="text-[12px] text-[rgba(21,24,33,0.45)]">D593227 · Wabash (Perris, CA) · Apr 13, 2026</p>
+                <p className="text-[12px] text-[rgba(21,24,33,0.45)]">
+                  {extractDocumentNumber(selectedIssue?.remarks, assetInfo.unit_name, unitId) || 'No D number'}
+                  {' · '}
+                  {assetInfo.unit_name || 'Asset'}
+                  {' · '}
+                  {selectedIssue ? formatDisplayDate(selectedIssue.inspection_date) : 'Not available'}
+                </p>
               </div>
               <button
                 type="button"
@@ -1151,11 +1220,44 @@ export default function AssetInfo() {
                 ×
               </button>
             </div>
-            <iframe
-              src="/sample-inspection.pdf"
-              title="Inspection Report"
-              className="flex-1 w-full border-0"
-            />
+            {issueReportLoading ? (
+              <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                Searching asset PDFs for the matching D number...
+              </div>
+            ) : issueReportError ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+                <p className="text-base font-bold text-[var(--deshazo-text)]">Matching PDF not available</p>
+                <p className="max-w-xl text-sm font-medium text-[rgba(21,24,33,0.55)]">{issueReportError}</p>
+              </div>
+            ) : selectedIssueMatch ? (
+              <div className="flex flex-1 flex-col overflow-hidden">
+                <div className="flex items-center justify-between border-b border-[var(--deshazo-border)] px-5 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-[var(--deshazo-blue)]">{selectedIssueMatch.document.display_name}</p>
+                    <p className="text-xs text-[rgba(21,24,33,0.45)]">
+                      Showing page {selectedIssueMatch.pageNumber}
+                    </p>
+                  </div>
+                  <a
+                    href={`${selectedIssueMatch.document.pdf}#page=${selectedIssueMatch.pageNumber}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
+                  >
+                    Open full PDF
+                  </a>
+                </div>
+                <iframe
+                  src={`${selectedIssueMatch.document.pdf}#page=${selectedIssueMatch.pageNumber}`}
+                  title={selectedIssueMatch.document.display_name}
+                  className="flex-1 w-full border-0 bg-white"
+                />
+              </div>
+            ) : (
+              <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                No report selected.
+              </div>
+            )}
           </div>
         </div>
       )}
