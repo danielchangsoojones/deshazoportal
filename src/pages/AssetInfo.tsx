@@ -667,8 +667,8 @@ export default function AssetInfo() {
                 <div className="space-y-4">
                   {/* Recurring Issues carousel */}
                   <div>
-                    <h2 className="mb-3 text-[15px] font-bold text-[var(--deshazo-text)]">Recurring Issues</h2>
-                    <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
+                    <h2 className="mb-5 text-[15px] font-bold text-[var(--deshazo-text)]">Recurring Issues</h2>
+                    <div className="mt-3 flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
                       {mockRecurringIssues.map((item) => (
                         <div
                           key={item.component}
@@ -735,7 +735,18 @@ export default function AssetInfo() {
                         aria-label="Filter issues"
                         title="Filter issues"
                       >
-                        ▾
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          className="h-4.5 w-4.5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M4 6h16l-6.5 7.4v4.6l-3 1.5v-6.1z" />
+                        </svg>
                       </button>
                       <button
                         type="button"
