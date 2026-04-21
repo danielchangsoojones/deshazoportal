@@ -8,6 +8,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { createAssetNote, listAssetNotes, type AssetNoteRecord } from '../lib/assetNotes'
 import {
   getAssetInfo,
   getAssetPDF,
@@ -87,10 +88,12 @@ const mockRiskRadar = [
 
 type AssetNote = {
   id: string
+  unitId: string
+  authorId: string
   text: string
   authorName: string
   authorEmail: string
-  timestamp: string
+  createdAt: string
 }
 type FilterField = 'category' | 'safety_category' | 'inspection_date' | 'component_type' | 'remarks'
 
@@ -120,6 +123,19 @@ const formatTitleCase = (value?: string) =>
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join(' ')
     : 'Not available'
+
+const formatNoteTimestamp = (value: string) =>
+  new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+const mapNoteRecord = (note: AssetNoteRecord): AssetNote => ({
+  id: note.id,
+  unitId: note.unitId,
+  authorId: note.authorId,
+  text: note.text,
+  authorName: note.authorName,
+  authorEmail: note.authorEmail,
+  createdAt: note.createdAt,
+})
 
 const getSafetyBadgeClass = (value: string) => {
   const normalized = value.toLowerCase()
@@ -208,6 +224,9 @@ export default function AssetInfo() {
   const [selectedDocumentUrl, setSelectedDocumentUrl] = useState('')
   const [notes, setNotes] = useState<AssetNote[]>([])
   const [noteInput, setNoteInput] = useState('')
+  const [notesLoading, setNotesLoading] = useState(false)
+  const [notesError, setNotesError] = useState('')
+  const [noteSaving, setNoteSaving] = useState(false)
   const [wabashModalOpen, setWabashModalOpen] = useState(false)
   const [wabashIdentifier, setWabashIdentifier] = useState('CBHF829494030')
   const [wabashDraft, setWabashDraft] = useState('')
@@ -282,6 +301,43 @@ export default function AssetInfo() {
   }, [unitId])
 
   useEffect(() => {
+    if (!user || !unitId || !supabase) {
+      setNotes([])
+      setNotesLoading(false)
+      setNotesError(unitId ? '' : 'A unit id is required to load notes.')
+      return
+    }
+
+    let cancelled = false
+
+    const loadNotes = async () => {
+      try {
+        setNotesLoading(true)
+        setNotesError('')
+        const data = await listAssetNotes(unitId)
+        if (!cancelled) {
+          setNotes(data.map(mapNoteRecord))
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setNotes([])
+          setNotesError(err instanceof Error ? err.message : 'Unable to load notes.')
+        }
+      } finally {
+        if (!cancelled) {
+          setNotesLoading(false)
+        }
+      }
+    }
+
+    loadNotes()
+
+    return () => {
+      cancelled = true
+    }
+  }, [unitId, user])
+
+  useEffect(() => {
     if (activeTab !== 'documents' && activeTab !== 'repair' && activeTab !== 'below-hook') {
       return
     }
@@ -350,18 +406,27 @@ export default function AssetInfo() {
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
 
-  const handleAddNote = () => {
+  const handleAddNote = async () => {
     const text = noteInput.trim()
-    if (!text || !user) return
-    const newNote: AssetNote = {
-      id: crypto.randomUUID(),
-      text,
-      authorName: fullName,
-      authorEmail: user.email ?? '',
-      timestamp: new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
+    if (!text || !user || !unitId) return
+
+    try {
+      setNoteSaving(true)
+      setNotesError('')
+      const newNote = await createAssetNote({
+        unitId,
+        authorId: user.id,
+        authorName: fullName,
+        authorEmail: user.email ?? '',
+        text,
+      })
+      setNotes((prev) => [mapNoteRecord(newNote), ...prev])
+      setNoteInput('')
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : 'Unable to save note.')
+    } finally {
+      setNoteSaving(false)
     }
-    setNotes((prev) => [newNote, ...prev])
-    setNoteInput('')
   }
 
   const tabs: Array<{ id: AssetInfoTab; label: string }> = [
@@ -903,16 +968,23 @@ export default function AssetInfo() {
                       <button
                         type="button"
                         onClick={handleAddNote}
-                        disabled={!noteInput.trim()}
+                        disabled={!noteInput.trim() || noteSaving}
                         className="inline-flex items-center rounded-xl bg-[var(--deshazo-blue)] px-5 py-2.5 text-[14px] font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        Add note
+                        {noteSaving ? 'Saving...' : 'Add note'}
                       </button>
                     </div>
+                    {notesError ? (
+                      <p className="mt-3 text-sm font-semibold text-[#c94b2c]">{notesError}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-3">
-                    {notes.length === 0 ? (
+                    {notesLoading ? (
+                      <div className="flex min-h-[200px] items-center justify-center rounded-[14px] border border-dashed border-[var(--deshazo-border)] bg-white text-sm font-semibold text-[rgba(21,24,33,0.4)]">
+                        Loading notes...
+                      </div>
+                    ) : notes.length === 0 ? (
                       <div className="flex min-h-[200px] items-center justify-center rounded-[14px] border border-dashed border-[var(--deshazo-border)] bg-white text-sm font-semibold text-[rgba(21,24,33,0.4)]">
                         No notes yet. Add the first one above.
                       </div>
@@ -931,7 +1003,7 @@ export default function AssetInfo() {
                             </div>
                             <span className="text-[13px] font-semibold text-[var(--deshazo-text)]">{note.authorName}</span>
                             <span className="text-[13px] text-[rgba(21,24,33,0.45)]">{note.authorEmail}</span>
-                            <span className="ml-auto text-[13px] text-[rgba(21,24,33,0.45)]">{note.timestamp}</span>
+                            <span className="ml-auto text-[13px] text-[rgba(21,24,33,0.45)]">{formatNoteTimestamp(note.createdAt)}</span>
                           </div>
                         </div>
                       ))
