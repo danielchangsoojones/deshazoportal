@@ -1116,7 +1116,7 @@ export default function AssetInfo() {
                       <div className="max-w-xl">
                         <p className="text-[22px] font-black tracking-tight text-[var(--deshazo-text)]">Coming Soon</p>
                         <p className="mt-3 text-[15px] font-medium leading-relaxed text-[rgba(21,24,33,0.58)]">
-                          This feature is still in development and will be launched soon.
+                          This feature is still in development and will be available soon.
                         </p>
                       </div>
                     </div>
