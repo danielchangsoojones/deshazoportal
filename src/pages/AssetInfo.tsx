@@ -8,6 +8,7 @@ import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { createAssetNote, listAssetNotes, type AssetNoteRecord } from '../lib/assetNotes'
+import { getAssetCompanyInternalId, upsertAssetCompanyInternalId } from '../lib/assetCompanyInternalId'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 import {
   findAssetPdfPage,
@@ -231,8 +232,11 @@ export default function AssetInfo() {
   const [notesError, setNotesError] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
   const [wabashModalOpen, setWabashModalOpen] = useState(false)
-  const [wabashIdentifier, setWabashIdentifier] = useState('CBHF829494030')
+  const [wabashIdentifier, setWabashIdentifier] = useState('')
   const [wabashDraft, setWabashDraft] = useState('')
+  const [wabashLoading, setWabashLoading] = useState(false)
+  const [wabashSaving, setWabashSaving] = useState(false)
+  const [wabashError, setWabashError] = useState('')
   const [emailModalOpen, setEmailModalOpen] = useState(false)
   const [notificationEmails, setNotificationEmails] = useState<{ email: string; newReports: boolean; repairDone: boolean }[]>([])
   const [emailDraft, setEmailDraft] = useState('')
@@ -356,9 +360,6 @@ export default function AssetInfo() {
       totalIssues: issues.length,
       safetyCount,
       monitorCount,
-      otherCount: Math.max(0, issues.length - safetyCount - monitorCount),
-      categoryCount: categoryMap.size,
-      componentCount: componentMap.size,
       averageAgeDays: datedIssueCount ? Math.round(averageAgeAccumulator / datedIssueCount) : 0,
       latestInspectionLabel: latestInspectionDate
         ? latestInspectionDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
@@ -484,6 +485,43 @@ export default function AssetInfo() {
   }, [user])
 
   useEffect(() => {
+    if (!user || !unitId || !supabase) {
+      setWabashIdentifier('')
+      setWabashLoading(false)
+      setWabashError(unitId ? '' : 'A unit id is required to load the unique company internal id.')
+      return
+    }
+
+    let cancelled = false
+
+    const loadCompanyInternalId = async () => {
+      try {
+        setWabashLoading(true)
+        setWabashError('')
+        const data = await getAssetCompanyInternalId(unitId)
+        if (!cancelled) {
+          setWabashIdentifier(data?.value ?? '')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setWabashIdentifier('')
+          setWabashError(err instanceof Error ? err.message : 'Unable to load the unique company internal id.')
+        }
+      } finally {
+        if (!cancelled) {
+          setWabashLoading(false)
+        }
+      }
+    }
+
+    loadCompanyInternalId()
+
+    return () => {
+      cancelled = true
+    }
+  }, [unitId, user])
+
+  useEffect(() => {
     if (activeTab !== 'documents') {
       return
     }
@@ -580,6 +618,31 @@ export default function AssetInfo() {
       setNotesError(err instanceof Error ? err.message : 'Unable to save note.')
     } finally {
       setNoteSaving(false)
+    }
+  }
+
+  const handleSaveWabashIdentifier = async () => {
+    const value = wabashDraft.trim()
+    if (!value || !user || !unitId) {
+      return
+    }
+
+    try {
+      setWabashSaving(true)
+      setWabashError('')
+      const savedRecord = await upsertAssetCompanyInternalId({
+        unitId,
+        value,
+        updatedBy: user.id,
+        updatedByName: fullName,
+        updatedByEmail: user.email ?? '',
+      })
+      setWabashIdentifier(savedRecord.value)
+      setWabashModalOpen(false)
+    } catch (err) {
+      setWabashError(err instanceof Error ? err.message : 'Unable to save the unique company internal id.')
+    } finally {
+      setWabashSaving(false)
     }
   }
 
@@ -807,13 +870,15 @@ export default function AssetInfo() {
           <div className="mb-4 flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => { setWabashDraft(wabashIdentifier); setWabashModalOpen(true) }}
+              onClick={() => { setWabashDraft(wabashIdentifier); setWabashError(''); setWabashModalOpen(true) }}
               className="flex items-center gap-3 rounded-[10px] border border-[var(--deshazo-border)] bg-white px-4 py-3 text-left shadow-[0_4px_12px_-8px_rgba(47,86,166,0.15)] transition hover:border-[var(--deshazo-blue)] hover:bg-[var(--deshazo-surface)]"
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--deshazo-surface)] text-[16px]">✏️</span>
               <span>
-                <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">unique wabash identifier</p>
-                <p className="text-[14px] font-bold tracking-wide text-[var(--deshazo-text)]">{wabashIdentifier}</p>
+                <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">Unique Wabash Identifier</p>
+                <p className="text-[14px] font-bold tracking-wide text-[var(--deshazo-text)]">
+                  {wabashLoading ? 'Loading...' : (wabashIdentifier || 'Not set')}
+                </p>
               </span>
             </button>
             <button
@@ -823,7 +888,7 @@ export default function AssetInfo() {
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--deshazo-surface)] text-[16px]">✉️</span>
               <span>
-                <p className="text-[14px] font-semibold text-[var(--deshazo-text)]">join email notifications</p>
+                <p className="text-[14px] font-semibold text-[var(--deshazo-text)]">Join Email Notifications</p>
                 {notificationEmails.length > 0 && (
                   <p className="text-[12px] text-[rgba(21,24,33,0.45)]">{notificationEmails.length} subscriber{notificationEmails.length !== 1 ? 's' : ''}</p>
                 )}
@@ -1590,7 +1655,7 @@ export default function AssetInfo() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setWabashModalOpen(false)}>
           <div className="w-full max-w-md rounded-[18px] bg-white p-6 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.3)]" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">Unique Wabash Identifier</h2>
-            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Edit the identifier string for this asset.</p>
+            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Edit the identifier string for this asset. This is shared across all users for the same unit.</p>
             <input
               type="text"
               value={wabashDraft}
@@ -1598,6 +1663,9 @@ export default function AssetInfo() {
               className="w-full rounded-[10px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-4 py-3 text-[15px] font-bold tracking-wide text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
               autoFocus
             />
+            {wabashError ? (
+              <p className="mt-3 text-sm font-semibold text-[#c94b2c]">{wabashError}</p>
+            ) : null}
             <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
@@ -1608,10 +1676,11 @@ export default function AssetInfo() {
               </button>
               <button
                 type="button"
-                onClick={() => { setWabashIdentifier(wabashDraft.trim() || wabashIdentifier); setWabashModalOpen(false) }}
-                className="rounded-xl bg-[var(--deshazo-blue)] px-5 py-2.5 text-[14px] font-bold text-white transition hover:opacity-90"
+                onClick={() => void handleSaveWabashIdentifier()}
+                disabled={!wabashDraft.trim() || wabashSaving}
+                className="rounded-xl bg-[var(--deshazo-blue)] px-5 py-2.5 text-[14px] font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Save
+                {wabashSaving ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
