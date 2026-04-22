@@ -237,6 +237,7 @@ export default function AssetInfo() {
   const [wabashLoading, setWabashLoading] = useState(false)
   const [wabashSaving, setWabashSaving] = useState(false)
   const [wabashError, setWabashError] = useState('')
+  const [wabashInfoOpen, setWabashInfoOpen] = useState(false)
   const [emailModalOpen, setEmailModalOpen] = useState(false)
   const [notificationEmails, setNotificationEmails] = useState<{ email: string; newReports: boolean; repairDone: boolean }[]>([])
   const [emailDraft, setEmailDraft] = useState('')
@@ -874,11 +875,33 @@ export default function AssetInfo() {
               className="flex items-center gap-3 rounded-[10px] border border-[var(--deshazo-border)] bg-white px-4 py-3 text-left shadow-[0_4px_12px_-8px_rgba(47,86,166,0.15)] transition hover:border-[var(--deshazo-blue)] hover:bg-[var(--deshazo-surface)]"
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--deshazo-surface)] text-[16px]">✏️</span>
-              <span>
-                <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">Unique Wabash Identifier</p>
+              <span className="relative">
+                <span className="flex items-center gap-2">
+                  <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">Unique Wabash Identifier</p>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setWabashInfoOpen((open) => !open)
+                    }}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--deshazo-border)] bg-white text-[11px] font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
+                    aria-label="What is the unique Wabash identifier?"
+                    title="What is the unique Wabash identifier?"
+                  >
+                    i
+                  </button>
+                </span>
                 <p className="text-[14px] font-bold tracking-wide text-[var(--deshazo-text)]">
                   {wabashLoading ? 'Loading...' : (wabashIdentifier || 'Not set')}
                 </p>
+                {wabashInfoOpen ? (
+                  <span
+                    className="absolute left-0 top-[calc(100%+10px)] z-20 block w-[300px] rounded-[12px] border border-[var(--deshazo-border)] bg-white p-3 text-[12px] font-medium leading-relaxed text-[rgba(21,24,33,0.68)] shadow-[0_18px_40px_-28px_rgba(47,86,166,0.28)]"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    Use this field to store the company-specific internal identifier for this asset. It is shared across all users for the same unit and helps your team reference the asset consistently.
+                  </span>
+                ) : null}
               </span>
             </button>
             <button
@@ -1101,6 +1124,12 @@ export default function AssetInfo() {
                         <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">Name</td>
                         <td className="px-4 py-3 text-[15px] font-medium text-[var(--deshazo-text)]">{assetInfo.unit_name || 'Not available'}</td>
                       </tr>
+                      {wabashIdentifier ? (
+                        <tr className="border-t border-[var(--deshazo-border)]">
+                          <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">Unique Wabash Identifier</td>
+                          <td className="px-4 py-3 text-[15px] font-medium tracking-wide text-[var(--deshazo-text)]">{wabashIdentifier}</td>
+                        </tr>
+                      ) : null}
                       <tr className="border-t border-[var(--deshazo-border)]">
                         <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">Location</td>
                         <td className="px-4 py-3 text-[15px] font-medium text-[var(--deshazo-text)]">{assetInfo.unit_location || 'Not available'}</td>
