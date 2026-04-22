@@ -31,7 +31,7 @@ const menuItems = [
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
-type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'below-hook' | 'notes' | 'analytics'
+type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'notes' | 'analytics'
 
 const ANALYTICS_COLORS = ['#2f56a6', '#f2b43f', '#e05c3a', '#4a9960', '#7b44c7', '#355fb4']
 
@@ -90,15 +90,6 @@ const mockRepairDocuments: AssetPdfDocument[] = [
     pdf: '/mock-pdfs/repair-ticket-2.pdf',
     type: 'Repair Ticket',
     display_name: 'Repair Service Ticket 2',
-  },
-]
-
-const mockBelowHookDocuments: AssetPdfDocument[] = [
-  {
-    inspection_date: 'Dec. 26th, 2025',
-    pdf: '/mock-pdfs/below-hook-ticket-1.pdf',
-    type: 'Inspection Repairs Ticket',
-    display_name: 'Below the Hook Service Ticket',
   },
 ]
 
@@ -537,13 +528,6 @@ export default function AssetInfo() {
       setSelectedDocumentUrl((current) =>
         mockRepairDocuments.some((document) => document.pdf === current) ? current : (mockRepairDocuments[0]?.pdf ?? ''),
       )
-      return
-    }
-
-    if (activeTab === 'below-hook') {
-      setSelectedDocumentUrl((current) =>
-        mockBelowHookDocuments.some((document) => document.pdf === current) ? current : (mockBelowHookDocuments[0]?.pdf ?? ''),
-      )
     }
   }, [activeTab])
 
@@ -639,7 +623,6 @@ export default function AssetInfo() {
     { id: 'info', label: 'Asset Info' },
     { id: 'documents', label: 'Preventative Maintenance Reports' },
     { id: 'repair', label: 'Repair Reports' },
-    { id: 'below-hook', label: 'Below the Hook Reports' },
     { id: 'notes', label: 'Notes' },
     { id: 'analytics', label: 'Analytics' },
   ]
@@ -704,11 +687,9 @@ export default function AssetInfo() {
   const currentDocumentList =
     activeTab === 'repair'
       ? mockRepairDocuments
-      : activeTab === 'below-hook'
-        ? mockBelowHookDocuments
-        : assetDocuments.results
-  const showMockDocumentTag = (activeTab === 'repair' || activeTab === 'below-hook') && userTag === 'developer'
-  const isMockDocumentTab = activeTab === 'repair' || activeTab === 'below-hook'
+      : assetDocuments.results
+  const showMockDocumentTag = activeTab === 'repair' && userTag === 'developer'
+  const isMockDocumentTab = activeTab === 'repair'
   const showMockDocumentContent = !isMockDocumentTab || userTag === 'developer'
   const documentsTotalPages = Math.max(1, assetDocuments.total_pages || 1)
   const visibleDocumentPages = buildVisiblePages(documentsPage, documentsTotalPages)
@@ -1066,7 +1047,7 @@ export default function AssetInfo() {
                     </tbody>
                   </table>
                 </div>
-              ) : activeTab === 'documents' || activeTab === 'repair' || activeTab === 'below-hook' ? (
+              ) : activeTab === 'documents' || activeTab === 'repair' ? (
                 <section className="rounded-[18px] border border-[var(--deshazo-border)] bg-white/75 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.16)] sm:p-5">
                   {documentsError ? (
                     <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
