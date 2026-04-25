@@ -9,6 +9,12 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { createAssetNote, listAssetNotes, type AssetNoteRecord } from '../lib/assetNotes'
 import { getAssetCompanyInternalId, upsertAssetCompanyInternalId } from '../lib/assetCompanyInternalId'
+import {
+  deleteAssetNotificationSubscriber,
+  listAssetNotificationSubscribers,
+  upsertAssetNotificationSubscriber,
+  type AssetNotificationSubscriberRecord,
+} from '../lib/assetNotificationSubscribers'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 import {
   findAssetPdfPage,
@@ -55,6 +61,12 @@ type AssetNote = {
   authorName: string
   authorEmail: string
   createdAt: string
+}
+
+type NotificationSubscriber = {
+  email: string
+  newReports: boolean
+  repairDone: boolean
 }
 
 type IssueReportMatch = {
@@ -128,6 +140,14 @@ const mapNoteRecord = (note: AssetNoteRecord): AssetNote => ({
   authorName: note.authorName,
   authorEmail: note.authorEmail,
   createdAt: note.createdAt,
+})
+
+const mapNotificationSubscriberRecord = (
+  subscriber: AssetNotificationSubscriberRecord,
+): NotificationSubscriber => ({
+  email: subscriber.email,
+  newReports: subscriber.newReports,
+  repairDone: subscriber.repairDone,
 })
 
 const extractDocumentNumber = (...values: Array<string | undefined>) => {
@@ -239,7 +259,9 @@ export default function AssetInfo() {
   const [wabashError, setWabashError] = useState('')
   const [wabashInfoOpen, setWabashInfoOpen] = useState(false)
   const [emailModalOpen, setEmailModalOpen] = useState(false)
-  const [notificationEmails, setNotificationEmails] = useState<{ email: string; newReports: boolean; repairDone: boolean }[]>([])
+  const [notificationEmails, setNotificationEmails] = useState<NotificationSubscriber[]>([])
+  const [notificationEmailsLoading, setNotificationEmailsLoading] = useState(false)
+  const [notificationSavingEmail, setNotificationSavingEmail] = useState('')
   const [emailDraft, setEmailDraft] = useState('')
   const [emailError, setEmailError] = useState('')
   const [issueReportOpen, setIssueReportOpen] = useState(false)
@@ -373,30 +395,6 @@ export default function AssetInfo() {
     }
   }, [assetInfo.issues])
 
-  const loadAssetInfo = async (signal?: AbortSignal) => {
-    if (!unitId) {
-      setLoading(false)
-      setError('A unit id is required to load asset information.')
-      setAssetInfo(defaultAssetInfo)
-      return
-    }
-
-    try {
-      setLoading(true)
-      setError('')
-      const data = await getAssetInfo(unitId, signal)
-      setAssetInfo(data)
-    } catch (err) {
-      if (signal?.aborted) return
-      setError(err instanceof Error ? err.message : 'Unable to load asset information.')
-      setAssetInfo(defaultAssetInfo)
-    } finally {
-      if (!signal?.aborted) {
-        setLoading(false)
-      }
-    }
-  }
-
   useEffect(() => {
     if (!isConfigured || !supabase) {
       navigate('/login')
@@ -415,7 +413,32 @@ export default function AssetInfo() {
 
   useEffect(() => {
     const controller = new AbortController()
-    loadAssetInfo(controller.signal)
+
+    const loadAssetInfo = async () => {
+      if (!unitId) {
+        setLoading(false)
+        setError('A unit id is required to load asset information.')
+        setAssetInfo(defaultAssetInfo)
+        return
+      }
+
+      try {
+        setLoading(true)
+        setError('')
+        const data = await getAssetInfo(unitId, controller.signal)
+        setAssetInfo(data)
+      } catch (err) {
+        if (controller.signal.aborted) return
+        setError(err instanceof Error ? err.message : 'Unable to load asset information.')
+        setAssetInfo(defaultAssetInfo)
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    void loadAssetInfo()
 
     return () => controller.abort()
   }, [unitId])
@@ -451,6 +474,42 @@ export default function AssetInfo() {
     }
 
     loadNotes()
+
+    return () => {
+      cancelled = true
+    }
+  }, [unitId, user])
+
+  useEffect(() => {
+    if (!user || !unitId || !supabase) {
+      setNotificationEmails([])
+      setNotificationEmailsLoading(false)
+      return
+    }
+
+    let cancelled = false
+
+    const loadNotificationSubscribers = async () => {
+      try {
+        setNotificationEmailsLoading(true)
+        setEmailError('')
+        const data = await listAssetNotificationSubscribers(unitId)
+        if (!cancelled) {
+          setNotificationEmails(data.map(mapNotificationSubscriberRecord))
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setNotificationEmails([])
+          setEmailError(err instanceof Error ? err.message : 'Unable to load email notifications.')
+        }
+      } finally {
+        if (!cancelled) {
+          setNotificationEmailsLoading(false)
+        }
+      }
+    }
+
+    loadNotificationSubscribers()
 
     return () => {
       cancelled = true
@@ -647,6 +706,106 @@ export default function AssetInfo() {
     }
   }
 
+  const refreshAssetInfo = async () => {
+    if (!unitId) {
+      setLoading(false)
+      setError('A unit id is required to load asset information.')
+      setAssetInfo(defaultAssetInfo)
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      const data = await getAssetInfo(unitId)
+      setAssetInfo(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load asset information.')
+      setAssetInfo(defaultAssetInfo)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const saveNotificationSubscriber = async (subscriber: NotificationSubscriber) => {
+    if (!user || !unitId) {
+      setEmailError('Sign in and select an asset before editing email notifications.')
+      return false
+    }
+
+    try {
+      setNotificationSavingEmail(subscriber.email)
+      setEmailError('')
+      const savedSubscriber = await upsertAssetNotificationSubscriber({
+        unitId,
+        email: subscriber.email,
+        newReports: subscriber.newReports,
+        repairDone: subscriber.repairDone,
+        updatedBy: user.id,
+        updatedByName: fullName,
+        updatedByEmail: user.email ?? '',
+      })
+      setNotificationEmails((prev) => {
+        const next = prev.filter((entry) => entry.email !== savedSubscriber.email)
+        next.push(mapNotificationSubscriberRecord(savedSubscriber))
+        return next.sort((left, right) => left.email.localeCompare(right.email))
+      })
+      return true
+    } catch (err) {
+      setEmailError(err instanceof Error ? err.message : 'Unable to save email notification settings.')
+      return false
+    } finally {
+      setNotificationSavingEmail('')
+    }
+  }
+
+  const handleAddNotificationEmail = async () => {
+    const val = emailDraft.trim().toLowerCase()
+    if (!val.includes('@')) {
+      setEmailError('Please enter a valid email.')
+      return
+    }
+    if (notificationEmails.some((subscriber) => subscriber.email === val)) {
+      setEmailError('This email is already added.')
+      return
+    }
+
+    const saved = await saveNotificationSubscriber({ email: val, newReports: true, repairDone: true })
+    if (saved) {
+      setEmailDraft('')
+    }
+  }
+
+  const handleRemoveNotificationEmail = async (email: string) => {
+    if (!unitId) {
+      setEmailError('A unit id is required to remove email notifications.')
+      return
+    }
+
+    try {
+      setNotificationSavingEmail(email)
+      setEmailError('')
+      await deleteAssetNotificationSubscriber(unitId, email)
+      setNotificationEmails((prev) => prev.filter((subscriber) => subscriber.email !== email))
+    } catch (err) {
+      setEmailError(err instanceof Error ? err.message : 'Unable to remove this email notification.')
+    } finally {
+      setNotificationSavingEmail('')
+    }
+  }
+
+  const handleToggleNotificationEmail = async (
+    email: string,
+    field: 'newReports' | 'repairDone',
+  ) => {
+    const subscriber = notificationEmails.find((entry) => entry.email === email)
+    if (!subscriber) {
+      return
+    }
+
+    await saveNotificationSubscriber({ ...subscriber, [field]: !subscriber[field] })
+  }
+
   const findIssueDocumentMatch = async (issue: AssetIssue, docNumber: string) => {
     const response = await findAssetPdfPage(unitId, docNumber, issue.inspection_date)
 
@@ -708,7 +867,7 @@ export default function AssetInfo() {
   })
 
   const handleRefreshIssues = () => {
-    loadAssetInfo()
+    void refreshAssetInfo()
   }
 
   const clearFilter = () => {
@@ -1592,11 +1751,7 @@ export default function AssetInfo() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
-                    const val = emailDraft.trim().toLowerCase()
-                    if (!val.includes('@')) { setEmailError('Please enter a valid email.'); return }
-                    if (notificationEmails.some((s) => s.email === val)) { setEmailError('This email is already added.'); return }
-                    setNotificationEmails((prev) => [...prev, { email: val, newReports: true, repairDone: true }])
-                    setEmailDraft('')
+                    void handleAddNotificationEmail()
                   }
                 }}
                 placeholder="name@example.com"
@@ -1605,13 +1760,8 @@ export default function AssetInfo() {
               />
               <button
                 type="button"
-                onClick={() => {
-                  const val = emailDraft.trim().toLowerCase()
-                  if (!val.includes('@')) { setEmailError('Please enter a valid email.'); return }
-                  if (notificationEmails.some((s) => s.email === val)) { setEmailError('This email is already added.'); return }
-                  setNotificationEmails((prev) => [...prev, { email: val, newReports: true, repairDone: true }])
-                  setEmailDraft('')
-                }}
+                onClick={() => { void handleAddNotificationEmail() }}
+                disabled={notificationEmailsLoading || Boolean(notificationSavingEmail)}
                 className="rounded-[10px] bg-[var(--deshazo-blue)] px-4 py-2.5 text-[14px] font-bold text-white transition hover:opacity-90"
               >
                 Add
@@ -1621,7 +1771,11 @@ export default function AssetInfo() {
 
             {/* Subscriber list */}
             <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto">
-              {notificationEmails.length === 0 ? (
+              {notificationEmailsLoading ? (
+                <p className="rounded-[10px] border border-dashed border-[var(--deshazo-border)] py-6 text-center text-[13px] font-semibold text-[rgba(21,24,33,0.4)]">
+                  Loading subscribers...
+                </p>
+              ) : notificationEmails.length === 0 ? (
                 <p className="rounded-[10px] border border-dashed border-[var(--deshazo-border)] py-6 text-center text-[13px] font-semibold text-[rgba(21,24,33,0.4)]">
                   No subscribers yet
                 </p>
@@ -1637,25 +1791,28 @@ export default function AssetInfo() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setNotificationEmails((prev) => prev.filter((s) => s.email !== sub.email))}
+                        onClick={() => { void handleRemoveNotificationEmail(sub.email) }}
+                        disabled={notificationSavingEmail === sub.email}
                         className="ml-2 text-[18px] leading-none text-[rgba(21,24,33,0.35)] transition hover:text-red-500"
                         aria-label="Remove"
                       >
-                        ×
+                        {notificationSavingEmail === sub.email ? '…' : '×'}
                       </button>
                     </div>
                     {/* Notification type toggles */}
                     <div className="mt-2.5 flex gap-2">
                       <button
                         type="button"
-                        onClick={() => setNotificationEmails((prev) => prev.map((s) => s.email === sub.email ? { ...s, newReports: !s.newReports } : s))}
+                        onClick={() => { void handleToggleNotificationEmail(sub.email, 'newReports') }}
+                        disabled={notificationSavingEmail === sub.email}
                         className={`rounded-full px-3 py-1 text-[12px] font-semibold transition ${sub.newReports ? 'bg-[var(--deshazo-blue)] text-white' : 'border border-[var(--deshazo-border)] bg-white text-[rgba(21,24,33,0.5)]'}`}
                       >
                         New Reports
                       </button>
                       <button
                         type="button"
-                        onClick={() => setNotificationEmails((prev) => prev.map((s) => s.email === sub.email ? { ...s, repairDone: !s.repairDone } : s))}
+                        onClick={() => { void handleToggleNotificationEmail(sub.email, 'repairDone') }}
+                        disabled={notificationSavingEmail === sub.email}
                         className={`rounded-full px-3 py-1 text-[12px] font-semibold transition ${sub.repairDone ? 'bg-[#4a9960] text-white' : 'border border-[var(--deshazo-border)] bg-white text-[rgba(21,24,33,0.5)]'}`}
                       >
                         Repair Completed

@@ -3,17 +3,19 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 
 export default function ResetPassword() {
+  const configError = !isConfigured || !supabase
+    ? 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local'
+    : ''
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(configError)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (!isConfigured || !supabase) {
-      setError('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local')
+    if (configError || !supabase) {
       return
     }
 
@@ -26,7 +28,7 @@ export default function ResetPassword() {
         setError('Open this page from the password reset link in your email.')
       }
     })
-  }, [])
+  }, [configError])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
