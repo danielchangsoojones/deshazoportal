@@ -161,6 +161,13 @@ export type AssetInfoAnalytics = {
   issues: AssetIssue[]
 }
 
+export type AssetSearchResult = {
+  unit_id: string
+  company_id: string
+  name: string
+  warehouse_location: string
+}
+
 export type RecurringIssue = {
   category_display_name: string
   occurrences: number
@@ -394,6 +401,17 @@ export async function findAssetPdfPage(
   }
 
   throw new Error('Asset PDF page lookup returned an unexpected response shape.')
+}
+
+export async function searchAssetByDNumber(dNumber: string, signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('searchAssetByDNumber', { d_number: dNumber }, signal)
+
+  const data = extractObjectPayload<AssetSearchResult>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Asset search returned an unexpected response shape.')
 }
 
 export async function getRecurringIssues(unitId: string, signal?: AbortSignal) {

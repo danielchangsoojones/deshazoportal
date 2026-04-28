@@ -7,6 +7,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import DNumberSearchBar from '../components/DNumberSearchBar'
 import { createAssetNote, listAssetNotes, type AssetNoteRecord } from '../lib/assetNotes'
 import { getAssetCompanyInternalId, upsertAssetCompanyInternalId } from '../lib/assetCompanyInternalId'
 import {
@@ -949,6 +950,8 @@ export default function AssetInfo() {
               {menuOpen ? '⌃' : '⌄'}
             </span>
           </button>
+
+          <DNumberSearchBar />
 
           <div className="hidden text-right text-sm text-white/85 sm:block">
             Signed in as <span className="font-semibold text-white">{user.email}</span>

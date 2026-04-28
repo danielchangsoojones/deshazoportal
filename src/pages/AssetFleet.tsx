@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import DNumberSearchBar from '../components/DNumberSearchBar'
 import {
   getAssetsServiced,
   isPortalApiConfigured,
@@ -179,6 +180,8 @@ export default function AssetFleet() {
               {menuOpen ? '⌃' : '⌄'}
             </span>
           </button>
+
+          <DNumberSearchBar />
 
           <div className="hidden text-right text-sm text-white/85 sm:block">
             Signed in as <span className="font-semibold text-white">{user.email}</span>
