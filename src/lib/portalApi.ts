@@ -162,8 +162,8 @@ export type AssetInfoAnalytics = {
 }
 
 export type RecurringIssue = {
-  component: string
-  failures: number
+  category_display_name: string
+  occurrences: number
 }
 
 export type AssetPdfDocument = {
@@ -399,9 +399,17 @@ export async function findAssetPdfPage(
 export async function getRecurringIssues(unitId: string, signal?: AbortSignal) {
   const response = await callParseFunction<unknown>('getRecurringIssues', { unit_id: unitId }, signal)
 
-  const data = extractArrayPayload<RecurringIssue>(response)
-  if (data) {
-    return data
+  const unwrapped = response && typeof response === 'object' && !Array.isArray(response)
+    ? (response as Record<string, unknown>)
+    : null
+
+  const inner = unwrapped?.result ?? unwrapped
+  const arr = inner && typeof inner === 'object' && !Array.isArray(inner)
+    ? (inner as Record<string, unknown>).recurring_issues
+    : null
+
+  if (Array.isArray(arr)) {
+    return arr as RecurringIssue[]
   }
 
   throw new Error('Recurring issues returned an unexpected response shape.')
