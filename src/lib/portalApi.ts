@@ -161,6 +161,11 @@ export type AssetInfoAnalytics = {
   issues: AssetIssue[]
 }
 
+export type RecurringIssue = {
+  component: string
+  failures: number
+}
+
 export type AssetPdfDocument = {
   inspection_date: string
   pdf: string
@@ -389,6 +394,17 @@ export async function findAssetPdfPage(
   }
 
   throw new Error('Asset PDF page lookup returned an unexpected response shape.')
+}
+
+export async function getRecurringIssues(unitId: string, signal?: AbortSignal) {
+  const response = await callParseFunction<unknown>('getRecurringIssues', { unit_id: unitId }, signal)
+
+  const data = extractArrayPayload<RecurringIssue>(response)
+  if (data) {
+    return data
+  }
+
+  throw new Error('Recurring issues returned an unexpected response shape.')
 }
 
 export { isPortalApiConfigured }
