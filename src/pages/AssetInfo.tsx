@@ -20,13 +20,11 @@ import {
   findAssetPdfPage,
   getAssetInfo,
   getAssetPDF,
-  getRecurringIssues,
   isPortalApiConfigured,
   type AssetPdfDocument,
   type AssetPdfResponse,
   type AssetInfoAnalytics,
   type AssetIssue,
-  type RecurringIssue,
 } from '../lib/portalApi'
 
 const menuItems = [
@@ -264,8 +262,6 @@ export default function AssetInfo() {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [recurringIssues, setRecurringIssues] = useState<RecurringIssue[]>([])
-  const [recurringIssuesLoading, setRecurringIssuesLoading] = useState(false)
   const navigate = useNavigate()
   const unitId = searchParams.get('unit_id')?.trim() || ''
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
@@ -373,6 +369,10 @@ export default function AssetInfo() {
       })
       .slice(0, 5)
 
+    const recurringIssues = Array.from(componentMap.entries())
+      .map(([component, failures]) => ({ component, failures }))
+      .sort((a, b) => b.failures - a.failures)
+
     return {
       totalIssues: issues.length,
       safetyCount,
@@ -386,6 +386,7 @@ export default function AssetInfo() {
       issuesByComponent,
       issuesOverTime,
       recurringPatterns,
+      recurringIssues,
     }
   }, [assetInfo.issues])
 
@@ -434,26 +435,6 @@ export default function AssetInfo() {
 
     void loadAssetInfo()
 
-    return () => controller.abort()
-  }, [unitId])
-
-  useEffect(() => {
-    if (!unitId) return
-    const controller = new AbortController()
-
-    const loadRecurringIssues = async () => {
-      try {
-        setRecurringIssuesLoading(true)
-        const data = await getRecurringIssues(unitId, controller.signal)
-        setRecurringIssues(data)
-      } catch {
-        if (!controller.signal.aborted) setRecurringIssues([])
-      } finally {
-        if (!controller.signal.aborted) setRecurringIssuesLoading(false)
-      }
-    }
-
-    void loadRecurringIssues()
     return () => controller.abort()
   }, [unitId])
 
@@ -1125,15 +1106,9 @@ export default function AssetInfo() {
                   <div>
                     <h2 className="mb-5 text-[15px] font-bold text-[var(--deshazo-text)]">Recurring Issues</h2>
                     <div className="mt-3 flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
-                      {recurringIssuesLoading ? (
-                        <div className="flex gap-3">
-                          {[...Array(4)].map((_, i) => (
-                            <div key={i} className="h-[110px] w-[155px] animate-pulse rounded-[12px] bg-[var(--deshazo-surface)]" />
-                          ))}
-                        </div>
-                      ) : recurringIssues.length === 0 ? (
+                      {analytics.recurringIssues.length === 0 ? (
                         <p className="text-[13px] text-[rgba(21,24,33,0.45)]">No recurring issues found.</p>
-                      ) : recurringIssues.map((item) => (
+                      ) : analytics.recurringIssues.map((item) => (
                         <div
                           key={item.component}
                           className="group relative flex shrink-0 flex-col justify-between overflow-hidden rounded-[12px] border border-red-200 bg-white w-[155px] shadow-[0_8px_28px_-16px_rgba(220,38,38,0.18)] transition hover:shadow-[0_12px_32px_-12px_rgba(220,38,38,0.28)] hover:-translate-y-0.5"
