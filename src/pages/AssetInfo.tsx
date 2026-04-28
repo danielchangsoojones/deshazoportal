@@ -1126,30 +1126,36 @@ export default function AssetInfo() {
                     <h2 className="mb-5 text-[15px] font-bold text-[var(--deshazo-text)]">Recurring Issues</h2>
                     <div className="mt-3 flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
                       {recurringIssuesLoading ? (
-                        <div className="h-[110px] w-[155px] animate-pulse rounded-[12px] bg-[var(--deshazo-surface)]" />
+                        <div className="flex gap-3">
+                          {[...Array(4)].map((_, i) => (
+                            <div key={i} className="h-[110px] w-[155px] animate-pulse rounded-[12px] bg-[var(--deshazo-surface)]" />
+                          ))}
+                        </div>
                       ) : recurringIssues.length === 0 ? (
                         <p className="text-[13px] text-[rgba(21,24,33,0.45)]">No recurring issues found.</p>
-                      ) : (() => {
-                        const item = recurringIssues[0]
-                        return (
-                          <div
-                            className="group relative flex shrink-0 flex-col justify-between overflow-hidden rounded-[12px] border border-red-200 bg-white w-[155px] shadow-[0_8px_28px_-16px_rgba(220,38,38,0.18)] transition hover:shadow-[0_12px_32px_-12px_rgba(220,38,38,0.28)] hover:-translate-y-0.5"
-                          >
-                            <div className="h-1 w-full bg-gradient-to-r from-red-500 to-red-400" />
-                            <div className="px-3 py-3">
-                              <p className="text-[28px] font-black leading-none tracking-tight text-red-500">
-                                {item.failures}
-                              </p>
-                              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest text-red-400">
-                                failures
-                              </p>
-                              <div className="my-2 h-px bg-red-100" />
-                              <p className="text-[13px] font-bold text-[var(--deshazo-text)]">{item.component}</p>
-                              <p className="mt-0.5 text-[11px] text-[rgba(21,24,33,0.45)]">past 12 months</p>
-                            </div>
+                      ) : recurringIssues.map((item) => (
+                        <div
+                          key={item.component}
+                          className="group relative flex shrink-0 flex-col justify-between overflow-hidden rounded-[12px] border border-red-200 bg-white w-[155px] shadow-[0_8px_28px_-16px_rgba(220,38,38,0.18)] transition hover:shadow-[0_12px_32px_-12px_rgba(220,38,38,0.28)] hover:-translate-y-0.5"
+                        >
+                          {/* red top accent bar */}
+                          <div className="h-1 w-full bg-gradient-to-r from-red-500 to-red-400" />
+                          <div className="px-3 py-3">
+                            {/* failure count */}
+                            <p className="text-[28px] font-black leading-none tracking-tight text-red-500">
+                              {item.failures}
+                            </p>
+                            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest text-red-400">
+                              failures
+                            </p>
+                            {/* divider */}
+                            <div className="my-2 h-px bg-red-100" />
+                            {/* component name */}
+                            <p className="text-[13px] font-bold text-[var(--deshazo-text)]">{item.component}</p>
+                            <p className="mt-0.5 text-[11px] text-[rgba(21,24,33,0.45)]">past 12 months</p>
                           </div>
-                        )
-                      })()}
+                        </div>
+                      ))}
                     </div>
                   </div>
 
