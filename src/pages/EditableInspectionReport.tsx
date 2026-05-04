@@ -253,6 +253,7 @@ function EditableValue({ label, value, className = '', onChange, onDropMenuItem 
 }
 
 export default function EditableInspectionReport() {
+  const generatedId = useRef(1000)
   const [report, setReport] = useState<ReportData>(() => {
     const savedReport = window.localStorage.getItem(storageKey)
 
@@ -339,7 +340,8 @@ export default function EditableInspectionReport() {
 
   const createId = (prefix: string) => {
     if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`
-    return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`
+    generatedId.current += 1
+    return `${prefix}-${generatedId.current}`
   }
 
   const addRepairSection = () => {
@@ -412,18 +414,17 @@ export default function EditableInspectionReport() {
     )
   }
 
-  const applyMenuItemToRepairLineItem = (sectionId: string, lineItemId: string, item: MenuItem) => {
+  const addMenuItemToRepairSection = (sectionId: string, item: MenuItem) => {
     setRepairSections((currentSections) =>
       saveRepairSections(
         currentSections.map((section) =>
           section.id === sectionId
             ? {
                 ...section,
-                lineItems: section.lineItems.map((lineItem) =>
-                  lineItem.id === lineItemId
-                    ? { ...lineItem, description: item.description, rate: item.rate }
-                    : lineItem,
-                ),
+                lineItems: [
+                  ...section.lineItems,
+                  { id: createId('line'), description: item.description, quantity: '1', rate: item.rate },
+                ],
               }
             : section,
         ),
@@ -494,18 +495,17 @@ export default function EditableInspectionReport() {
     )
   }
 
-  const applyMenuItemToCostLineItem = (sectionId: string, lineItemId: string, item: MenuItem) => {
+  const addMenuItemToCostSection = (sectionId: string, item: MenuItem) => {
     setCostSections((currentSections) =>
       saveCostSections(
         currentSections.map((section) =>
           section.id === sectionId
             ? {
                 ...section,
-                lineItems: section.lineItems.map((lineItem) =>
-                  lineItem.id === lineItemId
-                    ? { ...lineItem, description: item.description, rate: item.rate }
-                    : lineItem,
-                ),
+                lineItems: [
+                  ...section.lineItems,
+                  { id: createId('line'), description: item.description, quantity: '1', rate: item.rate },
+                ],
               }
             : section,
         ),
@@ -640,27 +640,6 @@ export default function EditableInspectionReport() {
       </header>
 
       <div className="editor-workspace report-shell flex h-[calc(100vh-56px)] overflow-hidden bg-[#f3f4f8]">
-        <aside className="report-toolbar flex w-[92px] shrink-0 flex-col items-center gap-1 border-r border-[#d9dce5] bg-white py-5 text-[#5d6270] shadow-sm">
-          {[
-            ['▣', 'Templates'],
-            ['◈', 'Elements'],
-            ['T', 'Text'],
-            ['▤', 'Brand'],
-            ['↥', 'Uploads'],
-            ['✎', 'Tools'],
-            ['□', 'Projects'],
-          ].map(([icon, label]) => (
-            <button
-              key={label}
-              type="button"
-              className="flex w-full flex-col items-center gap-1 px-2 py-3 text-[11px] font-black transition hover:bg-[#f3f5fb] hover:text-[#273f7a]"
-            >
-              <span className="text-[22px] leading-none">{icon}</span>
-              <span>{label}</span>
-            </button>
-          ))}
-        </aside>
-
         <aside className="report-toolbar w-[260px] shrink-0 overflow-y-auto border-r border-[#d9dce5] bg-[#fbfcff] px-4 py-5 shadow-sm">
           <div className="mb-4">
             <p className="text-[16px] font-black text-[#1f2430]">Menu Items</p>
@@ -782,31 +761,31 @@ export default function EditableInspectionReport() {
                       sectionIndex > 0 ? 'border-t border-[#e1caca]' : ''
                     }`}
                   >
-                    <div className="grid grid-cols-[1fr_190px] gap-4 border-b border-[#e0caca] px-3 py-2">
+                    <div className="grid grid-cols-[1fr_150px] gap-3 border-b border-[#e0caca] px-2.5 py-1">
                       <EditableValue
                         label={`${section.title} title`}
                         value={section.title}
                         onChange={(value) => updateRepairSection(section.id, 'title', value)}
-                        className="text-[16px] font-black leading-[1.05]"
+                        className="text-[13px] font-black leading-tight"
                         multiline
                       />
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between gap-2 bg-[#efc9c9] px-2 py-1 text-[#7d1515]">
-                          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#af0f0f] text-[11px] font-black text-white">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center justify-between gap-1.5 bg-[#efc9c9] px-1.5 py-0.5 text-[#7d1515]">
+                          <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-[#af0f0f] text-[9px] font-black text-white">
                             !
                           </span>
                           <EditableValue
                             label={`${section.title} status`}
                             value={section.status}
                             onChange={(value) => updateRepairSection(section.id, 'status', value)}
-                            className="min-w-0 flex-1 text-[14px] font-black leading-tight"
+                            className="min-w-0 flex-1 text-[11px] font-black leading-tight"
                           />
                         </div>
                         {repairSections.length > 1 ? (
                           <button
                             type="button"
                             onClick={() => removeRepairSection(section.id)}
-                            className="report-inline-action w-full rounded-md border border-[#d4a7a7] bg-white/70 px-2 py-0.5 text-[10px] font-black uppercase text-[#7d1515] transition hover:bg-white"
+                            className="report-inline-action w-full rounded-sm border border-[#d4a7a7] bg-white/70 px-1.5 py-0.5 text-[8px] font-black uppercase leading-tight text-[#7d1515] transition hover:bg-white"
                           >
                             Remove Section
                           </button>
@@ -834,7 +813,7 @@ export default function EditableInspectionReport() {
                               label={`${section.title} line item ${lineIndex + 1}`}
                               value={lineItem.description}
                               onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'description', value)}
-                              onDropMenuItem={(item) => applyMenuItemToRepairLineItem(section.id, lineItem.id, item)}
+                              onDropMenuItem={(item) => addMenuItemToRepairSection(section.id, item)}
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 leading-tight"
                               multiline
                             />
@@ -929,7 +908,7 @@ export default function EditableInspectionReport() {
                           label={`${section.title} line item ${lineIndex + 1}`}
                           value={lineItem.description}
                           onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'description', value)}
-                          onDropMenuItem={(item) => applyMenuItemToCostLineItem(section.id, lineItem.id, item)}
+                          onDropMenuItem={(item) => addMenuItemToCostSection(section.id, item)}
                           className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 leading-tight"
                         />
                         <EditableValue
