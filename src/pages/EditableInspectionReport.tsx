@@ -37,6 +37,7 @@ type MenuItemSection = {
 const storageKey = 'deshazo-editable-inspection-report'
 const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
 const costStorageKey = 'deshazo-editable-inspection-report-costs'
+const menuStorageKey = 'deshazo-editable-inspection-report-menu-items'
 
 const defaultReport: ReportData = {
   logoName: 'DESHAZO',
@@ -131,7 +132,7 @@ const cells = [
   ['manufacturerHoist', 'serialHoist', 'capacityHoist', 'modelHoist'],
 ]
 
-const menuItemSections: MenuItemSection[] = [
+const defaultMenuItemSections: MenuItemSection[] = [
   {
     title: 'Past history',
     items: [
@@ -293,6 +294,12 @@ function EditableValue({ label, value, className = '', onChange, onDropMenuItem 
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
   const [activeLineMenu, setActiveLineMenu] = useState('')
+  const [menuSettingsOpen, setMenuSettingsOpen] = useState(false)
+  const [menuSearch, setMenuSearch] = useState('')
+  const [newMenuSection, setNewMenuSection] = useState(defaultMenuItemSections[0]?.title ?? 'Shared')
+  const [newMenuLabel, setNewMenuLabel] = useState('')
+  const [newMenuDescription, setNewMenuDescription] = useState('')
+  const [newMenuRate, setNewMenuRate] = useState('0.00')
   const [report, setReport] = useState<ReportData>(() => {
     const savedReport = window.localStorage.getItem(storageKey)
 
@@ -327,6 +334,18 @@ export default function EditableInspectionReport() {
       return defaultCostSections
     }
   })
+  const [menuItemSections, setMenuItemSections] = useState<MenuItemSection[]>(() => {
+    const savedSections = window.localStorage.getItem(menuStorageKey)
+
+    if (!savedSections) return defaultMenuItemSections
+
+    try {
+      const parsedSections = JSON.parse(savedSections) as MenuItemSection[]
+      return parsedSections.length > 0 ? parsedSections : defaultMenuItemSections
+    } catch {
+      return defaultMenuItemSections
+    }
+  })
 
   const repairTotal = useMemo(
     () =>
@@ -347,6 +366,19 @@ export default function EditableInspectionReport() {
     [costSections],
   )
   const invoiceTotal = repairTotal + costTotal
+  const visibleMenuItemSections = useMemo(() => {
+    const searchValue = menuSearch.trim().toLowerCase()
+    if (!searchValue) return menuItemSections
+
+    return menuItemSections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) =>
+          `${item.label} ${item.description} ${item.rate}`.toLowerCase().includes(searchValue),
+        ),
+      }))
+      .filter((section) => section.items.length > 0)
+  }, [menuItemSections, menuSearch])
 
   const updatedAt = useMemo(
     () =>
@@ -375,6 +407,34 @@ export default function EditableInspectionReport() {
   const saveCostSections = (nextSections: CostSection[]) => {
     window.localStorage.setItem(costStorageKey, JSON.stringify(nextSections))
     return nextSections
+  }
+
+  const saveMenuItemSections = (nextSections: MenuItemSection[]) => {
+    window.localStorage.setItem(menuStorageKey, JSON.stringify(nextSections))
+    return nextSections
+  }
+
+  const addMenuItemFromSettings = () => {
+    const label = newMenuLabel.trim()
+    const description = newMenuDescription.trim()
+    if (!label || !description) return
+
+    const nextItem: MenuItem = {
+      label,
+      description,
+      rate: parseMoney(newMenuRate).toFixed(2),
+    }
+
+    setMenuItemSections((currentSections) =>
+      saveMenuItemSections(
+        currentSections.map((section) =>
+          section.title === newMenuSection ? { ...section, items: [...section.items, nextItem] } : section,
+        ),
+      ),
+    )
+    setNewMenuLabel('')
+    setNewMenuDescription('')
+    setNewMenuRate('0.00')
   }
 
   const createId = (prefix: string) => {
@@ -571,9 +631,12 @@ export default function EditableInspectionReport() {
     window.localStorage.removeItem(storageKey)
     window.localStorage.removeItem(repairStorageKey)
     window.localStorage.removeItem(costStorageKey)
+    window.localStorage.removeItem(menuStorageKey)
     setReport(defaultReport)
     setRepairSections(defaultRepairSections)
     setCostSections(defaultCostSections)
+    setMenuItemSections(defaultMenuItemSections)
+    setMenuSettingsOpen(false)
   }
 
   return (
@@ -679,41 +742,68 @@ export default function EditableInspectionReport() {
       </header>
 
       <div className="editor-workspace report-shell flex h-[calc(100vh-56px)] overflow-hidden bg-[#f3f4f8]">
-        <aside className="report-toolbar w-[260px] shrink-0 overflow-y-auto border-r border-[#d9dce5] bg-[#fbfcff] px-4 py-5 shadow-sm">
-          <div className="mb-4">
-            <p className="text-[16px] font-black text-[#1f2430]">Menu Items</p>
-            <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
-              Drag an item into any line-item description.
-            </p>
+        <aside className="report-toolbar flex w-[260px] shrink-0 flex-col border-r border-[#d9dce5] bg-[#fbfcff] shadow-sm">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
+            <div className="mb-4">
+              <p className="text-[16px] font-black text-[#1f2430]">Menu Items</p>
+              <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
+                Drag an item into any line-item description.
+              </p>
+            </div>
+
+            <label className="mb-4 block">
+              <span className="sr-only">Search menu items</span>
+              <input
+                value={menuSearch}
+                onChange={(event) => setMenuSearch(event.currentTarget.value)}
+                placeholder="Search menu items..."
+                className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none transition placeholder:text-[#9aa2b2] focus:border-[#273f7a]"
+              />
+            </label>
+
+            <div className="space-y-4">
+              {visibleMenuItemSections.length > 0 ? visibleMenuItemSections.map((section) => (
+                <section key={section.title}>
+                  <h3 className="mb-2 border-b border-[#dfe4ef] pb-1 text-[12px] font-black uppercase tracking-[0.02em] text-[#273f7a]">
+                    {section.title}
+                  </h3>
+                  <div className="space-y-2">
+                    {section.items.map((item) => (
+                      <button
+                        key={`${section.title}-${item.label}`}
+                        type="button"
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
+                          event.dataTransfer.setData('text/plain', item.description)
+                          event.dataTransfer.effectAllowed = 'copy'
+                        }}
+                        className="w-full rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff]"
+                      >
+                        <span className="block text-[13px] font-black text-[#273f7a]">{item.label}</span>
+                        <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
+                        <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )) : (
+                <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
+                  No menu items found.
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="space-y-4">
-            {menuItemSections.map((section) => (
-              <section key={section.title}>
-                <h3 className="mb-2 border-b border-[#dfe4ef] pb-1 text-[12px] font-black uppercase tracking-[0.02em] text-[#273f7a]">
-                  {section.title}
-                </h3>
-                <div className="space-y-2">
-                  {section.items.map((item) => (
-                    <button
-                      key={`${section.title}-${item.label}`}
-                      type="button"
-                      draggable
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
-                        event.dataTransfer.setData('text/plain', item.description)
-                        event.dataTransfer.effectAllowed = 'copy'
-                      }}
-                      className="w-full rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff]"
-                    >
-                      <span className="block text-[13px] font-black text-[#273f7a]">{item.label}</span>
-                      <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
-                      <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ))}
+          <div className="border-t border-[#d9dce5] bg-white p-4">
+            <button
+              type="button"
+              onClick={() => setMenuSettingsOpen(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-[#273f7a] px-3 py-2.5 text-[13px] font-black text-white transition hover:bg-[#1f3262]"
+            >
+              <span className="text-[16px]">⚙</span>
+              <span>Menu Settings</span>
+            </button>
           </div>
         </aside>
 
@@ -1138,6 +1228,85 @@ export default function EditableInspectionReport() {
           </div>
       </main>
     </div>
+    {menuSettingsOpen ? (
+      <div className="report-toolbar fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/45 px-4">
+        <div className="w-full max-w-[680px] rounded-md border border-[#cfd6e5] bg-white shadow-[0_28px_80px_-36px_rgba(15,23,42,0.75)]">
+          <div className="flex items-center justify-between border-b border-[#dfe4ef] px-5 py-4">
+            <div>
+              <h2 className="text-[20px] font-black text-[#1f2430]">Menu Settings</h2>
+              <p className="mt-1 text-[13px] font-semibold text-[#747b8a]">Add a draggable item to one of the menu sections.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMenuSettingsOpen(false)}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[16px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+              aria-label="Close menu settings"
+            >
+              x
+            </button>
+          </div>
+
+          <div className="grid gap-4 px-5 py-5">
+            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+              Section
+              <select
+                value={newMenuSection}
+                onChange={(event) => setNewMenuSection(event.currentTarget.value)}
+                className="rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+              >
+                {menuItemSections.map((section) => (
+                  <option key={section.title} value={section.title}>
+                    {section.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+              Item name
+              <input
+                value={newMenuLabel}
+                onChange={(event) => setNewMenuLabel(event.currentTarget.value)}
+                placeholder="Example: Replacement contactor"
+                className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+              />
+            </label>
+
+            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+              Description
+              <textarea
+                value={newMenuDescription}
+                onChange={(event) => setNewMenuDescription(event.currentTarget.value)}
+                placeholder="Description that will appear in the quote line item"
+                className="min-h-[110px] resize-y rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-semibold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+              />
+            </label>
+
+            <label className="grid max-w-[220px] gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+              Rate
+              <input
+                value={newMenuRate}
+                onChange={(event) => setNewMenuRate(event.currentTarget.value)}
+                inputMode="decimal"
+                className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+              />
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-[#dfe4ef] bg-[#fbfcff] px-5 py-4">
+            <p className="text-[12px] font-semibold text-[#747b8a]">New items save locally and become draggable immediately.</p>
+            <button
+              type="button"
+              onClick={addMenuItemFromSettings}
+              disabled={!newMenuLabel.trim() || !newMenuDescription.trim()}
+              className="rounded-md bg-[#273f7a] px-5 py-2.5 text-[13px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              Add Item
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
     </div>
   )
 }
