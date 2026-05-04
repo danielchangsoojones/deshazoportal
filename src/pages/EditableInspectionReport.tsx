@@ -852,13 +852,24 @@ export default function EditableInspectionReport() {
                                       : `repair-${section.id}-${lineItem.id}`,
                                   )
                                 }
-                                className="flex min-h-[25px] w-full items-center justify-center bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                className="flex min-h-[25px] w-full items-center justify-center bg-white text-[19px] font-black leading-none text-[#4d5360] transition hover:bg-[#f4f6fb]"
                                 aria-label={`Open settings for line item ${lineIndex + 1}`}
                               >
                                 ⚙
                               </button>
                               {activeLineMenu === `repair-${section.id}-${lineItem.id}` ? (
                                 <div className="absolute right-0 top-[calc(100%+4px)] z-20 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                                  <div className="mb-2 flex items-center justify-between gap-2">
+                                    <span className="text-[11px] font-black uppercase text-[#555b66]">Line settings</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveLineMenu('')}
+                                      className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                      aria-label="Close line settings"
+                                    >
+                                      x
+                                    </button>
+                                  </div>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -986,13 +997,24 @@ export default function EditableInspectionReport() {
                                   : `cost-${section.id}-${lineItem.id}`,
                               )
                             }
-                            className="flex min-h-[25px] w-full items-center justify-center bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                            className="flex min-h-[25px] w-full items-center justify-center bg-white text-[19px] font-black leading-none text-[#4d5360] transition hover:bg-[#f4f6fb]"
                             aria-label={`Open settings for ${section.title} line item ${lineIndex + 1}`}
                           >
                             ⚙
                           </button>
                           {activeLineMenu === `cost-${section.id}-${lineItem.id}` ? (
                             <div className="absolute right-0 top-[calc(100%+4px)] z-20 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-black uppercase text-[#555b66]">Line settings</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveLineMenu('')}
+                                  className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                  aria-label="Close line settings"
+                                >
+                                  x
+                                </button>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => {
