@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Document, Page, pdfjs } from 'react-pdf'
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 
 type ReportData = Record<string, string>
 
@@ -32,6 +35,10 @@ type MenuItem = {
 type MenuItemSection = {
   title: string
   items: MenuItem[]
+}
+
+type PdfLoadSuccess = {
+  numPages: number
 }
 
 const storageKey = 'deshazo-editable-inspection-report'
@@ -295,6 +302,8 @@ export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
   const [activeLineMenu, setActiveLineMenu] = useState('')
   const [menuSettingsOpen, setMenuSettingsOpen] = useState(false)
+  const [originalPdfOpen, setOriginalPdfOpen] = useState(false)
+  const [originalPdfPages, setOriginalPdfPages] = useState(0)
   const [menuSearch, setMenuSearch] = useState('')
   const [newMenuSection, setNewMenuSection] = useState(defaultMenuItemSections[0]?.title ?? 'Shared')
   const [newMenuLabel, setNewMenuLabel] = useState('')
@@ -708,7 +717,9 @@ export default function EditableInspectionReport() {
             ⌂
           </button>
           <button type="button" className="text-sm font-black">File</button>
-          <button type="button" className="text-sm font-black">Resize</button>
+          <button type="button" onClick={() => setOriginalPdfOpen(true)} className="text-sm font-black">
+            Show Original PDF
+          </button>
           <div className="flex items-center gap-2 text-sm font-black">
             <span className="text-lg">✎</span>
             <span>Editing</span>
@@ -1303,6 +1314,57 @@ export default function EditableInspectionReport() {
             >
               Add Item
             </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    {originalPdfOpen ? (
+      <div className="report-toolbar fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/55 px-4 py-6">
+        <div className="flex h-full w-full max-w-[1080px] flex-col rounded-md border border-[#cfd6e5] bg-white shadow-[0_28px_80px_-36px_rgba(15,23,42,0.75)]">
+          <div className="flex items-center justify-between border-b border-[#dfe4ef] px-5 py-3">
+            <div>
+              <h2 className="text-[18px] font-black text-[#1f2430]">Original PDF</h2>
+              <p className="mt-0.5 text-[12px] font-semibold text-[#747b8a]">D400049 inspection report</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOriginalPdfOpen(false)}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[16px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+              aria-label="Close original PDF"
+            >
+              x
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto bg-[#eef1f6] px-5 py-5">
+            <Document
+              file="/original-inspection-report.pdf"
+              onLoadSuccess={({ numPages }: PdfLoadSuccess) => setOriginalPdfPages(numPages)}
+              loading={
+                <div className="flex h-full items-center justify-center text-[13px] font-black text-[#747b8a]">
+                  Loading original PDF...
+                </div>
+              }
+              error={
+                <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-[13px] font-bold text-red-700">
+                  Unable to load the original PDF.
+                </div>
+              }
+              className="space-y-5"
+            >
+              {Array.from({ length: originalPdfPages }, (_, index) => (
+                <div
+                  key={`original-pdf-page-${index + 1}`}
+                  className="mx-auto w-fit overflow-hidden bg-white shadow-[0_18px_46px_-30px_rgba(15,23,42,0.5)]"
+                >
+                  <Page
+                    pageNumber={index + 1}
+                    width={920}
+                    renderAnnotationLayer={false}
+                    renderTextLayer={false}
+                  />
+                </div>
+              ))}
+            </Document>
           </div>
         </div>
       </div>
