@@ -31,7 +31,7 @@ const defaultReport: ReportData = {
   logoTagline: 'CRANES / SERVICE / AUTOMATION',
   branch: 'DESHAZO Branch: 018 Dallas',
   phone: 'Branch Contact Phone: ---',
-  title: 'INSPECTION REPORT',
+  title: 'QUOTE PROPOSAL',
   summary: 'D200235 performed by: Calvin Waller',
   type: 'Type: Frequent',
   date: 'Date: Mar 24, 2026',
@@ -228,7 +228,8 @@ export default function EditableInspectionReport() {
     if (!savedReport) return defaultReport
 
     try {
-      return { ...defaultReport, ...JSON.parse(savedReport) as ReportData }
+      const parsedReport = { ...defaultReport, ...JSON.parse(savedReport) as ReportData }
+      return parsedReport.title === 'INSPECTION REPORT' ? { ...parsedReport, title: defaultReport.title } : parsedReport
     } catch {
       return defaultReport
     }
@@ -650,10 +651,6 @@ export default function EditableInspectionReport() {
                             value={section.status}
                             onChange={(value) => updateRepairSection(section.id, 'status', value)}
                             className="min-w-0 flex-1 text-[14px] font-black leading-tight"
-                          />
-                          <span
-                            aria-hidden="true"
-                            className="relative h-4 w-5 shrink-0 rounded-sm bg-[#b70e0e] before:absolute before:left-1/2 before:top-[5px] before:h-2 before:w-2 before:-translate-x-1/2 before:rounded-full before:border-2 before:border-white after:absolute after:left-[4px] after:top-[-3px] after:h-1.5 after:w-3 after:rounded-t-sm after:bg-[#b70e0e]"
                           />
                         </div>
                         {repairSections.length > 1 ? (
