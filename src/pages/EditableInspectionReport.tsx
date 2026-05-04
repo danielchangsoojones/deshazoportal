@@ -7,6 +7,7 @@ type RepairLineItem = {
   description: string
   quantity: string
   rate: string
+  margin: string
 }
 
 type RepairSection = {
@@ -72,8 +73,8 @@ const defaultRepairSections: RepairSection[] = [
     title: 'Under Running Bridge: Wheels',
     status: 'Repair',
     lineItems: [
-      { id: 'wheel-line-1', description: 'Inspect wheel tread wear and flange condition.', quantity: '1', rate: '185.00' },
-      { id: 'wheel-line-2', description: 'Confirm wheel bearings rotate freely under load.', quantity: '1', rate: '145.00' },
+      { id: 'wheel-line-1', description: 'Inspect wheel tread wear and flange condition.', quantity: '1', rate: '185.00', margin: '0' },
+      { id: 'wheel-line-2', description: 'Confirm wheel bearings rotate freely under load.', quantity: '1', rate: '145.00', margin: '0' },
     ],
   },
   {
@@ -81,8 +82,8 @@ const defaultRepairSections: RepairSection[] = [
     title: 'Under Running Bridge: Conductors/Festoon System',
     status: 'Repair',
     lineItems: [
-      { id: 'festoon-line-1', description: 'Replace damaged festoon cable carrier hardware.', quantity: '2', rate: '95.00' },
-      { id: 'festoon-line-2', description: 'Verify conductor alignment through full bridge travel.', quantity: '1', rate: '125.00' },
+      { id: 'festoon-line-1', description: 'Replace damaged festoon cable carrier hardware.', quantity: '2', rate: '95.00', margin: '0' },
+      { id: 'festoon-line-2', description: 'Verify conductor alignment through full bridge travel.', quantity: '1', rate: '125.00', margin: '0' },
     ],
   },
   {
@@ -90,7 +91,7 @@ const defaultRepairSections: RepairSection[] = [
     title: 'Hoist 1: Festoons',
     status: 'Repair',
     lineItems: [
-      { id: 'hoist-line-1', description: 'Repair loose festoon trolley and check cable strain relief.', quantity: '1', rate: '210.00' },
+      { id: 'hoist-line-1', description: 'Repair loose festoon trolley and check cable strain relief.', quantity: '1', rate: '210.00', margin: '0' },
     ],
   },
 ]
@@ -99,22 +100,22 @@ const defaultCostSections: CostSection[] = [
   {
     id: 'parts',
     title: 'Parts',
-    lineItems: [{ id: 'parts-line-1', description: 'Parts required for listed repairs.', quantity: '1', rate: '0.00' }],
+    lineItems: [{ id: 'parts-line-1', description: 'Parts required for listed repairs.', quantity: '1', rate: '0.00', margin: '0' }],
   },
   {
     id: 'labor',
     title: 'Labor',
-    lineItems: [{ id: 'labor-line-1', description: 'Technician labor.', quantity: '1', rate: '0.00' }],
+    lineItems: [{ id: 'labor-line-1', description: 'Technician labor.', quantity: '1', rate: '0.00', margin: '0' }],
   },
   {
     id: 'equipment-rental',
     title: 'Equipment Rental',
-    lineItems: [{ id: 'rental-line-1', description: 'Rental equipment.', quantity: '1', rate: '0.00' }],
+    lineItems: [{ id: 'rental-line-1', description: 'Rental equipment.', quantity: '1', rate: '0.00', margin: '0' }],
   },
   {
     id: 'freight',
     title: 'Freight',
-    lineItems: [{ id: 'freight-line-1', description: 'Freight and delivery.', quantity: '1', rate: '0.00' }],
+    lineItems: [{ id: 'freight-line-1', description: 'Freight and delivery.', quantity: '1', rate: '0.00', margin: '0' }],
   },
 ]
 
@@ -145,8 +146,14 @@ const formatMoney = (value: number) =>
     currency: 'USD',
   }).format(value)
 
-const getLineAmount = (lineItem: RepairLineItem) =>
+const getBaseLineAmount = (lineItem: RepairLineItem) =>
   parseMoney(lineItem.quantity) * parseMoney(lineItem.rate)
+
+const getMarginAmount = (lineItem: RepairLineItem) =>
+  getBaseLineAmount(lineItem) * (parseMoney(lineItem.margin) / 100)
+
+const getLineAmount = (lineItem: RepairLineItem) =>
+  getBaseLineAmount(lineItem) + getMarginAmount(lineItem)
 
 const normalizeRepairSections = (sections: RepairSection[]) =>
   sections.map((section) => ({
@@ -159,6 +166,7 @@ const normalizeRepairSections = (sections: RepairSection[]) =>
         description: savedLineItem.description ?? savedLineItem.text ?? 'Add repair detail here.',
         quantity: savedLineItem.quantity ?? '1',
         rate: savedLineItem.rate ?? '0.00',
+        margin: savedLineItem.margin ?? '0',
       }
     }),
   }))
@@ -174,6 +182,7 @@ const normalizeCostSections = (sections: CostSection[]) =>
         description: savedLineItem.description ?? savedLineItem.text ?? 'Add line item here.',
         quantity: savedLineItem.quantity ?? '1',
         rate: savedLineItem.rate ?? '0.00',
+        margin: savedLineItem.margin ?? '0',
       }
     }),
   }))
@@ -254,6 +263,7 @@ function EditableValue({ label, value, className = '', onChange, onDropMenuItem 
 
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
+  const [activeLineMenu, setActiveLineMenu] = useState('')
   const [report, setReport] = useState<ReportData>(() => {
     const savedReport = window.localStorage.getItem(storageKey)
 
@@ -352,7 +362,7 @@ export default function EditableInspectionReport() {
           id: createId('repair'),
           title: 'New Repair Item',
           status: 'Repair',
-          lineItems: [{ id: createId('line'), description: 'Add repair detail here.', quantity: '1', rate: '0.00' }],
+          lineItems: [{ id: createId('line'), description: 'Add repair detail here.', quantity: '1', rate: '0.00', margin: '0' }],
         },
       ]),
     )
@@ -383,7 +393,7 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: [
                   ...section.lineItems,
-                  { id: createId('line'), description: 'Add repair detail here.', quantity: '1', rate: '0.00' },
+                  { id: createId('line'), description: 'Add repair detail here.', quantity: '1', rate: '0.00', margin: '0' },
                 ],
               }
             : section,
@@ -395,7 +405,7 @@ export default function EditableInspectionReport() {
   const updateRepairLineItem = (
     sectionId: string,
     lineItemId: string,
-    field: 'description' | 'quantity' | 'rate',
+    field: 'description' | 'quantity' | 'rate' | 'margin',
     value: string,
   ) => {
     setRepairSections((currentSections) =>
@@ -423,7 +433,7 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: [
                   ...section.lineItems,
-                  { id: createId('line'), description: item.description, quantity: '1', rate: item.rate },
+                  { id: createId('line'), description: item.description, quantity: '1', rate: item.rate, margin: '0' },
                 ],
               }
             : section,
@@ -456,7 +466,7 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: [
                   ...section.lineItems,
-                  { id: createId('line'), description: 'Add line item here.', quantity: '1', rate: '0.00' },
+                  { id: createId('line'), description: 'Add line item here.', quantity: '1', rate: '0.00', margin: '0' },
                 ],
               }
             : section,
@@ -476,7 +486,7 @@ export default function EditableInspectionReport() {
   const updateCostLineItem = (
     sectionId: string,
     lineItemId: string,
-    field: 'description' | 'quantity' | 'rate',
+    field: 'description' | 'quantity' | 'rate' | 'margin',
     value: string,
   ) => {
     setCostSections((currentSections) =>
@@ -504,7 +514,7 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: [
                   ...section.lineItems,
-                  { id: createId('line'), description: item.description, quantity: '1', rate: item.rate },
+                  { id: createId('line'), description: item.description, quantity: '1', rate: item.rate, margin: '0' },
                 ],
               }
             : section,
@@ -794,7 +804,7 @@ export default function EditableInspectionReport() {
                     </div>
 
                     <div className="bg-white">
-                      <div className="grid grid-cols-[34px_1fr_70px_96px_112px_30px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
+                      <div className="grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
                         <div className="px-2 py-1 text-center">#</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1">Description</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
@@ -806,7 +816,7 @@ export default function EditableInspectionReport() {
                         {section.lineItems.map((lineItem, lineIndex) => (
                           <div
                             key={lineItem.id}
-                            className="grid grid-cols-[34px_1fr_70px_96px_112px_30px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                            className="grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                           >
                             <div className="px-2 py-1.5 text-center text-[11px] font-black text-[#7d1515]">{lineIndex + 1}</div>
                             <EditableValue
@@ -832,18 +842,58 @@ export default function EditableInspectionReport() {
                             <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                               {formatMoney(getLineAmount(lineItem))}
                             </div>
-                            {section.lineItems.length > 1 ? (
+                            <div className="report-inline-action relative border-l border-[#e5e5e5]">
                               <button
                                 type="button"
-                                onClick={() => removeRepairLineItem(section.id, lineItem.id)}
-                                className="report-inline-action flex min-h-[25px] items-center justify-center border-l border-[#e5e5e5] bg-white text-[12px] font-black text-[#8a1a1a] transition hover:bg-[#f7eeee]"
-                                aria-label={`Remove line item ${lineIndex + 1}`}
+                                onClick={() =>
+                                  setActiveLineMenu((currentMenu) =>
+                                    currentMenu === `repair-${section.id}-${lineItem.id}`
+                                      ? ''
+                                      : `repair-${section.id}-${lineItem.id}`,
+                                  )
+                                }
+                                className="flex min-h-[25px] w-full items-center justify-center bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                aria-label={`Open settings for line item ${lineIndex + 1}`}
                               >
-                                x
+                                ⚙
                               </button>
-                            ) : (
-                              <div className="report-inline-action border-l border-[#e5e5e5]" />
-                            )}
+                              {activeLineMenu === `repair-${section.id}-${lineItem.id}` ? (
+                                <div className="absolute right-0 top-[calc(100%+4px)] z-20 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      removeRepairLineItem(section.id, lineItem.id)
+                                      setActiveLineMenu('')
+                                    }}
+                                    className="mb-3 w-full rounded-md border border-[#e1c6c6] bg-[#fff7f7] px-3 py-2 text-left text-[12px] font-black text-[#8a1a1a] transition hover:bg-[#fcecec]"
+                                  >
+                                    Delete item
+                                  </button>
+                                  <label className="block text-[11px] font-black uppercase text-[#555b66]">
+                                    Add margin: {Math.round(parseMoney(lineItem.margin))}%
+                                  </label>
+                                  <input
+                                    type="range"
+                                    min="0"
+                                    max="100"
+                                    step="1"
+                                    value={parseMoney(lineItem.margin)}
+                                    onChange={(event) =>
+                                      updateRepairLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
+                                    }
+                                    className="mt-2 w-full accent-[#273f7a]"
+                                  />
+                                  <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
+                                    <span>Base</span>
+                                    <span className="text-right">{formatMoney(getBaseLineAmount(lineItem))}</span>
+                                    <span>Increase</span>
+                                    <span className="text-right text-[#7d1515]">{formatMoney(getMarginAmount(lineItem))}</span>
+                                    <span className="font-black text-[#111]">New price</span>
+                                    <span className="text-right font-black text-[#111]">{formatMoney(getLineAmount(lineItem))}</span>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -889,7 +939,7 @@ export default function EditableInspectionReport() {
                       />
                     </div>
 
-                    <div className="grid grid-cols-[34px_1fr_70px_96px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[10px] font-black uppercase text-[#555b66]">
+                    <div className="grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[10px] font-black uppercase text-[#555b66]">
                       <div className="px-2 py-1 text-center">#</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1">Description</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
@@ -901,7 +951,7 @@ export default function EditableInspectionReport() {
                     {section.lineItems.map((lineItem, lineIndex) => (
                       <div
                         key={lineItem.id}
-                        className="grid grid-cols-[34px_1fr_70px_96px_112px_30px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                        className="grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                       >
                         <div className="px-2 py-1.5 text-center text-[11px] font-black text-[#273f7a]">{lineIndex + 1}</div>
                         <EditableValue
@@ -926,18 +976,58 @@ export default function EditableInspectionReport() {
                         <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                           {formatMoney(getLineAmount(lineItem))}
                         </div>
-                        {section.lineItems.length > 1 ? (
+                        <div className="report-inline-action relative border-l border-[#e5e5e5]">
                           <button
                             type="button"
-                            onClick={() => removeCostLineItem(section.id, lineItem.id)}
-                            className="report-inline-action flex min-h-[25px] items-center justify-center border-l border-[#e5e5e5] bg-white text-[12px] font-black text-[#8a1a1a] transition hover:bg-[#f7eeee]"
-                            aria-label={`Remove ${section.title} line item ${lineIndex + 1}`}
+                            onClick={() =>
+                              setActiveLineMenu((currentMenu) =>
+                                currentMenu === `cost-${section.id}-${lineItem.id}`
+                                  ? ''
+                                  : `cost-${section.id}-${lineItem.id}`,
+                              )
+                            }
+                            className="flex min-h-[25px] w-full items-center justify-center bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                            aria-label={`Open settings for ${section.title} line item ${lineIndex + 1}`}
                           >
-                            x
+                            ⚙
                           </button>
-                        ) : (
-                          <div className="report-inline-action border-l border-[#e5e5e5]" />
-                        )}
+                          {activeLineMenu === `cost-${section.id}-${lineItem.id}` ? (
+                            <div className="absolute right-0 top-[calc(100%+4px)] z-20 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  removeCostLineItem(section.id, lineItem.id)
+                                  setActiveLineMenu('')
+                                }}
+                                className="mb-3 w-full rounded-md border border-[#e1c6c6] bg-[#fff7f7] px-3 py-2 text-left text-[12px] font-black text-[#8a1a1a] transition hover:bg-[#fcecec]"
+                              >
+                                Delete item
+                              </button>
+                              <label className="block text-[11px] font-black uppercase text-[#555b66]">
+                                Add margin: {Math.round(parseMoney(lineItem.margin))}%
+                              </label>
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={parseMoney(lineItem.margin)}
+                                onChange={(event) =>
+                                  updateCostLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
+                                }
+                                className="mt-2 w-full accent-[#273f7a]"
+                              />
+                              <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
+                                <span>Base</span>
+                                <span className="text-right">{formatMoney(getBaseLineAmount(lineItem))}</span>
+                                <span>Increase</span>
+                                <span className="text-right text-[#7d1515]">{formatMoney(getMarginAmount(lineItem))}</span>
+                                <span className="font-black text-[#111]">New price</span>
+                                <span className="text-right font-black text-[#111]">{formatMoney(getLineAmount(lineItem))}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     ))}
 
