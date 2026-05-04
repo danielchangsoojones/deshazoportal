@@ -531,33 +531,84 @@ export default function EditableInspectionReport() {
         `}
       </style>
 
-      <header className="report-toolbar sticky top-0 z-20 border-b border-[#d1d5de] bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-        <div className="mx-auto flex max-w-[1280px] flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.02em] text-[#273f7a]">Editable inspection report</p>
-            <p className="text-xs font-semibold text-[#6c7280]">Saved locally after each edit · Last opened {updatedAt}</p>
+      <header className="report-toolbar sticky top-0 z-30 flex h-14 items-center justify-between bg-[linear-gradient(90deg,#3cb9c5_0%,#7a35e8_100%)] px-4 text-white shadow-sm">
+        <div className="flex items-center gap-5">
+          <button type="button" className="text-[22px] font-black leading-none" aria-label="Home">
+            ⌂
+          </button>
+          <button type="button" className="text-sm font-black">File</button>
+          <button type="button" className="text-sm font-black">Resize</button>
+          <div className="flex items-center gap-2 text-sm font-black">
+            <span className="text-lg">✎</span>
+            <span>Editing</span>
+            <span className="text-xs">⌄</span>
+          </div>
+        </div>
+
+        <div className="text-sm font-black tracking-wide">DESHAZO Quote Builder</div>
+
+        <div className="flex items-center gap-2">
+          <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
+            Saved {updatedAt}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={resetTemplate}
-              className="rounded-md border border-[#c8cedb] bg-white px-4 py-2 text-sm font-bold text-[#273f7a] transition hover:bg-[#f2f5fb]"
+              className="rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
             >
               Reset
             </button>
             <button
               type="button"
               onClick={() => window.print()}
-              className="rounded-md bg-[#273f7a] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#1e3162]"
+              className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff]"
             >
-              Print / Save PDF
+              Print PDF
             </button>
           </div>
         </div>
       </header>
 
-      <main className="report-shell overflow-x-auto px-4 py-3 sm:px-8">
-        <article className="report-page mx-auto min-h-[850px] w-[1100px] border border-[#111] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.62)]">
+      <div className="editor-workspace report-shell flex h-[calc(100vh-56px)] overflow-hidden bg-[#f3f4f8]">
+        <aside className="report-toolbar flex w-[92px] shrink-0 flex-col items-center gap-1 border-r border-[#d9dce5] bg-white py-5 text-[#5d6270] shadow-sm">
+          {[
+            ['▣', 'Templates'],
+            ['◈', 'Elements'],
+            ['T', 'Text'],
+            ['▤', 'Brand'],
+            ['↥', 'Uploads'],
+            ['✎', 'Tools'],
+            ['□', 'Projects'],
+          ].map(([icon, label]) => (
+            <button
+              key={label}
+              type="button"
+              className="flex w-full flex-col items-center gap-1 px-2 py-3 text-[11px] font-black transition hover:bg-[#f3f5fb] hover:text-[#273f7a]"
+            >
+              <span className="text-[22px] leading-none">{icon}</span>
+              <span>{label}</span>
+            </button>
+          ))}
+        </aside>
+
+        <main className="canvas-stage min-w-0 flex-1 overflow-auto px-8 py-7">
+          <div className="mx-auto w-fit">
+            <div className="report-toolbar mb-3 flex items-center justify-between text-[#5b606b]">
+              <div className="text-[16px] font-black text-[#1e222b]">
+                Page 1 <span className="font-bold text-[#7b808b]">- Quote proposal</span>
+              </div>
+              <div className="flex items-center gap-4 text-[18px]">
+                <button type="button" aria-label="Move page up">⌃</button>
+                <button type="button" aria-label="Move page down">⌄</button>
+                <button type="button" aria-label="Hide page">◉</button>
+                <button type="button" aria-label="Lock page">▣</button>
+                <button type="button" aria-label="Duplicate page">▣</button>
+                <button type="button" aria-label="Delete page">⌫</button>
+              </div>
+            </div>
+
+            <article className="report-page min-h-[850px] w-[1100px] border border-[#111] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.62)]">
           <section className="grid grid-cols-[1.2fr_1fr_0.95fr] items-center bg-[#f5b400] px-6 py-2">
             <div>
               <EditableText id="logoName" data={report} onChange={updateField} className="text-[30px] font-black leading-none tracking-[-0.04em]" />
@@ -855,7 +906,9 @@ export default function EditableInspectionReport() {
             </section>
           </section>
         </article>
+          </div>
       </main>
+    </div>
     </div>
   )
 }
