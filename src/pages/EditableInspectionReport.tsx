@@ -22,6 +22,12 @@ type CostSection = {
   lineItems: RepairLineItem[]
 }
 
+type MenuItem = {
+  label: string
+  description: string
+  rate: string
+}
+
 const storageKey = 'deshazo-editable-inspection-report'
 const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
 const costStorageKey = 'deshazo-editable-inspection-report-costs'
@@ -119,6 +125,15 @@ const cells = [
   ['manufacturerHoist', 'serialHoist', 'capacityHoist', 'modelHoist'],
 ]
 
+const menuItems: MenuItem[] = [
+  { label: 'Wheel inspection', description: 'Inspect wheel tread wear and flange condition.', rate: '185.00' },
+  { label: 'Festoon repair', description: 'Replace damaged festoon cable carrier hardware.', rate: '95.00' },
+  { label: 'Cable alignment', description: 'Verify conductor alignment through full bridge travel.', rate: '125.00' },
+  { label: 'Technician labor', description: 'Technician labor.', rate: '145.00' },
+  { label: 'Lift rental', description: 'Scissor lift rental.', rate: '275.00' },
+  { label: 'Freight', description: 'Freight and delivery.', rate: '85.00' },
+]
+
 const parseMoney = (value: string) => {
   const numericValue = Number(value.replace(/[^0-9.-]/g, ''))
   return Number.isFinite(numericValue) ? numericValue : 0
@@ -189,9 +204,10 @@ type EditableValueProps = {
   className?: string
   multiline?: boolean
   onChange: (value: string) => void
+  onDropMenuItem?: (item: MenuItem) => void
 }
 
-function EditableValue({ label, value, className = '', onChange }: EditableValueProps) {
+function EditableValue({ label, value, className = '', onChange, onDropMenuItem }: EditableValueProps) {
   const elementRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -210,6 +226,21 @@ function EditableValue({ label, value, className = '', onChange }: EditableValue
       spellCheck
       className={`editable-report-field ${className}`}
       onBlur={(event) => onChange(event.currentTarget.innerText)}
+      onDragOver={(event) => {
+        if (onDropMenuItem) event.preventDefault()
+      }}
+      onDrop={(event) => {
+        if (!onDropMenuItem) return
+        event.preventDefault()
+        const payload = event.dataTransfer.getData('application/deshazo-menu-item')
+        if (!payload) return
+
+        try {
+          onDropMenuItem(JSON.parse(payload) as MenuItem)
+        } catch {
+          onDropMenuItem({ label: 'Menu item', description: payload, rate: '0.00' })
+        }
+      }}
       onPaste={(event) => {
         event.preventDefault()
         const text = event.clipboardData.getData('text/plain')
@@ -381,6 +412,25 @@ export default function EditableInspectionReport() {
     )
   }
 
+  const applyMenuItemToRepairLineItem = (sectionId: string, lineItemId: string, item: MenuItem) => {
+    setRepairSections((currentSections) =>
+      saveRepairSections(
+        currentSections.map((section) =>
+          section.id === sectionId
+            ? {
+                ...section,
+                lineItems: section.lineItems.map((lineItem) =>
+                  lineItem.id === lineItemId
+                    ? { ...lineItem, description: item.description, rate: item.rate }
+                    : lineItem,
+                ),
+              }
+            : section,
+        ),
+      ),
+    )
+  }
+
   const removeRepairLineItem = (sectionId: string, lineItemId: string) => {
     setRepairSections((currentSections) =>
       saveRepairSections(
@@ -436,6 +486,25 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: section.lineItems.map((lineItem) =>
                   lineItem.id === lineItemId ? { ...lineItem, [field]: value } : lineItem,
+                ),
+              }
+            : section,
+        ),
+      ),
+    )
+  }
+
+  const applyMenuItemToCostLineItem = (sectionId: string, lineItemId: string, item: MenuItem) => {
+    setCostSections((currentSections) =>
+      saveCostSections(
+        currentSections.map((section) =>
+          section.id === sectionId
+            ? {
+                ...section,
+                lineItems: section.lineItems.map((lineItem) =>
+                  lineItem.id === lineItemId
+                    ? { ...lineItem, description: item.description, rate: item.rate }
+                    : lineItem,
                 ),
               }
             : section,
@@ -592,6 +661,35 @@ export default function EditableInspectionReport() {
           ))}
         </aside>
 
+        <aside className="report-toolbar w-[260px] shrink-0 overflow-y-auto border-r border-[#d9dce5] bg-[#fbfcff] px-4 py-5 shadow-sm">
+          <div className="mb-4">
+            <p className="text-[16px] font-black text-[#1f2430]">Menu Items</p>
+            <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
+              Drag an item into any line-item description.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {menuItems.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
+                  event.dataTransfer.setData('text/plain', item.description)
+                  event.dataTransfer.effectAllowed = 'copy'
+                }}
+                className="w-full rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff]"
+              >
+                <span className="block text-[13px] font-black text-[#273f7a]">{item.label}</span>
+                <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
+                <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
+              </button>
+            ))}
+          </div>
+        </aside>
+
         <main className="canvas-stage min-w-0 flex-1 overflow-auto px-8 py-7">
           <div className="mx-auto w-fit">
             <div className="report-toolbar mb-3 flex items-center justify-between text-[#5b606b]">
@@ -736,6 +834,7 @@ export default function EditableInspectionReport() {
                               label={`${section.title} line item ${lineIndex + 1}`}
                               value={lineItem.description}
                               onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'description', value)}
+                              onDropMenuItem={(item) => applyMenuItemToRepairLineItem(section.id, lineItem.id, item)}
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 leading-tight"
                               multiline
                             />
@@ -830,6 +929,7 @@ export default function EditableInspectionReport() {
                           label={`${section.title} line item ${lineIndex + 1}`}
                           value={lineItem.description}
                           onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'description', value)}
+                          onDropMenuItem={(item) => applyMenuItemToCostLineItem(section.id, lineItem.id, item)}
                           className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 leading-tight"
                         />
                         <EditableValue
