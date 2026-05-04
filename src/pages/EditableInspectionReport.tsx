@@ -555,43 +555,43 @@ export default function EditableInspectionReport() {
         </div>
       </header>
 
-      <main className="report-shell overflow-x-auto px-4 py-8 sm:px-8">
+      <main className="report-shell overflow-x-auto px-4 py-3 sm:px-8">
         <article className="report-page mx-auto min-h-[850px] w-[1100px] border border-[#111] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.62)]">
-          <section className="grid grid-cols-[1.25fr_1fr_1fr] items-center bg-[#f5b400] px-9 py-5">
+          <section className="grid grid-cols-[1.2fr_1fr_0.95fr] items-center bg-[#f5b400] px-6 py-2">
             <div>
-              <EditableText id="logoName" data={report} onChange={updateField} className="text-[48px] font-black leading-none tracking-[-0.04em]" />
-              <EditableText id="logoTagline" data={report} onChange={updateField} className="mt-1 text-[17px] font-black leading-tight" />
+              <EditableText id="logoName" data={report} onChange={updateField} className="text-[30px] font-black leading-none tracking-[-0.04em]" />
+              <EditableText id="logoTagline" data={report} onChange={updateField} className="text-[10px] font-black leading-tight" />
             </div>
-            <div className="space-y-3 text-[20px] font-semibold leading-tight">
+            <div className="space-y-0.5 text-[12px] font-semibold leading-tight">
               <EditableText id="branch" data={report} onChange={updateField} />
               <EditableText id="phone" data={report} onChange={updateField} />
             </div>
-            <EditableText id="title" data={report} onChange={updateField} className="text-right text-[28px] font-black leading-tight" />
+            <EditableText id="title" data={report} onChange={updateField} className="text-right text-[18px] font-black leading-tight" />
           </section>
 
-          <section className="px-8 py-7">
-            <div className="grid grid-cols-[52px_1.5fr_0.85fr_0.9fr] items-center border-b border-[#bcbcbc]">
-              <div className="flex h-[72px] items-center justify-center">
-                <div className="relative h-11 w-14 border-t-4 border-[#111]">
-                  <span className="absolute left-1 top-[-9px] h-2 w-2 rounded-full bg-[#111]" />
-                  <span className="absolute right-1 top-[-9px] h-2 w-2 rounded-full bg-[#111]" />
-                  <span className="absolute left-3 top-0 h-9 border-l-4 border-[#111]" />
-                  <span className="absolute right-3 top-0 h-9 border-l-4 border-[#111]" />
-                  <span className="absolute left-1/2 top-2 h-6 -translate-x-1/2 border-l-2 border-[#111]" />
+          <section className="px-6 py-3">
+            <div className="grid grid-cols-[34px_1.5fr_0.85fr_0.9fr] items-center border-b border-[#bcbcbc]">
+              <div className="flex h-[34px] items-center justify-center">
+                <div className="relative h-6 w-8 border-t-2 border-[#111]">
+                  <span className="absolute left-0.5 top-[-5px] h-1.5 w-1.5 rounded-full bg-[#111]" />
+                  <span className="absolute right-0.5 top-[-5px] h-1.5 w-1.5 rounded-full bg-[#111]" />
+                  <span className="absolute left-2 top-0 h-5 border-l-2 border-[#111]" />
+                  <span className="absolute right-2 top-0 h-5 border-l-2 border-[#111]" />
+                  <span className="absolute left-1/2 top-1 h-4 -translate-x-1/2 border-l border-[#111]" />
                 </div>
               </div>
-              <EditableText id="summary" data={report} onChange={updateField} className="border-r border-[#cfcfcf] px-3 text-[18px] font-bold" />
-              <EditableText id="type" data={report} onChange={updateField} className="border-r border-[#cfcfcf] px-3 text-[18px] font-bold" />
-              <EditableText id="date" data={report} onChange={updateField} className="px-3 text-[18px] font-bold" />
+              <EditableText id="summary" data={report} onChange={updateField} className="border-r border-[#cfcfcf] px-2 text-[12px] font-bold leading-tight" />
+              <EditableText id="type" data={report} onChange={updateField} className="border-r border-[#cfcfcf] px-2 text-[12px] font-bold leading-tight" />
+              <EditableText id="date" data={report} onChange={updateField} className="px-2 text-[12px] font-bold leading-tight" />
             </div>
 
-            <div className="grid grid-cols-[1.7fr_0.9fr_0.95fr] border-b border-[#d4d4d4] text-[15px] font-bold">
-              <EditableText id="structure" data={report} onChange={updateField} className="px-2 py-2" />
-              <EditableText id="description" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-2" />
-              <EditableText id="customer" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-2" />
+            <div className="grid grid-cols-[1.7fr_0.9fr_0.95fr] border-b border-[#d4d4d4] text-[11px] font-bold leading-tight">
+              <EditableText id="structure" data={report} onChange={updateField} className="px-2 py-0.5" />
+              <EditableText id="description" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-0.5" />
+              <EditableText id="customer" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-0.5" />
             </div>
 
-            <div className="grid grid-cols-4 text-[15px] font-semibold">
+            <div className="grid grid-cols-4 text-[11px] font-semibold leading-tight">
               {cells.flatMap((row, rowIndex) =>
                 row.map((fieldId, columnIndex) => (
                   <EditableText
@@ -599,7 +599,7 @@ export default function EditableInspectionReport() {
                     id={fieldId}
                     data={report}
                     onChange={updateField}
-                    className={`min-h-[39px] border-b border-[#dcdcdc] px-2 py-2 ${
+                    className={`min-h-[21px] border-b border-[#dcdcdc] px-2 py-0.5 ${
                       columnIndex > 0 ? 'border-l border-[#d4d4d4]' : ''
                     } ${rowIndex === 1 ? 'font-bold' : ''}`}
                   />
@@ -607,7 +607,7 @@ export default function EditableInspectionReport() {
               )}
             </div>
 
-            <section className="mt-8 border border-[#d4d4d4]">
+            <section className="mt-3 border border-[#d4d4d4]">
               <div className="flex items-center justify-between gap-3 bg-[#f2f2f2]">
                 <EditableText
                   id="sectionHeader"
