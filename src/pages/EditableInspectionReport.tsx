@@ -29,6 +29,11 @@ type MenuItem = {
   rate: string
 }
 
+type MenuItemSection = {
+  title: string
+  items: MenuItem[]
+}
+
 const storageKey = 'deshazo-editable-inspection-report'
 const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
 const costStorageKey = 'deshazo-editable-inspection-report-costs'
@@ -126,13 +131,37 @@ const cells = [
   ['manufacturerHoist', 'serialHoist', 'capacityHoist', 'modelHoist'],
 ]
 
-const menuItems: MenuItem[] = [
-  { label: 'Wheel inspection', description: 'Inspect wheel tread wear and flange condition.', rate: '185.00' },
-  { label: 'Festoon repair', description: 'Replace damaged festoon cable carrier hardware.', rate: '95.00' },
-  { label: 'Cable alignment', description: 'Verify conductor alignment through full bridge travel.', rate: '125.00' },
-  { label: 'Technician labor', description: 'Technician labor.', rate: '145.00' },
-  { label: 'Lift rental', description: 'Scissor lift rental.', rate: '275.00' },
-  { label: 'Freight', description: 'Freight and delivery.', rate: '85.00' },
+const menuItemSections: MenuItemSection[] = [
+  {
+    title: 'Past history',
+    items: [
+      { label: 'Previous wheel repair', description: 'Repeat repair from prior wheel inspection history.', rate: '185.00' },
+      { label: 'Known festoon issue', description: 'Address recurring festoon wear noted on past reports.', rate: '95.00' },
+    ],
+  },
+  {
+    title: 'Customer specific',
+    items: [
+      { label: 'Site safety prep', description: 'Customer-required site safety preparation.', rate: '125.00' },
+      { label: 'After-hours work', description: 'Customer-requested after-hours labor premium.', rate: '210.00' },
+    ],
+  },
+  {
+    title: 'This crane',
+    items: [
+      { label: 'Wheel inspection', description: 'Inspect wheel tread wear and flange condition.', rate: '185.00' },
+      { label: 'Cable alignment', description: 'Verify conductor alignment through full bridge travel.', rate: '125.00' },
+      { label: 'Festoon repair', description: 'Replace damaged festoon cable carrier hardware.', rate: '95.00' },
+    ],
+  },
+  {
+    title: 'Shared',
+    items: [
+      { label: 'Technician labor', description: 'Technician labor.', rate: '145.00' },
+      { label: 'Lift rental', description: 'Scissor lift rental.', rate: '275.00' },
+      { label: 'Freight', description: 'Freight and delivery.', rate: '85.00' },
+    ],
+  },
 ]
 
 const parseMoney = (value: string) => {
@@ -658,23 +687,32 @@ export default function EditableInspectionReport() {
             </p>
           </div>
 
-          <div className="space-y-2">
-            {menuItems.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
-                  event.dataTransfer.setData('text/plain', item.description)
-                  event.dataTransfer.effectAllowed = 'copy'
-                }}
-                className="w-full rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff]"
-              >
-                <span className="block text-[13px] font-black text-[#273f7a]">{item.label}</span>
-                <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
-                <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
-              </button>
+          <div className="space-y-4">
+            {menuItemSections.map((section) => (
+              <section key={section.title}>
+                <h3 className="mb-2 border-b border-[#dfe4ef] pb-1 text-[12px] font-black uppercase tracking-[0.02em] text-[#273f7a]">
+                  {section.title}
+                </h3>
+                <div className="space-y-2">
+                  {section.items.map((item) => (
+                    <button
+                      key={`${section.title}-${item.label}`}
+                      type="button"
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
+                        event.dataTransfer.setData('text/plain', item.description)
+                        event.dataTransfer.effectAllowed = 'copy'
+                      }}
+                      className="w-full rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff]"
+                    >
+                      <span className="block text-[13px] font-black text-[#273f7a]">{item.label}</span>
+                      <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
+                      <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         </aside>
