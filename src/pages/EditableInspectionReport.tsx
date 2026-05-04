@@ -16,8 +16,15 @@ type RepairSection = {
   lineItems: RepairLineItem[]
 }
 
+type CostSection = {
+  id: string
+  title: string
+  lineItems: RepairLineItem[]
+}
+
 const storageKey = 'deshazo-editable-inspection-report'
 const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
+const costStorageKey = 'deshazo-editable-inspection-report-costs'
 
 const defaultReport: ReportData = {
   logoName: 'DESHAZO',
@@ -82,6 +89,29 @@ const defaultRepairSections: RepairSection[] = [
   },
 ]
 
+const defaultCostSections: CostSection[] = [
+  {
+    id: 'parts',
+    title: 'Parts',
+    lineItems: [{ id: 'parts-line-1', description: 'Parts required for listed repairs.', quantity: '1', rate: '0.00' }],
+  },
+  {
+    id: 'labor',
+    title: 'Labor',
+    lineItems: [{ id: 'labor-line-1', description: 'Technician labor.', quantity: '1', rate: '0.00' }],
+  },
+  {
+    id: 'equipment-rental',
+    title: 'Equipment Rental',
+    lineItems: [{ id: 'rental-line-1', description: 'Rental equipment.', quantity: '1', rate: '0.00' }],
+  },
+  {
+    id: 'freight',
+    title: 'Freight',
+    lineItems: [{ id: 'freight-line-1', description: 'Freight and delivery.', quantity: '1', rate: '0.00' }],
+  },
+]
+
 const cells = [
   ['purchaseOrder', 'jobNumber', 'location', 'customerAddress'],
   ['manufacturerLabel', 'serialLabel', 'capacityLabel', 'modelLabel'],
@@ -118,6 +148,21 @@ const normalizeRepairSections = (sections: RepairSection[]) =>
     }),
   }))
 
+const normalizeCostSections = (sections: CostSection[]) =>
+  sections.map((section) => ({
+    ...section,
+    lineItems: section.lineItems.map((lineItem) => {
+      const savedLineItem = lineItem as RepairLineItem & { text?: string }
+
+      return {
+        id: savedLineItem.id,
+        description: savedLineItem.description ?? savedLineItem.text ?? 'Add line item here.',
+        quantity: savedLineItem.quantity ?? '1',
+        rate: savedLineItem.rate ?? '0.00',
+      }
+    }),
+  }))
+
 type EditableTextProps = {
   id: string
   data: ReportData
@@ -146,7 +191,7 @@ type EditableValueProps = {
   onChange: (value: string) => void
 }
 
-function EditableValue({ label, value, className = '', multiline = false, onChange }: EditableValueProps) {
+function EditableValue({ label, value, className = '', onChange }: EditableValueProps) {
   const elementRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -163,7 +208,7 @@ function EditableValue({ label, value, className = '', multiline = false, onChan
       contentEditable
       suppressContentEditableWarning
       spellCheck
-      className={`editable-report-field ${multiline ? 'min-h-[96px]' : ''} ${className}`}
+      className={`editable-report-field ${className}`}
       onBlur={(event) => onChange(event.currentTarget.innerText)}
       onPaste={(event) => {
         event.preventDefault()
@@ -199,6 +244,17 @@ export default function EditableInspectionReport() {
       return defaultRepairSections
     }
   })
+  const [costSections, setCostSections] = useState<CostSection[]>(() => {
+    const savedSections = window.localStorage.getItem(costStorageKey)
+
+    if (!savedSections) return defaultCostSections
+
+    try {
+      return normalizeCostSections(JSON.parse(savedSections) as CostSection[])
+    } catch {
+      return defaultCostSections
+    }
+  })
 
   const repairTotal = useMemo(
     () =>
@@ -209,6 +265,16 @@ export default function EditableInspectionReport() {
       ),
     [repairSections],
   )
+  const costTotal = useMemo(
+    () =>
+      costSections.reduce(
+        (total, section) =>
+          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getLineAmount(lineItem), 0),
+        0,
+      ),
+    [costSections],
+  )
+  const invoiceTotal = repairTotal + costTotal
 
   const updatedAt = useMemo(
     () =>
@@ -231,6 +297,11 @@ export default function EditableInspectionReport() {
 
   const saveRepairSections = (nextSections: RepairSection[]) => {
     window.localStorage.setItem(repairStorageKey, JSON.stringify(nextSections))
+    return nextSections
+  }
+
+  const saveCostSections = (nextSections: CostSection[]) => {
+    window.localStorage.setItem(costStorageKey, JSON.stringify(nextSections))
     return nextSections
   }
 
@@ -324,11 +395,76 @@ export default function EditableInspectionReport() {
     )
   }
 
+  const addCostLineItem = (sectionId: string) => {
+    setCostSections((currentSections) =>
+      saveCostSections(
+        currentSections.map((section) =>
+          section.id === sectionId
+            ? {
+                ...section,
+                lineItems: [
+                  ...section.lineItems,
+                  { id: createId('line'), description: 'Add line item here.', quantity: '1', rate: '0.00' },
+                ],
+              }
+            : section,
+        ),
+      ),
+    )
+  }
+
+  const updateCostSectionTitle = (sectionId: string, value: string) => {
+    setCostSections((currentSections) =>
+      saveCostSections(
+        currentSections.map((section) => (section.id === sectionId ? { ...section, title: value } : section)),
+      ),
+    )
+  }
+
+  const updateCostLineItem = (
+    sectionId: string,
+    lineItemId: string,
+    field: 'description' | 'quantity' | 'rate',
+    value: string,
+  ) => {
+    setCostSections((currentSections) =>
+      saveCostSections(
+        currentSections.map((section) =>
+          section.id === sectionId
+            ? {
+                ...section,
+                lineItems: section.lineItems.map((lineItem) =>
+                  lineItem.id === lineItemId ? { ...lineItem, [field]: value } : lineItem,
+                ),
+              }
+            : section,
+        ),
+      ),
+    )
+  }
+
+  const removeCostLineItem = (sectionId: string, lineItemId: string) => {
+    setCostSections((currentSections) =>
+      saveCostSections(
+        currentSections.map((section) =>
+          section.id === sectionId
+            ? {
+                ...section,
+                lineItems: section.lineItems.filter((lineItem) => lineItem.id !== lineItemId),
+              }
+            : section,
+        ),
+      ),
+    )
+  }
+
   const resetTemplate = () => {
     window.localStorage.removeItem(storageKey)
     window.localStorage.removeItem(repairStorageKey)
+    window.localStorage.removeItem(costStorageKey)
     setReport(defaultReport)
     setRepairSections(defaultRepairSections)
+    setCostSections(defaultCostSections)
   }
 
   return (
@@ -496,35 +632,35 @@ export default function EditableInspectionReport() {
                       sectionIndex > 0 ? 'border-t border-[#e1caca]' : ''
                     }`}
                   >
-                    <div className="grid grid-cols-[1fr_220px] gap-5 border-b border-[#e0caca] px-4 py-3">
+                    <div className="grid grid-cols-[1fr_190px] gap-4 border-b border-[#e0caca] px-3 py-2">
                       <EditableValue
                         label={`${section.title} title`}
                         value={section.title}
                         onChange={(value) => updateRepairSection(section.id, 'title', value)}
-                        className="text-[20px] font-black leading-[1.05]"
+                        className="text-[16px] font-black leading-[1.05]"
                         multiline
                       />
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2 bg-[#efc9c9] px-3 py-1.5 text-[#7d1515]">
-                          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#af0f0f] text-[13px] font-black text-white">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2 bg-[#efc9c9] px-2 py-1 text-[#7d1515]">
+                          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#af0f0f] text-[11px] font-black text-white">
                             !
                           </span>
                           <EditableValue
                             label={`${section.title} status`}
                             value={section.status}
                             onChange={(value) => updateRepairSection(section.id, 'status', value)}
-                            className="min-w-0 flex-1 text-[17px] font-black"
+                            className="min-w-0 flex-1 text-[14px] font-black leading-tight"
                           />
                           <span
                             aria-hidden="true"
-                            className="relative h-5 w-6 shrink-0 rounded-sm bg-[#b70e0e] before:absolute before:left-1/2 before:top-[6px] before:h-2.5 before:w-2.5 before:-translate-x-1/2 before:rounded-full before:border-2 before:border-white after:absolute after:left-[5px] after:top-[-3px] after:h-1.5 after:w-4 after:rounded-t-sm after:bg-[#b70e0e]"
+                            className="relative h-4 w-5 shrink-0 rounded-sm bg-[#b70e0e] before:absolute before:left-1/2 before:top-[5px] before:h-2 before:w-2 before:-translate-x-1/2 before:rounded-full before:border-2 before:border-white after:absolute after:left-[4px] after:top-[-3px] after:h-1.5 after:w-3 after:rounded-t-sm after:bg-[#b70e0e]"
                           />
                         </div>
                         {repairSections.length > 1 ? (
                           <button
                             type="button"
                             onClick={() => removeRepairSection(section.id)}
-                            className="report-inline-action w-full rounded-md border border-[#d4a7a7] bg-white/70 px-2 py-1 text-[11px] font-black uppercase text-[#7d1515] transition hover:bg-white"
+                            className="report-inline-action w-full rounded-md border border-[#d4a7a7] bg-white/70 px-2 py-0.5 text-[10px] font-black uppercase text-[#7d1515] transition hover:bg-white"
                           >
                             Remove Section
                           </button>
@@ -533,48 +669,48 @@ export default function EditableInspectionReport() {
                     </div>
 
                     <div className="bg-white">
-                      <div className="grid grid-cols-[44px_1fr_88px_112px_124px_36px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[11px] font-black uppercase text-[#555b66]">
-                        <div className="px-2 py-2 text-center">#</div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2">Description</div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">Qty</div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">Rate</div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">Amount</div>
+                      <div className="grid grid-cols-[34px_1fr_70px_96px_112px_30px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
+                        <div className="px-2 py-1 text-center">#</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1">Description</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Rate</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Amount</div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
                       </div>
                       <div>
                         {section.lineItems.map((lineItem, lineIndex) => (
                           <div
                             key={lineItem.id}
-                            className="grid grid-cols-[44px_1fr_88px_112px_124px_36px] border-b border-[#e5e5e5] text-[14px] font-semibold"
+                            className="grid grid-cols-[34px_1fr_70px_96px_112px_30px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                           >
-                            <div className="px-2 py-2 text-center text-[12px] font-black text-[#7d1515]">{lineIndex + 1}</div>
+                            <div className="px-2 py-1.5 text-center text-[11px] font-black text-[#7d1515]">{lineIndex + 1}</div>
                             <EditableValue
                               label={`${section.title} line item ${lineIndex + 1}`}
                               value={lineItem.description}
                               onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'description', value)}
-                              className="min-h-[38px] border-l border-[#e5e5e5] px-3 py-2 leading-tight"
+                              className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 leading-tight"
                               multiline
                             />
                             <EditableValue
                               label={`${section.title} quantity ${lineIndex + 1}`}
                               value={lineItem.quantity}
                               onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'quantity', value)}
-                              className="min-h-[38px] border-l border-[#e5e5e5] px-3 py-2 text-right"
+                              className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
                             <EditableValue
                               label={`${section.title} rate ${lineIndex + 1}`}
                               value={lineItem.rate}
                               onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'rate', value)}
-                              className="min-h-[38px] border-l border-[#e5e5e5] px-3 py-2 text-right"
+                              className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
-                            <div className="border-l border-[#e5e5e5] px-3 py-2 text-right font-black">
+                            <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                               {formatMoney(getLineAmount(lineItem))}
                             </div>
                             {section.lineItems.length > 1 ? (
                               <button
                                 type="button"
                                 onClick={() => removeRepairLineItem(section.id, lineItem.id)}
-                                className="report-inline-action flex min-h-[38px] items-center justify-center border-l border-[#e5e5e5] bg-white text-[13px] font-black text-[#8a1a1a] transition hover:bg-[#f7eeee]"
+                                className="report-inline-action flex min-h-[25px] items-center justify-center border-l border-[#e5e5e5] bg-white text-[12px] font-black text-[#8a1a1a] transition hover:bg-[#f7eeee]"
                                 aria-label={`Remove line item ${lineIndex + 1}`}
                               >
                                 x
@@ -585,20 +721,20 @@ export default function EditableInspectionReport() {
                           </div>
                         ))}
                       </div>
-                      <div className="grid grid-cols-[1fr_160px_124px_36px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[14px] font-black">
-                        <div className="px-3 py-2">
+                      <div className="grid grid-cols-[1fr_150px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
+                        <div className="px-2 py-1.5">
                           <button
                             type="button"
                             onClick={() => addRepairLineItem(section.id)}
-                            className="report-inline-action rounded-md border border-[#bdc4d3] bg-[#f8fafc] px-3 py-1.5 text-[12px] font-black uppercase text-[#273f7a] transition hover:bg-[#edf2fb]"
+                            className="report-inline-action rounded-md border border-[#bdc4d3] bg-[#f8fafc] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a] transition hover:bg-[#edf2fb]"
                           >
                             Add Line Item
                           </button>
                         </div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2 text-right uppercase text-[#555b66]">
+                        <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right uppercase text-[#555b66]">
                           Section Subtotal
                         </div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2 text-right text-[#111]">
+                        <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
                           {formatMoney(section.lineItems.reduce((total, lineItem) => total + getLineAmount(lineItem), 0))}
                         </div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
@@ -606,24 +742,119 @@ export default function EditableInspectionReport() {
                     </div>
                   </section>
                 ))}
-                <div className="grid grid-cols-[1fr_190px_160px] border-t-2 border-[#111] bg-[#f2f2f2] text-[16px] font-black">
-                  <div className="px-4 py-4 uppercase text-[#555b66]">Repair Total</div>
-                  <div className="border-l border-[#cfcfcf] px-4 py-4 text-right uppercase text-[#555b66]">Total</div>
-                  <div className="border-l border-[#cfcfcf] bg-[#f5b400] px-4 py-4 text-right text-[#111]">
-                    {formatMoney(repairTotal)}
-                  </div>
+              </div>
+            </section>
+
+            <section className="mt-5 border border-[#d4d4d4]">
+              <div className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase">Estimate Summary</div>
+
+              <div className="border-t border-[#d4d4d4]">
+                {costSections.map((section, sectionIndex) => (
+                  <section
+                    key={section.id}
+                    className={`repair-section bg-white ${sectionIndex > 0 ? 'border-t border-[#d4d4d4]' : ''}`}
+                  >
+                    <div className="border-b border-[#d8d8d8] bg-[#f7f7f7] px-3 py-1.5">
+                      <EditableValue
+                        label={`${section.title} section title`}
+                        value={section.title}
+                        onChange={(value) => updateCostSectionTitle(section.id, value)}
+                        className="text-[14px] font-black uppercase leading-tight text-[#273f7a]"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-[34px_1fr_70px_96px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[10px] font-black uppercase text-[#555b66]">
+                      <div className="px-2 py-1 text-center">#</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1">Description</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Rate</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Amount</div>
+                      <div className="report-inline-action border-l border-[#d8d8d8]" />
+                    </div>
+
+                    {section.lineItems.map((lineItem, lineIndex) => (
+                      <div
+                        key={lineItem.id}
+                        className="grid grid-cols-[34px_1fr_70px_96px_112px_30px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                      >
+                        <div className="px-2 py-1.5 text-center text-[11px] font-black text-[#273f7a]">{lineIndex + 1}</div>
+                        <EditableValue
+                          label={`${section.title} line item ${lineIndex + 1}`}
+                          value={lineItem.description}
+                          onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'description', value)}
+                          className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 leading-tight"
+                        />
+                        <EditableValue
+                          label={`${section.title} quantity ${lineIndex + 1}`}
+                          value={lineItem.quantity}
+                          onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'quantity', value)}
+                          className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                        />
+                        <EditableValue
+                          label={`${section.title} rate ${lineIndex + 1}`}
+                          value={lineItem.rate}
+                          onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', value)}
+                          className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                        />
+                        <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
+                          {formatMoney(getLineAmount(lineItem))}
+                        </div>
+                        {section.lineItems.length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => removeCostLineItem(section.id, lineItem.id)}
+                            className="report-inline-action flex min-h-[25px] items-center justify-center border-l border-[#e5e5e5] bg-white text-[12px] font-black text-[#8a1a1a] transition hover:bg-[#f7eeee]"
+                            aria-label={`Remove ${section.title} line item ${lineIndex + 1}`}
+                          >
+                            x
+                          </button>
+                        ) : (
+                          <div className="report-inline-action border-l border-[#e5e5e5]" />
+                        )}
+                      </div>
+                    ))}
+
+                    <div className="grid grid-cols-[1fr_150px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
+                      <div className="px-2 py-1.5">
+                        <button
+                          type="button"
+                          onClick={() => addCostLineItem(section.id)}
+                          className="report-inline-action rounded-md border border-[#bdc4d3] bg-[#f8fafc] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a] transition hover:bg-[#edf2fb]"
+                        >
+                          Add Line Item
+                        </button>
+                      </div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right uppercase text-[#555b66]">
+                        Subtotal
+                      </div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
+                        {formatMoney(section.lineItems.reduce((total, lineItem) => total + getLineAmount(lineItem), 0))}
+                      </div>
+                      <div className="report-inline-action border-l border-[#d8d8d8]" />
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </section>
+
+            <section className="mt-5 border-2 border-[#111]">
+              <div className="grid grid-cols-[1fr_180px_160px] bg-[#f2f2f2] text-[16px] font-black">
+                <div className="px-4 py-3 uppercase text-[#555b66]">Grand Total</div>
+                <div className="border-l border-[#cfcfcf] px-4 py-3 text-right uppercase text-[#555b66]">Total</div>
+                <div className="border-l border-[#111] bg-[#f5b400] px-4 py-3 text-right text-[#111]">
+                  {formatMoney(invoiceTotal)}
                 </div>
               </div>
             </section>
 
-            <section className="mt-8 border border-[#d4d4d4]">
+            <section className="mt-5 border border-[#d4d4d4]">
               <EditableText
                 id="notesHeader"
                 data={report}
                 onChange={updateField}
                 className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase"
               />
-              <EditableText id="notes" data={report} onChange={updateField} multiline className="px-3 py-3 text-[15px] font-semibold" />
+              <EditableText id="notes" data={report} onChange={updateField} multiline className="min-h-[96px] px-3 py-3 text-[15px] font-semibold" />
             </section>
           </section>
         </article>
