@@ -45,6 +45,7 @@ type QuoteBlockVisibility = {
   repairItems: boolean
   estimateSummary: boolean
   grandTotal: boolean
+  notes: boolean
 }
 
 const storageKey = 'deshazo-editable-inspection-report'
@@ -57,6 +58,7 @@ const defaultBlockVisibility: QuoteBlockVisibility = {
   repairItems: true,
   estimateSummary: true,
   grandTotal: true,
+  notes: true,
 }
 
 const defaultReport: ReportData = {
@@ -1304,7 +1306,18 @@ export default function EditableInspectionReport() {
             </section>
             ) : null}
 
-            <section className="mt-5 border border-[#d4d4d4]">
+            {blockVisibility.notes ? (
+            <section className={`relative mt-5 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+              {unlocked ? (
+                <button
+                  type="button"
+                  onClick={() => deleteQuoteBlock('notes')}
+                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
+                  aria-label="Delete notes block"
+                >
+                  🗑
+                </button>
+              ) : null}
               <EditableText
                 id="notesHeader"
                 data={report}
@@ -1313,6 +1326,7 @@ export default function EditableInspectionReport() {
               />
               <EditableText id="notes" data={report} onChange={updateField} multiline className="min-h-[96px] px-3 py-3 text-[15px] font-semibold" />
             </section>
+            ) : null}
           </section>
         </article>
           </div>
