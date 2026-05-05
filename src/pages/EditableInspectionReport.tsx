@@ -41,10 +41,23 @@ type PdfLoadSuccess = {
   numPages: number
 }
 
+type QuoteBlockVisibility = {
+  repairItems: boolean
+  estimateSummary: boolean
+  grandTotal: boolean
+}
+
 const storageKey = 'deshazo-editable-inspection-report'
 const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
 const costStorageKey = 'deshazo-editable-inspection-report-costs'
 const menuStorageKey = 'deshazo-editable-inspection-report-menu-items'
+const blockVisibilityStorageKey = 'deshazo-editable-inspection-report-block-visibility'
+
+const defaultBlockVisibility: QuoteBlockVisibility = {
+  repairItems: true,
+  estimateSummary: true,
+  grandTotal: true,
+}
 
 const defaultReport: ReportData = {
   logoName: 'DESHAZO',
@@ -301,6 +314,7 @@ function EditableValue({ label, value, className = '', onChange, onDropMenuItem 
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
   const [activeLineMenu, setActiveLineMenu] = useState('')
+  const [unlocked, setUnlocked] = useState(false)
   const [menuSettingsOpen, setMenuSettingsOpen] = useState(false)
   const [originalPdfOpen, setOriginalPdfOpen] = useState(false)
   const [originalPdfPages, setOriginalPdfPages] = useState(0)
@@ -353,6 +367,17 @@ export default function EditableInspectionReport() {
       return parsedSections.length > 0 ? parsedSections : defaultMenuItemSections
     } catch {
       return defaultMenuItemSections
+    }
+  })
+  const [blockVisibility, setBlockVisibility] = useState<QuoteBlockVisibility>(() => {
+    const savedVisibility = window.localStorage.getItem(blockVisibilityStorageKey)
+
+    if (!savedVisibility) return defaultBlockVisibility
+
+    try {
+      return { ...defaultBlockVisibility, ...JSON.parse(savedVisibility) as Partial<QuoteBlockVisibility> }
+    } catch {
+      return defaultBlockVisibility
     }
   })
 
@@ -421,6 +446,14 @@ export default function EditableInspectionReport() {
   const saveMenuItemSections = (nextSections: MenuItemSection[]) => {
     window.localStorage.setItem(menuStorageKey, JSON.stringify(nextSections))
     return nextSections
+  }
+
+  const deleteQuoteBlock = (block: keyof QuoteBlockVisibility) => {
+    setBlockVisibility((currentVisibility) => {
+      const nextVisibility = { ...currentVisibility, [block]: false }
+      window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(nextVisibility))
+      return nextVisibility
+    })
   }
 
   const addMenuItemFromSettings = () => {
@@ -641,10 +674,13 @@ export default function EditableInspectionReport() {
     window.localStorage.removeItem(repairStorageKey)
     window.localStorage.removeItem(costStorageKey)
     window.localStorage.removeItem(menuStorageKey)
+    window.localStorage.removeItem(blockVisibilityStorageKey)
     setReport(defaultReport)
     setRepairSections(defaultRepairSections)
     setCostSections(defaultCostSections)
     setMenuItemSections(defaultMenuItemSections)
+    setBlockVisibility(defaultBlockVisibility)
+    setUnlocked(false)
     setMenuSettingsOpen(false)
   }
 
@@ -720,11 +756,18 @@ export default function EditableInspectionReport() {
           <button type="button" onClick={() => setOriginalPdfOpen(true)} className="text-sm font-black">
             Show Original PDF
           </button>
-          <div className="flex items-center gap-2 text-sm font-black">
-            <span className="text-lg">✎</span>
-            <span>Editing</span>
-            <span className="text-xs">⌄</span>
-          </div>
+          <button
+            type="button"
+            onClick={() => setUnlocked((currentUnlocked) => !currentUnlocked)}
+            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-black transition ${
+              unlocked
+                ? 'border-white bg-white text-[#35245f]'
+                : 'border-white/25 bg-white/10 text-white hover:bg-white/20'
+            }`}
+          >
+            <span className="text-base">{unlocked ? '🔒' : '🔓'}</span>
+            <span>{unlocked ? 'Lock' : 'Unlock'}</span>
+          </button>
         </div>
 
         <div className="text-sm font-black tracking-wide">DESHAZO Quote Builder</div>
@@ -885,7 +928,18 @@ export default function EditableInspectionReport() {
               )}
             </div>
 
-            <section className="mt-3 border border-[#d4d4d4]">
+            {blockVisibility.repairItems ? (
+            <section className={`relative mt-3 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+              {unlocked ? (
+                <button
+                  type="button"
+                  onClick={() => deleteQuoteBlock('repairItems')}
+                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
+                  aria-label="Delete repair items block"
+                >
+                  🗑
+                </button>
+              ) : null}
               <div className="flex items-center justify-between gap-3 bg-[#f2f2f2]">
                 <EditableText
                   id="sectionHeader"
@@ -1070,8 +1124,20 @@ export default function EditableInspectionReport() {
                 ))}
               </div>
             </section>
+            ) : null}
 
-            <section className="mt-5 border border-[#d4d4d4]">
+            {blockVisibility.estimateSummary ? (
+            <section className={`relative mt-5 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+              {unlocked ? (
+                <button
+                  type="button"
+                  onClick={() => deleteQuoteBlock('estimateSummary')}
+                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
+                  aria-label="Delete estimate summary block"
+                >
+                  🗑
+                </button>
+              ) : null}
               <div className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase">Estimate Summary</div>
 
               <div className="border-t border-[#d4d4d4]">
@@ -1214,8 +1280,20 @@ export default function EditableInspectionReport() {
                 ))}
               </div>
             </section>
+            ) : null}
 
-            <section className="mt-5 border-2 border-[#111]">
+            {blockVisibility.grandTotal ? (
+            <section className={`relative mt-5 border-2 border-[#111] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+              {unlocked ? (
+                <button
+                  type="button"
+                  onClick={() => deleteQuoteBlock('grandTotal')}
+                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
+                  aria-label="Delete grand total block"
+                >
+                  🗑
+                </button>
+              ) : null}
               <div className="grid grid-cols-[1fr_180px_160px] bg-[#f2f2f2] text-[16px] font-black">
                 <div className="px-4 py-3 uppercase text-[#555b66]">Grand Total</div>
                 <div className="border-l border-[#cfcfcf] px-4 py-3 text-right uppercase text-[#555b66]">Total</div>
@@ -1224,6 +1302,7 @@ export default function EditableInspectionReport() {
                 </div>
               </div>
             </section>
+            ) : null}
 
             <section className="mt-5 border border-[#d4d4d4]">
               <EditableText
