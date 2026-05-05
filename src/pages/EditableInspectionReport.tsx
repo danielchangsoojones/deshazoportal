@@ -41,6 +41,13 @@ type PdfLoadSuccess = {
   numPages: number
 }
 
+type CanvasTextBox = {
+  id: string
+  text: string
+  x: number
+  y: number
+}
+
 type QuoteBlockVisibility = {
   repairItems: boolean
   estimateSummary: boolean
@@ -53,6 +60,8 @@ const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
 const costStorageKey = 'deshazo-editable-inspection-report-costs'
 const menuStorageKey = 'deshazo-editable-inspection-report-menu-items'
 const blockVisibilityStorageKey = 'deshazo-editable-inspection-report-block-visibility'
+const textBoxStorageKey = 'deshazo-editable-inspection-report-text-boxes'
+const menuCollapsedStorageKey = 'deshazo-editable-inspection-report-menu-collapsed'
 
 const defaultBlockVisibility: QuoteBlockVisibility = {
   repairItems: true,
@@ -315,8 +324,11 @@ function EditableValue({ label, value, className = '', onChange, onDropMenuItem 
 
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
+  const textBoxDragStart = useRef<Record<string, { clientX: number; clientY: number; x: number; y: number }>>({})
   const [activeLineMenu, setActiveLineMenu] = useState('')
   const [unlocked, setUnlocked] = useState(false)
+  const [textMenuOpen, setTextMenuOpen] = useState(false)
+  const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
   const [menuSettingsOpen, setMenuSettingsOpen] = useState(false)
   const [originalPdfOpen, setOriginalPdfOpen] = useState(false)
   const [originalPdfPages, setOriginalPdfPages] = useState(0)
@@ -380,6 +392,17 @@ export default function EditableInspectionReport() {
       return { ...defaultBlockVisibility, ...JSON.parse(savedVisibility) as Partial<QuoteBlockVisibility> }
     } catch {
       return defaultBlockVisibility
+    }
+  })
+  const [canvasTextBoxes, setCanvasTextBoxes] = useState<CanvasTextBox[]>(() => {
+    const savedTextBoxes = window.localStorage.getItem(textBoxStorageKey)
+
+    if (!savedTextBoxes) return []
+
+    try {
+      return JSON.parse(savedTextBoxes) as CanvasTextBox[]
+    } catch {
+      return []
     }
   })
 
@@ -450,11 +473,24 @@ export default function EditableInspectionReport() {
     return nextSections
   }
 
+  const saveCanvasTextBoxes = (nextTextBoxes: CanvasTextBox[]) => {
+    window.localStorage.setItem(textBoxStorageKey, JSON.stringify(nextTextBoxes))
+    return nextTextBoxes
+  }
+
   const deleteQuoteBlock = (block: keyof QuoteBlockVisibility) => {
     setBlockVisibility((currentVisibility) => {
       const nextVisibility = { ...currentVisibility, [block]: false }
       window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(nextVisibility))
       return nextVisibility
+    })
+  }
+
+  const toggleMenuCollapsed = () => {
+    setMenuCollapsed((currentCollapsed) => {
+      const nextCollapsed = !currentCollapsed
+      window.localStorage.setItem(menuCollapsedStorageKey, String(nextCollapsed))
+      return nextCollapsed
     })
   }
 
@@ -485,6 +521,53 @@ export default function EditableInspectionReport() {
     if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`
     generatedId.current += 1
     return `${prefix}-${generatedId.current}`
+  }
+
+  const addCanvasTextBox = () => {
+    setCanvasTextBoxes((currentTextBoxes) =>
+      saveCanvasTextBoxes([
+        ...currentTextBoxes,
+        {
+          id: createId('text-box'),
+          text: 'Add text',
+          x: 360,
+          y: 255 + currentTextBoxes.length * 22,
+        },
+      ]),
+    )
+    setTextMenuOpen(false)
+  }
+
+  const updateCanvasTextBox = (textBoxId: string, value: string) => {
+    setCanvasTextBoxes((currentTextBoxes) =>
+      saveCanvasTextBoxes(
+        currentTextBoxes.map((textBox) =>
+          textBox.id === textBoxId ? { ...textBox, text: value } : textBox,
+        ),
+      ),
+    )
+  }
+
+  const moveCanvasTextBox = (textBoxId: string, x: number, y: number) => {
+    setCanvasTextBoxes((currentTextBoxes) =>
+      saveCanvasTextBoxes(
+        currentTextBoxes.map((textBox) =>
+          textBox.id === textBoxId
+            ? {
+                ...textBox,
+                x: Math.max(12, Math.min(960, x)),
+                y: Math.max(12, Math.min(790, y)),
+              }
+            : textBox,
+        ),
+      ),
+    )
+  }
+
+  const deleteCanvasTextBox = (textBoxId: string) => {
+    setCanvasTextBoxes((currentTextBoxes) =>
+      saveCanvasTextBoxes(currentTextBoxes.filter((textBox) => textBox.id !== textBoxId)),
+    )
   }
 
   const addRepairSection = () => {
@@ -677,12 +760,17 @@ export default function EditableInspectionReport() {
     window.localStorage.removeItem(costStorageKey)
     window.localStorage.removeItem(menuStorageKey)
     window.localStorage.removeItem(blockVisibilityStorageKey)
+    window.localStorage.removeItem(textBoxStorageKey)
+    window.localStorage.removeItem(menuCollapsedStorageKey)
     setReport(defaultReport)
     setRepairSections(defaultRepairSections)
     setCostSections(defaultCostSections)
     setMenuItemSections(defaultMenuItemSections)
     setBlockVisibility(defaultBlockVisibility)
+    setCanvasTextBoxes([])
+    setMenuCollapsed(false)
     setUnlocked(false)
+    setTextMenuOpen(false)
     setMenuSettingsOpen(false)
   }
 
@@ -754,7 +842,37 @@ export default function EditableInspectionReport() {
           <button type="button" className="text-[22px] font-black leading-none" aria-label="Home">
             ⌂
           </button>
-          <button type="button" className="text-sm font-black">File</button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setTextMenuOpen((currentOpen) => !currentOpen)}
+              className="rounded-md px-2 py-1 text-sm font-black transition hover:bg-white/15"
+              aria-expanded={textMenuOpen}
+            >
+              Text
+            </button>
+            {textMenuOpen ? (
+              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[360px] rounded-[22px] border border-[#dfe4ef] bg-white p-4 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+                <label className="relative block">
+                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[28px] leading-none text-[#111]">
+                    ⌕
+                  </span>
+                  <input
+                    placeholder="Search fonts and combinations"
+                    className="w-full rounded-[18px] border-2 border-[#eadcff] bg-white py-4 pl-14 pr-4 text-[18px] font-semibold text-[#1f2430] outline-none placeholder:text-[#7b808b]"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={addCanvasTextBox}
+                  className="mt-4 flex w-full items-center justify-center gap-4 rounded-xl bg-[#8b3dff] px-4 py-4 text-[18px] font-black text-white transition hover:bg-[#7830e8]"
+                >
+                  <span className="text-[31px] leading-none">T</span>
+                  <span>Add a text box</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
           <button type="button" onClick={() => setOriginalPdfOpen(true)} className="text-sm font-black">
             Show Original PDF
           </button>
@@ -798,69 +916,92 @@ export default function EditableInspectionReport() {
       </header>
 
       <div className="editor-workspace report-shell flex h-[calc(100vh-56px)] overflow-hidden bg-[#f3f4f8]">
-        <aside className="report-toolbar flex w-[260px] shrink-0 flex-col border-r border-[#d9dce5] bg-[#fbfcff] shadow-sm">
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
-            <div className="mb-4">
-              <p className="text-[16px] font-black text-[#1f2430]">Menu Items</p>
-              <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
-                Drag an item into any line-item description.
-              </p>
-            </div>
-
-            <label className="mb-4 block">
-              <span className="sr-only">Search menu items</span>
-              <input
-                value={menuSearch}
-                onChange={(event) => setMenuSearch(event.currentTarget.value)}
-                placeholder="Search menu items..."
-                className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none transition placeholder:text-[#9aa2b2] focus:border-[#273f7a]"
-              />
-            </label>
-
-            <div className="space-y-4">
-              {visibleMenuItemSections.length > 0 ? visibleMenuItemSections.map((section) => (
-                <section key={section.title}>
-                  <h3 className="mb-2 border-b border-[#dfe4ef] pb-1 text-[12px] font-black uppercase tracking-[0.02em] text-[#273f7a]">
-                    {section.title}
-                  </h3>
-                  <div className="space-y-2">
-                    {section.items.map((item) => (
-                      <button
-                        key={`${section.title}-${item.label}`}
-                        type="button"
-                        draggable
-                        onDragStart={(event) => {
-                          event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
-                          event.dataTransfer.setData('text/plain', item.description)
-                          event.dataTransfer.effectAllowed = 'copy'
-                        }}
-                        className="w-full rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff]"
-                      >
-                        <span className="block text-[13px] font-black text-[#273f7a]">{item.label}</span>
-                        <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
-                        <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )) : (
-                <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
-                  No menu items found.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="border-t border-[#d9dce5] bg-white p-4">
+        <aside className={`report-toolbar relative flex shrink-0 flex-col border-r border-[#d9dce5] bg-[#fbfcff] shadow-sm transition-[width] duration-200 ${menuCollapsed ? 'w-[42px]' : 'w-[260px]'}`}>
+          {menuCollapsed ? (
             <button
               type="button"
-              onClick={() => setMenuSettingsOpen(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-md bg-[#273f7a] px-3 py-2.5 text-[13px] font-black text-white transition hover:bg-[#1f3262]"
+              onClick={toggleMenuCollapsed}
+              className="flex h-full w-full items-center justify-center bg-white text-[#273f7a] transition hover:bg-[#f5f7ff]"
+              aria-label="Open menu items"
             >
-              <span className="text-[16px]">⚙</span>
-              <span>Menu Settings</span>
+              <span className="[writing-mode:vertical-rl] rotate-180 text-[12px] font-black uppercase tracking-[0.12em]">
+                Menu Items
+              </span>
             </button>
-          </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={toggleMenuCollapsed}
+                className="absolute right-[-15px] top-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[#d4dbea] bg-white text-[17px] font-black text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
+                aria-label="Hide menu items"
+              >
+                ‹
+              </button>
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
+                <div className="mb-4 pr-4">
+                  <p className="text-[16px] font-black text-[#1f2430]">Menu Items</p>
+                  <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
+                    Drag an item into any line-item description.
+                  </p>
+                </div>
+
+                <label className="mb-4 block">
+                  <span className="sr-only">Search menu items</span>
+                  <input
+                    value={menuSearch}
+                    onChange={(event) => setMenuSearch(event.currentTarget.value)}
+                    placeholder="Search menu items..."
+                    className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none transition placeholder:text-[#9aa2b2] focus:border-[#273f7a]"
+                  />
+                </label>
+
+                <div className="space-y-4">
+                  {visibleMenuItemSections.length > 0 ? visibleMenuItemSections.map((section) => (
+                    <section key={section.title}>
+                      <h3 className="mb-2 border-b border-[#dfe4ef] pb-1 text-[12px] font-black uppercase tracking-[0.02em] text-[#273f7a]">
+                        {section.title}
+                      </h3>
+                      <div className="space-y-2">
+                        {section.items.map((item) => (
+                          <button
+                            key={`${section.title}-${item.label}`}
+                            type="button"
+                            draggable
+                            onDragStart={(event) => {
+                              event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
+                              event.dataTransfer.setData('text/plain', item.description)
+                              event.dataTransfer.effectAllowed = 'copy'
+                            }}
+                            className="w-full rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff]"
+                          >
+                            <span className="block text-[13px] font-black text-[#273f7a]">{item.label}</span>
+                            <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
+                            <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )) : (
+                    <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
+                      No menu items found.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-[#d9dce5] bg-white p-4">
+                <button
+                  type="button"
+                  onClick={() => setMenuSettingsOpen(true)}
+                  className="flex w-full items-center justify-center gap-2 rounded-md bg-[#273f7a] px-3 py-2.5 text-[13px] font-black text-white transition hover:bg-[#1f3262]"
+                >
+                  <span className="text-[16px]">⚙</span>
+                  <span>Menu Settings</span>
+                </button>
+              </div>
+            </>
+          )}
         </aside>
 
         <main className="canvas-stage min-w-0 flex-1 overflow-auto px-8 py-7">
@@ -879,7 +1020,7 @@ export default function EditableInspectionReport() {
               </div>
             </div>
 
-            <article className="report-page min-h-[850px] w-[1100px] border border-[#111] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.62)]">
+            <article className="report-page relative min-h-[850px] w-[1100px] border border-[#111] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.62)]">
           <section className="grid grid-cols-[1.2fr_1fr_0.95fr] items-center bg-[#f5b400] px-6 py-2">
             <div>
               <EditableText id="logoName" data={report} onChange={updateField} className="text-[30px] font-black leading-none tracking-[-0.04em]" />
@@ -1011,17 +1152,27 @@ export default function EditableInspectionReport() {
                         {section.lineItems.map((lineItem, lineIndex) => (
                           <div
                             key={lineItem.id}
-                            className="grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                            className="relative grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                           >
+                            {parseMoney(lineItem.margin) > 0 ? (
+                              <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
+                                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1f9d45] text-[12px] leading-none text-white">
+                                  +
+                                </span>
+                                <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
+                              </span>
+                            ) : null}
                             <div className="px-2 py-1.5 text-center text-[11px] font-black text-[#7d1515]">{lineIndex + 1}</div>
-                            <EditableValue
-                              label={`${section.title} line item ${lineIndex + 1}`}
-                              value={lineItem.description}
-                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'description', value)}
-                              onDropMenuItem={(item) => addMenuItemToRepairSection(section.id, item)}
-                              className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 leading-tight"
-                              multiline
-                            />
+                            <div className="flex min-h-[25px] items-start gap-2 border-l border-[#e5e5e5] px-2 py-1.5">
+                              <EditableValue
+                                label={`${section.title} line item ${lineIndex + 1}`}
+                                value={lineItem.description}
+                                onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'description', value)}
+                                onDropMenuItem={(item) => addMenuItemToRepairSection(section.id, item)}
+                                className="min-w-0 flex-1 leading-tight"
+                                multiline
+                              />
+                            </div>
                             <EditableValue
                               label={`${section.title} quantity ${lineIndex + 1}`}
                               value={lineItem.quantity}
@@ -1169,16 +1320,26 @@ export default function EditableInspectionReport() {
                     {section.lineItems.map((lineItem, lineIndex) => (
                       <div
                         key={lineItem.id}
-                        className="grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                        className="relative grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                       >
+                        {parseMoney(lineItem.margin) > 0 ? (
+                          <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
+                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1f9d45] text-[12px] leading-none text-white">
+                              +
+                            </span>
+                            <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
+                          </span>
+                        ) : null}
                         <div className="px-2 py-1.5 text-center text-[11px] font-black text-[#273f7a]">{lineIndex + 1}</div>
-                        <EditableValue
-                          label={`${section.title} line item ${lineIndex + 1}`}
-                          value={lineItem.description}
-                          onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'description', value)}
-                          onDropMenuItem={(item) => addMenuItemToCostSection(section.id, item)}
-                          className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 leading-tight"
-                        />
+                        <div className="flex min-h-[25px] items-start gap-2 border-l border-[#e5e5e5] px-2 py-1.5">
+                          <EditableValue
+                            label={`${section.title} line item ${lineIndex + 1}`}
+                            value={lineItem.description}
+                            onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'description', value)}
+                            onDropMenuItem={(item) => addMenuItemToCostSection(section.id, item)}
+                            className="min-w-0 flex-1 leading-tight"
+                          />
+                        </div>
                         <EditableValue
                           label={`${section.title} quantity ${lineIndex + 1}`}
                           value={lineItem.quantity}
@@ -1328,6 +1489,49 @@ export default function EditableInspectionReport() {
             </section>
             ) : null}
           </section>
+          {canvasTextBoxes.map((textBox) => (
+            <div
+              key={textBox.id}
+              draggable
+              onDragStart={(event) => {
+                textBoxDragStart.current[textBox.id] = {
+                  clientX: event.clientX,
+                  clientY: event.clientY,
+                  x: textBox.x,
+                  y: textBox.y,
+                }
+                event.dataTransfer.effectAllowed = 'move'
+              }}
+              onDragEnd={(event) => {
+                const start = textBoxDragStart.current[textBox.id]
+                if (!start || event.clientX === 0 || event.clientY === 0) return
+                moveCanvasTextBox(
+                  textBox.id,
+                  start.x + event.clientX - start.clientX,
+                  start.y + event.clientY - start.clientY,
+                )
+                delete textBoxDragStart.current[textBox.id]
+              }}
+              className="absolute z-20 min-w-[170px] max-w-[360px] cursor-move rounded-md ring-2 ring-[#8b3dff]/35"
+              style={{ left: textBox.x, top: textBox.y }}
+            >
+              <button
+                type="button"
+                onClick={() => deleteCanvasTextBox(textBox.id)}
+                className="report-toolbar absolute right-[-12px] top-[-12px] z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[13px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
+                aria-label="Delete text box"
+              >
+                🗑
+              </button>
+              <EditableValue
+                label="Canvas text box"
+                value={textBox.text}
+                onChange={(value) => updateCanvasTextBox(textBox.id, value)}
+                className="min-h-[34px] rounded-md border border-dashed border-[#8b3dff]/55 bg-white/90 px-2.5 py-1.5 font-['Times_New_Roman',Times,serif] text-[18px] font-normal leading-tight shadow-[0_8px_22px_-20px_rgba(15,23,42,0.55)]"
+                multiline
+              />
+            </div>
+          ))}
         </article>
           </div>
       </main>
