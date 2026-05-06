@@ -48,6 +48,22 @@ export function normalizeCityKey(value: string) {
     .replace(/^-+|-+$/g, '')
 }
 
+function buildCityKeyVariants(value: string) {
+  const normalized = normalizeCityKey(value)
+
+  if (!normalized) {
+    return []
+  }
+
+  return Array.from(
+    new Set([
+      normalized,
+      normalized.replace(/-/g, '_'),
+      normalized.replace(/-/g, ' '),
+    ]),
+  )
+}
+
 const mapRepairReport = async (row: RepairReportRow): Promise<RepairReportRecord> => {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
@@ -84,9 +100,9 @@ export async function listRepairReportsByCity(city: string) {
     throw new Error('Supabase is not configured.')
   }
 
-  const cityKey = normalizeCityKey(city)
+  const cityKeys = buildCityKeyVariants(city)
 
-  if (!cityKey) {
+  if (cityKeys.length === 0) {
     return []
   }
 
@@ -95,7 +111,7 @@ export async function listRepairReportsByCity(city: string) {
     .select(
       'id, work_order_number, report_type, customer, customer_location, service_location, city_key, comment, date_start, date_end, display_name, storage_path, uploaded_at, is_active',
     )
-    .eq('city_key', cityKey)
+    .in('city_key', cityKeys)
     .eq('is_active', true)
     .order('date_start', { ascending: false, nullsFirst: false })
     .order('uploaded_at', { ascending: false })
