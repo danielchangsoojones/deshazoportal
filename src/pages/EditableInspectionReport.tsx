@@ -61,6 +61,7 @@ const blockVisibilityStorageKey = 'deshazo-editable-inspection-report-block-visi
 const textBoxStorageKey = 'deshazo-editable-inspection-report-text-boxes'
 const menuCollapsedStorageKey = 'deshazo-editable-inspection-report-menu-collapsed'
 const estimateNoteVisibilityStorageKey = 'deshazo-editable-inspection-report-estimate-note-visibility'
+const repairSectionVisibilityStorageKey = 'deshazo-editable-inspection-report-repair-section-visibility'
 const maxRecentlyUsedItems = 2
 
 const defaultBlockVisibility: QuoteBlockVisibility = {
@@ -357,6 +358,7 @@ export default function EditableInspectionReport() {
   const [unlocked, setUnlocked] = useState(false)
   const [textMenuOpen, setTextMenuOpen] = useState(false)
   const [estimateSummaryMenuOpen, setEstimateSummaryMenuOpen] = useState(false)
+  const [pageLayoutMenuOpen, setPageLayoutMenuOpen] = useState(false)
   const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
   const [menuSettingsOpen, setMenuSettingsOpen] = useState(false)
   const [relatedDocumentsOpen, setRelatedDocumentsOpen] = useState(false)
@@ -434,6 +436,17 @@ export default function EditableInspectionReport() {
       return defaultEstimateNoteVisibility
     }
   })
+  const [repairSectionVisibility, setRepairSectionVisibility] = useState<Record<string, boolean>>(() => {
+    const savedVisibility = window.localStorage.getItem(repairSectionVisibilityStorageKey)
+
+    if (!savedVisibility) return {}
+
+    try {
+      return JSON.parse(savedVisibility) as Record<string, boolean>
+    } catch {
+      return {}
+    }
+  })
   const [canvasTextBoxes, setCanvasTextBoxes] = useState<CanvasTextBox[]>(() => {
     const savedTextBoxes = window.localStorage.getItem(textBoxStorageKey)
 
@@ -465,6 +478,10 @@ export default function EditableInspectionReport() {
     [costSections],
   )
   const invoiceTotal = repairTotal + costTotal
+  const visibleRepairSections = useMemo(
+    () => repairSections.filter((section) => repairSectionVisibility[section.id] !== false),
+    [repairSections, repairSectionVisibility],
+  )
   const visibleMenuItemSections = useMemo(() => {
     const searchValue = menuSearch.trim().toLowerCase()
     const cappedSections = normalizeMenuItemSections(menuItemSections)
@@ -524,6 +541,22 @@ export default function EditableInspectionReport() {
     setBlockVisibility((currentVisibility) => {
       const nextVisibility = { ...currentVisibility, [block]: false }
       window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(nextVisibility))
+      return nextVisibility
+    })
+  }
+
+  const setQuoteBlockVisibility = (block: keyof QuoteBlockVisibility, visible: boolean) => {
+    setBlockVisibility((currentVisibility) => {
+      const nextVisibility = { ...currentVisibility, [block]: visible }
+      window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(nextVisibility))
+      return nextVisibility
+    })
+  }
+
+  const toggleRepairSectionVisibility = (sectionId: string, visible: boolean) => {
+    setRepairSectionVisibility((currentVisibility) => {
+      const nextVisibility = { ...currentVisibility, [sectionId]: visible }
+      window.localStorage.setItem(repairSectionVisibilityStorageKey, JSON.stringify(nextVisibility))
       return nextVisibility
     })
   }
@@ -632,17 +665,19 @@ export default function EditableInspectionReport() {
   }
 
   const addRepairSection = () => {
+    const nextSectionId = createId('repair')
     setRepairSections((currentSections) =>
       saveRepairSections([
         ...currentSections,
         {
-          id: createId('repair'),
+          id: nextSectionId,
           title: 'New Repair Item',
           status: 'Repair',
           lineItems: [{ id: createId('line'), description: 'Add repair detail here.', quantity: '1', rate: '0.00', margin: '0' }],
         },
       ]),
     )
+    toggleRepairSectionVisibility(nextSectionId, true)
   }
 
   const updateRepairSection = (sectionId: string, field: 'title' | 'status', value: string) => {
@@ -851,17 +886,20 @@ export default function EditableInspectionReport() {
     window.localStorage.removeItem(textBoxStorageKey)
     window.localStorage.removeItem(menuCollapsedStorageKey)
     window.localStorage.removeItem(estimateNoteVisibilityStorageKey)
+    window.localStorage.removeItem(repairSectionVisibilityStorageKey)
     setReport(defaultReport)
     setRepairSections(defaultRepairSections)
     setCostSections(defaultCostSections)
     setMenuItemSections(defaultMenuItemSections)
     setBlockVisibility(defaultBlockVisibility)
     setEstimateNoteVisibility(defaultEstimateNoteVisibility)
+    setRepairSectionVisibility({})
     setCanvasTextBoxes([])
     setMenuCollapsed(false)
     setUnlocked(false)
     setTextMenuOpen(false)
     setEstimateSummaryMenuOpen(false)
+    setPageLayoutMenuOpen(false)
     setRelatedDocumentsOpen(false)
     setMenuSettingsOpen(false)
   }
@@ -1145,13 +1183,106 @@ export default function EditableInspectionReport() {
               <div className="text-[16px] font-black text-[#1e222b]">
                 Page 1 <span className="font-bold text-[#7b808b]">- Quote proposal</span>
               </div>
-              <div className="flex items-center gap-4 text-[18px]">
-                <button type="button" aria-label="Move page up">⌃</button>
-                <button type="button" aria-label="Move page down">⌄</button>
-                <button type="button" aria-label="Hide page">◉</button>
-                <button type="button" aria-label="Lock page">▣</button>
-                <button type="button" aria-label="Duplicate page">▣</button>
-                <button type="button" aria-label="Delete page">⌫</button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setPageLayoutMenuOpen((currentOpen) => !currentOpen)}
+                  className="rounded-md border border-[#c8cfdb] bg-white px-3 py-2 text-[12px] font-black uppercase text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
+                  aria-expanded={pageLayoutMenuOpen}
+                >
+                  Edit Page Layout
+                </button>
+                {pageLayoutMenuOpen ? (
+                  <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[330px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_48px_-28px_rgba(15,23,42,0.55)]">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-black uppercase text-[#555b66]">Page hierarchy</span>
+                      <button
+                        type="button"
+                        onClick={() => setPageLayoutMenuOpen(false)}
+                        className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                        aria-label="Close page layout menu"
+                      >
+                        x
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
+                        <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
+                          <span>Repair Items</span>
+                          <input
+                            type="checkbox"
+                            checked={blockVisibility.repairItems}
+                            onChange={(event) => setQuoteBlockVisibility('repairItems', event.currentTarget.checked)}
+                            className="h-4 w-4 accent-[#273f7a]"
+                          />
+                        </label>
+                        <div className="mt-2 space-y-1 border-l border-[#d8deea] pl-3">
+                          {repairSections.map((section) => (
+                            <label
+                              key={section.id}
+                              className="flex cursor-pointer items-center justify-between gap-3 rounded-sm px-2 py-1 text-[12px] font-bold text-[#4d5360] transition hover:bg-white"
+                            >
+                              <span className="min-w-0 flex-1 truncate">{section.title}</span>
+                              <input
+                                type="checkbox"
+                                checked={repairSectionVisibility[section.id] !== false}
+                                onChange={(event) => toggleRepairSectionVisibility(section.id, event.currentTarget.checked)}
+                                className="h-4 w-4 accent-[#273f7a]"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
+                        <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
+                          <span>Estimate Summary</span>
+                          <input
+                            type="checkbox"
+                            checked={blockVisibility.estimateSummary}
+                            onChange={(event) => setQuoteBlockVisibility('estimateSummary', event.currentTarget.checked)}
+                            className="h-4 w-4 accent-[#273f7a]"
+                          />
+                        </label>
+                        <div className="mt-2 space-y-1 border-l border-[#d8deea] pl-3">
+                          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-sm px-2 py-1 text-[12px] font-bold text-[#7d5c00] transition hover:bg-white">
+                            <span>Top Note</span>
+                            <input
+                              type="checkbox"
+                              checked={estimateNoteVisibility.topNote}
+                              onChange={(event) => toggleEstimateNote('topNote', event.currentTarget.checked)}
+                              className="h-4 w-4 accent-[#f5b400]"
+                            />
+                          </label>
+                          {defaultCostSections.map((section) => (
+                            <label
+                              key={section.id}
+                              className="flex cursor-pointer items-center justify-between gap-3 rounded-sm px-2 py-1 text-[12px] font-bold text-[#4d5360] transition hover:bg-white"
+                            >
+                              <span>{section.title}</span>
+                              <input
+                                type="checkbox"
+                                checked={costSections.some((costSection) => costSection.id === section.id)}
+                                onChange={(event) => toggleCostSection(section.id, event.currentTarget.checked)}
+                                className="h-4 w-4 accent-[#273f7a]"
+                              />
+                            </label>
+                          ))}
+                          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-sm px-2 py-1 text-[12px] font-bold text-[#7d5c00] transition hover:bg-white">
+                            <span>Bottom Note</span>
+                            <input
+                              type="checkbox"
+                              checked={estimateNoteVisibility.bottomNote}
+                              onChange={(event) => toggleEstimateNote('bottomNote', event.currentTarget.checked)}
+                              className="h-4 w-4 accent-[#f5b400]"
+                            />
+                          </label>
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -1235,7 +1366,7 @@ export default function EditableInspectionReport() {
               </div>
 
               <div className="border-t border-[#d4d4d4]">
-                {repairSections.map((section, sectionIndex) => (
+                {visibleRepairSections.map((section, sectionIndex) => (
                   <section
                     key={section.id}
                     className={`repair-section bg-[#f4e3e3] ${
