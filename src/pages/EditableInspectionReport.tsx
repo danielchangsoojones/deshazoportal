@@ -62,6 +62,7 @@ const menuStorageKey = 'deshazo-editable-inspection-report-menu-items'
 const blockVisibilityStorageKey = 'deshazo-editable-inspection-report-block-visibility'
 const textBoxStorageKey = 'deshazo-editable-inspection-report-text-boxes'
 const menuCollapsedStorageKey = 'deshazo-editable-inspection-report-menu-collapsed'
+const maxRecentlyUsedItems = 2
 
 const defaultBlockVisibility: QuoteBlockVisibility = {
   repairItems: true,
@@ -195,6 +196,20 @@ const defaultMenuItemSections: MenuItemSection[] = [
     ],
   },
 ]
+
+const getMenuSectionDisplayTitle = (title: string) => {
+  if (title === 'Past history') return 'Recently used'
+  if (title === 'Customer specific') return 'Customer specific (Wabash)'
+  if (title === 'This crane') return 'This crane (D200235)'
+  return title
+}
+
+const normalizeMenuItemSections = (sections: MenuItemSection[]) =>
+  sections.map((section) =>
+    section.title === 'Past history'
+      ? { ...section, items: section.items.slice(0, maxRecentlyUsedItems) }
+      : section,
+  )
 
 const parseMoney = (value: string) => {
   const numericValue = Number(value.replace(/[^0-9.-]/g, ''))
@@ -330,7 +345,9 @@ export default function EditableInspectionReport() {
   const [textMenuOpen, setTextMenuOpen] = useState(false)
   const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
   const [menuSettingsOpen, setMenuSettingsOpen] = useState(false)
+  const [relatedDocumentsOpen, setRelatedDocumentsOpen] = useState(false)
   const [originalPdfOpen, setOriginalPdfOpen] = useState(false)
+  const [masterServiceAgreementOpen, setMasterServiceAgreementOpen] = useState(false)
   const [originalPdfPages, setOriginalPdfPages] = useState(0)
   const [menuSearch, setMenuSearch] = useState('')
   const [newMenuSection, setNewMenuSection] = useState(defaultMenuItemSections[0]?.title ?? 'Shared')
@@ -374,13 +391,13 @@ export default function EditableInspectionReport() {
   const [menuItemSections, setMenuItemSections] = useState<MenuItemSection[]>(() => {
     const savedSections = window.localStorage.getItem(menuStorageKey)
 
-    if (!savedSections) return defaultMenuItemSections
+    if (!savedSections) return normalizeMenuItemSections(defaultMenuItemSections)
 
     try {
       const parsedSections = JSON.parse(savedSections) as MenuItemSection[]
-      return parsedSections.length > 0 ? parsedSections : defaultMenuItemSections
+      return normalizeMenuItemSections(parsedSections.length > 0 ? parsedSections : defaultMenuItemSections)
     } catch {
-      return defaultMenuItemSections
+      return normalizeMenuItemSections(defaultMenuItemSections)
     }
   })
   const [blockVisibility, setBlockVisibility] = useState<QuoteBlockVisibility>(() => {
@@ -427,9 +444,10 @@ export default function EditableInspectionReport() {
   const invoiceTotal = repairTotal + costTotal
   const visibleMenuItemSections = useMemo(() => {
     const searchValue = menuSearch.trim().toLowerCase()
-    if (!searchValue) return menuItemSections
+    const cappedSections = normalizeMenuItemSections(menuItemSections)
+    if (!searchValue) return cappedSections
 
-    return menuItemSections
+    return cappedSections
       .map((section) => ({
         ...section,
         items: section.items.filter((item) =>
@@ -469,8 +487,9 @@ export default function EditableInspectionReport() {
   }
 
   const saveMenuItemSections = (nextSections: MenuItemSection[]) => {
-    window.localStorage.setItem(menuStorageKey, JSON.stringify(nextSections))
-    return nextSections
+    const normalizedSections = normalizeMenuItemSections(nextSections)
+    window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
+    return normalizedSections
   }
 
   const saveCanvasTextBoxes = (nextTextBoxes: CanvasTextBox[]) => {
@@ -515,6 +534,25 @@ export default function EditableInspectionReport() {
     setNewMenuLabel('')
     setNewMenuDescription('')
     setNewMenuRate('0.00')
+  }
+
+  const addMenuItemToRecentlyUsed = (item: MenuItem) => {
+    setMenuItemSections((currentSections) =>
+      saveMenuItemSections(
+        currentSections.map((section) => {
+          if (section.title !== 'Past history') return section
+
+          const matchingItem = (sectionItem: MenuItem) =>
+            sectionItem.label === item.label
+            || (sectionItem.description === item.description && sectionItem.rate === item.rate)
+
+          return {
+            ...section,
+            items: [item, ...section.items.filter((sectionItem) => !matchingItem(sectionItem))].slice(0, maxRecentlyUsedItems),
+          }
+        }),
+      ),
+    )
   }
 
   const createId = (prefix: string) => {
@@ -641,6 +679,7 @@ export default function EditableInspectionReport() {
   }
 
   const addMenuItemToRepairSection = (sectionId: string, item: MenuItem) => {
+    addMenuItemToRecentlyUsed(item)
     setRepairSections((currentSections) =>
       saveRepairSections(
         currentSections.map((section) =>
@@ -722,6 +761,7 @@ export default function EditableInspectionReport() {
   }
 
   const addMenuItemToCostSection = (sectionId: string, item: MenuItem) => {
+    addMenuItemToRecentlyUsed(item)
     setCostSections((currentSections) =>
       saveCostSections(
         currentSections.map((section) =>
@@ -771,6 +811,7 @@ export default function EditableInspectionReport() {
     setMenuCollapsed(false)
     setUnlocked(false)
     setTextMenuOpen(false)
+    setRelatedDocumentsOpen(false)
     setMenuSettingsOpen(false)
   }
 
@@ -873,9 +914,42 @@ export default function EditableInspectionReport() {
               </div>
             ) : null}
           </div>
-          <button type="button" onClick={() => setOriginalPdfOpen(true)} className="text-sm font-black">
-            Show Original PDF
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setRelatedDocumentsOpen((currentOpen) => !currentOpen)}
+              className="rounded-md px-2 py-1 text-sm font-black transition hover:bg-white/15"
+              aria-expanded={relatedDocumentsOpen}
+            >
+              Related Documents
+            </button>
+            {relatedDocumentsOpen ? (
+              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[300px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOriginalPdfOpen(true)
+                    setRelatedDocumentsOpen(false)
+                  }}
+                  className="w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f4f6fb]"
+                >
+                  <span className="block text-[14px] font-black text-[#1f2430]">Original Inspection</span>
+                  <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">View the source inspection PDF.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMasterServiceAgreementOpen(true)
+                    setRelatedDocumentsOpen(false)
+                  }}
+                  className="mt-1 w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f4f6fb]"
+                >
+                  <span className="block text-[14px] font-black text-[#1f2430]">Master Service Agreement</span>
+                  <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open example labor and service pricing.</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={() => setUnlocked((currentUnlocked) => !currentUnlocked)}
@@ -885,8 +959,8 @@ export default function EditableInspectionReport() {
                 : 'border-white/25 bg-white/10 text-white hover:bg-white/20'
             }`}
           >
-            <span className="text-base">{unlocked ? '🔒' : '🔓'}</span>
-            <span>{unlocked ? 'Lock' : 'Unlock'}</span>
+            <span className="text-base">{unlocked ? '🔓' : '🔒'}</span>
+            <span>{unlocked ? 'Unlocked' : 'Locked'}</span>
           </button>
         </div>
 
@@ -960,7 +1034,7 @@ export default function EditableInspectionReport() {
                   {visibleMenuItemSections.length > 0 ? visibleMenuItemSections.map((section) => (
                     <section key={section.title}>
                       <h3 className="mb-2 border-b border-[#dfe4ef] pb-1 text-[12px] font-black uppercase tracking-[0.02em] text-[#273f7a]">
-                        {section.title}
+                        {getMenuSectionDisplayTitle(section.title)}
                       </h3>
                       <div className="space-y-2">
                         {section.items.map((item) => (
@@ -1564,7 +1638,7 @@ export default function EditableInspectionReport() {
               >
                 {menuItemSections.map((section) => (
                   <option key={section.title} value={section.title}>
-                    {section.title}
+                    {getMenuSectionDisplayTitle(section.title)}
                   </option>
                 ))}
               </select>
@@ -1611,6 +1685,98 @@ export default function EditableInspectionReport() {
             >
               Add Item
             </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    {masterServiceAgreementOpen ? (
+      <div className="report-toolbar fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/55 px-4 py-6">
+        <div className="flex h-full w-full max-w-[920px] flex-col rounded-md border border-[#cfd6e5] bg-white shadow-[0_28px_80px_-36px_rgba(15,23,42,0.75)]">
+          <div className="flex items-center justify-between border-b border-[#dfe4ef] px-5 py-3">
+            <div>
+              <h2 className="text-[18px] font-black text-[#1f2430]">Master Service Agreement</h2>
+              <p className="mt-0.5 text-[12px] font-semibold text-[#747b8a]">Example pricing schedule for Wabash service work</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMasterServiceAgreementOpen(false)}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[16px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+              aria-label="Close master service agreement"
+            >
+              x
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto bg-[#eef1f6] px-5 py-5">
+            <article className="mx-auto min-h-[980px] max-w-[760px] bg-white px-12 py-10 text-[#1f2430] shadow-[0_18px_46px_-30px_rgba(15,23,42,0.5)]">
+              <div className="border-b-4 border-[#f5b400] pb-4">
+                <p className="text-[12px] font-black uppercase tracking-[0.08em] text-[#273f7a]">Example Agreement</p>
+                <h3 className="mt-2 text-[30px] font-black leading-tight">Master Service Agreement</h3>
+                <p className="mt-2 text-[13px] font-semibold text-[#5b606b]">
+                  DESHAZO service pricing reference for quote proposal preparation.
+                </p>
+              </div>
+
+              <section className="mt-6 grid grid-cols-2 gap-4 text-[13px] font-semibold">
+                <div className="rounded-md border border-[#dfe4ef] p-4">
+                  <p className="text-[11px] font-black uppercase text-[#747b8a]">Customer</p>
+                  <p className="mt-1 text-[16px] font-black">Wabash</p>
+                </div>
+                <div className="rounded-md border border-[#dfe4ef] p-4">
+                  <p className="text-[11px] font-black uppercase text-[#747b8a]">Covered Equipment</p>
+                  <p className="mt-1 text-[16px] font-black">Crane D200235</p>
+                </div>
+              </section>
+
+              <section className="mt-7">
+                <h4 className="text-[16px] font-black uppercase text-[#273f7a]">Labor Rates</h4>
+                <div className="mt-3 overflow-hidden rounded-md border border-[#cfd6e5] text-[13px]">
+                  <div className="grid grid-cols-[1fr_120px] bg-[#f7f8fb] text-[11px] font-black uppercase text-[#555b66]">
+                    <div className="px-3 py-2">Service Type</div>
+                    <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Rate</div>
+                  </div>
+                  {[
+                    ['Regular technician labor', '$145.00/hr'],
+                    ['Overtime technician labor', '$217.50/hr'],
+                    ['Double-time emergency labor', '$290.00/hr'],
+                    ['Project manager / engineering support', '$185.00/hr'],
+                    ['Helper / apprentice labor', '$95.00/hr'],
+                  ].map(([label, rate]) => (
+                    <div key={label} className="grid grid-cols-[1fr_120px] border-t border-[#e5e9f2] font-semibold">
+                      <div className="px-3 py-2">{label}</div>
+                      <div className="border-l border-[#e5e9f2] px-3 py-2 text-right font-black">{rate}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="mt-7">
+                <h4 className="text-[16px] font-black uppercase text-[#273f7a]">Equipment, Travel, and Freight</h4>
+                <div className="mt-3 grid gap-3 text-[13px] font-semibold">
+                  {[
+                    ['Service truck', '$85.00 per visit'],
+                    ['Scissor lift rental', '$275.00 per day'],
+                    ['Forklift / telehandler rental', '$425.00 per day'],
+                    ['Freight and delivery', 'Actual cost plus 15%'],
+                    ['Mileage outside service area', '$1.25 per mile'],
+                  ].map(([label, rate]) => (
+                    <div key={label} className="flex items-center justify-between rounded-md border border-[#dfe4ef] px-3 py-2">
+                      <span>{label}</span>
+                      <span className="font-black">{rate}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="mt-7 rounded-md border border-[#e4d08a] bg-[#fff9df] p-4">
+                <h4 className="text-[14px] font-black uppercase text-[#7d5c00]">Commercial Terms</h4>
+                <p className="mt-2 text-[13px] font-semibold leading-relaxed text-[#4d5360]">
+                  Parts are billed at quoted cost plus applicable margin. Taxes, permits, special site access,
+                  and expedited freight are added when required. Pricing shown here is example data for this
+                  quoting prototype.
+                </p>
+              </section>
+            </article>
           </div>
         </div>
       </div>
