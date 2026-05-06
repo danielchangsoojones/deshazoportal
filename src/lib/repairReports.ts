@@ -39,27 +39,39 @@ export type RepairReportRecord = {
   signedUrl: string
 }
 
-export function normalizeCityKey(value: string) {
+function normalizeLooseKey(value: string) {
   return value
     .trim()
     .toLowerCase()
     .replace(/^\d+\s+/, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function normalizeCityKey(value: string) {
+  return normalizeLooseKey(value).replace(/\s+/g, '-')
 }
 
 function buildCityKeyVariants(value: string) {
-  const normalized = normalizeCityKey(value)
+  const normalized = normalizeLooseKey(value)
 
   if (!normalized) {
     return []
   }
 
+  const parts = normalized.split(' ').filter(Boolean)
+  const compact = parts.join('')
+  const spaced = parts.join(' ')
+  const hyphenated = parts.join('-')
+  const underscored = parts.join('_')
+
   return Array.from(
     new Set([
-      normalized,
-      normalized.replace(/-/g, '_'),
-      normalized.replace(/-/g, ' '),
+      compact,
+      spaced,
+      hyphenated,
+      underscored,
     ]),
   )
 }
@@ -111,8 +123,14 @@ export async function listRepairReportsByCity(city: string) {
     .select(
       'id, work_order_number, report_type, customer, customer_location, service_location, city_key, comment, date_start, date_end, display_name, storage_path, uploaded_at, is_active',
     )
-    .in('city_key', cityKeys)
     .eq('is_active', true)
+    .or(
+      cityKeys.flatMap((cityKey) => [
+        `city_key.ilike.${cityKey}`,
+        `service_location.ilike.${cityKey}`,
+        `customer_location.ilike.${cityKey}`,
+      ]).join(','),
+    )
     .order('date_start', { ascending: false, nullsFirst: false })
     .order('uploaded_at', { ascending: false })
 
