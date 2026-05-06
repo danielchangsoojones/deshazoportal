@@ -48,6 +48,11 @@ type QuoteBlockVisibility = {
   notes: boolean
 }
 
+type EstimateNoteVisibility = {
+  topNote: boolean
+  bottomNote: boolean
+}
+
 const storageKey = 'deshazo-editable-inspection-report'
 const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
 const costStorageKey = 'deshazo-editable-inspection-report-costs'
@@ -55,6 +60,7 @@ const menuStorageKey = 'deshazo-editable-inspection-report-menu-items'
 const blockVisibilityStorageKey = 'deshazo-editable-inspection-report-block-visibility'
 const textBoxStorageKey = 'deshazo-editable-inspection-report-text-boxes'
 const menuCollapsedStorageKey = 'deshazo-editable-inspection-report-menu-collapsed'
+const estimateNoteVisibilityStorageKey = 'deshazo-editable-inspection-report-estimate-note-visibility'
 const maxRecentlyUsedItems = 2
 
 const defaultBlockVisibility: QuoteBlockVisibility = {
@@ -62,6 +68,11 @@ const defaultBlockVisibility: QuoteBlockVisibility = {
   estimateSummary: true,
   grandTotal: true,
   notes: true,
+}
+
+const defaultEstimateNoteVisibility: EstimateNoteVisibility = {
+  topNote: false,
+  bottomNote: false,
 }
 
 const defaultReport: ReportData = {
@@ -93,6 +104,8 @@ const defaultReport: ReportData = {
   capacityHoist: 'Hoist 1: 1 Ton',
   modelHoist: 'Hoist 1: ELC2016.3',
   sectionHeader: 'Repair Items',
+  estimateTopNote: 'Top note: Add estimate context here.',
+  estimateBottomNote: 'Bottom note: Add estimate terms here.',
   notesHeader: 'Notes',
   notes:
     'Click into any text on this report and type to edit. Use the print button to save as PDF from the browser print dialog.',
@@ -408,6 +421,17 @@ export default function EditableInspectionReport() {
       return { ...defaultBlockVisibility, ...JSON.parse(savedVisibility) as Partial<QuoteBlockVisibility> }
     } catch {
       return defaultBlockVisibility
+    }
+  })
+  const [estimateNoteVisibility, setEstimateNoteVisibility] = useState<EstimateNoteVisibility>(() => {
+    const savedVisibility = window.localStorage.getItem(estimateNoteVisibilityStorageKey)
+
+    if (!savedVisibility) return defaultEstimateNoteVisibility
+
+    try {
+      return { ...defaultEstimateNoteVisibility, ...JSON.parse(savedVisibility) as Partial<EstimateNoteVisibility> }
+    } catch {
+      return defaultEstimateNoteVisibility
     }
   })
   const [canvasTextBoxes, setCanvasTextBoxes] = useState<CanvasTextBox[]>(() => {
@@ -754,6 +778,14 @@ export default function EditableInspectionReport() {
     })
   }
 
+  const toggleEstimateNote = (note: keyof EstimateNoteVisibility, checked: boolean) => {
+    setEstimateNoteVisibility((currentVisibility) => {
+      const nextVisibility = { ...currentVisibility, [note]: checked }
+      window.localStorage.setItem(estimateNoteVisibilityStorageKey, JSON.stringify(nextVisibility))
+      return nextVisibility
+    })
+  }
+
   const updateCostLineItem = (
     sectionId: string,
     lineItemId: string,
@@ -818,11 +850,13 @@ export default function EditableInspectionReport() {
     window.localStorage.removeItem(blockVisibilityStorageKey)
     window.localStorage.removeItem(textBoxStorageKey)
     window.localStorage.removeItem(menuCollapsedStorageKey)
+    window.localStorage.removeItem(estimateNoteVisibilityStorageKey)
     setReport(defaultReport)
     setRepairSections(defaultRepairSections)
     setCostSections(defaultCostSections)
     setMenuItemSections(defaultMenuItemSections)
     setBlockVisibility(defaultBlockVisibility)
+    setEstimateNoteVisibility(defaultEstimateNoteVisibility)
     setCanvasTextBoxes([])
     setMenuCollapsed(false)
     setUnlocked(false)
@@ -1414,6 +1448,25 @@ export default function EditableInspectionReport() {
                       </button>
                     </div>
                     <div className="space-y-2">
+                      {[
+                        { id: 'topNote', title: 'Top Note' },
+                        { id: 'bottomNote', title: 'Bottom Note' },
+                      ].map((note) => (
+                        <label
+                          key={note.id}
+                          className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-[#e3e8f1] bg-[#fffdf3] px-3 py-2 text-[12px] font-black text-[#7d5c00]"
+                        >
+                          <span>{note.title}</span>
+                          <input
+                            type="checkbox"
+                            checked={estimateNoteVisibility[note.id as keyof EstimateNoteVisibility]}
+                            onChange={(event) =>
+                              toggleEstimateNote(note.id as keyof EstimateNoteVisibility, event.currentTarget.checked)
+                            }
+                            className="h-4 w-4 accent-[#f5b400]"
+                          />
+                        </label>
+                      ))}
                       {defaultCostSections.map((section) => (
                         <label
                           key={section.id}
@@ -1434,6 +1487,17 @@ export default function EditableInspectionReport() {
               </div>
 
               <div className="border-t border-[#d4d4d4]">
+                {estimateNoteVisibility.topNote ? (
+                  <div className="border-b border-[#d8d8d8] bg-[#fffdf3] px-3 py-2">
+                    <EditableText
+                      id="estimateTopNote"
+                      data={report}
+                      onChange={updateField}
+                      multiline
+                      className="min-h-[34px] text-[13px] font-semibold leading-tight text-[#4d5360]"
+                    />
+                  </div>
+                ) : null}
                 {costSections.map((section, sectionIndex) => (
                   <section
                     key={section.id}
@@ -1579,6 +1643,17 @@ export default function EditableInspectionReport() {
                     </div>
                   </section>
                 ))}
+                {estimateNoteVisibility.bottomNote ? (
+                  <div className="border-t border-[#d8d8d8] bg-[#fffdf3] px-3 py-2">
+                    <EditableText
+                      id="estimateBottomNote"
+                      data={report}
+                      onChange={updateField}
+                      multiline
+                      className="min-h-[34px] text-[13px] font-semibold leading-tight text-[#4d5360]"
+                    />
+                  </div>
+                ) : null}
               </div>
             </section>
             ) : null}
