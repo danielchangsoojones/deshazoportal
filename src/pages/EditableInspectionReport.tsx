@@ -175,8 +175,8 @@ const defaultMenuItemSections: MenuItemSection[] = [
   {
     title: 'Customer specific',
     items: [
-      { label: 'Site safety prep', description: 'Customer-required site safety preparation.', rate: '125.00' },
-      { label: 'After-hours work', description: 'Customer-requested after-hours labor premium.', rate: '210.00' },
+      { label: 'Labor', description: 'Customer-specific labor rate for Wabash service work.', rate: '145.00' },
+      { label: 'Freight', description: 'Customer-specific freight and delivery charge.', rate: '85.00' },
     ],
   },
   {
@@ -204,11 +204,18 @@ const getMenuSectionDisplayTitle = (title: string) => {
   return title
 }
 
+const customerSpecificMenuItems: MenuItem[] = [
+  { label: 'Labor', description: 'Customer-specific labor rate for Wabash service work.', rate: '145.00' },
+  { label: 'Freight', description: 'Customer-specific freight and delivery charge.', rate: '85.00' },
+]
+
 const normalizeMenuItemSections = (sections: MenuItemSection[]) =>
   sections.map((section) =>
     section.title === 'Past history'
       ? { ...section, items: section.items.slice(0, maxRecentlyUsedItems) }
-      : section,
+      : section.title === 'Customer specific'
+        ? { ...section, items: customerSpecificMenuItems }
+        : section,
   )
 
 const parseMoney = (value: string) => {
