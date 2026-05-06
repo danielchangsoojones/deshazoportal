@@ -350,6 +350,7 @@ export default function EditableInspectionReport() {
   const [activeLineMenu, setActiveLineMenu] = useState('')
   const [unlocked, setUnlocked] = useState(false)
   const [textMenuOpen, setTextMenuOpen] = useState(false)
+  const [estimateSummaryMenuOpen, setEstimateSummaryMenuOpen] = useState(false)
   const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
   const [menuSettingsOpen, setMenuSettingsOpen] = useState(false)
   const [relatedDocumentsOpen, setRelatedDocumentsOpen] = useState(false)
@@ -745,6 +746,23 @@ export default function EditableInspectionReport() {
     )
   }
 
+  const toggleCostSection = (sectionId: string, checked: boolean) => {
+    setCostSections((currentSections) => {
+      if (!checked) return saveCostSections(currentSections.filter((section) => section.id !== sectionId))
+      if (currentSections.some((section) => section.id === sectionId)) return currentSections
+
+      const sectionToAdd = defaultCostSections.find((section) => section.id === sectionId)
+      if (!sectionToAdd) return currentSections
+
+      const nextSections = [...currentSections, sectionToAdd].sort(
+        (firstSection, secondSection) =>
+          defaultCostSections.findIndex((section) => section.id === firstSection.id)
+          - defaultCostSections.findIndex((section) => section.id === secondSection.id),
+      )
+      return saveCostSections(nextSections)
+    })
+  }
+
   const updateCostLineItem = (
     sectionId: string,
     lineItemId: string,
@@ -818,6 +836,7 @@ export default function EditableInspectionReport() {
     setMenuCollapsed(false)
     setUnlocked(false)
     setTextMenuOpen(false)
+    setEstimateSummaryMenuOpen(false)
     setRelatedDocumentsOpen(false)
     setMenuSettingsOpen(false)
   }
@@ -1231,9 +1250,8 @@ export default function EditableInspectionReport() {
                     </div>
 
                     <div className="bg-white">
-                      <div className="grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
-                        <div className="px-2 py-1 text-center">#</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1">Description</div>
+                      <div className="grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
+                        <div className="px-2 py-1">Description</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Rate</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Amount</div>
@@ -1243,7 +1261,7 @@ export default function EditableInspectionReport() {
                         {section.lineItems.map((lineItem, lineIndex) => (
                           <div
                             key={lineItem.id}
-                            className="relative grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                            className="relative grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                           >
                             {parseMoney(lineItem.margin) > 0 ? (
                               <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
@@ -1253,8 +1271,7 @@ export default function EditableInspectionReport() {
                                 <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
                               </span>
                             ) : null}
-                            <div className="px-2 py-1.5 text-center text-[11px] font-black text-[#7d1515]">{lineIndex + 1}</div>
-                            <div className="flex min-h-[25px] items-start gap-2 border-l border-[#e5e5e5] px-2 py-1.5">
+                            <div className="flex min-h-[25px] items-start gap-2 px-2 py-1.5">
                               <EditableValue
                                 label={`${section.title} line item ${lineIndex + 1}`}
                                 value={lineItem.description}
@@ -1382,7 +1399,48 @@ export default function EditableInspectionReport() {
                   🗑
                 </button>
               ) : null}
-              <div className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase">Estimate Summary</div>
+              <div className="relative flex items-center justify-between bg-[#f2f2f2] px-3 py-2">
+                <div className="text-[17px] font-black uppercase">Estimate Summary</div>
+                <button
+                  type="button"
+                  onClick={() => setEstimateSummaryMenuOpen((currentOpen) => !currentOpen)}
+                  className="report-inline-action flex h-7 w-7 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-[18px] font-black leading-none text-[#4d5360] transition hover:bg-[#edf2fb]"
+                  aria-label="Open estimate summary settings"
+                >
+                  ⚙
+                </button>
+                {estimateSummaryMenuOpen ? (
+                  <div className="report-inline-action absolute right-2 top-[calc(100%+6px)] z-30 w-[245px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-black uppercase text-[#555b66]">Estimate sections</span>
+                      <button
+                        type="button"
+                        onClick={() => setEstimateSummaryMenuOpen(false)}
+                        className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                        aria-label="Close estimate summary settings"
+                      >
+                        x
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {defaultCostSections.map((section) => (
+                        <label
+                          key={section.id}
+                          className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-[#e3e8f1] bg-[#fbfcff] px-3 py-2 text-[12px] font-black text-[#273f7a]"
+                        >
+                          <span>{section.title}</span>
+                          <input
+                            type="checkbox"
+                            checked={costSections.some((costSection) => costSection.id === section.id)}
+                            onChange={(event) => toggleCostSection(section.id, event.currentTarget.checked)}
+                            className="h-4 w-4 accent-[#273f7a]"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
 
               <div className="border-t border-[#d4d4d4]">
                 {costSections.map((section, sectionIndex) => (
@@ -1399,9 +1457,8 @@ export default function EditableInspectionReport() {
                       />
                     </div>
 
-                    <div className="grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[10px] font-black uppercase text-[#555b66]">
-                      <div className="px-2 py-1 text-center">#</div>
-                      <div className="border-l border-[#d8d8d8] px-2 py-1">Description</div>
+                    <div className="grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[10px] font-black uppercase text-[#555b66]">
+                      <div className="px-2 py-1">Description</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Rate</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Amount</div>
@@ -1411,7 +1468,7 @@ export default function EditableInspectionReport() {
                     {section.lineItems.map((lineItem, lineIndex) => (
                       <div
                         key={lineItem.id}
-                        className="relative grid grid-cols-[34px_1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                        className="relative grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                       >
                         {parseMoney(lineItem.margin) > 0 ? (
                           <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
@@ -1421,8 +1478,7 @@ export default function EditableInspectionReport() {
                             <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
                           </span>
                         ) : null}
-                        <div className="px-2 py-1.5 text-center text-[11px] font-black text-[#273f7a]">{lineIndex + 1}</div>
-                        <div className="flex min-h-[25px] items-start gap-2 border-l border-[#e5e5e5] px-2 py-1.5">
+                        <div className="flex min-h-[25px] items-start gap-2 px-2 py-1.5">
                           <EditableValue
                             label={`${section.title} line item ${lineIndex + 1}`}
                             value={lineItem.description}
