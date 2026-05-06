@@ -1045,21 +1045,31 @@ export default function EditableInspectionReport() {
                       </h3>
                       <div className="space-y-2">
                         {section.items.map((item) => (
-                          <button
+                          <div
                             key={`${section.title}-${item.label}`}
-                            type="button"
                             draggable
                             onDragStart={(event) => {
                               event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
                               event.dataTransfer.setData('text/plain', item.description)
                               event.dataTransfer.effectAllowed = 'copy'
                             }}
-                            className="w-full rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff]"
+                            className="w-full cursor-grab rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff] active:cursor-grabbing"
                           >
                             <span className="block text-[13px] font-black text-[#273f7a]">{item.label}</span>
                             <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
                             <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
-                          </button>
+                            {section.title === 'Customer specific' && ['Labor', 'Freight'].includes(item.label) ? (
+                              <button
+                                type="button"
+                                draggable={false}
+                                onClick={() => setMasterServiceAgreementOpen(true)}
+                                onDragStart={(event) => event.preventDefault()}
+                                className="mt-2 rounded-md border border-[#f5b400] bg-[#fff2bf] px-2 py-1 text-[10px] font-black uppercase leading-tight text-[#6c4a00] shadow-sm transition hover:bg-[#ffe68a]"
+                              >
+                                Master Service Agreement
+                              </button>
+                            ) : null}
+                          </div>
                         ))}
                       </div>
                     </section>
