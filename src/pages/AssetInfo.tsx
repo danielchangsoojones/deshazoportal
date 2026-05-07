@@ -1416,14 +1416,16 @@ export default function AssetInfo() {
                                   : 'border-[var(--deshazo-border)] hover:border-[var(--deshazo-blue-soft)]'
                               }`}
                             >
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-[18px] font-bold text-[var(--deshazo-blue)]">{document.display_name}</p>
+                              <div className="flex items-start gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <p className="break-words text-[18px] font-bold leading-tight text-[var(--deshazo-blue)]">
+                                    {document.display_name}
+                                  </p>
                                   <span className="mt-3 inline-flex rounded-full bg-[#dff6e6] px-2.5 py-1 text-[12px] font-semibold text-[#4a9960]">
                                     {formatTitleCase(document.type)}
                                   </span>
                                 </div>
-                                <p className="shrink-0 text-sm font-semibold text-[rgba(21,24,33,0.72)]">
+                                <p className="w-[92px] shrink-0 text-right text-sm font-semibold text-[rgba(21,24,33,0.72)]">
                                   {formatDisplayDate(document.inspection_date)}
                                 </p>
                               </div>
