@@ -42,6 +42,7 @@ type CanvasTextBox = {
 }
 
 type QuoteBlockVisibility = {
+  scopeOfWork: boolean
   repairItems: boolean
   estimateSummary: boolean
   grandTotal: boolean
@@ -65,6 +66,7 @@ const repairSectionVisibilityStorageKey = 'deshazo-editable-inspection-report-re
 const maxRecentlyUsedItems = 2
 
 const defaultBlockVisibility: QuoteBlockVisibility = {
+  scopeOfWork: true,
   repairItems: true,
   estimateSummary: true,
   grandTotal: true,
@@ -75,6 +77,9 @@ const defaultEstimateNoteVisibility: EstimateNoteVisibility = {
   topNote: false,
   bottomNote: false,
 }
+
+const legacyScopeOfWorkSample =
+  'Remove 2 old Budgit 2 ton hoists and install (2) new 2 ton Harrington chain hoist model: NER2M020LD-LD specs are listed below for hoists.'
 
 const defaultReport: ReportData = {
   logoName: 'DESHAZO',
@@ -104,10 +109,12 @@ const defaultReport: ReportData = {
   serialHoist: 'Hoist 1: 8PA596L',
   capacityHoist: 'Hoist 1: 1 Ton',
   modelHoist: 'Hoist 1: ELC2016.3',
+  scopeOfWorkHeader: 'Scope of Work',
+  scopeOfWork: '',
   sectionHeader: 'Repair Items',
   estimateTopNote: 'Top note: Add estimate context here.',
   estimateBottomNote: 'Bottom note: Add estimate terms here.',
-  notesHeader: 'Notes',
+  notesHeader: 'Additional Notes',
   notes:
     'Click into any text on this report and type to edit. Use the print button to save as PDF from the browser print dialog.',
 }
@@ -277,6 +284,17 @@ const normalizeCostSections = (sections: CostSection[]) =>
     }),
   }))
 
+const normalizeReport = (report: ReportData) => {
+  const nextReport = { ...defaultReport, ...report }
+
+  if (nextReport.title === 'INSPECTION REPORT') nextReport.title = defaultReport.title
+  if (!nextReport.scopeOfWorkHeader?.trim()) nextReport.scopeOfWorkHeader = defaultReport.scopeOfWorkHeader
+  if (nextReport.scopeOfWork === legacyScopeOfWorkSample) nextReport.scopeOfWork = ''
+  if (nextReport.notesHeader === 'Notes') nextReport.notesHeader = defaultReport.notesHeader
+
+  return nextReport
+}
+
 type EditableTextProps = {
   id: string
   data: ReportData
@@ -286,10 +304,16 @@ type EditableTextProps = {
 }
 
 function EditableText({ id, data, className = '', multiline = false, onChange }: EditableTextProps) {
+  const fieldValue = data[id] ?? ''
+  const value =
+    id === 'scopeOfWorkHeader' && !fieldValue.trim()
+      ? defaultReport[id] ?? ''
+      : fieldValue
+
   return (
     <EditableValue
       label={id}
-      value={data[id] ?? ''}
+      value={value}
       className={className}
       multiline={multiline}
       onChange={(value) => onChange(id, value)}
@@ -374,8 +398,7 @@ export default function EditableInspectionReport() {
     if (!savedReport) return defaultReport
 
     try {
-      const parsedReport = { ...defaultReport, ...JSON.parse(savedReport) as ReportData }
-      return parsedReport.title === 'INSPECTION REPORT' ? { ...parsedReport, title: defaultReport.title } : parsedReport
+      return normalizeReport(JSON.parse(savedReport) as ReportData)
     } catch {
       return defaultReport
     }
@@ -1209,6 +1232,18 @@ export default function EditableInspectionReport() {
                     <div className="space-y-3">
                       <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
                         <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
+                          <span>Scope of Work</span>
+                          <input
+                            type="checkbox"
+                            checked={blockVisibility.scopeOfWork}
+                            onChange={(event) => setQuoteBlockVisibility('scopeOfWork', event.currentTarget.checked)}
+                            className="h-4 w-4 accent-[#273f7a]"
+                          />
+                        </label>
+                      </section>
+
+                      <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
+                        <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
                           <span>Repair Items</span>
                           <input
                             type="checkbox"
@@ -1336,6 +1371,34 @@ export default function EditableInspectionReport() {
                 )),
               )}
             </div>
+
+            {blockVisibility.scopeOfWork ? (
+            <section className={`relative mt-3 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+              {unlocked ? (
+                <button
+                  type="button"
+                  onClick={() => deleteQuoteBlock('scopeOfWork')}
+                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
+                  aria-label="Delete scope of work block"
+                >
+                  🗑
+                </button>
+              ) : null}
+              <EditableText
+                id="scopeOfWorkHeader"
+                data={report}
+                onChange={updateField}
+                className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black"
+              />
+              <EditableText
+                id="scopeOfWork"
+                data={report}
+                onChange={updateField}
+                multiline
+                className="min-h-[58px] border-t border-[#d4d4d4] px-3 py-3 text-[14px] font-semibold leading-snug"
+              />
+            </section>
+            ) : null}
 
             {blockVisibility.repairItems ? (
             <section className={`relative mt-3 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
