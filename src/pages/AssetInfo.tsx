@@ -16,7 +16,7 @@ import {
   upsertAssetNotificationSubscriber,
   type AssetNotificationSubscriberRecord,
 } from '../lib/assetNotificationSubscribers'
-import { getCurrentUserTag, type UserTag } from '../lib/userTags'
+import { listRepairReportsByCity } from '../lib/repairReports'
 import {
   findAssetPdfPage,
   getAssetInfo,
@@ -84,21 +84,6 @@ const defaultAssetDocuments: AssetPdfResponse = {
   total_pages: 1,
 }
 
-const mockRepairDocuments: AssetPdfDocument[] = [
-  {
-    inspection_date: 'Dec. 29th, 2025',
-    pdf: '/mock-pdfs/repair-ticket-1.pdf',
-    type: 'Repair Ticket',
-    display_name: 'Repair Service Ticket 1',
-  },
-  {
-    inspection_date: 'Dec. 19th, 2025',
-    pdf: '/mock-pdfs/repair-ticket-2.pdf',
-    type: 'Repair Ticket',
-    display_name: 'Repair Service Ticket 2',
-  },
-]
-
 const formatDisplayDate = (value?: string) =>
   value ? value.replace(/\. /g, ' ').replace(/th,|st,|nd,|rd,/g, ',') : 'Not available'
 
@@ -153,6 +138,13 @@ const extractDocumentNumber = (...values: Array<string | undefined>) => {
 
   return ''
 }
+
+const formatRepairReportType = (value: string) =>
+  value
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 
 const getSafetyBadgeClass = (value: string) => {
   const normalized = value.toLowerCase()
@@ -235,6 +227,7 @@ export default function AssetInfo() {
   const [filterValue, setFilterValue] = useState('')
   const [assetInfo, setAssetInfo] = useState<AssetInfoAnalytics>(defaultAssetInfo)
   const [assetDocuments, setAssetDocuments] = useState<AssetPdfResponse>(defaultAssetDocuments)
+  const [repairDocuments, setRepairDocuments] = useState<AssetPdfDocument[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState('')
   const [documentsPage, setDocumentsPage] = useState(1)
@@ -262,7 +255,6 @@ export default function AssetInfo() {
   const [issueReportError, setIssueReportError] = useState('')
   const [selectedIssue, setSelectedIssue] = useState<AssetIssue | null>(null)
   const [selectedIssueMatch, setSelectedIssueMatch] = useState<IssueReportMatch | null>(null)
-  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [recurringIssues, setRecurringIssues] = useState<RecurringIssue[]>([])
@@ -532,34 +524,6 @@ export default function AssetInfo() {
   }, [unitId, user])
 
   useEffect(() => {
-    if (!user || !supabase) {
-      setUserTag(null)
-      return
-    }
-
-    let cancelled = false
-
-    const loadUserTag = async () => {
-      try {
-        const tag = await getCurrentUserTag(user.id)
-        if (!cancelled) {
-          setUserTag(tag)
-        }
-      } catch {
-        if (!cancelled) {
-          setUserTag(null)
-        }
-      }
-    }
-
-    loadUserTag()
-
-    return () => {
-      cancelled = true
-    }
-  }, [user])
-
-  useEffect(() => {
     if (!user || !unitId || !supabase) {
       setWabashIdentifier('')
       setWabashLoading(false)
@@ -637,12 +601,60 @@ export default function AssetInfo() {
   }, [activeTab, unitId, documentsPage])
 
   useEffect(() => {
-    if (activeTab === 'repair') {
-      setSelectedDocumentUrl((current) =>
-        mockRepairDocuments.some((document) => document.pdf === current) ? current : (mockRepairDocuments[0]?.pdf ?? ''),
-      )
+    if (activeTab !== 'repair') {
+      return
     }
-  }, [activeTab])
+
+    const city = assetInfo.unit_location || assetInfo.unit_internal_location
+
+    if (!city) {
+      setDocumentsLoading(false)
+      setDocumentsError('A city/location is required to load repair reports.')
+      setRepairDocuments([])
+      setSelectedDocumentUrl('')
+      return
+    }
+
+    let cancelled = false
+
+    const loadRepairDocuments = async () => {
+      try {
+        setDocumentsLoading(true)
+        setDocumentsError('')
+        const data = await listRepairReportsByCity(city)
+
+        if (!cancelled) {
+          const mappedDocuments: AssetPdfDocument[] = data.map((report) => ({
+            inspection_date: report.dateStart ?? report.uploadedAt,
+            pdf: report.signedUrl,
+            type: formatRepairReportType(report.reportType),
+            display_name: report.displayName || `${report.workOrderNumber} ${formatRepairReportType(report.reportType)}`,
+          }))
+
+          setRepairDocuments(mappedDocuments)
+          setSelectedDocumentUrl((current) =>
+            mappedDocuments.some((document) => document.pdf === current) ? current : (mappedDocuments[0]?.pdf ?? ''),
+          )
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDocumentsError(err instanceof Error ? err.message : 'Unable to load repair reports.')
+          setRepairDocuments([])
+          setSelectedDocumentUrl('')
+        }
+      } finally {
+        if (!cancelled) {
+          setDocumentsLoading(false)
+        }
+      }
+    }
+
+    void loadRepairDocuments()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -924,11 +936,8 @@ export default function AssetInfo() {
 
   const currentDocumentList =
     activeTab === 'repair'
-      ? mockRepairDocuments
+      ? repairDocuments
       : assetDocuments.results
-  const showMockDocumentTag = activeTab === 'repair' && userTag === 'developer'
-  const isMockDocumentTab = activeTab === 'repair'
-  const showMockDocumentContent = !isMockDocumentTab || userTag === 'developer'
   const documentsTotalPages = Math.max(1, assetDocuments.total_pages || 1)
   const visibleDocumentPages = buildVisiblePages(documentsPage, documentsTotalPages)
   const selectedDocument =
@@ -1370,90 +1379,77 @@ export default function AssetInfo() {
                           ›
                         </button>
                       </div>
-                    ) : showMockDocumentTag ? (
-                      <div className="inline-flex rounded-full bg-[var(--deshazo-blue)] px-3 py-1 text-[12px] font-bold uppercase tracking-[0.06em] text-white shadow-[0_10px_24px_-18px_rgba(47,86,166,0.55)]">
-                        Developer
-                      </div>
                     ) : null}
 
                     <div />
                   </div>
 
-                  {showMockDocumentContent ? (
-                    <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
-                      <div className="max-h-[720px] space-y-4 overflow-y-auto pr-2">
-                        {documentsLoading ? (
-                          Array.from({ length: assetDocuments.page_size || defaultAssetDocuments.page_size }).map((_, index) => (
-                            <div
-                              key={index}
-                              className="rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]"
+                  <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
+                    <div className="max-h-[720px] space-y-4 overflow-y-auto pr-2">
+                      {documentsLoading ? (
+                        Array.from({ length: assetDocuments.page_size || defaultAssetDocuments.page_size }).map((_, index) => (
+                          <div
+                            key={index}
+                            className="rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]"
+                          >
+                            <div className="mb-5 h-5 w-36 animate-pulse rounded bg-[var(--deshazo-surface)]" />
+                            <div className="mb-3 h-6 w-24 animate-pulse rounded-full bg-[var(--deshazo-surface)]" />
+                            <div className="h-5 w-40 animate-pulse rounded bg-[var(--deshazo-surface)]" />
+                          </div>
+                        ))
+                      ) : currentDocumentList.length === 0 ? (
+                        <div className="flex min-h-[520px] items-center justify-center rounded-[18px] border border-dashed border-[var(--deshazo-border)] bg-white text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                          No reports available
+                        </div>
+                      ) : (
+                        currentDocumentList.map((document) => {
+                          const isActive = selectedDocument?.pdf === document.pdf
+
+                          return (
+                            <button
+                              key={document.pdf}
+                              type="button"
+                              onClick={() => setSelectedDocumentUrl(document.pdf)}
+                              className={`w-full rounded-[18px] border bg-white px-4 py-4 text-left shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)] transition ${
+                                isActive
+                                  ? 'border-[var(--deshazo-blue)] shadow-[0_18px_32px_-24px_rgba(47,86,166,0.36)]'
+                                  : 'border-[var(--deshazo-border)] hover:border-[var(--deshazo-blue-soft)]'
+                              }`}
                             >
-                              <div className="mb-5 h-5 w-36 animate-pulse rounded bg-[var(--deshazo-surface)]" />
-                              <div className="mb-3 h-6 w-24 animate-pulse rounded-full bg-[var(--deshazo-surface)]" />
-                              <div className="h-5 w-40 animate-pulse rounded bg-[var(--deshazo-surface)]" />
-                            </div>
-                          ))
-                        ) : currentDocumentList.length === 0 ? (
-                          <div className="flex min-h-[520px] items-center justify-center rounded-[18px] border border-dashed border-[var(--deshazo-border)] bg-white text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                            No reports available
-                          </div>
-                        ) : (
-                          currentDocumentList.map((document) => {
-                            const isActive = selectedDocument?.pdf === document.pdf
-
-                            return (
-                              <button
-                                key={document.pdf}
-                                type="button"
-                                onClick={() => setSelectedDocumentUrl(document.pdf)}
-                                className={`w-full rounded-[18px] border bg-white px-4 py-4 text-left shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)] transition ${
-                                  isActive
-                                    ? 'border-[var(--deshazo-blue)] shadow-[0_18px_32px_-24px_rgba(47,86,166,0.36)]'
-                                    : 'border-[var(--deshazo-border)] hover:border-[var(--deshazo-blue-soft)]'
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <p className="text-[18px] font-bold text-[var(--deshazo-blue)]">{document.display_name}</p>
-                                    <span className="mt-3 inline-flex rounded-full bg-[#dff6e6] px-2.5 py-1 text-[12px] font-semibold text-[#4a9960]">
-                                      {formatTitleCase(document.type)}
-                                    </span>
-                                  </div>
-                                  <p className="shrink-0 text-sm font-semibold text-[rgba(21,24,33,0.72)]">
-                                    {formatDisplayDate(document.inspection_date)}
+                              <div className="flex items-start gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <p className="break-words text-[18px] font-bold leading-tight text-[var(--deshazo-blue)]">
+                                    {document.display_name}
                                   </p>
+                                  <span className="mt-3 inline-flex rounded-full bg-[#dff6e6] px-2.5 py-1 text-[12px] font-semibold text-[#4a9960]">
+                                    {formatTitleCase(document.type)}
+                                  </span>
                                 </div>
-                              </button>
-                            )
-                          })
-                        )}
-                      </div>
+                                <p className="w-[92px] shrink-0 text-right text-sm font-semibold text-[rgba(21,24,33,0.72)]">
+                                  {formatDisplayDate(document.inspection_date)}
+                                </p>
+                              </div>
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
 
-                      <div className="relative overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
-                        {selectedDocument ? (
-                          <iframe
-                            key={selectedDocument.pdf}
-                            src={selectedDocument.pdf}
-                            title={selectedDocument.display_name}
-                            className="h-[700px] w-full border-0"
-                          />
-                        ) : (
-                          <div className="flex h-[700px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                            Select a report to preview the PDF.
-                          </div>
-                        )}
-                      </div>
+                    <div className="relative overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
+                      {selectedDocument ? (
+                        <iframe
+                          key={selectedDocument.pdf}
+                          src={selectedDocument.pdf}
+                          title={selectedDocument.display_name}
+                          className="h-[700px] w-full border-0"
+                        />
+                      ) : (
+                        <div className="flex h-[700px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                          Select a report to preview the PDF.
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex min-h-[520px] items-center justify-center rounded-[18px] border border-dashed border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(238,243,255,0.55)_0%,rgba(255,255,255,1)_100%)] px-8 text-center">
-                      <div className="max-w-xl">
-                        <p className="text-[22px] font-black tracking-tight text-[var(--deshazo-text)]">Coming Soon</p>
-                        <p className="mt-3 text-[15px] font-medium leading-relaxed text-[rgba(21,24,33,0.58)]">
-                          This feature is still in development and will be available soon.
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                  </div>
                 </section>
               ) : activeTab === 'notes' ? (
                 <section className="space-y-5">
