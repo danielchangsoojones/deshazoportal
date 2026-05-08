@@ -197,6 +197,16 @@ export type AssetPdfPageLookupResponse = {
   match: AssetPdfPageMatch | null
 }
 
+export type IssuesLocationCsvResponse = {
+  filename: string
+  content_type: string
+  requested_locations: string[]
+  row_count: number
+  columns: string[]
+  rows: Record<string, unknown>[]
+  csv: string
+}
+
 function extractArrayPayload<T>(value: unknown): T[] | null {
   if (Array.isArray(value)) {
     return value as T[]
@@ -252,6 +262,18 @@ export async function getLocationAnalytics(signal?: AbortSignal) {
   }
 
   throw new Error('Location analytics returned an unexpected response shape.')
+}
+
+export async function getIssuesLocationCsv(locations: string[] = [], signal?: AbortSignal) {
+  const body = locations.length > 0 ? { locations } : {}
+  const response = await callParseFunction<unknown>('getIssuesLocationCsv', body, signal)
+
+  const data = extractObjectPayload<IssuesLocationCsvResponse>(response)
+  if (data && typeof data.csv === 'string') {
+    return data
+  }
+
+  throw new Error('Issues location CSV returned an unexpected response shape.')
 }
 
 export async function getTopLineSpendAnalytics(signal?: AbortSignal) {

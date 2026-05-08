@@ -32,9 +32,15 @@ const portalCards = [
   },
   {
     eyebrow: 'Documents',
-    title: 'Documents & Reports',
+    title: 'Documents',
     description: 'Download maintenance reports, summaries, and supporting PDFs from one place.',
     href: '/documents-reports',
+  },
+  {
+    eyebrow: 'Reports',
+    title: 'Custom Reports',
+    description: 'Download a csv of the data to use on your own computer.',
+    href: '/custom-reports',
   },
   {
     eyebrow: 'Help',
@@ -61,22 +67,7 @@ export default function Dashboard() {
       ...portalCards.map((card) => ({
         label: card.title,
         active: false,
-        href:
-          card.title === 'Contact Us'
-            ? '/contact-us'
-          : card.title === 'Add User'
-              ? '/add-user'
-              : card.title === 'Asset Fleet'
-                ? '/asset-fleet'
-              : card.title === 'Spend'
-                ? '/spend'
-              : card.title === 'Location Comparison'
-                ? '/location-comparison'
-              : card.title === 'Documents & Reports'
-                ? '/documents-reports'
-              : card.title === 'Open Risk Items'
-                ? '/asset-fleet-assets?view=open-risk'
-              : undefined,
+        href: card.href,
       })),
     ],
     [],

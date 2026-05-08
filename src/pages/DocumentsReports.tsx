@@ -16,7 +16,7 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents & Reports', href: '/documents-reports' },
+  { label: 'Documents', href: '/documents-reports' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -67,7 +67,7 @@ export default function DocumentsReports() {
     () =>
       menuItems.map((item) => ({
         ...item,
-        active: item.label === 'Documents & Reports',
+        active: item.label === 'Documents',
       })),
     [],
   )
@@ -124,7 +124,7 @@ export default function DocumentsReports() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
         <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
-          Loading documents and reports...
+          Loading documents...
         </div>
       </div>
     )

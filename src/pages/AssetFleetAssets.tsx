@@ -18,7 +18,7 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents & Reports', href: '/documents-reports' },
+  { label: 'Documents', href: '/documents-reports' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
