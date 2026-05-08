@@ -18,6 +18,7 @@ const menuItems = [
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
   { label: 'Documents', href: '/documents-reports' },
+  { label: 'Custom Reports', href: '/custom-reports' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
