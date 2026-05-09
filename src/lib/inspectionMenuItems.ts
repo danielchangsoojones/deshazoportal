@@ -1,4 +1,3 @@
-import { callParseFunction } from './portalApi'
 import { supabase } from './supabase'
 
 export type InspectionMenuItem = {
@@ -18,77 +17,104 @@ export type InspectionMenuItemsRecord = {
   updatedAt: string
 }
 
-type InspectionMenuItemsResponse = {
-  userId: string
-  menuSections: InspectionMenuItemSection[]
-  updatedAt: string
+type EditableInspectionMenuItemsRow = {
+  user_id: string
+  menu_sections: unknown
+  updated_at: string
 }
 
-function extractMenuItemsResponse(value: unknown): InspectionMenuItemsResponse | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null
-  }
+function isMenuItem(value: unknown): value is InspectionMenuItem {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
 
-  const record = value as Record<string, unknown>
-
-  if ('result' in record) {
-    return extractMenuItemsResponse(record.result)
-  }
-
-  if ('data' in record) {
-    return extractMenuItemsResponse(record.data)
-  }
-
-  if (
-    typeof record.userId === 'string' &&
-    Array.isArray(record.menuSections) &&
-    typeof record.updatedAt === 'string'
-  ) {
-    return record as InspectionMenuItemsResponse
-  }
-
-  return null
+  const item = value as Record<string, unknown>
+  return (
+    typeof item.label === 'string'
+    && typeof item.description === 'string'
+    && typeof item.rate === 'string'
+  )
 }
 
-async function getCurrentAccessToken() {
+function isMenuItemSection(value: unknown): value is InspectionMenuItemSection {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+
+  const section = value as Record<string, unknown>
+  return (
+    typeof section.title === 'string'
+    && Array.isArray(section.items)
+    && section.items.every(isMenuItem)
+  )
+}
+
+function mapMenuItemsRow(row: EditableInspectionMenuItemsRow): InspectionMenuItemsRecord {
+  const menuSections = Array.isArray(row.menu_sections)
+    ? row.menu_sections.filter(isMenuItemSection)
+    : []
+
+  return {
+    userId: row.user_id,
+    menuSections,
+    updatedAt: row.updated_at,
+  }
+}
+
+async function getCurrentUserId() {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
-  const { data, error } = await supabase.auth.getSession()
+  const { data, error } = await supabase.auth.getUser()
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const accessToken = data.session?.access_token
-  if (!accessToken) {
+  if (!data.user) {
     throw new Error('Sign in to save menu items.')
   }
 
-  return accessToken
+  return data.user.id
 }
 
 export async function getInspectionMenuItems() {
-  const accessToken = await getCurrentAccessToken()
-  const response = await callParseFunction<unknown>('getEditableInspectionMenuItems', {
-    accessToken,
-  })
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
 
-  return extractMenuItemsResponse(response)
+  const userId = await getCurrentUserId()
+  const { data, error } = await supabase
+    .from('editable_inspection_menu_items')
+    .select('user_id, menu_sections, updated_at')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data ? mapMenuItemsRow(data as EditableInspectionMenuItemsRow) : null
 }
 
 export async function upsertInspectionMenuItems(menuSections: InspectionMenuItemSection[]) {
-  const accessToken = await getCurrentAccessToken()
-  const response = await callParseFunction<unknown>('upsertEditableInspectionMenuItems', {
-    accessToken,
-    menuSections,
-  })
-  const savedMenu = extractMenuItemsResponse(response)
-
-  if (!savedMenu) {
-    throw new Error('Menu items returned an unexpected response shape.')
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
   }
 
-  return savedMenu
+  const userId = await getCurrentUserId()
+  const { data, error } = await supabase
+    .from('editable_inspection_menu_items')
+    .upsert(
+      {
+        user_id: userId,
+        menu_sections: menuSections,
+      },
+      { onConflict: 'user_id' },
+    )
+    .select('user_id, menu_sections, updated_at')
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return mapMenuItemsRow(data as EditableInspectionMenuItemsRow)
 }
