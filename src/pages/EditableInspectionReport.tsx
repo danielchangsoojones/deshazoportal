@@ -240,17 +240,35 @@ const getMenuSectionDisplayTitle = (title: string) => {
 }
 
 const customerSpecificMenuItems: MenuItem[] = [
-  { label: 'Labor', description: 'Customer-specific labor rate for Wabash service work.', rate: '145.00' },
-  { label: 'Freight', description: 'Customer-specific freight and delivery charge.', rate: '85.00' },
+  {
+    id: '26b9d735-10b5-4ee0-b2f1-93e54f20ca11',
+    label: 'Labor',
+    description: 'Customer-specific labor rate for Wabash service work.',
+    rate: '145.00',
+  },
+  {
+    id: '75c6d462-7c99-43f8-b91b-16f22d8b334a',
+    label: 'Freight',
+    description: 'Customer-specific freight and delivery charge.',
+    rate: '85.00',
+  },
 ]
+
+const createMenuItemId = () => globalThis.crypto?.randomUUID?.() ?? `menu-${Date.now()}-${Math.random()}`
+
+const addMenuItemIds = (items: MenuItem[]) =>
+  items.map((item) => ({
+    ...item,
+    id: item.id ?? createMenuItemId(),
+  }))
 
 const normalizeMenuItemSections = (sections: MenuItemSection[]) =>
   sections.map((section) =>
     section.title === 'Past history'
-      ? { ...section, items: section.items.slice(0, maxRecentlyUsedItems) }
+      ? { ...section, items: addMenuItemIds(section.items.slice(0, maxRecentlyUsedItems)) }
       : section.title === 'Customer specific'
         ? { ...section, items: customerSpecificMenuItems }
-        : section,
+        : { ...section, items: addMenuItemIds(section.items) },
   )
 
 const parseMoney = (value: string) => {
@@ -755,6 +773,7 @@ export default function EditableInspectionReport() {
     if (!label || !description) return
 
     const nextItem: MenuItem = {
+      id: createMenuItemId(),
       label,
       description,
       rate: parseMoney(newMenuRate).toFixed(2),
@@ -1117,7 +1136,7 @@ export default function EditableInspectionReport() {
     setReport(defaultReport)
     setRepairSections(defaultRepairSections)
     setCostSections(defaultCostSections)
-    setMenuItemSections(defaultMenuItemSections)
+    setMenuItemSections(normalizeMenuItemSections(defaultMenuItemSections))
     setBlockVisibility(defaultBlockVisibility)
     setEstimateNoteVisibility(defaultEstimateNoteVisibility)
     setRepairSectionVisibility({})
@@ -1415,7 +1434,7 @@ export default function EditableInspectionReport() {
                       <div className="space-y-2">
                         {section.items.map((item) => (
                           <div
-                            key={`${section.title}-${item.label}`}
+                            key={`${section.title}-${item.id ?? item.label}`}
                             draggable
                             onDragStart={(event) => {
                               event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
