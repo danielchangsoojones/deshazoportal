@@ -41,6 +41,13 @@ type CanvasTextBox = {
   y: number
 }
 
+type RelatedDocument = {
+  id: string
+  name: string
+  url: string
+  source: string
+}
+
 type QuoteBlockVisibility = {
   scopeOfWork: boolean
   repairItems: boolean
@@ -418,10 +425,12 @@ function EditableValue({ label, value, className = '', onChange, onDropMenuItem 
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
   const textBoxDragStart = useRef<Record<string, { clientX: number; clientY: number; x: number; y: number }>>({})
+  const relatedDocumentUrls = useRef<string[]>([])
+  const relatedFolderInputRef = useRef<HTMLInputElement>(null)
+  const relatedPdfInputRef = useRef<HTMLInputElement>(null)
   const [activeLineMenu, setActiveLineMenu] = useState('')
   const [unlocked, setUnlocked] = useState(false)
   const [textMenuOpen, setTextMenuOpen] = useState(false)
-  const [estimateSummaryMenuOpen, setEstimateSummaryMenuOpen] = useState(false)
   const [equipmentRentalSettingsOpen, setEquipmentRentalSettingsOpen] = useState(false)
   const [pageLayoutMenuOpen, setPageLayoutMenuOpen] = useState(false)
   const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
@@ -429,6 +438,8 @@ export default function EditableInspectionReport() {
   const [relatedDocumentsOpen, setRelatedDocumentsOpen] = useState(false)
   const [masterServiceAgreementOpen, setMasterServiceAgreementOpen] = useState(false)
   const [menuSearch, setMenuSearch] = useState('')
+  const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
+  const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
   const [newMenuSection, setNewMenuSection] = useState(defaultMenuItemSections[0]?.title ?? 'Shared')
   const [newMenuLabel, setNewMenuLabel] = useState('')
   const [newMenuDescription, setNewMenuDescription] = useState('')
@@ -574,6 +585,13 @@ export default function EditableInspectionReport() {
       }))
       .filter((section) => section.items.length > 0)
   }, [menuItemSections, menuSearch])
+
+  useEffect(
+    () => () => {
+      relatedDocumentUrls.current.forEach((url) => URL.revokeObjectURL(url))
+    },
+    [],
+  )
 
   const updatedAt = useMemo(
     () =>
@@ -722,6 +740,52 @@ export default function EditableInspectionReport() {
       ]),
     )
     setTextMenuOpen(false)
+  }
+
+  const addRelatedDocuments = (files: File[], source: string) => {
+    if (files.length === 0) {
+      setRelatedDocumentsMessage(
+        source === '005 Vendor Quotes'
+          ? 'No PDFs were found in 005 Vendor Quotes.'
+          : 'No PDF was selected.',
+      )
+      return
+    }
+
+    setRelatedDocuments((currentDocuments) => {
+      const existingDocumentKeys = new Set(currentDocuments.map((document) => document.id))
+      const nextDocuments = [...currentDocuments]
+
+      files.forEach((file) => {
+        const id = `${source}:${file.name}:${file.size}:${file.lastModified}`
+        if (existingDocumentKeys.has(id)) return
+
+        const url = URL.createObjectURL(file)
+        relatedDocumentUrls.current.push(url)
+        existingDocumentKeys.add(id)
+        nextDocuments.push({ id, name: file.name, url, source })
+      })
+
+      return nextDocuments
+    })
+    setRelatedDocumentsMessage(`${files.length} PDF${files.length === 1 ? '' : 's'} added.`)
+  }
+
+  const uploadRelatedFolder = (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []) as Array<File & { webkitRelativePath?: string }>
+    const vendorQuotePdfs = files.filter((file) => {
+      const relativePath = file.webkitRelativePath || file.name
+      const pathSegments = relativePath.toLowerCase().split('/')
+
+      return file.name.toLowerCase().endsWith('.pdf') && pathSegments.includes('005 vendor quotes')
+    })
+
+    addRelatedDocuments(vendorQuotePdfs, '005 Vendor Quotes')
+  }
+
+  const uploadRelatedPdfs = (fileList: FileList | null) => {
+    const pdfs = Array.from(fileList ?? []).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    addRelatedDocuments(pdfs, 'Uploaded PDF')
   }
 
   const updateCanvasTextBox = (textBoxId: string, value: string) => {
@@ -992,7 +1056,6 @@ export default function EditableInspectionReport() {
     setEquipmentRentalSettings(defaultEquipmentRentalSettings)
     setUnlocked(false)
     setTextMenuOpen(false)
-    setEstimateSummaryMenuOpen(false)
     setPageLayoutMenuOpen(false)
     setRelatedDocumentsOpen(false)
     setMenuSettingsOpen(false)
@@ -1107,7 +1170,51 @@ export default function EditableInspectionReport() {
               Related Documents
             </button>
             {relatedDocumentsOpen ? (
-              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[300px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+                <input
+                  ref={relatedFolderInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  {...{ webkitdirectory: '', directory: '' }}
+                  onChange={(event) => {
+                    uploadRelatedFolder(event.currentTarget.files)
+                    event.currentTarget.value = ''
+                  }}
+                />
+                <input
+                  ref={relatedPdfInputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    uploadRelatedPdfs(event.currentTarget.files)
+                    event.currentTarget.value = ''
+                  }}
+                />
+                <div className="mb-2 rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
+                  <div className="text-[12px] font-black uppercase text-[#273f7a]">Upload Documents</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => relatedFolderInputRef.current?.click()}
+                      className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
+                    >
+                      Choose Folder
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => relatedPdfInputRef.current?.click()}
+                      className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
+                    >
+                      Upload PDF
+                    </button>
+                  </div>
+                  {relatedDocumentsMessage ? (
+                    <div className="mt-2 text-[12px] font-semibold text-[#747b8a]">{relatedDocumentsMessage}</div>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -1130,6 +1237,24 @@ export default function EditableInspectionReport() {
                   <span className="block text-[14px] font-black text-[#1f2430]">Master Service Agreement</span>
                   <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open example labor and service pricing.</span>
                 </button>
+                {relatedDocuments.length > 0 ? (
+                  <div className="mt-2 border-t border-[#dfe4ef] pt-2">
+                    {relatedDocuments.map((document) => (
+                      <button
+                        key={document.id}
+                        type="button"
+                        onClick={() => {
+                          window.open(document.url, '_blank', 'noopener,noreferrer')
+                          setRelatedDocumentsOpen(false)
+                        }}
+                        className="mt-1 w-full rounded-md px-3 py-2 text-left transition hover:bg-[#f4f6fb]"
+                      >
+                        <span className="block truncate text-[13px] font-black text-[#1f2430]">{document.name}</span>
+                        <span className="mt-0.5 block text-[11px] font-semibold text-[#747b8a]">{document.source}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1689,66 +1814,8 @@ export default function EditableInspectionReport() {
                   🗑
                 </button>
               ) : null}
-              <div className="relative flex items-center justify-between bg-[#f2f2f2] px-3 py-2">
+              <div className="bg-[#f2f2f2] px-3 py-2">
                 <div className="text-[17px] font-black uppercase">Estimate Summary</div>
-                <button
-                  type="button"
-                  onClick={() => setEstimateSummaryMenuOpen((currentOpen) => !currentOpen)}
-                  className="report-inline-action flex h-7 w-7 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-[18px] font-black leading-none text-[#4d5360] transition hover:bg-[#edf2fb]"
-                  aria-label="Open estimate summary settings"
-                >
-                  ⚙
-                </button>
-                {estimateSummaryMenuOpen ? (
-                  <div className="report-inline-action absolute right-2 top-[calc(100%+6px)] z-30 w-[245px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-black uppercase text-[#555b66]">Estimate sections</span>
-                      <button
-                        type="button"
-                        onClick={() => setEstimateSummaryMenuOpen(false)}
-                        className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                        aria-label="Close estimate summary settings"
-                      >
-                        x
-                      </button>
-                    </div>
-                    <div className="space-y-2">
-                      {[
-                        { id: 'topNote', title: 'Top Note' },
-                        { id: 'bottomNote', title: 'Bottom Note' },
-                      ].map((note) => (
-                        <label
-                          key={note.id}
-                          className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-[#e3e8f1] bg-[#fffdf3] px-3 py-2 text-[12px] font-black text-[#7d5c00]"
-                        >
-                          <span>{note.title}</span>
-                          <input
-                            type="checkbox"
-                            checked={estimateNoteVisibility[note.id as keyof EstimateNoteVisibility]}
-                            onChange={(event) =>
-                              toggleEstimateNote(note.id as keyof EstimateNoteVisibility, event.currentTarget.checked)
-                            }
-                            className="h-4 w-4 accent-[#f5b400]"
-                          />
-                        </label>
-                      ))}
-                      {defaultCostSections.map((section) => (
-                        <label
-                          key={section.id}
-                          className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-[#e3e8f1] bg-[#fbfcff] px-3 py-2 text-[12px] font-black text-[#273f7a]"
-                        >
-                          <span>{section.title}</span>
-                          <input
-                            type="checkbox"
-                            checked={costSections.some((costSection) => costSection.id === section.id)}
-                            onChange={(event) => toggleCostSection(section.id, event.currentTarget.checked)}
-                            className="h-4 w-4 accent-[#273f7a]"
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
               </div>
 
               <div className="border-t border-[#d4d4d4]">
