@@ -1,4 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { isConfigured } from '../lib/supabase'
+import {
+  getInspectionMenuItems,
+  upsertInspectionMenuItems,
+  type InspectionMenuItem,
+  type InspectionMenuItemSection,
+} from '../lib/inspectionMenuItems'
 
 type ReportData = Record<string, string>
 
@@ -23,16 +30,9 @@ type CostSection = {
   lineItems: RepairLineItem[]
 }
 
-type MenuItem = {
-  label: string
-  description: string
-  rate: string
-}
+type MenuItem = InspectionMenuItem
 
-type MenuItemSection = {
-  title: string
-  items: MenuItem[]
-}
+type MenuItemSection = InspectionMenuItemSection
 
 type CanvasTextBox = {
   id: string
@@ -74,6 +74,7 @@ const equipmentRentalSettingsStorageKey = 'deshazo-editable-inspection-report-eq
 const maxRecentlyUsedItems = 2
 const equipmentRentalSectionId = 'equipment-rental'
 const equipmentRentalDefaultMargin = 15
+const databaseSyncIdleDelayMs = 650
 
 type EquipmentRentalSettings = {
   applyMarginToAll: boolean
@@ -272,11 +273,7 @@ const getMarginAmount = (lineItem: RepairLineItem) =>
 const getLineAmount = (lineItem: RepairLineItem) =>
   getBaseLineAmount(lineItem) + getMarginAmount(lineItem)
 
-const getCostBaseLineAmount = (
-  _sectionId: string,
-  lineItem: RepairLineItem,
-  _settings: EquipmentRentalSettings,
-) => {
+const getCostBaseLineAmount = (_sectionId: string, lineItem: RepairLineItem) => {
   const rate = parseMoney(lineItem.rate)
   return parseMoney(lineItem.quantity) * rate
 }
@@ -289,7 +286,7 @@ const getCostMarginAmount = (
   const lineMargin = parseMoney(lineItem.margin)
   const sectionMargin =
     sectionId === equipmentRentalSectionId && settings.applyMarginToAll ? parseMoney(settings.margin) : 0
-  return getCostBaseLineAmount(sectionId, lineItem, settings) * ((lineMargin + sectionMargin) / 100)
+  return getCostBaseLineAmount(sectionId, lineItem) * ((lineMargin + sectionMargin) / 100)
 }
 
 const getCostLineAmount = (
@@ -297,7 +294,7 @@ const getCostLineAmount = (
   lineItem: RepairLineItem,
   settings: EquipmentRentalSettings,
 ) =>
-  getCostBaseLineAmount(sectionId, lineItem, settings) + getCostMarginAmount(sectionId, lineItem, settings)
+  getCostBaseLineAmount(sectionId, lineItem) + getCostMarginAmount(sectionId, lineItem, settings)
 
 const normalizeRepairSections = (sections: RepairSection[]) =>
   sections.map((section) => ({
@@ -424,6 +421,7 @@ function EditableValue({ label, value, className = '', onChange, onDropMenuItem 
 
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
+  const menuDatabaseSyncReady = useRef(false)
   const textBoxDragStart = useRef<Record<string, { clientX: number; clientY: number; x: number; y: number }>>({})
   const relatedDocumentUrls = useRef<string[]>([])
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
@@ -444,6 +442,12 @@ export default function EditableInspectionReport() {
   const [newMenuLabel, setNewMenuLabel] = useState('')
   const [newMenuDescription, setNewMenuDescription] = useState('')
   const [newMenuRate, setNewMenuRate] = useState('0.00')
+  const [menuDatabaseStatus, setMenuDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
+    isConfigured ? 'loading' : 'local',
+  )
+  const [menuDatabaseMessage, setMenuDatabaseMessage] = useState(
+    isConfigured ? 'Loading menu items from the server.' : 'Supabase is not configured. Menu items are saved locally.',
+  )
   const [report, setReport] = useState<ReportData>(() => {
     const savedReport = window.localStorage.getItem(storageKey)
 
@@ -585,6 +589,72 @@ export default function EditableInspectionReport() {
       }))
       .filter((section) => section.items.length > 0)
   }, [menuItemSections, menuSearch])
+
+  useEffect(() => {
+    if (!isConfigured) {
+      menuDatabaseSyncReady.current = false
+      return
+    }
+
+    let active = true
+
+    async function loadMenuItemsFromDatabase() {
+      setMenuDatabaseStatus('loading')
+      setMenuDatabaseMessage('Loading menu items from the server.')
+
+      try {
+        const savedMenu = await getInspectionMenuItems()
+        if (!active) return
+
+        if (savedMenu) {
+          const normalizedSections = normalizeMenuItemSections(
+            savedMenu.menuSections.length > 0 ? savedMenu.menuSections : defaultMenuItemSections,
+          )
+          window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
+          setMenuItemSections(normalizedSections)
+          setMenuDatabaseMessage('Menu items loaded from the server.')
+        } else {
+          setMenuDatabaseMessage('Menu items will save to the server after your next edit.')
+        }
+
+        menuDatabaseSyncReady.current = true
+        setMenuDatabaseStatus('saved')
+      } catch (error) {
+        if (!active) return
+        menuDatabaseSyncReady.current = false
+        setMenuDatabaseStatus('local')
+        setMenuDatabaseMessage(error instanceof Error ? error.message : 'Menu items are saved locally for now.')
+      }
+    }
+
+    loadMenuItemsFromDatabase()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isConfigured || !menuDatabaseSyncReady.current) return
+
+    const nextSections = normalizeMenuItemSections(menuItemSections)
+    const saveTimer = window.setTimeout(() => {
+      setMenuDatabaseStatus('saving')
+      setMenuDatabaseMessage('Saving menu items to the server.')
+
+      upsertInspectionMenuItems(nextSections)
+        .then(() => {
+          setMenuDatabaseStatus('saved')
+          setMenuDatabaseMessage('Menu items saved to the server.')
+        })
+        .catch((error) => {
+          setMenuDatabaseStatus('error')
+          setMenuDatabaseMessage(error instanceof Error ? error.message : 'Menu items could not be saved to the server.')
+        })
+    }, databaseSyncIdleDelayMs)
+
+    return () => window.clearTimeout(saveTimer)
+  }, [menuItemSections])
 
   useEffect(
     () => () => {
@@ -1215,17 +1285,16 @@ export default function EditableInspectionReport() {
                     <div className="mt-2 text-[12px] font-semibold text-[#747b8a]">{relatedDocumentsMessage}</div>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.open('/testassessment.pdf', '_blank', 'noopener,noreferrer')
-                    setRelatedDocumentsOpen(false)
-                  }}
+                <a
+                  href="/testassessment.pdf"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setRelatedDocumentsOpen(false)}
                   className="w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f4f6fb]"
                 >
                   <span className="block text-[14px] font-black text-[#1f2430]">Original Inspection</span>
                   <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open the source inspection PDF in a new tab.</span>
-                </button>
+                </a>
                 <button
                   type="button"
                   onClick={() => {
@@ -1240,18 +1309,17 @@ export default function EditableInspectionReport() {
                 {relatedDocuments.length > 0 ? (
                   <div className="mt-2 border-t border-[#dfe4ef] pt-2">
                     {relatedDocuments.map((document) => (
-                      <button
+                      <a
                         key={document.id}
-                        type="button"
-                        onClick={() => {
-                          window.open(document.url, '_blank', 'noopener,noreferrer')
-                          setRelatedDocumentsOpen(false)
-                        }}
-                        className="mt-1 w-full rounded-md px-3 py-2 text-left transition hover:bg-[#f4f6fb]"
+                        href={document.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => setRelatedDocumentsOpen(false)}
+                        className="mt-1 block w-full rounded-md px-3 py-2 text-left transition hover:bg-[#f4f6fb]"
                       >
                         <span className="block truncate text-[13px] font-black text-[#1f2430]">{document.name}</span>
                         <span className="mt-0.5 block text-[11px] font-semibold text-[#747b8a]">{document.source}</span>
-                      </button>
+                      </a>
                     ))}
                   </div>
                 ) : null}
@@ -1383,6 +1451,17 @@ export default function EditableInspectionReport() {
               </div>
 
               <div className="border-t border-[#d9dce5] bg-white p-4">
+                <div
+                  className={`mb-3 rounded-md border px-3 py-2 text-[11px] font-bold leading-tight ${
+                    menuDatabaseStatus === 'error'
+                      ? 'border-[#f3c7c7] bg-[#fff5f5] text-[#9f1d1d]'
+                      : menuDatabaseStatus === 'local'
+                        ? 'border-[#dfe4ef] bg-[#fbfcff] text-[#747b8a]'
+                        : 'border-[#cfe6d5] bg-[#f3fbf5] text-[#286239]'
+                  }`}
+                >
+                  {menuDatabaseMessage}
+                </div>
                 <button
                   type="button"
                   onClick={() => setMenuSettingsOpen(true)}
@@ -2012,7 +2091,7 @@ export default function EditableInspectionReport() {
                               />
                               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
                                 <span>Base</span>
-                                <span className="text-right">{formatMoney(getCostBaseLineAmount(section.id, lineItem, equipmentRentalSettings))}</span>
+                                <span className="text-right">{formatMoney(getCostBaseLineAmount(section.id, lineItem))}</span>
                                 <span>Increase</span>
                                 <span className="text-right text-[#7d1515]">{formatMoney(getCostMarginAmount(section.id, lineItem, equipmentRentalSettings))}</span>
                                 <span className="font-black text-[#111]">New price</span>
@@ -2219,7 +2298,7 @@ export default function EditableInspectionReport() {
           </div>
 
           <div className="flex items-center justify-between border-t border-[#dfe4ef] bg-[#fbfcff] px-5 py-4">
-            <p className="text-[12px] font-semibold text-[#747b8a]">New items save locally and become draggable immediately.</p>
+            <p className="text-[12px] font-semibold text-[#747b8a]">{menuDatabaseMessage}</p>
             <button
               type="button"
               onClick={addMenuItemFromSettings}
