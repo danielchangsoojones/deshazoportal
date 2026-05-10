@@ -7,6 +7,7 @@ import {
   type InspectionMenuItemSection,
 } from '../lib/inspectionMenuItems'
 import {
+  deleteEditableInspectionDocument,
   getEditableInspectionDocuments,
   uploadEditableInspectionDocument,
   type EditableInspectionDocument,
@@ -1128,6 +1129,20 @@ export default function EditableInspectionReport() {
     await addRelatedDocuments(pdfs, 'Uploaded PDF')
   }
 
+  const deleteRelatedDocument = async (document: RelatedDocument) => {
+    setRelatedDocumentsMessage(`Deleting ${document.name}.`)
+
+    try {
+      await deleteEditableInspectionDocument(document)
+      setRelatedDocuments((currentDocuments) =>
+        currentDocuments.filter((currentDocument) => currentDocument.id !== document.id),
+      )
+      setRelatedDocumentsMessage(`${document.name} deleted.`)
+    } catch (error) {
+      setRelatedDocumentsMessage(error instanceof Error ? error.message : 'Document could not be deleted.')
+    }
+  }
+
   const updateCanvasTextBox = (textBoxId: string, value: string) => {
     setCanvasTextBoxes((currentTextBoxes) =>
       saveCanvasTextBoxes(
@@ -1583,17 +1598,34 @@ export default function EditableInspectionReport() {
                 {uploadedRelatedDocuments.length > 0 ? (
                   <div className="mt-2 border-t border-[#dfe4ef] pt-2">
                     {uploadedRelatedDocuments.map((document) => (
-                      <a
+                      <div
                         key={document.id}
-                        href={document.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={() => setRelatedDocumentsOpen(false)}
-                        className="mt-1 block w-full rounded-md px-3 py-2 text-left transition hover:bg-[#f4f6fb]"
+                        className="mt-1 flex items-start gap-2 rounded-md px-3 py-2 transition hover:bg-[#f4f6fb]"
                       >
-                        <span className="block truncate text-[13px] font-black text-[#1f2430]">{document.name}</span>
-                        <span className="mt-0.5 block text-[11px] font-semibold text-[#747b8a]">{document.description || document.source}</span>
-                      </a>
+                        <a
+                          href={document.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={() => setRelatedDocumentsOpen(false)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <span className="block truncate text-[13px] font-black text-[#1f2430]">{document.name}</span>
+                          <span className="mt-0.5 block text-[11px] font-semibold text-[#747b8a]">{document.description || document.source}</span>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            deleteRelatedDocument(document)
+                          }}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#e0b8b8] bg-white text-[15px] font-black leading-none text-[#a82727] transition hover:border-[#d98b8b] hover:bg-[#fff5f5]"
+                          aria-label={`Delete ${document.name}`}
+                          title={`Delete ${document.name}`}
+                        >
+                          x
+                        </button>
+                      </div>
                     ))}
                   </div>
                 ) : null}

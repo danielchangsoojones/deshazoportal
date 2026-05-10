@@ -185,3 +185,28 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
 
   return mapDocumentRow(data as EditableInspectionDocumentRow)
 }
+
+export async function deleteEditableInspectionDocument(document: EditableInspectionDocument) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const userId = await getCurrentUserId()
+  const { error: deleteRowError } = await supabase
+    .from('editable_inspection_documents')
+    .delete()
+    .eq('id', document.id)
+    .eq('user_id', userId)
+
+  if (deleteRowError) {
+    throw new Error(deleteRowError.message)
+  }
+
+  const { error: deleteFileError } = await supabase.storage
+    .from(bucketName)
+    .remove([document.filePath])
+
+  if (deleteFileError) {
+    throw new Error(deleteFileError.message)
+  }
+}
