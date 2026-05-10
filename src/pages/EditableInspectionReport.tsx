@@ -6,6 +6,11 @@ import {
   type InspectionMenuItem,
   type InspectionMenuItemSection,
 } from '../lib/inspectionMenuItems'
+import {
+  getEditableInspectionDocuments,
+  uploadEditableInspectionDocument,
+  type EditableInspectionDocument,
+} from '../lib/editableInspectionDocuments'
 
 type ReportData = Record<string, string>
 
@@ -34,6 +39,15 @@ type MenuItem = InspectionMenuItem
 
 type MenuItemSection = InspectionMenuItemSection
 
+type EditingMenuItem = {
+  originalSectionTitle: string
+  sectionTitle: string
+  itemId: string
+  label: string
+  description: string
+  rate: string
+}
+
 type CanvasTextBox = {
   id: string
   text: string
@@ -41,12 +55,7 @@ type CanvasTextBox = {
   y: number
 }
 
-type RelatedDocument = {
-  id: string
-  name: string
-  url: string
-  source: string
-}
+type RelatedDocument = EditableInspectionDocument
 
 type QuoteBlockVisibility = {
   scopeOfWork: boolean
@@ -75,6 +84,8 @@ const maxRecentlyUsedItems = 2
 const equipmentRentalSectionId = 'equipment-rental'
 const equipmentRentalDefaultMargin = 15
 const databaseSyncIdleDelayMs = 650
+const originalInspectionStableKey = 'built-in:original-inspection'
+const masterServiceAgreementStableKey = 'built-in:master-service-agreement'
 
 type EquipmentRentalSettings = {
   applyMarginToAll: boolean
@@ -232,44 +243,104 @@ const defaultMenuItemSections: MenuItemSection[] = [
   },
 ]
 
+const recentlyUsedMenuSectionTitle = 'Past history'
+
+const getDefaultAddableMenuSection = (sections: MenuItemSection[]) =>
+  sections.find((section) => section.title !== recentlyUsedMenuSectionTitle)?.title ?? 'Shared'
+
 const getMenuSectionDisplayTitle = (title: string) => {
-  if (title === 'Past history') return 'Recently used'
+  if (title === recentlyUsedMenuSectionTitle) return 'Recently used'
   if (title === 'Customer specific') return 'Customer specific (Wabash)'
   if (title === 'This crane') return 'This crane (D200235)'
   return title
 }
 
-const customerSpecificMenuItems: MenuItem[] = [
-  {
-    id: '26b9d735-10b5-4ee0-b2f1-93e54f20ca11',
-    label: 'Labor',
-    description: 'Customer-specific labor rate for Wabash service work.',
-    rate: '145.00',
-  },
-  {
-    id: '75c6d462-7c99-43f8-b91b-16f22d8b334a',
-    label: 'Freight',
-    description: 'Customer-specific freight and delivery charge.',
-    rate: '85.00',
-  },
-]
-
 const createMenuItemId = () => globalThis.crypto?.randomUUID?.() ?? `menu-${Date.now()}-${Math.random()}`
 
-const addMenuItemIds = (items: MenuItem[]) =>
-  items.map((item) => ({
-    ...item,
-    id: item.id ?? createMenuItemId(),
-  }))
+const getDocumentNameFromFile = (fileName: string) =>
+  fileName.replace(/\.pdf$/i, '').replace(/[-_]+/g, ' ').trim() || 'PDF document'
 
-const normalizeMenuItemSections = (sections: MenuItemSection[]) =>
-  sections.map((section) =>
-    section.title === 'Past history'
-      ? { ...section, items: addMenuItemIds(section.items.slice(0, maxRecentlyUsedItems)) }
-      : section.title === 'Customer specific'
-        ? { ...section, items: customerSpecificMenuItems }
-        : { ...section, items: addMenuItemIds(section.items) },
-  )
+const getUploadDescription = (source: string, relativePath?: string) =>
+  relativePath
+    ? `Uploaded from ${source}: ${relativePath}`
+    : `Uploaded from ${source}.`
+
+const escapePdfText = (text: string) => text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
+
+const createSimplePdfFile = (fileName: string, title: string, lines: string[]) => {
+  const contentLines = [
+    'BT',
+    '/F1 18 Tf',
+    '72 760 Td',
+    `(${escapePdfText(title)}) Tj`,
+    '/F1 11 Tf',
+    '0 -34 Td',
+    ...lines.flatMap((line) => [`(${escapePdfText(line)}) Tj`, '0 -18 Td']),
+    'ET',
+  ]
+  const content = contentLines.join('\n')
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n',
+    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+    `5 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`,
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+
+  objects.forEach((object) => {
+    offsets.push(pdf.length)
+    pdf += object
+  })
+
+  const xrefOffset = pdf.length
+  pdf += `xref\n0 ${objects.length + 1}\n`
+  pdf += '0000000000 65535 f \n'
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
+  })
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+
+  return new File([new Blob([pdf], { type: 'application/pdf' })], fileName, { type: 'application/pdf' })
+}
+
+const createMasterServiceAgreementFile = () =>
+  createSimplePdfFile('master-service-agreement.pdf', 'Master Service Agreement', [
+    'DESHAZO service pricing reference for quote proposal preparation.',
+    'Customer: Wabash',
+    'Covered Equipment: Crane D200235',
+    'Regular technician labor: $145.00/hr',
+    'Overtime technician labor: $217.50/hr',
+    'Double-time emergency labor: $290.00/hr',
+    'Project manager / engineering support: $185.00/hr',
+    'Helper / apprentice labor: $95.00/hr',
+    'Service truck: $85.00 per visit',
+    'Scissor lift rental: $275.00 per day',
+    'Freight: $85.00 standard delivery charge',
+  ])
+
+const normalizeMenuItemSections = (sections: MenuItemSection[]) => {
+  const usedItemIds = new Set<string>()
+
+  return sections.map((section) => {
+    const cappedItems =
+      section.title === recentlyUsedMenuSectionTitle ? section.items.slice(0, maxRecentlyUsedItems) : section.items
+
+    return {
+      ...section,
+      items: cappedItems.map((item) => {
+        const itemId = item.id && !usedItemIds.has(item.id) ? item.id : createMenuItemId()
+        usedItemIds.add(itemId)
+
+        return {
+          ...item,
+          id: itemId,
+        }
+      }),
+    }
+  })
+}
 
 const parseMoney = (value: string) => {
   const numericValue = Number(value.replace(/[^0-9.-]/g, ''))
@@ -437,11 +508,18 @@ function EditableValue({ label, value, className = '', onChange, onDropMenuItem 
   )
 }
 
+function PencilIcon() {
+  return (
+    <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m16.86 3.49 3.65 3.65M4.75 19.25l4.34-.86L19.2 8.28a2.58 2.58 0 0 0-3.65-3.65L5.44 14.74l-.69 4.51Z" />
+    </svg>
+  )
+}
+
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
   const menuDatabaseSyncReady = useRef(false)
   const textBoxDragStart = useRef<Record<string, { clientX: number; clientY: number; x: number; y: number }>>({})
-  const relatedDocumentUrls = useRef<string[]>([])
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
   const relatedPdfInputRef = useRef<HTMLInputElement>(null)
   const [activeLineMenu, setActiveLineMenu] = useState('')
@@ -456,10 +534,11 @@ export default function EditableInspectionReport() {
   const [menuSearch, setMenuSearch] = useState('')
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
-  const [newMenuSection, setNewMenuSection] = useState(defaultMenuItemSections[0]?.title ?? 'Shared')
+  const [newMenuSection, setNewMenuSection] = useState(getDefaultAddableMenuSection(defaultMenuItemSections))
   const [newMenuLabel, setNewMenuLabel] = useState('')
   const [newMenuDescription, setNewMenuDescription] = useState('')
   const [newMenuRate, setNewMenuRate] = useState('0.00')
+  const [editingMenuItem, setEditingMenuItem] = useState<EditingMenuItem | null>(null)
   const [menuDatabaseStatus, setMenuDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -593,6 +672,21 @@ export default function EditableInspectionReport() {
     () => repairSections.filter((section) => repairSectionVisibility[section.id] !== false),
     [repairSections, repairSectionVisibility],
   )
+  const originalInspectionDocument = useMemo(
+    () => relatedDocuments.find((document) => document.name === 'Original Inspection'),
+    [relatedDocuments],
+  )
+  const masterServiceAgreementDocument = useMemo(
+    () => relatedDocuments.find((document) => document.name === 'Master Service Agreement'),
+    [relatedDocuments],
+  )
+  const uploadedRelatedDocuments = useMemo(
+    () =>
+      relatedDocuments.filter(
+        (document) => !['Original Inspection', 'Master Service Agreement'].includes(document.name),
+      ),
+    [relatedDocuments],
+  )
   const visibleMenuItemSections = useMemo(() => {
     const searchValue = menuSearch.trim().toLowerCase()
     const cappedSections = normalizeMenuItemSections(menuItemSections)
@@ -607,6 +701,20 @@ export default function EditableInspectionReport() {
       }))
       .filter((section) => section.items.length > 0)
   }, [menuItemSections, menuSearch])
+  const addableMenuItemSections = useMemo(
+    () => menuItemSections.filter((section) => section.title !== recentlyUsedMenuSectionTitle),
+    [menuItemSections],
+  )
+  const editableMenuItemSections = useMemo(() => {
+    if (!editingMenuItem) return addableMenuItemSections
+
+    return menuItemSections.filter(
+      (section) => section.title !== recentlyUsedMenuSectionTitle || section.title === editingMenuItem.originalSectionTitle,
+    )
+  }, [addableMenuItemSections, editingMenuItem, menuItemSections])
+  const selectedAddableMenuSection = addableMenuItemSections.some((section) => section.title === newMenuSection)
+    ? newMenuSection
+    : getDefaultAddableMenuSection(addableMenuItemSections)
 
   useEffect(() => {
     if (!isConfigured) {
@@ -674,12 +782,62 @@ export default function EditableInspectionReport() {
     return () => window.clearTimeout(saveTimer)
   }, [menuItemSections])
 
-  useEffect(
-    () => () => {
-      relatedDocumentUrls.current.forEach((url) => URL.revokeObjectURL(url))
-    },
-    [],
-  )
+  useEffect(() => {
+    if (!isConfigured) {
+      setRelatedDocumentsMessage('Supabase is not configured. PDFs are not saved yet.')
+      return
+    }
+
+    let active = true
+
+    async function loadRelatedDocuments() {
+      try {
+        setRelatedDocumentsMessage('Loading saved PDFs.')
+
+        const originalInspectionResponse = await fetch('/testassessment.pdf')
+        if (!originalInspectionResponse.ok) {
+          throw new Error('Original inspection PDF could not be loaded.')
+        }
+
+        const originalInspectionBlob = await originalInspectionResponse.blob()
+        const originalInspectionFile = new File([originalInspectionBlob], 'original-inspection.pdf', {
+          type: 'application/pdf',
+        })
+
+        await Promise.all([
+          uploadEditableInspectionDocument({
+            file: originalInspectionFile,
+            name: 'Original Inspection',
+            description: 'Source inspection PDF used for this editable quote proposal.',
+            source: 'Built-in document',
+            stableKey: originalInspectionStableKey,
+          }),
+          uploadEditableInspectionDocument({
+            file: createMasterServiceAgreementFile(),
+            name: 'Master Service Agreement',
+            description: 'Example labor, service, equipment, travel, and freight pricing.',
+            source: 'Built-in document',
+            stableKey: masterServiceAgreementStableKey,
+          }),
+        ])
+
+        const savedDocuments = await getEditableInspectionDocuments()
+        if (!active) return
+
+        setRelatedDocuments(savedDocuments)
+        setRelatedDocumentsMessage(`${savedDocuments.length} PDF${savedDocuments.length === 1 ? '' : 's'} saved.`)
+      } catch (error) {
+        if (!active) return
+        setRelatedDocumentsMessage(error instanceof Error ? error.message : 'Saved PDFs could not be loaded.')
+      }
+    }
+
+    loadRelatedDocuments()
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   const updatedAt = useMemo(
     () =>
@@ -768,6 +926,8 @@ export default function EditableInspectionReport() {
   }
 
   const addMenuItemFromSettings = () => {
+    if (selectedAddableMenuSection === recentlyUsedMenuSectionTitle) return
+
     const label = newMenuLabel.trim()
     const description = newMenuDescription.trim()
     if (!label || !description) return
@@ -782,7 +942,7 @@ export default function EditableInspectionReport() {
     setMenuItemSections((currentSections) =>
       saveMenuItemSections(
         currentSections.map((section) =>
-          section.title === newMenuSection ? { ...section, items: [...section.items, nextItem] } : section,
+          section.title === selectedAddableMenuSection ? { ...section, items: [...section.items, nextItem] } : section,
         ),
       ),
     )
@@ -791,11 +951,89 @@ export default function EditableInspectionReport() {
     setNewMenuRate('0.00')
   }
 
+  const openMenuItemEditor = (sectionTitle: string, item: MenuItem) => {
+    setEditingMenuItem({
+      originalSectionTitle: sectionTitle,
+      sectionTitle,
+      itemId: item.id ?? createMenuItemId(),
+      label: item.label,
+      description: item.description,
+      rate: item.rate,
+    })
+  }
+
+  const saveEditedMenuItem = () => {
+    if (!editingMenuItem) return
+
+    const label = editingMenuItem.label.trim()
+    const description = editingMenuItem.description.trim()
+    if (!label || !description) return
+
+    const nextRate = parseMoney(editingMenuItem.rate).toFixed(2)
+
+    setMenuItemSections((currentSections) =>
+      saveMenuItemSections(
+        currentSections.map((section) => {
+          if (section.title === editingMenuItem.sectionTitle) {
+            const updatedItem = {
+              id: editingMenuItem.itemId,
+              label,
+              description,
+              rate: nextRate,
+            }
+
+            if (section.title === editingMenuItem.originalSectionTitle) {
+              return {
+                ...section,
+                items: section.items.map((item) =>
+                  item.id === editingMenuItem.itemId ? updatedItem : item,
+                ),
+              }
+            }
+
+            return {
+              ...section,
+              items: [...section.items, updatedItem],
+            }
+          }
+
+          if (section.title === editingMenuItem.originalSectionTitle) {
+            return {
+              ...section,
+              items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
+            }
+          }
+
+          return section
+        }),
+      ),
+    )
+    setEditingMenuItem(null)
+  }
+
+  const deleteEditedMenuItem = () => {
+    if (!editingMenuItem) return
+
+    setMenuItemSections((currentSections) =>
+      saveMenuItemSections(
+        currentSections.map((section) =>
+          section.title === editingMenuItem.originalSectionTitle
+            ? {
+                ...section,
+                items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
+              }
+            : section,
+        ),
+      ),
+    )
+    setEditingMenuItem(null)
+  }
+
   const addMenuItemToRecentlyUsed = (item: MenuItem) => {
     setMenuItemSections((currentSections) =>
       saveMenuItemSections(
         currentSections.map((section) => {
-          if (section.title !== 'Past history') return section
+          if (section.title !== recentlyUsedMenuSectionTitle) return section
 
           const matchingItem = (sectionItem: MenuItem) =>
             sectionItem.label === item.label
@@ -803,7 +1041,10 @@ export default function EditableInspectionReport() {
 
           return {
             ...section,
-            items: [item, ...section.items.filter((sectionItem) => !matchingItem(sectionItem))].slice(0, maxRecentlyUsedItems),
+            items: [
+              { ...item, id: createMenuItemId() },
+              ...section.items.filter((sectionItem) => !matchingItem(sectionItem)),
+            ].slice(0, maxRecentlyUsedItems),
           }
         }),
       ),
@@ -831,50 +1072,60 @@ export default function EditableInspectionReport() {
     setTextMenuOpen(false)
   }
 
-  const addRelatedDocuments = (files: File[], source: string) => {
+  const addRelatedDocuments = async (files: Array<File & { webkitRelativePath?: string }>, source: string) => {
     if (files.length === 0) {
       setRelatedDocumentsMessage(
-        source === '005 Vendor Quotes'
-          ? 'No PDFs were found in 005 Vendor Quotes.'
+        source === 'Folder upload'
+          ? 'No PDFs were found in that folder.'
           : 'No PDF was selected.',
       )
       return
     }
 
-    setRelatedDocuments((currentDocuments) => {
-      const existingDocumentKeys = new Set(currentDocuments.map((document) => document.id))
-      const nextDocuments = [...currentDocuments]
+    if (!isConfigured) {
+      setRelatedDocumentsMessage('Supabase is not configured. PDFs were not saved.')
+      return
+    }
 
-      files.forEach((file) => {
-        const id = `${source}:${file.name}:${file.size}:${file.lastModified}`
-        if (existingDocumentKeys.has(id)) return
+    setRelatedDocumentsMessage(`Uploading ${files.length} PDF${files.length === 1 ? '' : 's'} to Supabase.`)
 
-        const url = URL.createObjectURL(file)
-        relatedDocumentUrls.current.push(url)
-        existingDocumentKeys.add(id)
-        nextDocuments.push({ id, name: file.name, url, source })
+    try {
+      const uploadedDocuments = await Promise.all(
+        files.map((file) => {
+          const relativePath = file.webkitRelativePath || file.name
+          return uploadEditableInspectionDocument({
+            file,
+            name: getDocumentNameFromFile(file.name),
+            description: getUploadDescription(source, relativePath),
+            source,
+            stableKey: `${source}:${relativePath}:${file.size}:${file.lastModified}`,
+          })
+        }),
+      )
+
+      setRelatedDocuments((currentDocuments) => {
+        const nextDocumentMap = new Map(currentDocuments.map((document) => [document.id, document]))
+        uploadedDocuments.forEach((document) => nextDocumentMap.set(document.id, document))
+        return Array.from(nextDocumentMap.values()).sort((firstDocument, secondDocument) =>
+          secondDocument.createdAt.localeCompare(firstDocument.createdAt),
+        )
       })
-
-      return nextDocuments
-    })
-    setRelatedDocumentsMessage(`${files.length} PDF${files.length === 1 ? '' : 's'} added.`)
+      setRelatedDocumentsMessage(`${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase.`)
+    } catch (error) {
+      setRelatedDocumentsMessage(error instanceof Error ? error.message : 'PDFs could not be saved to Supabase.')
+    }
   }
 
-  const uploadRelatedFolder = (fileList: FileList | null) => {
+  const uploadRelatedFolder = async (fileList: FileList | null) => {
     const files = Array.from(fileList ?? []) as Array<File & { webkitRelativePath?: string }>
-    const vendorQuotePdfs = files.filter((file) => {
-      const relativePath = file.webkitRelativePath || file.name
-      const pathSegments = relativePath.toLowerCase().split('/')
+    const pdfs = files.filter((file) => file.name.toLowerCase().endsWith('.pdf'))
 
-      return file.name.toLowerCase().endsWith('.pdf') && pathSegments.includes('005 vendor quotes')
-    })
-
-    addRelatedDocuments(vendorQuotePdfs, '005 Vendor Quotes')
+    await addRelatedDocuments(pdfs, 'Folder upload')
   }
 
-  const uploadRelatedPdfs = (fileList: FileList | null) => {
+  const uploadRelatedPdfs = async (fileList: FileList | null) => {
     const pdfs = Array.from(fileList ?? []).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
-    addRelatedDocuments(pdfs, 'Uploaded PDF')
+    await addRelatedDocuments(pdfs, 'Uploaded PDF')
   }
 
   const updateCanvasTextBox = (textBoxId: string, value: string) => {
@@ -1305,7 +1556,7 @@ export default function EditableInspectionReport() {
                   ) : null}
                 </div>
                 <a
-                  href="/testassessment.pdf"
+                  href={originalInspectionDocument?.url ?? '/testassessment.pdf'}
                   target="_blank"
                   rel="noreferrer"
                   onClick={() => setRelatedDocumentsOpen(false)}
@@ -1317,17 +1568,21 @@ export default function EditableInspectionReport() {
                 <button
                   type="button"
                   onClick={() => {
-                    setMasterServiceAgreementOpen(true)
+                    if (masterServiceAgreementDocument?.url) {
+                      window.open(masterServiceAgreementDocument.url, '_blank', 'noopener,noreferrer')
+                    } else {
+                      setMasterServiceAgreementOpen(true)
+                    }
                     setRelatedDocumentsOpen(false)
                   }}
                   className="mt-1 w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f4f6fb]"
                 >
                   <span className="block text-[14px] font-black text-[#1f2430]">Master Service Agreement</span>
-                  <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open example labor and service pricing.</span>
+                  <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open the saved pricing PDF.</span>
                 </button>
-                {relatedDocuments.length > 0 ? (
+                {uploadedRelatedDocuments.length > 0 ? (
                   <div className="mt-2 border-t border-[#dfe4ef] pt-2">
-                    {relatedDocuments.map((document) => (
+                    {uploadedRelatedDocuments.map((document) => (
                       <a
                         key={document.id}
                         href={document.url}
@@ -1337,7 +1592,7 @@ export default function EditableInspectionReport() {
                         className="mt-1 block w-full rounded-md px-3 py-2 text-left transition hover:bg-[#f4f6fb]"
                       >
                         <span className="block truncate text-[13px] font-black text-[#1f2430]">{document.name}</span>
-                        <span className="mt-0.5 block text-[11px] font-semibold text-[#747b8a]">{document.source}</span>
+                        <span className="mt-0.5 block text-[11px] font-semibold text-[#747b8a]">{document.description || document.source}</span>
                       </a>
                     ))}
                   </div>
@@ -1443,14 +1698,36 @@ export default function EditableInspectionReport() {
                             }}
                             className="w-full cursor-grab rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff] active:cursor-grabbing"
                           >
-                            <span className="block text-[13px] font-black text-[#273f7a]">{item.label}</span>
+                            <span className="flex items-start justify-between gap-2">
+                              <span className="min-w-0 text-[13px] font-black leading-tight text-[#273f7a]">{item.label}</span>
+                              <button
+                                type="button"
+                                draggable={false}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openMenuItemEditor(section.title, item)
+                                }}
+                                onDragStart={(event) => event.preventDefault()}
+                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[#4d5360] transition hover:border-[#9bb0dc] hover:bg-[#eef3ff] hover:text-[#273f7a]"
+                                aria-label={`Edit ${item.label}`}
+                                title={`Edit ${item.label}`}
+                              >
+                                <PencilIcon />
+                              </button>
+                            </span>
                             <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
                             <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
                             {section.title === 'Customer specific' && ['Labor', 'Freight'].includes(item.label) ? (
                               <button
                                 type="button"
                                 draggable={false}
-                                onClick={() => setMasterServiceAgreementOpen(true)}
+                                onClick={() => {
+                                  if (masterServiceAgreementDocument?.url) {
+                                    window.open(masterServiceAgreementDocument.url, '_blank', 'noopener,noreferrer')
+                                  } else {
+                                    setMasterServiceAgreementOpen(true)
+                                  }
+                                }}
                                 onDragStart={(event) => event.preventDefault()}
                                 className="mt-2 rounded-md border border-[#f5b400] bg-[#fff2bf] px-2 py-1 text-[10px] font-black uppercase leading-tight text-[#6c4a00] shadow-sm transition hover:bg-[#ffe68a]"
                               >
@@ -2273,11 +2550,11 @@ export default function EditableInspectionReport() {
             <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
               Section
               <select
-                value={newMenuSection}
+                value={selectedAddableMenuSection}
                 onChange={(event) => setNewMenuSection(event.currentTarget.value)}
                 className="rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
               >
-                {menuItemSections.map((section) => (
+                {addableMenuItemSections.map((section) => (
                   <option key={section.title} value={section.title}>
                     {getMenuSectionDisplayTitle(section.title)}
                   </option>
@@ -2326,6 +2603,114 @@ export default function EditableInspectionReport() {
             >
               Add Item
             </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    {editingMenuItem ? (
+      <div className="report-toolbar fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/45 px-4">
+        <div className="w-full max-w-[680px] rounded-md border border-[#cfd6e5] bg-white shadow-[0_28px_80px_-36px_rgba(15,23,42,0.75)]">
+          <div className="flex items-center justify-between border-b border-[#dfe4ef] px-5 py-4">
+            <div>
+              <h2 className="text-[20px] font-black text-[#1f2430]">Edit Menu Item</h2>
+              <p className="mt-1 text-[13px] font-semibold text-[#747b8a]">
+                {getMenuSectionDisplayTitle(editingMenuItem.sectionTitle)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditingMenuItem(null)}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[16px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+              aria-label="Close menu item editor"
+            >
+              x
+            </button>
+          </div>
+
+          <div className="grid gap-4 px-5 py-5">
+            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+              Section
+              <select
+                value={editingMenuItem.sectionTitle}
+                onChange={(event) => {
+                  const nextSectionTitle = event.currentTarget.value
+                  setEditingMenuItem((currentItem) =>
+                    currentItem ? { ...currentItem, sectionTitle: nextSectionTitle } : currentItem,
+                  )
+                }}
+                className="rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+              >
+                {editableMenuItemSections.map((section) => (
+                  <option key={section.title} value={section.title}>
+                    {getMenuSectionDisplayTitle(section.title)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+              Item name
+              <input
+                value={editingMenuItem.label}
+                onChange={(event) => {
+                  const nextLabel = event.currentTarget.value
+                  setEditingMenuItem((currentItem) =>
+                    currentItem ? { ...currentItem, label: nextLabel } : currentItem,
+                  )
+                }}
+                className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+              />
+            </label>
+
+            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+              Description
+              <textarea
+                value={editingMenuItem.description}
+                onChange={(event) => {
+                  const nextDescription = event.currentTarget.value
+                  setEditingMenuItem((currentItem) =>
+                    currentItem ? { ...currentItem, description: nextDescription } : currentItem,
+                  )
+                }}
+                className="min-h-[110px] resize-y rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-semibold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+              />
+            </label>
+
+            <label className="grid max-w-[220px] gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+              Rate
+              <input
+                value={editingMenuItem.rate}
+                onChange={(event) => {
+                  const nextRate = event.currentTarget.value
+                  setEditingMenuItem((currentItem) =>
+                    currentItem ? { ...currentItem, rate: nextRate } : currentItem,
+                  )
+                }}
+                inputMode="decimal"
+                className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+              />
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-[#dfe4ef] bg-[#fbfcff] px-5 py-4">
+            <p className="text-[12px] font-semibold text-[#747b8a]">{menuDatabaseMessage}</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={deleteEditedMenuItem}
+                className="rounded-md border border-[#e0b8b8] bg-white px-4 py-2.5 text-[13px] font-black text-[#a82727] transition hover:border-[#d98b8b] hover:bg-[#fff5f5]"
+              >
+                Delete Item
+              </button>
+              <button
+                type="button"
+                onClick={saveEditedMenuItem}
+                disabled={!editingMenuItem.label.trim() || !editingMenuItem.description.trim()}
+                className="rounded-md bg-[#273f7a] px-5 py-2.5 text-[13px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Save Item
+              </button>
+            </div>
           </div>
         </div>
       </div>
