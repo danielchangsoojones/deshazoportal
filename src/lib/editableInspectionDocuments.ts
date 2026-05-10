@@ -112,7 +112,10 @@ async function submitPdfToVendorInvoiceWorkflow(file: File, fileName: string) {
   })
 
   if (!response.ok) {
-    throw new Error(`Vendor invoice workflow upload failed with status ${response.status}.`)
+    const message = await response.text()
+    throw new Error(
+      `Vendor invoice workflow upload failed with status ${response.status}${message ? `: ${message}` : '.'}`,
+    )
   }
 }
 
