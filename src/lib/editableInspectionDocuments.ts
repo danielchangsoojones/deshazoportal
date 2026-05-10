@@ -18,6 +18,7 @@ export type EditableInspectionDocument = {
   source: string
   url: string
   createdAt: string
+  workflowSubmissionError?: string
 }
 
 type EditableInspectionDocumentRow = {
@@ -38,6 +39,7 @@ type UploadEditableInspectionDocumentInput = {
   source: string
   stableKey?: string
   submitToVendorInvoiceWorkflow?: boolean
+  craneIdentifier?: string
 }
 
 function createDocumentId() {
@@ -101,12 +103,14 @@ async function mapDocumentRow(row: EditableInspectionDocumentRow): Promise<Edita
   }
 }
 
-async function submitPdfToVendorInvoiceWorkflow(file: File, fileName: string) {
+async function submitPdfToVendorInvoiceWorkflow(file: File, fileName: string, userId: string, craneIdentifier?: string) {
   const response = await fetch(vendorInvoicePdfUploadUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/pdf',
       'x-file-name': fileName,
+      'x-menu-item-user-id': userId,
+      ...(craneIdentifier ? { 'x-crane-identifier': craneIdentifier } : {}),
     },
     body: file,
   })
@@ -116,6 +120,24 @@ async function submitPdfToVendorInvoiceWorkflow(file: File, fileName: string) {
     throw new Error(
       `Vendor invoice workflow upload failed with status ${response.status}${message ? `: ${message}` : '.'}`,
     )
+  }
+}
+
+async function addWorkflowSubmissionStatus(
+  document: EditableInspectionDocument,
+  file: File,
+  fileName: string,
+  userId: string,
+  craneIdentifier?: string,
+) {
+  try {
+    await submitPdfToVendorInvoiceWorkflow(file, fileName, userId, craneIdentifier)
+    return document
+  } catch (error) {
+    return {
+      ...document,
+      workflowSubmissionError: error instanceof Error ? error.message : 'Extend workflow upload failed.',
+    }
   }
 }
 
@@ -163,7 +185,13 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
 
     if (existingDocument) {
       if (input.submitToVendorInvoiceWorkflow) {
-        await submitPdfToVendorInvoiceWorkflow(input.file, sanitizeFileName(input.file.name))
+        return addWorkflowSubmissionStatus(
+          await mapDocumentRow(existingDocument as EditableInspectionDocumentRow),
+          input.file,
+          sanitizeFileName(input.file.name),
+          userId,
+          input.craneIdentifier,
+        )
       }
 
       return mapDocumentRow(existingDocument as EditableInspectionDocumentRow)
@@ -212,7 +240,13 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
   }
 
   if (input.submitToVendorInvoiceWorkflow) {
-    await submitPdfToVendorInvoiceWorkflow(input.file, fileName)
+    return addWorkflowSubmissionStatus(
+      await mapDocumentRow(data as EditableInspectionDocumentRow),
+      input.file,
+      fileName,
+      userId,
+      input.craneIdentifier,
+    )
   }
 
   return mapDocumentRow(data as EditableInspectionDocumentRow)

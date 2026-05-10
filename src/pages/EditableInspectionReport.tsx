@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isConfigured } from '../lib/supabase'
 import {
   getInspectionMenuItems,
@@ -85,12 +85,20 @@ const maxRecentlyUsedItems = 2
 const equipmentRentalSectionId = 'equipment-rental'
 const equipmentRentalDefaultMargin = 15
 const databaseSyncIdleDelayMs = 650
+const menuItemsUploadRefreshDurationMs = 60 * 1000
+const menuItemsUploadRefreshIntervalMs = 5 * 1000
+const defaultCraneIdentifier = 'D200235'
 const originalInspectionStableKey = 'built-in:original-inspection'
 const masterServiceAgreementStableKey = 'built-in:master-service-agreement'
 
 type EquipmentRentalSettings = {
   applyMarginToAll: boolean
   margin: string
+}
+
+type MenuItemsRefreshProgress = {
+  active: boolean
+  percent: number
 }
 
 const defaultEquipmentRentalSettings: EquipmentRentalSettings = {
@@ -227,7 +235,7 @@ const defaultMenuItemSections: MenuItemSection[] = [
     ],
   },
   {
-    title: 'This crane',
+    title: defaultCraneIdentifier,
     items: [
       { label: 'Wheel inspection', description: 'Inspect wheel tread wear and flange condition.', rate: '185.00' },
       { label: 'Cable alignment', description: 'Verify conductor alignment through full bridge travel.', rate: '125.00' },
@@ -245,6 +253,7 @@ const defaultMenuItemSections: MenuItemSection[] = [
 ]
 
 const recentlyUsedMenuSectionTitle = 'Past history'
+const globalMenuSectionTitles = new Set([recentlyUsedMenuSectionTitle, 'Customer specific', 'Shared'])
 
 const getDefaultAddableMenuSection = (sections: MenuItemSection[]) =>
   sections.find((section) => section.title !== recentlyUsedMenuSectionTitle)?.title ?? 'Shared'
@@ -252,11 +261,29 @@ const getDefaultAddableMenuSection = (sections: MenuItemSection[]) =>
 const getMenuSectionDisplayTitle = (title: string) => {
   if (title === recentlyUsedMenuSectionTitle) return 'Recently used'
   if (title === 'Customer specific') return 'Customer specific (Wabash)'
-  if (title === 'This crane') return 'This crane (D200235)'
   return title
 }
 
 const createMenuItemId = () => globalThis.crypto?.randomUUID?.() ?? `menu-${Date.now()}-${Math.random()}`
+
+const getNormalizedMenuSectionTitle = (title: string, craneIdentifier: string) => {
+  if (title === 'This crane') return craneIdentifier
+  if (globalMenuSectionTitles.has(title)) return title
+  return craneIdentifier
+}
+
+const getCraneIdentifierFromReport = (report: ReportData) => {
+  const reportText = [
+    report.summary,
+    report.description,
+    report.manufacturerCrane,
+    report.serialCrane,
+    report.modelCrane,
+    ...Object.values(report),
+  ].join(' ')
+  const match = reportText.match(/\bD[\s-]*\d{3,}\b/i)
+  return match ? match[0].replace(/[\s-]+/g, '').toUpperCase() : defaultCraneIdentifier
+}
 
 const getDocumentNameFromFile = (fileName: string) =>
   fileName.replace(/\.pdf$/i, '').replace(/[-_]+/g, ' ').trim() || 'PDF document'
@@ -306,11 +333,11 @@ const createSimplePdfFile = (fileName: string, title: string, lines: string[]) =
   return new File([new Blob([pdf], { type: 'application/pdf' })], fileName, { type: 'application/pdf' })
 }
 
-const createMasterServiceAgreementFile = () =>
+const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifier) =>
   createSimplePdfFile('master-service-agreement.pdf', 'Master Service Agreement', [
     'DESHAZO service pricing reference for quote proposal preparation.',
     'Customer: Wabash',
-    'Covered Equipment: Crane D200235',
+    `Covered Equipment: Crane ${craneIdentifier}`,
     'Regular technician labor: $145.00/hr',
     'Overtime technician labor: $217.50/hr',
     'Double-time emergency labor: $290.00/hr',
@@ -321,26 +348,44 @@ const createMasterServiceAgreementFile = () =>
     'Freight: $85.00 standard delivery charge',
   ])
 
-const normalizeMenuItemSections = (sections: MenuItemSection[]) => {
+const normalizeMenuItemSections = (sections: MenuItemSection[], craneIdentifier = defaultCraneIdentifier) => {
   const usedItemIds = new Set<string>()
+  const sectionMap = new Map<string, MenuItemSection>()
 
-  return sections.map((section) => {
+  sections.forEach((section) => {
+    const sectionTitle = getNormalizedMenuSectionTitle(section.title, craneIdentifier)
     const cappedItems =
-      section.title === recentlyUsedMenuSectionTitle ? section.items.slice(0, maxRecentlyUsedItems) : section.items
+      sectionTitle === recentlyUsedMenuSectionTitle ? section.items.slice(0, maxRecentlyUsedItems) : section.items
+    const normalizedItems = cappedItems.map((item) => {
+      const itemId = item.id && !usedItemIds.has(item.id) ? item.id : createMenuItemId()
+      usedItemIds.add(itemId)
 
-    return {
+      return {
+        ...item,
+        id: itemId,
+      }
+    })
+
+    const existingSection = sectionMap.get(sectionTitle)
+    sectionMap.set(sectionTitle, {
       ...section,
-      items: cappedItems.map((item) => {
-        const itemId = item.id && !usedItemIds.has(item.id) ? item.id : createMenuItemId()
-        usedItemIds.add(itemId)
-
-        return {
-          ...item,
-          id: itemId,
-        }
-      }),
-    }
+      title: sectionTitle,
+      items: existingSection ? [...existingSection.items, ...normalizedItems] : normalizedItems,
+    })
   })
+
+  return [
+    recentlyUsedMenuSectionTitle,
+    craneIdentifier,
+    'Customer specific',
+    'Shared',
+    ...Array.from(sectionMap.keys()).filter(
+      (sectionTitle) =>
+        ![recentlyUsedMenuSectionTitle, craneIdentifier, 'Customer specific', 'Shared'].includes(sectionTitle),
+    ),
+  ]
+    .map((sectionTitle) => sectionMap.get(sectionTitle))
+    .filter((section): section is MenuItemSection => Boolean(section))
 }
 
 const parseMoney = (value: string) => {
@@ -520,6 +565,10 @@ function PencilIcon() {
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
   const menuDatabaseSyncReady = useRef(false)
+  const skipNextMenuDatabaseSave = useRef(false)
+  const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
+  const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
+  const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
   const textBoxDragStart = useRef<Record<string, { clientX: number; clientY: number; x: number; y: number }>>({})
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
   const relatedPdfInputRef = useRef<HTMLInputElement>(null)
@@ -535,6 +584,10 @@ export default function EditableInspectionReport() {
   const [menuSearch, setMenuSearch] = useState('')
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
+  const [menuItemsRefreshProgress, setMenuItemsRefreshProgress] = useState<MenuItemsRefreshProgress>({
+    active: false,
+    percent: 0,
+  })
   const [newMenuSection, setNewMenuSection] = useState(getDefaultAddableMenuSection(defaultMenuItemSections))
   const [newMenuLabel, setNewMenuLabel] = useState('')
   const [newMenuDescription, setNewMenuDescription] = useState('')
@@ -646,6 +699,7 @@ export default function EditableInspectionReport() {
       return defaultEquipmentRentalSettings
     }
   })
+  const currentCraneIdentifier = useMemo(() => getCraneIdentifierFromReport(report), [report])
 
   const repairTotal = useMemo(
     () =>
@@ -690,7 +744,7 @@ export default function EditableInspectionReport() {
   )
   const visibleMenuItemSections = useMemo(() => {
     const searchValue = menuSearch.trim().toLowerCase()
-    const cappedSections = normalizeMenuItemSections(menuItemSections)
+    const cappedSections = normalizeMenuItemSections(menuItemSections, currentCraneIdentifier)
     if (!searchValue) return cappedSections
 
     return cappedSections
@@ -701,7 +755,7 @@ export default function EditableInspectionReport() {
         ),
       }))
       .filter((section) => section.items.length > 0)
-  }, [menuItemSections, menuSearch])
+  }, [currentCraneIdentifier, menuItemSections, menuSearch])
   const addableMenuItemSections = useMemo(
     () => menuItemSections.filter((section) => section.title !== recentlyUsedMenuSectionTitle),
     [menuItemSections],
@@ -718,6 +772,131 @@ export default function EditableInspectionReport() {
     : getDefaultAddableMenuSection(addableMenuItemSections)
 
   useEffect(() => {
+    setMenuItemSections((currentSections) => {
+      if (!currentSections.some((section) => getNormalizedMenuSectionTitle(section.title, currentCraneIdentifier) !== section.title)) {
+        return currentSections
+      }
+      const normalizedSections = normalizeMenuItemSections(currentSections, currentCraneIdentifier)
+      window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
+      skipNextMenuDatabaseSave.current = true
+      return normalizedSections
+    })
+  }, [currentCraneIdentifier])
+
+  const refreshMenuItemsFromDatabase = useCallback(
+    async ({
+      loadingMessage = 'Loading menu items from the server.',
+      loadedMessage = 'Menu items loaded from the server.',
+      emptyMessage = 'Menu items will save to the server after your next edit.',
+      shouldApply = () => true,
+      markSyncReady = false,
+    }: {
+      loadingMessage?: string
+      loadedMessage?: string
+      emptyMessage?: string
+      shouldApply?: () => boolean
+      markSyncReady?: boolean
+    } = {}) => {
+      if (!isConfigured) {
+        menuDatabaseSyncReady.current = false
+        setMenuDatabaseStatus('local')
+        setMenuDatabaseMessage('Supabase is not configured. Menu items are saved locally.')
+        return false
+      }
+
+      setMenuDatabaseStatus('loading')
+      setMenuDatabaseMessage(loadingMessage)
+
+      try {
+        const savedMenu = await getInspectionMenuItems()
+        if (!shouldApply()) return false
+
+        if (savedMenu) {
+          const normalizedSections = normalizeMenuItemSections(
+            savedMenu.menuSections.length > 0 ? savedMenu.menuSections : defaultMenuItemSections,
+            currentCraneIdentifier,
+          )
+          window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
+          skipNextMenuDatabaseSave.current = true
+          setMenuItemSections(normalizedSections)
+          setMenuDatabaseMessage(loadedMessage)
+        } else {
+          setMenuDatabaseMessage(emptyMessage)
+        }
+
+        if (markSyncReady) menuDatabaseSyncReady.current = true
+        setMenuDatabaseStatus('saved')
+        return true
+      } catch (error) {
+        if (!shouldApply()) return false
+        if (markSyncReady) menuDatabaseSyncReady.current = false
+        setMenuDatabaseStatus(markSyncReady ? 'local' : 'error')
+        setMenuDatabaseMessage(error instanceof Error ? error.message : 'Menu items could not be loaded.')
+        return false
+      }
+    },
+    [currentCraneIdentifier],
+  )
+
+  const clearMenuItemsUploadRefreshTimers = useCallback(() => {
+    if (menuItemsUploadRefreshInterval.current) {
+      window.clearInterval(menuItemsUploadRefreshInterval.current)
+      menuItemsUploadRefreshInterval.current = undefined
+    }
+
+    if (menuItemsUploadRefreshProgressInterval.current) {
+      window.clearInterval(menuItemsUploadRefreshProgressInterval.current)
+      menuItemsUploadRefreshProgressInterval.current = undefined
+    }
+
+    if (menuItemsUploadRefreshTimeout.current) {
+      window.clearTimeout(menuItemsUploadRefreshTimeout.current)
+      menuItemsUploadRefreshTimeout.current = undefined
+    }
+  }, [])
+
+  const refreshMenuItemsAfterPdfUpload = useCallback(() => {
+    if (!isConfigured) return
+
+    clearMenuItemsUploadRefreshTimers()
+
+    const startedAt = Date.now()
+    const refreshLoadingMessage = 'Loading menu items from uploaded PDFs.'
+
+    setMenuItemsRefreshProgress({ active: true, percent: 0 })
+    refreshMenuItemsFromDatabase({
+      loadingMessage: refreshLoadingMessage,
+      loadedMessage: 'Checking uploaded PDFs for new menu items.',
+      emptyMessage: 'Checking uploaded PDFs for new menu items.',
+    })
+
+    menuItemsUploadRefreshProgressInterval.current = window.setInterval(() => {
+      const elapsedMs = Date.now() - startedAt
+      const percent = Math.min(100, Math.round((elapsedMs / menuItemsUploadRefreshDurationMs) * 100))
+      setMenuItemsRefreshProgress({ active: percent < 100, percent })
+    }, 1000)
+
+    menuItemsUploadRefreshInterval.current = window.setInterval(() => {
+      refreshMenuItemsFromDatabase({
+        loadingMessage: refreshLoadingMessage,
+        loadedMessage: 'Checking uploaded PDFs for new menu items.',
+        emptyMessage: 'Checking uploaded PDFs for new menu items.',
+      })
+    }, menuItemsUploadRefreshIntervalMs)
+
+    menuItemsUploadRefreshTimeout.current = window.setTimeout(() => {
+      clearMenuItemsUploadRefreshTimers()
+      setMenuItemsRefreshProgress({ active: false, percent: 100 })
+      setRelatedDocumentsMessage(`Check the ${currentCraneIdentifier} section to see the new parts.`)
+      refreshMenuItemsFromDatabase({
+        loadingMessage: refreshLoadingMessage,
+        loadedMessage: 'Menu items finished loading from uploaded PDFs.',
+        emptyMessage: 'Menu items finished loading from uploaded PDFs.',
+      })
+    }, menuItemsUploadRefreshDurationMs)
+  }, [clearMenuItemsUploadRefreshTimers, currentCraneIdentifier, refreshMenuItemsFromDatabase])
+
+  useEffect(() => {
     if (!isConfigured) {
       menuDatabaseSyncReady.current = false
       return
@@ -725,46 +904,26 @@ export default function EditableInspectionReport() {
 
     let active = true
 
-    async function loadMenuItemsFromDatabase() {
-      setMenuDatabaseStatus('loading')
-      setMenuDatabaseMessage('Loading menu items from the server.')
-
-      try {
-        const savedMenu = await getInspectionMenuItems()
-        if (!active) return
-
-        if (savedMenu) {
-          const normalizedSections = normalizeMenuItemSections(
-            savedMenu.menuSections.length > 0 ? savedMenu.menuSections : defaultMenuItemSections,
-          )
-          window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
-          setMenuItemSections(normalizedSections)
-          setMenuDatabaseMessage('Menu items loaded from the server.')
-        } else {
-          setMenuDatabaseMessage('Menu items will save to the server after your next edit.')
-        }
-
-        menuDatabaseSyncReady.current = true
-        setMenuDatabaseStatus('saved')
-      } catch (error) {
-        if (!active) return
-        menuDatabaseSyncReady.current = false
-        setMenuDatabaseStatus('local')
-        setMenuDatabaseMessage(error instanceof Error ? error.message : 'Menu items are saved locally for now.')
-      }
-    }
-
-    loadMenuItemsFromDatabase()
+    refreshMenuItemsFromDatabase({
+      shouldApply: () => active,
+      markSyncReady: true,
+    })
 
     return () => {
       active = false
     }
-  }, [])
+  }, [refreshMenuItemsFromDatabase])
+
+  useEffect(() => () => clearMenuItemsUploadRefreshTimers(), [clearMenuItemsUploadRefreshTimers])
 
   useEffect(() => {
     if (!isConfigured || !menuDatabaseSyncReady.current) return
+    if (skipNextMenuDatabaseSave.current) {
+      skipNextMenuDatabaseSave.current = false
+      return
+    }
 
-    const nextSections = normalizeMenuItemSections(menuItemSections)
+    const nextSections = normalizeMenuItemSections(menuItemSections, currentCraneIdentifier)
     const saveTimer = window.setTimeout(() => {
       setMenuDatabaseStatus('saving')
       setMenuDatabaseMessage('Saving menu items to the server.')
@@ -781,7 +940,7 @@ export default function EditableInspectionReport() {
     }, databaseSyncIdleDelayMs)
 
     return () => window.clearTimeout(saveTimer)
-  }, [menuItemSections])
+  }, [currentCraneIdentifier, menuItemSections])
 
   useEffect(() => {
     if (!isConfigured) {
@@ -814,7 +973,7 @@ export default function EditableInspectionReport() {
             stableKey: originalInspectionStableKey,
           }),
           uploadEditableInspectionDocument({
-            file: createMasterServiceAgreementFile(),
+            file: createMasterServiceAgreementFile(currentCraneIdentifier),
             name: 'Master Service Agreement',
             description: 'Example labor, service, equipment, travel, and freight pricing.',
             source: 'Built-in document',
@@ -838,7 +997,7 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [])
+  }, [currentCraneIdentifier])
 
   const updatedAt = useMemo(
     () =>
@@ -870,7 +1029,7 @@ export default function EditableInspectionReport() {
   }
 
   const saveMenuItemSections = (nextSections: MenuItemSection[]) => {
-    const normalizedSections = normalizeMenuItemSections(nextSections)
+    const normalizedSections = normalizeMenuItemSections(nextSections, currentCraneIdentifier)
     window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
     return normalizedSections
   }
@@ -1088,38 +1247,70 @@ export default function EditableInspectionReport() {
       return
     }
 
-    setRelatedDocumentsMessage(
-      `Uploading ${files.length} PDF${files.length === 1 ? '' : 's'} to Supabase and Extend.`,
-    )
+    setRelatedDocumentsMessage(`Queued ${files.length} PDF${files.length === 1 ? '' : 's'} for Supabase and Extend.`)
 
-    try {
-      const uploadedDocuments = await Promise.all(
-        files.map((file) => {
-          const relativePath = file.webkitRelativePath || file.name
-          return uploadEditableInspectionDocument({
-            file,
-            name: getDocumentNameFromFile(file.name),
-            description: getUploadDescription(source, relativePath),
-            source,
-            stableKey: `${source}:${relativePath}:${file.size}:${file.lastModified}`,
-            submitToVendorInvoiceWorkflow: true,
-          })
-        }),
-      )
+    const uploadedDocuments: RelatedDocument[] = []
+    const failedUploads: string[] = []
+    const failedWorkflowSubmissions: string[] = []
 
-      setRelatedDocuments((currentDocuments) => {
-        const nextDocumentMap = new Map(currentDocuments.map((document) => [document.id, document]))
-        uploadedDocuments.forEach((document) => nextDocumentMap.set(document.id, document))
-        return Array.from(nextDocumentMap.values()).sort((firstDocument, secondDocument) =>
-          secondDocument.createdAt.localeCompare(firstDocument.createdAt),
-        )
-      })
+    for (const [fileIndex, file] of files.entries()) {
+      const relativePath = file.webkitRelativePath || file.name
+      const uploadNumber = fileIndex + 1
+
       setRelatedDocumentsMessage(
-        `${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase and sent to Extend.`,
+        `Submitting ${uploadNumber} of ${files.length} to Supabase and Extend: ${file.name}`,
       )
-    } catch (error) {
-      setRelatedDocumentsMessage(error instanceof Error ? error.message : 'PDFs could not be uploaded.')
+
+      try {
+        const uploadedDocument = await uploadEditableInspectionDocument({
+          file,
+          name: getDocumentNameFromFile(file.name),
+          description: getUploadDescription(source, relativePath),
+          source,
+          stableKey: `${source}:${relativePath}:${file.size}:${file.lastModified}`,
+          submitToVendorInvoiceWorkflow: true,
+          craneIdentifier: currentCraneIdentifier,
+        })
+
+        uploadedDocuments.push(uploadedDocument)
+        if (uploadedDocument.workflowSubmissionError) {
+          failedWorkflowSubmissions.push(`${file.name}: ${uploadedDocument.workflowSubmissionError}`)
+        }
+
+        setRelatedDocuments((currentDocuments) => {
+          const nextDocumentMap = new Map(currentDocuments.map((document) => [document.id, document]))
+          nextDocumentMap.set(uploadedDocument.id, uploadedDocument)
+          return Array.from(nextDocumentMap.values()).sort((firstDocument, secondDocument) =>
+            secondDocument.createdAt.localeCompare(firstDocument.createdAt),
+          )
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Upload failed.'
+        failedUploads.push(`${file.name}: ${message}`)
+      }
     }
+
+    if (uploadedDocuments.length > 0) {
+      refreshMenuItemsAfterPdfUpload()
+    }
+
+    if (failedUploads.length > 0) {
+      setRelatedDocumentsMessage(
+        `${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved. ${failedUploads.length} failed before saving: ${failedUploads[0]}`,
+      )
+      return
+    }
+
+    if (failedWorkflowSubmissions.length > 0) {
+      setRelatedDocumentsMessage(
+        `${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase. ${failedWorkflowSubmissions.length} Extend submission${failedWorkflowSubmissions.length === 1 ? '' : 's'} failed: ${failedWorkflowSubmissions[0]}`,
+      )
+      return
+    }
+
+    setRelatedDocumentsMessage(
+      `${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase and sent to Extend.`,
+    )
   }
 
   const uploadRelatedFolder = async (fileList: FileList | null) => {
@@ -1407,7 +1598,7 @@ export default function EditableInspectionReport() {
     setReport(defaultReport)
     setRepairSections(defaultRepairSections)
     setCostSections(defaultCostSections)
-    setMenuItemSections(normalizeMenuItemSections(defaultMenuItemSections))
+    setMenuItemSections(normalizeMenuItemSections(defaultMenuItemSections, currentCraneIdentifier))
     setBlockVisibility(defaultBlockVisibility)
     setEstimateNoteVisibility(defaultEstimateNoteVisibility)
     setRepairSectionVisibility({})
@@ -1573,6 +1764,20 @@ export default function EditableInspectionReport() {
                   </div>
                   {relatedDocumentsMessage ? (
                     <div className="mt-2 text-[12px] font-semibold text-[#747b8a]">{relatedDocumentsMessage}</div>
+                  ) : null}
+                  {menuItemsRefreshProgress.active ? (
+                    <div className="mt-3">
+                      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-black uppercase text-[#273f7a]">
+                        <span>Loading in vendor items</span>
+                        <span>{Math.round(menuItemsRefreshProgress.percent)}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-[#dfe4ef]">
+                        <div
+                          className="h-full rounded-full bg-[#273f7a] transition-[width] duration-500"
+                          style={{ width: `${menuItemsRefreshProgress.percent}%` }}
+                        />
+                      </div>
+                    </div>
                   ) : null}
                 </div>
                 <a
@@ -1784,6 +1989,20 @@ export default function EditableInspectionReport() {
               </div>
 
               <div className="border-t border-[#d9dce5] bg-white p-4">
+                {menuItemsRefreshProgress.active ? (
+                  <div className="mb-3 rounded-md border border-[#cfd9ef] bg-[#f4f7ff] px-3 py-2">
+                    <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-black uppercase text-[#273f7a]">
+                      <span>Loading in vendor items</span>
+                      <span>{Math.round(menuItemsRefreshProgress.percent)}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-[#dfe4ef]">
+                      <div
+                        className="h-full rounded-full bg-[#273f7a] transition-[width] duration-500"
+                        style={{ width: `${menuItemsRefreshProgress.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
                 <div
                   className={`mb-3 rounded-md border px-3 py-2 text-[11px] font-bold leading-tight ${
                     menuDatabaseStatus === 'error'
@@ -2787,7 +3006,7 @@ export default function EditableInspectionReport() {
                 </div>
                 <div className="rounded-md border border-[#dfe4ef] p-4">
                   <p className="text-[11px] font-black uppercase text-[#747b8a]">Covered Equipment</p>
-                  <p className="mt-1 text-[16px] font-black">Crane D200235</p>
+                  <p className="mt-1 text-[16px] font-black">Crane {currentCraneIdentifier}</p>
                 </div>
               </section>
 
