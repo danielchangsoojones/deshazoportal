@@ -1088,7 +1088,9 @@ export default function EditableInspectionReport() {
       return
     }
 
-    setRelatedDocumentsMessage(`Uploading ${files.length} PDF${files.length === 1 ? '' : 's'} to Supabase.`)
+    setRelatedDocumentsMessage(
+      `Uploading ${files.length} PDF${files.length === 1 ? '' : 's'} to Supabase and Extend.`,
+    )
 
     try {
       const uploadedDocuments = await Promise.all(
@@ -1100,6 +1102,7 @@ export default function EditableInspectionReport() {
             description: getUploadDescription(source, relativePath),
             source,
             stableKey: `${source}:${relativePath}:${file.size}:${file.lastModified}`,
+            submitToVendorInvoiceWorkflow: true,
           })
         }),
       )
@@ -1111,9 +1114,11 @@ export default function EditableInspectionReport() {
           secondDocument.createdAt.localeCompare(firstDocument.createdAt),
         )
       })
-      setRelatedDocumentsMessage(`${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase.`)
+      setRelatedDocumentsMessage(
+        `${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase and sent to Extend.`,
+      )
     } catch (error) {
-      setRelatedDocumentsMessage(error instanceof Error ? error.message : 'PDFs could not be saved to Supabase.')
+      setRelatedDocumentsMessage(error instanceof Error ? error.message : 'PDFs could not be uploaded.')
     }
   }
 

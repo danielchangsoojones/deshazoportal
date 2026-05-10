@@ -2,6 +2,11 @@ import { supabase } from './supabase'
 
 const bucketName = 'editable-inspection-documents'
 const signedUrlTtlSeconds = 60 * 60
+const defaultVendorInvoicePdfUploadUrl =
+  'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com/extend/deshazo-quote-vendor-invoice/pdf'
+const vendorInvoicePdfUploadUrl =
+  (import.meta.env.VITE_EXTEND_VENDOR_INVOICE_PDF_UPLOAD_URL as string | undefined)?.trim() ||
+  defaultVendorInvoicePdfUploadUrl
 
 export type EditableInspectionDocument = {
   id: string
@@ -32,6 +37,7 @@ type UploadEditableInspectionDocumentInput = {
   description: string
   source: string
   stableKey?: string
+  submitToVendorInvoiceWorkflow?: boolean
 }
 
 function createDocumentId() {
@@ -95,6 +101,21 @@ async function mapDocumentRow(row: EditableInspectionDocumentRow): Promise<Edita
   }
 }
 
+async function submitPdfToVendorInvoiceWorkflow(file: File, fileName: string) {
+  const response = await fetch(vendorInvoicePdfUploadUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/pdf',
+      'x-file-name': fileName,
+    },
+    body: file,
+  })
+
+  if (!response.ok) {
+    throw new Error(`Vendor invoice workflow upload failed with status ${response.status}.`)
+  }
+}
+
 export async function getEditableInspectionDocuments() {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
@@ -138,6 +159,10 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
     }
 
     if (existingDocument) {
+      if (input.submitToVendorInvoiceWorkflow) {
+        await submitPdfToVendorInvoiceWorkflow(input.file, sanitizeFileName(input.file.name))
+      }
+
       return mapDocumentRow(existingDocument as EditableInspectionDocumentRow)
     }
   }
@@ -181,6 +206,10 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
   if (error) {
     await supabase.storage.from(bucketName).remove([filePath])
     throw new Error(error.message)
+  }
+
+  if (input.submitToVendorInvoiceWorkflow) {
+    await submitPdfToVendorInvoiceWorkflow(input.file, fileName)
   }
 
   return mapDocumentRow(data as EditableInspectionDocumentRow)
