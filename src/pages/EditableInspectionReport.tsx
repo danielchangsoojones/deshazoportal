@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { isConfigured } from '../lib/supabase'
 import {
   getInspectionMenuItems,
@@ -84,6 +84,10 @@ const equipmentRentalSettingsStorageKey = 'deshazo-editable-inspection-report-eq
 const maxRecentlyUsedItems = 2
 const equipmentRentalSectionId = 'equipment-rental'
 const equipmentRentalDefaultMargin = 15
+const printedPageWidthIn = 8.5
+const printedPageHeightIn = 11
+const printedPageMarginIn = 0.45
+const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
 const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
@@ -570,6 +574,7 @@ export default function EditableInspectionReport() {
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
   const textBoxDragStart = useRef<Record<string, { clientX: number; clientY: number; x: number; y: number }>>({})
+  const reportContentRef = useRef<HTMLElement>(null)
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
   const relatedPdfInputRef = useRef<HTMLInputElement>(null)
   const [activeLineMenu, setActiveLineMenu] = useState('')
@@ -584,6 +589,8 @@ export default function EditableInspectionReport() {
   const [menuSearch, setMenuSearch] = useState('')
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
+  const [runtimePageBreaks, setRuntimePageBreaks] = useState<Record<string, number>>({})
+  const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [menuItemsRefreshProgress, setMenuItemsRefreshProgress] = useState<MenuItemsRefreshProgress>({
     active: false,
     percent: 0,
@@ -770,6 +777,112 @@ export default function EditableInspectionReport() {
   const selectedAddableMenuSection = addableMenuItemSections.some((section) => section.title === newMenuSection)
     ? newMenuSection
     : getDefaultAddableMenuSection(addableMenuItemSections)
+
+  const getRuntimePageBreakClassName = (blockId: string) =>
+    runtimePageBreaks[blockId] ? 'report-runtime-page-break' : ''
+
+  const getRuntimePageBreakStyle = (blockId: string) => {
+    const spacer = runtimePageBreaks[blockId]
+    return spacer ? { marginTop: `${spacer}px` } : undefined
+  }
+  useLayoutEffect(() => {
+    const contentElement = reportContentRef.current
+    if (!contentElement) return
+
+    const blockElements = Array.from(
+      contentElement.querySelectorAll<HTMLElement>('[data-report-block-id]'),
+    )
+
+    if (blockElements.length === 0) {
+      setRuntimePageBreaks((currentBreaks) => (Object.keys(currentBreaks).length === 0 ? currentBreaks : {}))
+      setRuntimePageCount(1)
+      return
+    }
+
+    blockElements.forEach((element) => {
+      element.style.marginTop = ''
+    })
+
+    const inchProbe = document.createElement('div')
+    inchProbe.style.position = 'absolute'
+    inchProbe.style.visibility = 'hidden'
+    inchProbe.style.height = '1in'
+    document.body.appendChild(inchProbe)
+    const pxPerInch = inchProbe.getBoundingClientRect().height || 96
+    inchProbe.remove()
+
+    const pageContentHeight = (printedPageHeightIn - printedPageMarginIn * 2) * pxPerInch
+    const contentTop = contentElement.getBoundingClientRect().top
+    const nextBreaks: Record<string, number> = {}
+    let nextPageCount = 1
+    let currentPageHeight = Math.max(0, blockElements[0].getBoundingClientRect().top - contentTop)
+
+    const getBlockHeight = (element: HTMLElement) => {
+      const styles = window.getComputedStyle(element)
+      const marginTop = parseFloat(styles.marginTop) || 0
+      const marginBottom = parseFloat(styles.marginBottom) || 0
+      return {
+        blockHeight: element.getBoundingClientRect().height + marginTop + marginBottom,
+        marginTop,
+      }
+    }
+
+    for (let index = 0; index < blockElements.length; index += 1) {
+      const element = blockElements[index]
+      const blockId = element.dataset.reportBlockId
+      if (!blockId) continue
+
+      const { blockHeight, marginTop } = getBlockHeight(element)
+      let measuredFitHeight = blockHeight
+
+      if (element.dataset.reportKeepWithNext === 'true') {
+        for (let nextIndex = index + 1; nextIndex < blockElements.length; nextIndex += 1) {
+          const nextElement = blockElements[nextIndex]
+          measuredFitHeight += getBlockHeight(nextElement).blockHeight
+
+          if (nextElement.dataset.reportKeepWithNext !== 'true') {
+            break
+          }
+        }
+      }
+
+      const fitHeight = Math.min(measuredFitHeight, pageContentHeight)
+
+      if (currentPageHeight > 0 && currentPageHeight + fitHeight > pageContentHeight) {
+        const spacer =
+          Math.max(0, pageContentHeight - currentPageHeight)
+          + runtimePageGapPx
+          + printedPageMarginIn * 2 * pxPerInch
+          + marginTop
+        nextBreaks[blockId] = spacer
+        nextPageCount += 1
+        currentPageHeight = blockHeight
+        continue
+      }
+
+      currentPageHeight += blockHeight
+    }
+
+    setRuntimePageBreaks((currentBreaks) => {
+      const currentKeys = Object.keys(currentBreaks)
+      const nextKeys = Object.keys(nextBreaks)
+      const sameBreaks =
+        currentKeys.length === nextKeys.length
+        && nextKeys.every((key) => Math.round(currentBreaks[key] ?? 0) === Math.round(nextBreaks[key] ?? 0))
+
+      return sameBreaks ? currentBreaks : nextBreaks
+    })
+    setRuntimePageCount((currentPageCount) => (currentPageCount === nextPageCount ? currentPageCount : nextPageCount))
+  }, [
+    blockVisibility,
+    canvasTextBoxes,
+    costSections,
+    estimateNoteVisibility,
+    equipmentRentalSettings,
+    report,
+    repairSectionVisibility,
+    repairSections,
+  ])
 
   useEffect(() => {
     setMenuItemSections((currentSections) => {
@@ -1635,9 +1748,42 @@ export default function EditableInspectionReport() {
             box-shadow: 0 0 0 3px rgba(243, 169, 0, 0.14);
           }
 
+          .report-document {
+            box-sizing: border-box;
+            width: ${printedPageWidthIn}in;
+            min-height: ${printedPageHeightIn}in;
+            border: 1px solid #111;
+            background: #fff;
+            box-shadow: 0 24px 70px -40px rgba(17, 24, 39, 0.62);
+          }
+
+          .report-page-sheet {
+            display: none;
+          }
+
+          .report-content-layer {
+            box-sizing: border-box;
+            width: ${printedPageWidthIn}in;
+            padding: ${printedPageMarginIn}in;
+          }
+
+          .report-runtime-page-break {
+            break-before: page;
+            page-break-before: always;
+            margin-top: 0 !important;
+          }
+
           @media print {
+            @page {
+              size: ${printedPageWidthIn}in ${printedPageHeightIn}in;
+              margin: ${printedPageMarginIn}in;
+            }
+
+            html,
             body {
               background: #fff !important;
+              height: auto !important;
+              overflow: visible !important;
             }
 
             .report-toolbar {
@@ -1649,15 +1795,40 @@ export default function EditableInspectionReport() {
             }
 
             .report-shell {
+              display: block !important;
+              height: auto !important;
+              min-height: 0 !important;
+              overflow: visible !important;
               padding: 0 !important;
               background: #fff !important;
             }
 
-            .report-page {
-              width: 11in !important;
-              min-height: 8.5in !important;
+            .editor-workspace,
+            .canvas-stage {
+              display: block !important;
+              height: auto !important;
+              min-height: 0 !important;
+              overflow: visible !important;
+              padding: 0 !important;
+              background: #fff !important;
+            }
+
+            .report-document,
+            .report-content-layer {
+              width: auto !important;
+              min-height: auto !important;
+              padding: 0 !important;
+              height: auto !important;
               box-shadow: none !important;
-              border: 1px solid #111 !important;
+              border: 0 !important;
+            }
+
+            .report-page-sheet {
+              display: none !important;
+            }
+
+            .report-runtime-page-break {
+              margin-top: 0 !important;
             }
 
             .repair-section {
@@ -2148,7 +2319,16 @@ export default function EditableInspectionReport() {
               </div>
             </div>
 
-            <article className="report-page relative min-h-[850px] w-[1100px] border border-[#111] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.62)]">
+            <div className="report-document relative">
+              {Array.from({ length: runtimePageCount }, (_, pageIndex) => (
+                <div
+                  key={pageIndex}
+                  className="report-page-sheet"
+                  style={{ top: `calc(${pageIndex * printedPageHeightIn}in + ${pageIndex * runtimePageGapPx}px)` }}
+                  aria-hidden="true"
+                />
+              ))}
+            <article ref={reportContentRef} className="report-content-layer relative z-10">
           <section className="grid grid-cols-[1.2fr_1fr_0.95fr] items-center bg-[#f5b400] px-6 py-2">
             <div>
               <EditableText id="logoName" data={report} onChange={updateField} className="text-[30px] font-black leading-none tracking-[-0.04em]" />
@@ -2200,7 +2380,11 @@ export default function EditableInspectionReport() {
             </div>
 
             {blockVisibility.scopeOfWork ? (
-            <section className={`relative mt-3 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+            <section
+              data-report-block-id="scope-of-work"
+              style={getRuntimePageBreakStyle('scope-of-work')}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('scope-of-work')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+            >
               {unlocked ? (
                 <button
                   type="button"
@@ -2259,7 +2443,9 @@ export default function EditableInspectionReport() {
                 {visibleRepairSections.map((section, sectionIndex) => (
                   <section
                     key={section.id}
-                    className={`repair-section bg-[#f4e3e3] ${
+                    data-report-block-id={`repair-section-${section.id}`}
+                    style={getRuntimePageBreakStyle(`repair-section-${section.id}`)}
+                    className={`repair-section bg-[#f4e3e3] ${getRuntimePageBreakClassName(`repair-section-${section.id}`)} ${
                       sectionIndex > 0 ? 'border-t border-[#e1caca]' : ''
                     }`}
                   >
@@ -2432,9 +2618,8 @@ export default function EditableInspectionReport() {
               </div>
             </section>
             ) : null}
-
             {blockVisibility.estimateSummary ? (
-            <section className={`relative mt-5 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+            <section className={`relative mt-5 ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
               {unlocked ? (
                 <button
                   type="button"
@@ -2445,13 +2630,23 @@ export default function EditableInspectionReport() {
                   🗑
                 </button>
               ) : null}
-              <div className="bg-[#f2f2f2] px-3 py-2">
+              <div
+                data-report-block-id="estimate-summary-header"
+                data-report-keep-with-next="true"
+                style={getRuntimePageBreakStyle('estimate-summary-header')}
+                className={`border-x border-t border-[#d4d4d4] bg-[#f2f2f2] px-3 py-2 ${getRuntimePageBreakClassName('estimate-summary-header')}`}
+              >
                 <div className="text-[17px] font-black uppercase">Estimate Summary</div>
               </div>
 
-              <div className="border-t border-[#d4d4d4]">
+              <div>
                 {estimateNoteVisibility.topNote ? (
-                  <div className="border-b border-[#d8d8d8] bg-[#fffdf3] px-3 py-2">
+                  <div
+                    data-report-block-id="estimate-top-note"
+                    data-report-keep-with-next="true"
+                    style={getRuntimePageBreakStyle('estimate-top-note')}
+                    className={`border-x border-b border-[#d8d8d8] bg-[#fffdf3] px-3 py-2 ${getRuntimePageBreakClassName('estimate-top-note')}`}
+                  >
                     <EditableText
                       id="estimateTopNote"
                       data={report}
@@ -2461,10 +2656,12 @@ export default function EditableInspectionReport() {
                     />
                   </div>
                 ) : null}
-                {costSections.map((section, sectionIndex) => (
+                {costSections.map((section) => (
                   <section
                     key={section.id}
-                    className={`repair-section bg-white ${sectionIndex > 0 ? 'border-t border-[#d4d4d4]' : ''}`}
+                    data-report-block-id={`cost-section-${section.id}`}
+                    style={getRuntimePageBreakStyle(`cost-section-${section.id}`)}
+                    className={`repair-section border-x border-b border-[#d4d4d4] bg-white ${getRuntimePageBreakClassName(`cost-section-${section.id}`)}`}
                   >
                     <div className="relative flex items-center justify-between gap-3 border-b border-[#d8d8d8] bg-[#f7f7f7] px-3 py-1.5">
                       <EditableValue
@@ -2679,7 +2876,11 @@ export default function EditableInspectionReport() {
                   </section>
                 ))}
                 {estimateNoteVisibility.bottomNote ? (
-                  <div className="border-t border-[#d8d8d8] bg-[#fffdf3] px-3 py-2">
+                  <div
+                    data-report-block-id="estimate-bottom-note"
+                    style={getRuntimePageBreakStyle('estimate-bottom-note')}
+                    className={`border-x border-b border-[#d8d8d8] bg-[#fffdf3] px-3 py-2 ${getRuntimePageBreakClassName('estimate-bottom-note')}`}
+                  >
                     <EditableText
                       id="estimateBottomNote"
                       data={report}
@@ -2694,7 +2895,11 @@ export default function EditableInspectionReport() {
             ) : null}
 
             {blockVisibility.grandTotal ? (
-            <section className={`relative mt-5 border-2 border-[#111] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+            <section
+              data-report-block-id="grand-total"
+              style={getRuntimePageBreakStyle('grand-total')}
+              className={`relative mt-5 border-2 border-[#111] ${getRuntimePageBreakClassName('grand-total')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+            >
               {unlocked ? (
                 <button
                   type="button"
@@ -2716,7 +2921,11 @@ export default function EditableInspectionReport() {
             ) : null}
 
             {blockVisibility.notes ? (
-            <section className={`relative mt-5 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+            <section
+              data-report-block-id="notes"
+              style={getRuntimePageBreakStyle('notes')}
+              className={`relative mt-5 border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+            >
               {unlocked ? (
                 <button
                   type="button"
@@ -2781,6 +2990,7 @@ export default function EditableInspectionReport() {
             </div>
           ))}
         </article>
+            </div>
           </div>
       </main>
     </div>
