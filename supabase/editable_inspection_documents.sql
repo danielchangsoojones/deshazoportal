@@ -57,8 +57,9 @@ execute function public.set_editable_inspection_documents_updated_at();
 
 alter table public.editable_inspection_documents enable row level security;
 
-grant usage on schema public to authenticated;
+grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete on table public.editable_inspection_documents to authenticated;
+grant select, insert, update, delete on table public.editable_inspection_documents to service_role;
 
 do $$
 begin

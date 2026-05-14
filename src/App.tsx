@@ -13,6 +13,7 @@ const Spend = lazy(() => import('./pages/Spend'))
 const DocumentsReports = lazy(() => import('./pages/DocumentsReports'))
 const CustomReports = lazy(() => import('./pages/CustomReports'))
 const EditableInspectionReport = lazy(() => import('./pages/EditableInspectionReport'))
+const JobsQuotingList = lazy(() => import('./pages/JobsQuotingList'))
 const AssetFleet = lazy(() => import('./pages/AssetFleet'))
 const AssetFleetAssets = lazy(() => import('./pages/AssetFleetAssets'))
 const AssetInfo = lazy(() => import('./pages/AssetInfo'))
@@ -43,6 +44,7 @@ function App() {
           <Route path="/spend" element={<Spend />} />
           <Route path="/documents-reports" element={<DocumentsReports />} />
           <Route path="/custom-reports" element={<CustomReports />} />
+          <Route path="/jobsquotinglist" element={<JobsQuotingList />} />
           <Route path="/inspection-report-template" element={<EditableInspectionReport />} />
           <Route path="/editable-inspection-report" element={<EditableInspectionReport />} />
           <Route path="/asset-fleet" element={<AssetFleet />} />
