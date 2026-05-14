@@ -114,21 +114,33 @@ export default function JobsQuotingList() {
   useEffect(() => {
     if (!user || !selectedRun || !activeStatuses.has(selectedRun.status) || busy) return
 
+    let syncing = false
+    let cancelled = false
+
     const refreshInterval = window.setInterval(async () => {
+      if (syncing) return
+      syncing = true
+
       try {
-        const [nextRuns, nextItems] = await Promise.all([
-          getJobsQuotingRuns(),
-          getJobsQuotingItems(selectedRunId || undefined),
-        ])
+        const result = await syncJobsQuotingRun(selectedRun.id)
+        if (cancelled) return
 
-        setRuns(nextRuns)
-        setItems(nextItems)
+        setRuns((currentRuns) =>
+          currentRuns.map((run) => (run.id === result.run.id ? result.run : run)),
+        )
+        setItems(result.items)
       } catch (error) {
+        if (cancelled) return
         setMessage(getFriendlyErrorMessage(error))
+      } finally {
+        syncing = false
       }
-    }, 10000)
+    }, 5000)
 
-    return () => window.clearInterval(refreshInterval)
+    return () => {
+      cancelled = true
+      window.clearInterval(refreshInterval)
+    }
   }, [busy, selectedRun, selectedRunId, user])
 
   const uploadPdf = async (fileList: FileList | null) => {
