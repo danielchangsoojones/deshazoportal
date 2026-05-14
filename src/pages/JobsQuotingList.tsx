@@ -4,8 +4,8 @@ import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import {
   getJobsQuotingItems,
+  getJobsQuotingItemPdfUrl,
   getJobsQuotingRuns,
-  jobsQuotingPdfBucket,
   syncJobsQuotingRun,
   uploadInspectionForQuoting,
   type JobsQuotingItem,
@@ -185,19 +185,7 @@ export default function JobsQuotingList() {
   }
 
   const getItemPdfUrl = async (item: JobsQuotingItem) => {
-    if (item.pdfStoragePath && supabase) {
-      const { data, error } = await supabase.storage
-        .from(item.pdfBucket || jobsQuotingPdfBucket)
-        .createSignedUrl(item.pdfStoragePath, 60 * 60)
-
-      if (error) {
-        throw new Error(error.message)
-      }
-
-      return data.signedUrl
-    }
-
-    return item.pdfUrl
+    return getJobsQuotingItemPdfUrl(item)
   }
 
   const openItemPdf = async (item: JobsQuotingItem) => {
@@ -492,14 +480,23 @@ export default function JobsQuotingList() {
                         </td>
                         <td className="px-5 py-4">
                           {item.pdfStoragePath || item.pdfUrl ? (
-                            <button
-                              type="button"
-                              disabled={openingItemId === item.id}
-                              onClick={() => openItemPdf(item)}
-                              className="inline-flex rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {openingItemId === item.id ? 'Opening...' : 'Open PDF'}
-                            </button>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={openingItemId === item.id}
+                                onClick={() => openItemPdf(item)}
+                                className="inline-flex rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {openingItemId === item.id ? 'Opening...' : 'Open PDF'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
+                                className="inline-flex rounded-md bg-[#273f7a] px-3 py-2 text-xs font-black text-white transition hover:bg-[#1f3262]"
+                              >
+                                Edit Quote
+                              </button>
+                            </div>
                           ) : (
                             <span className="text-xs font-bold text-[#747b8a]">Saved</span>
                           )}

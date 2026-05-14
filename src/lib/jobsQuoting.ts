@@ -199,6 +199,43 @@ export async function getJobsQuotingItems(runId?: string): Promise<JobsQuotingIt
   return ((data ?? []) as JobsQuotingItemRow[]).map(mapItem)
 }
 
+export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingItem> {
+  const client = requireSupabase()
+  const userId = await getCurrentUserId()
+  const { data, error } = await client
+    .from('jobs_quoting_items')
+    .select(
+      'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at',
+    )
+    .eq('id', itemId)
+    .eq('user_id', userId)
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return mapItem(data as JobsQuotingItemRow)
+}
+
+export async function getJobsQuotingItemPdfUrl(item: JobsQuotingItem): Promise<string | null> {
+  const client = requireSupabase()
+
+  if (item.pdfStoragePath) {
+    const { data, error } = await client.storage
+      .from(item.pdfBucket || jobsQuotingPdfBucket)
+      .createSignedUrl(item.pdfStoragePath, 60 * 60)
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    return data.signedUrl
+  }
+
+  return item.pdfUrl
+}
+
 async function sendToJobsQuotingBackend(body: FormData | Record<string, unknown>) {
   const accessToken = await getAccessToken()
   const isFormData = body instanceof FormData

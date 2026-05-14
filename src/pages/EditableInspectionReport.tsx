@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { isConfigured } from '../lib/supabase'
 import {
   getInspectionMenuItems,
@@ -12,6 +13,10 @@ import {
   uploadEditableInspectionDocument,
   type EditableInspectionDocument,
 } from '../lib/editableInspectionDocuments'
+import {
+  getJobsQuotingItem,
+  getJobsQuotingItemPdfUrl,
+} from '../lib/jobsQuoting'
 
 type ReportData = Record<string, string>
 
@@ -568,6 +573,8 @@ function PencilIcon() {
 
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
+  const [searchParams] = useSearchParams()
+  const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
   const menuDatabaseSyncReady = useRef(false)
   const skipNextMenuDatabaseSave = useRef(false)
   const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
@@ -1067,38 +1074,67 @@ export default function EditableInspectionReport() {
       try {
         setRelatedDocumentsMessage('Loading saved PDFs.')
 
-        const originalInspectionResponse = await fetch('/testassessment.pdf')
-        if (!originalInspectionResponse.ok) {
-          throw new Error('Original inspection PDF could not be loaded.')
-        }
+        let quoteInspectionDocument: RelatedDocument | null = null
 
-        const originalInspectionBlob = await originalInspectionResponse.blob()
-        const originalInspectionFile = new File([originalInspectionBlob], 'original-inspection.pdf', {
-          type: 'application/pdf',
-        })
+        if (jobsQuotingItemId) {
+          const quoteItem = await getJobsQuotingItem(jobsQuotingItemId)
+          const quotePdfUrl = await getJobsQuotingItemPdfUrl(quoteItem)
 
-        await Promise.all([
-          uploadEditableInspectionDocument({
+          if (!quotePdfUrl) {
+            throw new Error('The selected quote job does not have a saved split PDF yet.')
+          }
+
+          quoteInspectionDocument = {
+            id: quoteItem.id,
+            name: 'Original Inspection',
+            description: 'Split inspection PDF selected from Jobs Quoting.',
+            filePath: quoteItem.pdfStoragePath ?? '',
+            fileName: quoteItem.pdfFileName ?? `${quoteItem.documentName}.pdf`,
+            fileSize: quoteItem.pdfFileSize ?? 0,
+            source: 'Jobs Quoting',
+            url: quotePdfUrl,
+            createdAt: quoteItem.createdAt,
+          }
+        } else {
+          const originalInspectionResponse = await fetch('/testassessment.pdf')
+          if (!originalInspectionResponse.ok) {
+            throw new Error('Original inspection PDF could not be loaded.')
+          }
+
+          const originalInspectionBlob = await originalInspectionResponse.blob()
+          const originalInspectionFile = new File([originalInspectionBlob], 'original-inspection.pdf', {
+            type: 'application/pdf',
+          })
+
+          await uploadEditableInspectionDocument({
             file: originalInspectionFile,
             name: 'Original Inspection',
             description: 'Source inspection PDF used for this editable quote proposal.',
             source: 'Built-in document',
             stableKey: originalInspectionStableKey,
-          }),
-          uploadEditableInspectionDocument({
-            file: createMasterServiceAgreementFile(currentCraneIdentifier),
-            name: 'Master Service Agreement',
-            description: 'Example labor, service, equipment, travel, and freight pricing.',
-            source: 'Built-in document',
-            stableKey: masterServiceAgreementStableKey,
-          }),
-        ])
+          })
+        }
+
+        await uploadEditableInspectionDocument({
+          file: createMasterServiceAgreementFile(currentCraneIdentifier),
+          name: 'Master Service Agreement',
+          description: 'Example labor, service, equipment, travel, and freight pricing.',
+          source: 'Built-in document',
+          stableKey: masterServiceAgreementStableKey,
+        })
 
         const savedDocuments = await getEditableInspectionDocuments()
         if (!active) return
 
-        setRelatedDocuments(savedDocuments)
-        setRelatedDocumentsMessage(`${savedDocuments.length} PDF${savedDocuments.length === 1 ? '' : 's'} saved.`)
+        const nextDocuments = quoteInspectionDocument
+          ? [
+              quoteInspectionDocument,
+              ...savedDocuments.filter((document) => document.name !== 'Original Inspection'),
+            ]
+          : savedDocuments
+
+        setRelatedDocuments(nextDocuments)
+        setRelatedDocumentsMessage(`${nextDocuments.length} PDF${nextDocuments.length === 1 ? '' : 's'} saved.`)
       } catch (error) {
         if (!active) return
         setRelatedDocumentsMessage(error instanceof Error ? error.message : 'Saved PDFs could not be loaded.')
@@ -1110,7 +1146,7 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [currentCraneIdentifier])
+  }, [currentCraneIdentifier, jobsQuotingItemId])
 
   const updatedAt = useMemo(
     () =>
