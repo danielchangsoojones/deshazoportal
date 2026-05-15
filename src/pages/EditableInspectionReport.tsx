@@ -16,6 +16,7 @@ import {
 import {
   getJobsQuotingItem,
   getJobsQuotingItemPdfUrl,
+  type JobsQuotingItem,
 } from '../lib/jobsQuoting'
 
 type ReportData = Record<string, string>
@@ -33,6 +34,14 @@ type RepairSection = {
   title: string
   status: string
   lineItems: RepairLineItem[]
+}
+
+type RepairSectionTone = {
+  sectionBackground: string
+  sectionBorder: string
+  statusBackground: string
+  statusText: string
+  statusIcon: string
 }
 
 type CostSection = {
@@ -198,6 +207,26 @@ const defaultRepairSections: RepairSection[] = [
   },
 ]
 
+const repairSectionTones: Record<'repair' | 'monitor', RepairSectionTone> = {
+  repair: {
+    sectionBackground: 'bg-[#f4e3e3]',
+    sectionBorder: 'border-[#e1caca]',
+    statusBackground: 'bg-[#efc9c9]',
+    statusText: 'text-[#7d1515]',
+    statusIcon: 'bg-[#af0f0f]',
+  },
+  monitor: {
+    sectionBackground: 'bg-[#f6edbf]',
+    sectionBorder: 'border-[#d8c56f]',
+    statusBackground: 'bg-[#efe09a]',
+    statusText: 'text-[#6f5a00]',
+    statusIcon: 'bg-[#a88a00]',
+  },
+}
+
+const getRepairSectionTone = (status: string) =>
+  status.toLowerCase().includes('monitor') ? repairSectionTones.monitor : repairSectionTones.repair
+
 const defaultCostSections: CostSection[] = [
   {
     id: 'parts',
@@ -292,6 +321,215 @@ const getCraneIdentifierFromReport = (report: ReportData) => {
   ].join(' ')
   const match = reportText.match(/\bD[\s-]*\d{3,}\b/i)
   return match ? match[0].replace(/[\s-]+/g, '').toUpperCase() : defaultCraneIdentifier
+}
+
+const normalizeDataKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+const unwrapExtractionValue = (value: unknown): unknown => {
+  if (value && typeof value === 'object' && 'value' in value) {
+    return (value as { value?: unknown }).value
+  }
+
+  return value
+}
+
+const getExtractedValue = (value: unknown, keys: string[]): unknown => {
+  const normalizedKeys = new Set(keys.map(normalizeDataKey))
+
+  const visit = (currentValue: unknown): unknown => {
+    if (Array.isArray(currentValue)) {
+      for (const item of currentValue) {
+        const match = visit(item)
+        if (match !== undefined) return match
+      }
+      return undefined
+    }
+
+    if (currentValue && typeof currentValue === 'object') {
+      for (const [key, nextValue] of Object.entries(currentValue)) {
+        if (normalizedKeys.has(normalizeDataKey(key))) return unwrapExtractionValue(nextValue)
+      }
+
+      for (const nextValue of Object.values(currentValue)) {
+        const match = visit(nextValue)
+        if (match !== undefined) return match
+      }
+    }
+
+    return undefined
+  }
+
+  return visit(value)
+}
+
+const getExtractedText = (value: unknown, keys: string[]) => {
+  const extractedValue = getExtractedValue(value, keys)
+  if (typeof extractedValue === 'string') return extractedValue.trim()
+  if (typeof extractedValue === 'number') return String(extractedValue)
+  return ''
+}
+
+const getTopLevelExtractedText = (value: unknown, keys: string[]) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+
+  const normalizedKeys = new Set(keys.map(normalizeDataKey))
+  for (const [key, nextValue] of Object.entries(value)) {
+    if (!normalizedKeys.has(normalizeDataKey(key))) continue
+
+    const extractedValue = unwrapExtractionValue(nextValue)
+    if (typeof extractedValue === 'string') return extractedValue.trim()
+    if (typeof extractedValue === 'number') return String(extractedValue)
+    return ''
+  }
+
+  return ''
+}
+
+const getExtractedArray = (value: unknown, keys: string[]) => {
+  const extractedValue = getExtractedValue(value, keys)
+  return Array.isArray(extractedValue) ? extractedValue : []
+}
+
+const formatReportValue = (label: string, value: string, fallback = '---') =>
+  `${label}: ${value.trim() || fallback}`
+
+const formatInspectionDate = (value: string) => {
+  if (!value.trim()) return ''
+  const parsedDate = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(parsedDate.getTime())) return value
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(parsedDate)
+}
+
+const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
+  const data = item.extractionData
+  const dNumber = getTopLevelExtractedText(data, ['d_number', 'dNumber', 'D Number', 'D-Number', 'D Number identifier'])
+  const jobNumber = getTopLevelExtractedText(data, ['job_number', 'jobNumber', 'Job Number', 'Job #'])
+  const performedBy = getTopLevelExtractedText(data, ['performed_by', 'performedBy', 'inspector', 'technician'])
+  const inspectionType = getTopLevelExtractedText(data, ['inspection_type', 'inspectionType', 'type'])
+  const inspectionDate = getTopLevelExtractedText(data, ['inspection_date', 'inspectionDate', 'date'])
+  const structure = getTopLevelExtractedText(data, ['structure', 'Structure'])
+  const description = getTopLevelExtractedText(data, ['description', 'Description'])
+  const customer = getTopLevelExtractedText(data, ['customer', 'Customer'])
+  const purchaseOrder = getTopLevelExtractedText(data, ['purchase_order', 'purchaseOrder', 'Purchase Order'])
+  const location = getTopLevelExtractedText(data, ['location', 'Location', 'service_location', 'serviceLocation', 'Service Location'])
+  const customerAddress = getTopLevelExtractedText(data, ['customer_address', 'customerAddress', 'Customer Address'])
+  const manufacturer = getTopLevelExtractedText(data, ['manufacturer', 'Manufacturer'])
+  const serialNumber = getTopLevelExtractedText(data, ['serial_number', 'serialNumber', 'Serial Number'])
+  const capacity = getTopLevelExtractedText(data, ['capacity', 'Capacity'])
+  const model = getTopLevelExtractedText(data, ['model', 'model_number', 'modelNumber', 'Model #'])
+  const crane = getTopLevelExtractedText(data, ['crane', 'Crane'])
+  const hoist = getTopLevelExtractedText(data, ['hoist', 'hoist_1', 'hoist1', 'Hoist 1'])
+  const repairCount = getTopLevelExtractedText(data, ['repair_count', 'repairCount', 'Repair']) || '0'
+  const safetyCount = getTopLevelExtractedText(data, ['safety_count', 'safetyCount', 'Safety and Monitor Items']) || '0'
+  const satisfactoryCount = getTopLevelExtractedText(data, ['satisfactory_count', 'satisfactoryCount', 'Satisfactory Items']) || '0'
+
+  return {
+    ...defaultReport,
+    summary: [dNumber || '---', performedBy ? `performed by: ${performedBy}` : ''].filter(Boolean).join(' '),
+    type: formatReportValue('Type', inspectionType, '---'),
+    date: formatReportValue('Date', formatInspectionDate(inspectionDate), '---'),
+    structure: formatReportValue('Structure', structure, '---'),
+    description: formatReportValue('Description', description, '---'),
+    customer: formatReportValue('Customer', customer, '---'),
+    purchaseOrder: formatReportValue('Purchase Order', purchaseOrder, '---'),
+    jobNumber: formatReportValue('Job #', jobNumber, '---'),
+    location: formatReportValue('Location', location, '---'),
+    customerAddress: formatReportValue('Customer Address', customerAddress, '---'),
+    manufacturerCrane: formatReportValue('Crane', manufacturer || crane, '---'),
+    serialCrane: formatReportValue('Crane', serialNumber, '---'),
+    capacityCrane: formatReportValue('Crane', capacity, '---'),
+    modelCrane: formatReportValue('Crane', model, '---'),
+    manufacturerHoist: formatReportValue('Hoist 1', hoist, '---'),
+    serialHoist: formatReportValue('Hoist 1', '---'),
+    capacityHoist: formatReportValue('Hoist 1', '---'),
+    modelHoist: formatReportValue('Hoist 1', '---'),
+    scopeOfWork: [
+      dNumber ? `Prepare quote from inspection report ${dNumber}.` : 'Prepare quote from selected inspection report.',
+      `Repair items: ${repairCount}.`,
+      `Safety and monitor items: ${safetyCount}.`,
+      `Satisfactory items: ${satisfactoryCount}.`,
+    ].filter(Boolean).join(' '),
+    notes: `Seeded from jobs_quoting_items.extraction_data for ${dNumber || item.documentName}. Open Related Documents to view the split inspection PDF.`,
+  }
+}
+
+const getTextFromRecord = (value: unknown, keys: string[]) =>
+  value && typeof value === 'object' ? getExtractedText(value, keys) : ''
+
+const buildRepairSectionsFromJobsQuotingItem = (item: JobsQuotingItem): RepairSection[] => {
+  const data = item.extractionData
+  const extractedItems = [
+    ...getExtractedArray(data, ['repair_items', 'repairItems', 'action_items', 'actionItems']).map((extractedItem) => ({
+      extractedItem,
+      defaultStatus: 'Repair',
+    })),
+    ...getExtractedArray(data, ['safety_items', 'safetyItems', 'safety_monitor_items', 'safetyMonitorItems']).map((extractedItem) => ({
+      extractedItem,
+      defaultStatus: 'Monitor',
+    })),
+  ]
+
+  const sections = extractedItems
+    .map(({ extractedItem, defaultStatus }, index): RepairSection | null => {
+      if (!extractedItem || typeof extractedItem !== 'object') return null
+
+      const sectionName = getTextFromRecord(extractedItem, ['section_name', 'sectionName', 'section'])
+      const componentName = getTextFromRecord(extractedItem, [
+        'component_name',
+        'componentName',
+        'component',
+        'title',
+        'area',
+        'category',
+        'item',
+        'name',
+      ])
+      const title = [sectionName, componentName].filter(Boolean).join(': ') || `Inspection Item ${index + 1}`
+      const status = getTextFromRecord(extractedItem, ['severity', 'status', 'type', 'condition']) || defaultStatus
+      const note =
+        getTextFromRecord(extractedItem, ['note', 'notes', 'description', 'comment', 'recommended_corrective_action', 'recommendedCorrectiveAction']) ||
+        title
+
+      return {
+        id: `jobs-quoting-${item.id}-${index}`,
+        title,
+        status,
+        lineItems: [
+          {
+            id: `jobs-quoting-${item.id}-${index}-line-1`,
+            description: note,
+            quantity: '1',
+            rate: '0.00',
+            margin: '0',
+          },
+        ],
+      }
+    })
+    .filter((section): section is RepairSection => Boolean(section))
+
+  if (sections.length > 0) return sections
+
+  return [
+    {
+      id: `jobs-quoting-${item.id}-review`,
+      title: item.documentName,
+      status: item.safetyCount > item.repairCount ? 'Monitor' : 'Repair',
+      lineItems: [
+        {
+          id: `jobs-quoting-${item.id}-review-line-1`,
+          description: 'Review the saved split inspection PDF and add quote line items for the listed repair/safety scope.',
+          quantity: '1',
+          rate: '0.00',
+          margin: '0',
+        },
+      ],
+    },
+  ]
 }
 
 const getDocumentNameFromFile = (fileName: string) =>
@@ -1095,6 +1333,14 @@ export default function EditableInspectionReport() {
             url: quotePdfUrl,
             createdAt: quoteItem.createdAt,
           }
+
+          const quoteReport = buildReportFromJobsQuotingItem(quoteItem)
+          const quoteRepairSections = buildRepairSectionsFromJobsQuotingItem(quoteItem)
+          window.localStorage.setItem(storageKey, JSON.stringify(quoteReport))
+          window.localStorage.setItem(repairStorageKey, JSON.stringify(quoteRepairSections))
+          setReport(quoteReport)
+          setRepairSections(quoteRepairSections)
+          setRepairSectionVisibility({})
         } else {
           const originalInspectionResponse = await fetch('/testassessment.pdf')
           if (!originalInspectionResponse.ok) {
@@ -2476,48 +2722,51 @@ export default function EditableInspectionReport() {
               </div>
 
               <div className="border-t border-[#d4d4d4]">
-                {visibleRepairSections.map((section, sectionIndex) => (
-                  <section
-                    key={section.id}
-                    data-report-block-id={`repair-section-${section.id}`}
-                    style={getRuntimePageBreakStyle(`repair-section-${section.id}`)}
-                    className={`repair-section bg-[#f4e3e3] ${getRuntimePageBreakClassName(`repair-section-${section.id}`)} ${
-                      sectionIndex > 0 ? 'border-t border-[#e1caca]' : ''
-                    }`}
-                  >
-                    <div className="grid grid-cols-[1fr_150px] gap-3 border-b border-[#e0caca] px-2.5 py-1">
-                      <EditableValue
-                        label={`${section.title} title`}
-                        value={section.title}
-                        onChange={(value) => updateRepairSection(section.id, 'title', value)}
-                        className="text-[13px] font-black leading-tight"
-                        multiline
-                      />
-                      <div className="space-y-0.5">
-                        <div className="flex items-center justify-between gap-1.5 bg-[#efc9c9] px-1.5 py-0.5 text-[#7d1515]">
-                          <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-[#af0f0f] text-[9px] font-black text-white">
-                            !
-                          </span>
-                          <EditableValue
-                            label={`${section.title} status`}
-                            value={section.status}
-                            onChange={(value) => updateRepairSection(section.id, 'status', value)}
-                            className="min-w-0 flex-1 text-[11px] font-black leading-tight"
-                          />
-                        </div>
-                        {repairSections.length > 1 ? (
-                          <button
-                            type="button"
-                            onClick={() => removeRepairSection(section.id)}
-                            className="report-inline-action w-full rounded-sm border border-[#d4a7a7] bg-white/70 px-1.5 py-0.5 text-[8px] font-black uppercase leading-tight text-[#7d1515] transition hover:bg-white"
-                          >
-                            Remove Section
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
+                {visibleRepairSections.map((section, sectionIndex) => {
+                  const sectionTone = getRepairSectionTone(section.status)
 
-                    <div className="bg-white">
+                  return (
+                    <section
+                      key={section.id}
+                      data-report-block-id={`repair-section-${section.id}`}
+                      style={getRuntimePageBreakStyle(`repair-section-${section.id}`)}
+                      className={`repair-section ${sectionTone.sectionBackground} ${getRuntimePageBreakClassName(`repair-section-${section.id}`)} ${
+                        sectionIndex > 0 ? `border-t ${sectionTone.sectionBorder}` : ''
+                      }`}
+                    >
+                      <div className={`grid grid-cols-[1fr_150px] gap-3 border-b ${sectionTone.sectionBorder} px-2.5 py-1`}>
+                        <EditableValue
+                          label={`${section.title} title`}
+                          value={section.title}
+                          onChange={(value) => updateRepairSection(section.id, 'title', value)}
+                          className="text-[13px] font-black leading-tight"
+                          multiline
+                        />
+                        <div className="space-y-0.5">
+                          <div className={`flex items-center justify-between gap-1.5 ${sectionTone.statusBackground} px-1.5 py-0.5 ${sectionTone.statusText}`}>
+                            <span className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full ${sectionTone.statusIcon} text-[9px] font-black text-white`}>
+                              !
+                            </span>
+                            <EditableValue
+                              label={`${section.title} status`}
+                              value={section.status}
+                              onChange={(value) => updateRepairSection(section.id, 'status', value)}
+                              className="min-w-0 flex-1 text-[11px] font-black leading-tight"
+                            />
+                          </div>
+                          {repairSections.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => removeRepairSection(section.id)}
+                              className="report-inline-action w-full rounded-sm border border-[#d4a7a7] bg-white/70 px-1.5 py-0.5 text-[8px] font-black uppercase leading-tight text-[#7d1515] transition hover:bg-white"
+                            >
+                              Remove Section
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="bg-white">
                       <div className="grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
                         <div className="px-2 py-1">Description</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
@@ -2648,9 +2897,10 @@ export default function EditableInspectionReport() {
                         </div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
                       </div>
-                    </div>
-                  </section>
-                ))}
+                      </div>
+                    </section>
+                  )
+                })}
               </div>
             </section>
             ) : null}
