@@ -168,6 +168,18 @@ const defaultReport: ReportData = {
   serialHoist: 'Hoist 1: 8PA596L',
   capacityHoist: 'Hoist 1: 1 Ton',
   modelHoist: 'Hoist 1: ELC2016.3',
+  manufacturerHoist2: 'Hoist 2: ---',
+  serialHoist2: 'Hoist 2: ---',
+  capacityHoist2: 'Hoist 2: ---',
+  modelHoist2: 'Hoist 2: ---',
+  manufacturerHoist3: 'Hoist 3: ---',
+  serialHoist3: 'Hoist 3: ---',
+  capacityHoist3: 'Hoist 3: ---',
+  modelHoist3: 'Hoist 3: ---',
+  manufacturerHoist4: 'Hoist 4: ---',
+  serialHoist4: 'Hoist 4: ---',
+  capacityHoist4: 'Hoist 4: ---',
+  modelHoist4: 'Hoist 4: ---',
   scopeOfWorkHeader: 'Scope of Work',
   scopeOfWork: '',
   sectionHeader: 'Repair Items',
@@ -255,7 +267,26 @@ const cells = [
   ['manufacturerLabel', 'serialLabel', 'capacityLabel', 'modelLabel'],
   ['manufacturerCrane', 'serialCrane', 'capacityCrane', 'modelCrane'],
   ['manufacturerHoist', 'serialHoist', 'capacityHoist', 'modelHoist'],
+  ['manufacturerHoist2', 'serialHoist2', 'capacityHoist2', 'modelHoist2'],
+  ['manufacturerHoist3', 'serialHoist3', 'capacityHoist3', 'modelHoist3'],
+  ['manufacturerHoist4', 'serialHoist4', 'capacityHoist4', 'modelHoist4'],
 ]
+
+const hasReportCellValue = (value: string | undefined) => {
+  const trimmedValue = value?.trim() ?? ''
+  if (!trimmedValue) return false
+
+  const valueWithoutLabel = trimmedValue.includes(':')
+    ? trimmedValue.split(':').slice(1).join(':').trim()
+    : trimmedValue
+
+  return Boolean(valueWithoutLabel && !/^[-–—]+$/.test(valueWithoutLabel))
+}
+
+const shouldShowReportTableRow = (row: string[], rowIndex: number, report: ReportData) => {
+  if (rowIndex <= 3) return true
+  return row.some((fieldId) => hasReportCellValue(report[fieldId]))
+}
 
 const defaultMenuItemSections: MenuItemSection[] = [
   {
@@ -408,6 +439,8 @@ const formatInspectionDate = (value: string) => {
 const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
   const data = item.extractionData
   const dNumber = getTopLevelExtractedText(data, ['d_number', 'dNumber', 'D Number', 'D-Number', 'D Number identifier'])
+  const branch = getTopLevelExtractedText(data, ['branch', 'deshazo_branch', 'deshazoBranch'])
+  const branchContactPhone = getTopLevelExtractedText(data, ['branch_contact_phone', 'branchContactPhone', 'Branch Contact Phone'])
   const jobNumber = getTopLevelExtractedText(data, ['job_number', 'jobNumber', 'Job Number', 'Job #'])
   const performedBy = getTopLevelExtractedText(data, ['performed_by', 'performedBy', 'inspector', 'technician'])
   const inspectionType = getTopLevelExtractedText(data, ['inspection_type', 'inspectionType', 'type'])
@@ -418,18 +451,35 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
   const purchaseOrder = getTopLevelExtractedText(data, ['purchase_order', 'purchaseOrder', 'Purchase Order'])
   const location = getTopLevelExtractedText(data, ['location', 'Location', 'service_location', 'serviceLocation', 'Service Location'])
   const customerAddress = getTopLevelExtractedText(data, ['customer_address', 'customerAddress', 'Customer Address'])
-  const manufacturer = getTopLevelExtractedText(data, ['manufacturer', 'Manufacturer'])
-  const serialNumber = getTopLevelExtractedText(data, ['serial_number', 'serialNumber', 'Serial Number'])
-  const capacity = getTopLevelExtractedText(data, ['capacity', 'Capacity'])
-  const model = getTopLevelExtractedText(data, ['model', 'model_number', 'modelNumber', 'Model #'])
-  const crane = getTopLevelExtractedText(data, ['crane', 'Crane'])
-  const hoist = getTopLevelExtractedText(data, ['hoist', 'hoist_1', 'hoist1', 'Hoist 1'])
+  const manufacturerCrane = getTopLevelExtractedText(data, ['manufacturer_crane', 'manufacturerCrane', 'manufacturer', 'Manufacturer'])
+  const serialCrane = getTopLevelExtractedText(data, ['serial_crane', 'serialCrane', 'serial_number', 'serialNumber', 'Serial Number'])
+  const capacityCrane = getTopLevelExtractedText(data, ['capacity_crane', 'capacityCrane', 'capacity', 'Capacity'])
+  const modelCrane = getTopLevelExtractedText(data, ['model_crane', 'modelCrane', 'model', 'model_number', 'modelNumber', 'Model #'])
+  const manufacturerHoist1 = getTopLevelExtractedText(data, ['manufacturer_hoist_1', 'manufacturerHoist1', 'hoist', 'hoist_1', 'hoist1', 'Hoist 1'])
+  const serialHoist1 = getTopLevelExtractedText(data, ['serial_hoist_1', 'serialHoist1'])
+  const capacityHoist1 = getTopLevelExtractedText(data, ['capacity_hoist_1', 'capacityHoist1'])
+  const modelHoist1 = getTopLevelExtractedText(data, ['model_hoist_1', 'modelHoist1'])
+  const manufacturerHoist2 = getTopLevelExtractedText(data, ['manufacturer_hoist_2', 'manufacturerHoist2'])
+  const serialHoist2 = getTopLevelExtractedText(data, ['serial_hoist_2', 'serialHoist2'])
+  const capacityHoist2 = getTopLevelExtractedText(data, ['capacity_hoist_2', 'capacityHoist2'])
+  const modelHoist2 = getTopLevelExtractedText(data, ['model_hoist_2', 'modelHoist2'])
+  const manufacturerHoist3 = getTopLevelExtractedText(data, ['manufacturer_hoist_3', 'manufacturerHoist3'])
+  const serialHoist3 = getTopLevelExtractedText(data, ['serial_hoist_3', 'serialHoist3'])
+  const capacityHoist3 = getTopLevelExtractedText(data, ['capacity_hoist_3', 'capacityHoist3'])
+  const modelHoist3 = getTopLevelExtractedText(data, ['model_hoist_3', 'modelHoist3'])
+  const manufacturerHoist4 = getTopLevelExtractedText(data, ['manufacturer_hoist_4', 'manufacturerHoist4'])
+  const serialHoist4 = getTopLevelExtractedText(data, ['serial_hoist_4', 'serialHoist4'])
+  const capacityHoist4 = getTopLevelExtractedText(data, ['capacity_hoist_4', 'capacityHoist4'])
+  const modelHoist4 = getTopLevelExtractedText(data, ['model_hoist_4', 'modelHoist4'])
   const repairCount = getTopLevelExtractedText(data, ['repair_count', 'repairCount', 'Repair']) || '0'
-  const safetyCount = getTopLevelExtractedText(data, ['safety_count', 'safetyCount', 'Safety and Monitor Items']) || '0'
+  const safetyCount = getTopLevelExtractedText(data, ['safety_and_monitor_count', 'safety_count', 'safetyCount', 'Safety and Monitor Items']) || '0'
   const satisfactoryCount = getTopLevelExtractedText(data, ['satisfactory_count', 'satisfactoryCount', 'Satisfactory Items']) || '0'
+  const naCount = getTopLevelExtractedText(data, ['na_count', 'naCount', 'N/A Items'])
 
   return {
     ...defaultReport,
+    branch: formatReportValue('DESHAZO Branch', branch, '---'),
+    phone: formatReportValue('Branch Contact Phone', branchContactPhone, '---'),
     summary: [dNumber || '---', performedBy ? `performed by: ${performedBy}` : ''].filter(Boolean).join(' '),
     type: formatReportValue('Type', inspectionType, '---'),
     date: formatReportValue('Date', formatInspectionDate(inspectionDate), '---'),
@@ -440,19 +490,32 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
     jobNumber: formatReportValue('Job #', jobNumber, '---'),
     location: formatReportValue('Location', location, '---'),
     customerAddress: formatReportValue('Customer Address', customerAddress, '---'),
-    manufacturerCrane: formatReportValue('Crane', manufacturer || crane, '---'),
-    serialCrane: formatReportValue('Crane', serialNumber, '---'),
-    capacityCrane: formatReportValue('Crane', capacity, '---'),
-    modelCrane: formatReportValue('Crane', model, '---'),
-    manufacturerHoist: formatReportValue('Hoist 1', hoist, '---'),
-    serialHoist: formatReportValue('Hoist 1', '---'),
-    capacityHoist: formatReportValue('Hoist 1', '---'),
-    modelHoist: formatReportValue('Hoist 1', '---'),
+    manufacturerCrane: formatReportValue('Crane', manufacturerCrane, '---'),
+    serialCrane: formatReportValue('Crane', serialCrane, '---'),
+    capacityCrane: formatReportValue('Crane', capacityCrane, '---'),
+    modelCrane: formatReportValue('Crane', modelCrane, '---'),
+    manufacturerHoist: formatReportValue('Hoist 1', manufacturerHoist1, '---'),
+    serialHoist: formatReportValue('Hoist 1', serialHoist1, '---'),
+    capacityHoist: formatReportValue('Hoist 1', capacityHoist1, '---'),
+    modelHoist: formatReportValue('Hoist 1', modelHoist1, '---'),
+    manufacturerHoist2: formatReportValue('Hoist 2', manufacturerHoist2, '---'),
+    serialHoist2: formatReportValue('Hoist 2', serialHoist2, '---'),
+    capacityHoist2: formatReportValue('Hoist 2', capacityHoist2, '---'),
+    modelHoist2: formatReportValue('Hoist 2', modelHoist2, '---'),
+    manufacturerHoist3: formatReportValue('Hoist 3', manufacturerHoist3, '---'),
+    serialHoist3: formatReportValue('Hoist 3', serialHoist3, '---'),
+    capacityHoist3: formatReportValue('Hoist 3', capacityHoist3, '---'),
+    modelHoist3: formatReportValue('Hoist 3', modelHoist3, '---'),
+    manufacturerHoist4: formatReportValue('Hoist 4', manufacturerHoist4, '---'),
+    serialHoist4: formatReportValue('Hoist 4', serialHoist4, '---'),
+    capacityHoist4: formatReportValue('Hoist 4', capacityHoist4, '---'),
+    modelHoist4: formatReportValue('Hoist 4', modelHoist4, '---'),
     scopeOfWork: [
       dNumber ? `Prepare quote from inspection report ${dNumber}.` : 'Prepare quote from selected inspection report.',
       `Repair items: ${repairCount}.`,
       `Safety and monitor items: ${safetyCount}.`,
       `Satisfactory items: ${satisfactoryCount}.`,
+      naCount ? `N/A items: ${naCount}.` : '',
     ].filter(Boolean).join(' '),
     notes: `Seeded from jobs_quoting_items.extraction_data for ${dNumber || item.documentName}. Open Related Documents to view the split inspection PDF.`,
   }
@@ -468,7 +531,13 @@ const buildRepairSectionsFromJobsQuotingItem = (item: JobsQuotingItem): RepairSe
       extractedItem,
       defaultStatus: 'Repair',
     })),
-    ...getExtractedArray(data, ['safety_items', 'safetyItems', 'safety_monitor_items', 'safetyMonitorItems']).map((extractedItem) => ({
+    ...getExtractedArray(data, [
+      'safety_and_monitor_items',
+      'safetyMonitorItems',
+      'safety_monitor_items',
+      'safety_items',
+      'safetyItems',
+    ]).map((extractedItem) => ({
       extractedItem,
       defaultStatus: 'Monitor',
     })),
@@ -2647,17 +2716,19 @@ export default function EditableInspectionReport() {
 
             <div className="grid grid-cols-4 text-[11px] font-semibold leading-tight">
               {cells.flatMap((row, rowIndex) =>
-                row.map((fieldId, columnIndex) => (
-                  <EditableText
-                    key={fieldId}
-                    id={fieldId}
-                    data={report}
-                    onChange={updateField}
-                    className={`min-h-[21px] border-b border-[#dcdcdc] px-2 py-0.5 ${
-                      columnIndex > 0 ? 'border-l border-[#d4d4d4]' : ''
-                    } ${rowIndex === 1 ? 'font-bold' : ''}`}
-                  />
-                )),
+                shouldShowReportTableRow(row, rowIndex, report)
+                  ? row.map((fieldId, columnIndex) => (
+                      <EditableText
+                        key={fieldId}
+                        id={fieldId}
+                        data={report}
+                        onChange={updateField}
+                        className={`min-h-[21px] border-b border-[#dcdcdc] px-2 py-0.5 ${
+                          columnIndex > 0 ? 'border-l border-[#d4d4d4]' : ''
+                        } ${rowIndex === 1 ? 'font-bold' : ''}`}
+                      />
+                    ))
+                  : [],
               )}
             </div>
 
