@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isConfigured } from '../lib/supabase'
 import {
   getInspectionMenuItems,
@@ -18,6 +18,15 @@ import {
   getJobsQuotingItemPdfUrl,
   type JobsQuotingItem,
 } from '../lib/jobsQuoting'
+import {
+  deleteEditableInspectionReport,
+  getEditableInspectionReport,
+  getEditableInspectionReportForJobsQuotingItem,
+  getEditableInspectionReports,
+  saveEditableInspectionReport,
+  type EditableInspectionReport,
+  type EditableInspectionReportPayload,
+} from '../lib/editableInspectionReports'
 
 type ReportData = Record<string, string>
 
@@ -421,6 +430,58 @@ const getExtractedArray = (value: unknown, keys: string[]) => {
   return Array.isArray(extractedValue) ? extractedValue : []
 }
 
+const removeReportValueLabel = (value: string) =>
+  value.includes(':') ? value.split(':').slice(1).join(':').trim() : value.trim()
+
+const getDNumberFromReport = (reportData: ReportData | Record<string, string>) => {
+  const reportText = Object.values(reportData).join(' ')
+  const match = reportText.match(/\bD[\s-]*\d{3,}\b/i)
+  return match ? match[0].replace(/[\s-]+/g, '').toUpperCase() : ''
+}
+
+const normalizeReportIdentityValue = (value: string) => value.replace(/[^a-z0-9]/gi, '').toUpperCase()
+
+const getJobNumberFromReport = (reportData: ReportData | Record<string, string>) =>
+  normalizeReportIdentityValue(removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, ''))
+
+const getReportIdentity = (reportData: ReportData | Record<string, string>) => ({
+  dNumber: normalizeReportIdentityValue(getDNumberFromReport(reportData)),
+  jobNumber: getJobNumberFromReport(reportData),
+})
+
+const hasCompleteReportIdentity = (identity: ReturnType<typeof getReportIdentity>) =>
+  Boolean(identity.dNumber && identity.jobNumber)
+
+const reportIdentitiesMatch = (
+  firstReportData: ReportData | Record<string, string>,
+  secondReportData: ReportData | Record<string, string>,
+) => {
+  const firstIdentity = getReportIdentity(firstReportData)
+  const secondIdentity = getReportIdentity(secondReportData)
+
+  return (
+    hasCompleteReportIdentity(firstIdentity) &&
+    hasCompleteReportIdentity(secondIdentity) &&
+    firstIdentity.dNumber === secondIdentity.dNumber &&
+    firstIdentity.jobNumber === secondIdentity.jobNumber
+  )
+}
+
+const getEditableReportDisplayName = (
+  reportData: ReportData | Record<string, string>,
+  fallbackName: string,
+) => {
+  const dNumber = getDNumberFromReport(reportData)
+  const jobNumber = removeReportValueLabel(reportData.jobNumber ?? '')
+  const nameParts = [dNumber, jobNumber ? `Job #${jobNumber.replace(/^#\s*/, '')}` : '']
+    .filter(Boolean)
+
+  return nameParts.length > 0 ? nameParts.join(' - ') : fallbackName
+}
+
+const getSavedReportDisplayName = (savedReport: EditableInspectionReport) =>
+  getEditableReportDisplayName(savedReport.reportData, savedReport.reportName)
+
 const formatReportValue = (label: string, value: string, fallback = '---') =>
   `${label}: ${value.trim() || fallback}`
 
@@ -790,6 +851,31 @@ const normalizeReport = (report: ReportData) => {
   return nextReport
 }
 
+const getNormalizedReportPayload = (report: EditableInspectionReport): EditableInspectionReportPayload => ({
+  reportData: normalizeReport(report.reportData),
+  repairSections: normalizeRepairSections(report.repairSections as RepairSection[]),
+  costSections: normalizeCostSections(report.costSections as CostSection[]),
+  blockVisibility: { ...defaultBlockVisibility, ...report.blockVisibility },
+  estimateNoteVisibility: { ...defaultEstimateNoteVisibility, ...report.estimateNoteVisibility },
+  repairSectionVisibility: report.repairSectionVisibility,
+  textBoxes: report.textBoxes as CanvasTextBox[],
+  equipmentRentalSettings: {
+    ...defaultEquipmentRentalSettings,
+    ...report.equipmentRentalSettings,
+  },
+})
+
+const saveEditableReportPayloadLocally = (payload: EditableInspectionReportPayload) => {
+  window.localStorage.setItem(storageKey, JSON.stringify(payload.reportData))
+  window.localStorage.setItem(repairStorageKey, JSON.stringify(payload.repairSections))
+  window.localStorage.setItem(costStorageKey, JSON.stringify(payload.costSections))
+  window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(payload.blockVisibility))
+  window.localStorage.setItem(estimateNoteVisibilityStorageKey, JSON.stringify(payload.estimateNoteVisibility))
+  window.localStorage.setItem(repairSectionVisibilityStorageKey, JSON.stringify(payload.repairSectionVisibility))
+  window.localStorage.setItem(textBoxStorageKey, JSON.stringify(payload.textBoxes))
+  window.localStorage.setItem(equipmentRentalSettingsStorageKey, JSON.stringify(payload.equipmentRentalSettings))
+}
+
 type EditableTextProps = {
   id: string
   data: ReportData
@@ -878,12 +964,29 @@ function PencilIcon() {
   )
 }
 
+function TrashIcon() {
+  return (
+    <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 7V5.75A1.75 1.75 0 0 1 10.75 4h2.5A1.75 1.75 0 0 1 15 5.75V7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m8 7 .7 11.2A2 2 0 0 0 10.7 20h2.6a2 2 0 0 0 2-1.8L16 7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 10.5v6" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5v6" />
+    </svg>
+  )
+}
+
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
-  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
+  const editableReportIdParam = searchParams.get('editableReportId')?.trim() || ''
   const menuDatabaseSyncReady = useRef(false)
   const skipNextMenuDatabaseSave = useRef(false)
+  const reportHydrationReady = useRef(false)
+  const skipNextReportDatabaseSave = useRef(false)
+  const pendingReportChanges = useRef(false)
   const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
@@ -903,6 +1006,15 @@ export default function EditableInspectionReport() {
   const [menuSearch, setMenuSearch] = useState('')
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
+  const [savedReports, setSavedReports] = useState<EditableInspectionReport[]>([])
+  const [savedReportsMessage, setSavedReportsMessage] = useState('')
+  const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
+    isConfigured ? 'loading' : 'local',
+  )
+  const [currentEditableReportId, setCurrentEditableReportId] = useState(editableReportIdParam)
+  const [currentReportName, setCurrentReportName] = useState('Untitled quote report')
+  const [currentSourceDocumentName, setCurrentSourceDocumentName] = useState('Untitled quote report')
+  const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(jobsQuotingItemId || null)
   const [runtimePageBreaks, setRuntimePageBreaks] = useState<Record<string, number>>({})
   const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [menuItemsRefreshProgress, setMenuItemsRefreshProgress] = useState<MenuItemsRefreshProgress>({
@@ -1021,6 +1133,32 @@ export default function EditableInspectionReport() {
     }
   })
   const currentCraneIdentifier = useMemo(() => getCraneIdentifierFromReport(report), [report])
+  const currentEditableReportPayload = useMemo<EditableInspectionReportPayload>(
+    () => ({
+      reportData: report,
+      repairSections,
+      costSections,
+      blockVisibility,
+      estimateNoteVisibility,
+      repairSectionVisibility,
+      textBoxes: canvasTextBoxes,
+      equipmentRentalSettings,
+    }),
+    [
+      blockVisibility,
+      canvasTextBoxes,
+      costSections,
+      equipmentRentalSettings,
+      estimateNoteVisibility,
+      repairSectionVisibility,
+      repairSections,
+      report,
+    ],
+  )
+  const activeSavedReport = useMemo(
+    () => savedReports.find((savedReport) => savedReport.id === currentEditableReportId),
+    [currentEditableReportId, savedReports],
+  )
 
   const repairTotal = useMemo(
     () =>
@@ -1099,6 +1237,232 @@ export default function EditableInspectionReport() {
     const spacer = runtimePageBreaks[blockId]
     return spacer ? { marginTop: `${spacer}px` } : undefined
   }
+
+  const applyEditableReportPayload = useCallback((payload: EditableInspectionReportPayload) => {
+    const nextReport = normalizeReport(payload.reportData)
+    const nextRepairSections = normalizeRepairSections(payload.repairSections as RepairSection[])
+    const nextCostSections = normalizeCostSections(payload.costSections as CostSection[])
+    const nextBlockVisibility = { ...defaultBlockVisibility, ...payload.blockVisibility }
+    const nextEstimateNoteVisibility = { ...defaultEstimateNoteVisibility, ...payload.estimateNoteVisibility }
+    const nextRepairSectionVisibility = payload.repairSectionVisibility
+    const nextTextBoxes = payload.textBoxes as CanvasTextBox[]
+    const nextEquipmentRentalSettings = {
+      ...defaultEquipmentRentalSettings,
+      ...payload.equipmentRentalSettings,
+    } as EquipmentRentalSettings
+
+    saveEditableReportPayloadLocally({
+      reportData: nextReport,
+      repairSections: nextRepairSections,
+      costSections: nextCostSections,
+      blockVisibility: nextBlockVisibility,
+      estimateNoteVisibility: nextEstimateNoteVisibility,
+      repairSectionVisibility: nextRepairSectionVisibility,
+      textBoxes: nextTextBoxes,
+      equipmentRentalSettings: nextEquipmentRentalSettings,
+    })
+    setReport(nextReport)
+    setRepairSections(nextRepairSections)
+    setCostSections(nextCostSections)
+    setBlockVisibility(nextBlockVisibility)
+    setEstimateNoteVisibility(nextEstimateNoteVisibility)
+    setRepairSectionVisibility(nextRepairSectionVisibility)
+    setCanvasTextBoxes(nextTextBoxes)
+    setEquipmentRentalSettings(nextEquipmentRentalSettings)
+  }, [])
+
+  const refreshSavedReports = useCallback(async () => {
+    if (!isConfigured) {
+      setReportDatabaseStatus('local')
+      setSavedReportsMessage('Supabase is not configured. Editable reports are saved only in this browser.')
+      return []
+    }
+
+    try {
+      const reports = await getEditableInspectionReports()
+      setSavedReports(reports)
+      setSavedReportsMessage(reports.length > 0 ? `${reports.length} saved report${reports.length === 1 ? '' : 's'}.` : 'No saved reports yet.')
+      return reports
+    } catch (error) {
+      setReportDatabaseStatus('error')
+      setSavedReportsMessage(error instanceof Error ? error.message : 'Saved reports could not be loaded.')
+      return []
+    }
+  }, [])
+
+  const findExistingEditableReportForQuoteItem = useCallback(async (jobsQuotingItemIdToMatch: string, quoteReport: ReportData) => {
+    const existingReportForItem = await getEditableInspectionReportForJobsQuotingItem(jobsQuotingItemIdToMatch)
+    if (existingReportForItem) return existingReportForItem
+
+    const quoteIdentity = getReportIdentity(quoteReport)
+    if (!hasCompleteReportIdentity(quoteIdentity)) return null
+
+    const reports = await getEditableInspectionReports()
+    return reports.find((savedReport) => reportIdentitiesMatch(savedReport.reportData, quoteReport)) ?? null
+  }, [])
+
+  const saveCurrentEditableReportNow = useCallback(async () => {
+    if (!isConfigured || !reportHydrationReady.current) return null
+
+    setReportDatabaseStatus('saving')
+    const reportName = getEditableReportDisplayName(currentEditableReportPayload.reportData, currentReportName)
+    const existingReport =
+      !currentEditableReportId && currentJobsQuotingItemId
+        ? await findExistingEditableReportForQuoteItem(currentJobsQuotingItemId, currentEditableReportPayload.reportData)
+        : null
+    const savedReport = await saveEditableInspectionReport({
+      ...currentEditableReportPayload,
+      id: currentEditableReportId || existingReport?.id || null,
+      jobsQuotingItemId: currentJobsQuotingItemId,
+      reportName,
+      sourceDocumentName: currentSourceDocumentName,
+    })
+
+    pendingReportChanges.current = false
+    skipNextReportDatabaseSave.current = true
+    if (!currentEditableReportId) {
+      setSearchParams({ editableReportId: savedReport.id }, { replace: true })
+    }
+    setCurrentEditableReportId(savedReport.id)
+    setCurrentReportName(savedReport.reportName)
+    setCurrentSourceDocumentName(savedReport.sourceDocumentName)
+    setCurrentJobsQuotingItemId(savedReport.jobsQuotingItemId)
+    setReportDatabaseStatus('saved')
+    setSavedReports((currentReports) => {
+      const nextReports = [
+        savedReport,
+        ...currentReports.filter((currentReport) => currentReport.id !== savedReport.id),
+      ]
+      return nextReports.sort((firstReport, secondReport) => secondReport.updatedAt.localeCompare(firstReport.updatedAt))
+    })
+    setSavedReportsMessage(`Saved ${savedReport.reportName}.`)
+    return savedReport
+  }, [
+    currentEditableReportId,
+    currentEditableReportPayload,
+    currentJobsQuotingItemId,
+    currentReportName,
+    currentSourceDocumentName,
+    findExistingEditableReportForQuoteItem,
+    setSearchParams,
+  ])
+
+  useEffect(() => {
+    refreshSavedReports()
+  }, [refreshSavedReports])
+
+  useEffect(() => {
+    if (!isConfigured) {
+      reportHydrationReady.current = true
+      setReportDatabaseStatus('local')
+      return
+    }
+
+    let active = true
+    reportHydrationReady.current = false
+    setReportDatabaseStatus('loading')
+
+    async function hydrateEditableReport() {
+      try {
+        if (editableReportIdParam) {
+          const savedReport = await getEditableInspectionReport(editableReportIdParam)
+          if (!active) return
+
+          applyEditableReportPayload(getNormalizedReportPayload(savedReport))
+          setCurrentEditableReportId(savedReport.id)
+          setCurrentReportName(savedReport.reportName)
+          setCurrentSourceDocumentName(savedReport.sourceDocumentName)
+          setCurrentJobsQuotingItemId(savedReport.jobsQuotingItemId)
+          setReportDatabaseStatus('saved')
+          setSavedReportsMessage(`Loaded ${savedReport.reportName}.`)
+        } else if (jobsQuotingItemId) {
+          const quoteItem = await getJobsQuotingItem(jobsQuotingItemId)
+          if (!active) return
+          const quoteReport = buildReportFromJobsQuotingItem(quoteItem)
+          const existingReport = await findExistingEditableReportForQuoteItem(jobsQuotingItemId, quoteReport)
+          if (!active) return
+
+          if (existingReport) {
+            const existingReportName = getSavedReportDisplayName(existingReport)
+            const shouldOpenSavedReport = window.confirm(
+              `A saved editable copy already exists for ${existingReportName}.\n\nPress OK to open the saved edited copy, or Cancel to start fresh from the extracted report.`,
+            )
+
+            if (shouldOpenSavedReport) {
+              applyEditableReportPayload(getNormalizedReportPayload(existingReport))
+              setCurrentEditableReportId(existingReport.id)
+              setCurrentReportName(existingReport.reportName)
+              setCurrentSourceDocumentName(existingReport.sourceDocumentName)
+              setCurrentJobsQuotingItemId(existingReport.jobsQuotingItemId)
+              setReportDatabaseStatus('saved')
+              setSavedReportsMessage(`Loaded ${existingReport.reportName}.`)
+              skipNextReportDatabaseSave.current = true
+              pendingReportChanges.current = false
+              reportHydrationReady.current = true
+              setSearchParams({ editableReportId: existingReport.id }, { replace: true })
+              return
+            }
+          }
+
+          applyEditableReportPayload({
+            reportData: quoteReport,
+            repairSections: buildRepairSectionsFromJobsQuotingItem(quoteItem),
+            costSections: defaultCostSections,
+            blockVisibility: defaultBlockVisibility,
+            estimateNoteVisibility: defaultEstimateNoteVisibility,
+            repairSectionVisibility: {},
+            textBoxes: [],
+            equipmentRentalSettings: defaultEquipmentRentalSettings,
+          })
+          setCurrentEditableReportId('')
+          setCurrentReportName(getEditableReportDisplayName(quoteReport, quoteItem.documentName))
+          setCurrentSourceDocumentName(quoteItem.documentName)
+          setCurrentJobsQuotingItemId(quoteItem.id)
+          setReportDatabaseStatus('saved')
+          setSavedReportsMessage(
+            existingReport
+              ? `Started fresh edit for ${getEditableReportDisplayName(quoteReport, quoteItem.documentName)}. Save will update the existing saved copy.`
+              : `Started editable report for ${getEditableReportDisplayName(quoteReport, quoteItem.documentName)}.`,
+          )
+        } else {
+          setCurrentEditableReportId('')
+          setCurrentReportName('Untitled quote report')
+          setCurrentSourceDocumentName('Untitled quote report')
+          setCurrentJobsQuotingItemId(null)
+          setReportDatabaseStatus('saved')
+        }
+
+        skipNextReportDatabaseSave.current = true
+        pendingReportChanges.current = false
+        reportHydrationReady.current = true
+      } catch (error) {
+        if (!active) return
+        reportHydrationReady.current = true
+        setReportDatabaseStatus('error')
+        setSavedReportsMessage(error instanceof Error ? error.message : 'Editable report could not be loaded.')
+      }
+    }
+
+    hydrateEditableReport()
+
+    return () => {
+      active = false
+    }
+  }, [applyEditableReportPayload, editableReportIdParam, findExistingEditableReportForQuoteItem, jobsQuotingItemId, setSearchParams])
+
+  useEffect(() => {
+    if (!isConfigured || !reportHydrationReady.current) return
+
+    if (skipNextReportDatabaseSave.current) {
+      skipNextReportDatabaseSave.current = false
+      return
+    }
+
+    pendingReportChanges.current = true
+    if (reportDatabaseStatus !== 'error') {
+      setSavedReportsMessage('Unsaved changes. Click Save to update the saved report.')
+    }
+  }, [currentEditableReportPayload, reportDatabaseStatus])
   useLayoutEffect(() => {
     const contentElement = reportContentRef.current
     if (!contentElement) return
@@ -1402,14 +1766,6 @@ export default function EditableInspectionReport() {
             url: quotePdfUrl,
             createdAt: quoteItem.createdAt,
           }
-
-          const quoteReport = buildReportFromJobsQuotingItem(quoteItem)
-          const quoteRepairSections = buildRepairSectionsFromJobsQuotingItem(quoteItem)
-          window.localStorage.setItem(storageKey, JSON.stringify(quoteReport))
-          window.localStorage.setItem(repairStorageKey, JSON.stringify(quoteRepairSections))
-          setReport(quoteReport)
-          setRepairSections(quoteRepairSections)
-          setRepairSectionVisibility({})
         } else {
           const originalInspectionResponse = await fetch('/testassessment.pdf')
           if (!originalInspectionResponse.ok) {
@@ -2076,6 +2432,71 @@ export default function EditableInspectionReport() {
     setMenuSettingsOpen(false)
   }
 
+  const openSavedEditableReport = async (savedReport: EditableInspectionReport) => {
+    if (savedReport.id === currentEditableReportId) return
+
+    if (pendingReportChanges.current) {
+      const shouldSave = window.confirm('Save changes before opening this report? Press OK to save, or Cancel to discard changes.')
+      if (shouldSave) {
+        try {
+          await saveCurrentEditableReportNow()
+        } catch (error) {
+          setReportDatabaseStatus('error')
+          setSavedReportsMessage(error instanceof Error ? error.message : 'Editable report could not be saved.')
+          return
+        }
+      }
+    }
+
+    setSearchParams({ editableReportId: savedReport.id })
+  }
+
+  const goBackToJobsQuotingList = async () => {
+    if (pendingReportChanges.current) {
+      const shouldSave = window.confirm('Save changes before going back to Jobs Quoting List? Press OK to save, or Cancel to discard changes.')
+      if (shouldSave) {
+        try {
+          await saveCurrentEditableReportNow()
+        } catch (error) {
+          setReportDatabaseStatus('error')
+          setSavedReportsMessage(error instanceof Error ? error.message : 'Editable report could not be saved.')
+          return
+        }
+      }
+    }
+
+    navigate('/jobsquotinglist')
+  }
+
+  const deleteSavedEditableReport = async (savedReport: EditableInspectionReport) => {
+    const reportName = getSavedReportDisplayName(savedReport)
+    if (!window.confirm(`Delete saved report "${reportName}"?`)) return
+
+    try {
+      await deleteEditableInspectionReport(savedReport.id)
+      setSavedReports((currentReports) => currentReports.filter((currentReport) => currentReport.id !== savedReport.id))
+      setSavedReportsMessage(`Deleted ${reportName}.`)
+
+      if (savedReport.id === currentEditableReportId) {
+        pendingReportChanges.current = false
+        skipNextReportDatabaseSave.current = true
+        setCurrentEditableReportId('')
+        setReportDatabaseStatus('saved')
+        setSearchParams(currentJobsQuotingItemId ? { jobsQuotingItemId: currentJobsQuotingItemId } : {}, { replace: true })
+      }
+    } catch (error) {
+      setReportDatabaseStatus('error')
+      setSavedReportsMessage(error instanceof Error ? error.message : 'Saved report could not be deleted.')
+    }
+  }
+
+  const saveEditableReportFromButton = () => {
+    saveCurrentEditableReportNow().catch((error) => {
+      setReportDatabaseStatus('error')
+      setSavedReportsMessage(error instanceof Error ? error.message : 'Editable report could not be saved.')
+    })
+  }
+
   return (
     <div className="min-h-screen bg-[#e8eaef] text-[#111]">
       <style>
@@ -2199,7 +2620,13 @@ export default function EditableInspectionReport() {
 
       <header className="report-toolbar sticky top-0 z-30 flex h-14 items-center justify-between bg-[linear-gradient(90deg,#3cb9c5_0%,#7a35e8_100%)] px-4 text-white shadow-sm">
         <div className="flex items-center gap-5">
-          <button type="button" className="text-[22px] font-black leading-none" aria-label="Home">
+          <button
+            type="button"
+            onClick={goBackToJobsQuotingList}
+            className="text-[22px] font-black leading-none transition hover:scale-105 hover:text-white/85"
+            aria-label="Go back to Jobs Quoting List"
+            title="Back to Jobs Quoting List"
+          >
             ⌂
           </button>
           <div className="relative">
@@ -2382,9 +2809,22 @@ export default function EditableInspectionReport() {
 
         <div className="flex items-center gap-2">
           <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
-            Saved {updatedAt}
+            {reportDatabaseStatus === 'saving'
+              ? 'Saving...'
+              : reportDatabaseStatus === 'error'
+                ? 'Save error'
+                : activeSavedReport
+                  ? `Saved ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(activeSavedReport.updatedAt))}`
+                  : `Saved ${updatedAt}`}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={saveEditableReportFromButton}
+              className="rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
+            >
+              Save
+            </button>
             <button
               type="button"
               onClick={resetTemplate}
@@ -3350,6 +3790,89 @@ export default function EditableInspectionReport() {
             </div>
           </div>
       </main>
+        <aside className="report-toolbar flex w-[280px] shrink-0 flex-col border-l border-[#d9dce5] bg-[#fbfcff] shadow-sm">
+          <div className="border-b border-[#dfe4ef] px-4 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-[15px] font-black text-[#1f2430]">Saved Reports</h2>
+                <p className="mt-0.5 text-[11px] font-semibold text-[#747b8a]">Editable quote drafts</p>
+              </div>
+              <button
+                type="button"
+                onClick={saveEditableReportFromButton}
+                className="rounded-md border border-[#bdc4d3] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
+              >
+                Save
+              </button>
+            </div>
+            <div
+              className={`mt-3 rounded-md border px-3 py-2 text-[11px] font-bold leading-tight ${
+                reportDatabaseStatus === 'error'
+                  ? 'border-[#f3c7c7] bg-[#fff5f5] text-[#9f1d1d]'
+                  : reportDatabaseStatus === 'local'
+                    ? 'border-[#dfe4ef] bg-white text-[#747b8a]'
+                    : 'border-[#cfe6d5] bg-[#f3fbf5] text-[#286239]'
+              }`}
+            >
+              {reportDatabaseStatus === 'saving' ? 'Saving editable report.' : savedReportsMessage || 'Click Save to store editable report changes.'}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
+            {savedReports.length > 0 ? (
+              <div className="space-y-2">
+                {savedReports.map((savedReport) => {
+                  const savedReportDisplayName = getSavedReportDisplayName(savedReport)
+
+                  return (
+                    <div
+                      key={savedReport.id}
+                      className={`relative rounded-md border transition ${
+                        savedReport.id === currentEditableReportId
+                          ? 'border-[#273f7a] bg-[#edf2ff]'
+                          : 'border-[#dfe4ef] bg-white hover:bg-[#f4f6fb]'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openSavedEditableReport(savedReport)}
+                        className="w-full px-3 py-2 pr-10 text-left"
+                      >
+                        <span className="block whitespace-normal break-words text-[13px] font-black leading-snug text-[#1f2430]">
+                          {savedReportDisplayName}
+                        </span>
+                        <span className="mt-1 block whitespace-normal break-words text-[11px] font-semibold leading-snug text-[#747b8a]">
+                          {savedReport.sourceDocumentName}
+                        </span>
+                        <span className="mt-2 block text-[10px] font-black uppercase text-[#8b91a1]">
+                          {new Intl.DateTimeFormat('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          }).format(new Date(savedReport.updatedAt))}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteSavedEditableReport(savedReport)}
+                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md border border-[#e0b8b8] bg-white text-[#a82727] transition hover:border-[#d98b8b] hover:bg-[#fff5f5]"
+                        aria-label={`Delete ${savedReportDisplayName}`}
+                        title={`Delete ${savedReportDisplayName}`}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
+                No saved editable reports yet.
+              </div>
+            )}
+          </div>
+        </aside>
     </div>
     {menuSettingsOpen ? (
       <div className="report-toolbar fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/45 px-4">
