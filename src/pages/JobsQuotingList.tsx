@@ -19,6 +19,8 @@ import {
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const activeStatuses = new Set(['uploading', 'pending', 'processing', 'needs_review'])
+const inspectionRunsCollapsedStorageKey = 'deshazo-jobs-quoting-inspection-runs-collapsed'
+const savedReportsCollapsedStorageKey = 'deshazo-jobs-quoting-saved-reports-collapsed'
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -80,6 +82,12 @@ export default function JobsQuotingList() {
   const [busy, setBusy] = useState(false)
   const [openingItemId, setOpeningItemId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
+  const [inspectionRunsCollapsed, setInspectionRunsCollapsed] = useState(
+    () => window.localStorage.getItem(inspectionRunsCollapsedStorageKey) === 'true',
+  )
+  const [savedReportsCollapsed, setSavedReportsCollapsed] = useState(
+    () => window.localStorage.getItem(savedReportsCollapsedStorageKey) === 'true',
+  )
   const fileInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
@@ -297,6 +305,22 @@ export default function JobsQuotingList() {
     }
   }
 
+  const toggleInspectionRunsCollapsed = () => {
+    setInspectionRunsCollapsed((currentCollapsed) => {
+      const nextCollapsed = !currentCollapsed
+      window.localStorage.setItem(inspectionRunsCollapsedStorageKey, String(nextCollapsed))
+      return nextCollapsed
+    })
+  }
+
+  const toggleSavedReportsCollapsed = () => {
+    setSavedReportsCollapsed((currentCollapsed) => {
+      const nextCollapsed = !currentCollapsed
+      window.localStorage.setItem(savedReportsCollapsedStorageKey, String(nextCollapsed))
+      return nextCollapsed
+    })
+  }
+
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#e8eaef] px-4">
@@ -357,54 +381,83 @@ export default function JobsQuotingList() {
       </header>
 
       <main className="flex h-[calc(100vh-56px)] overflow-hidden bg-[#f3f4f8]">
-        <aside className="hidden w-[300px] shrink-0 flex-col border-r border-[#d9dce5] bg-[#fbfcff] shadow-sm lg:flex">
-          <div className="border-b border-[#d9dce5] px-4 py-5">
-            <p className="text-[16px] font-black text-[#1f2430]">Inspection Runs</p>
-            <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
-              Select a report to review extracted quote jobs.
-            </p>
+        <aside
+          className={`relative hidden shrink-0 flex-col border-r border-[#d9dce5] bg-[#fbfcff] shadow-sm transition-[width] duration-200 lg:flex ${
+            inspectionRunsCollapsed ? 'w-[42px]' : 'w-[300px]'
+          }`}
+        >
+          {inspectionRunsCollapsed ? (
             <button
               type="button"
-              disabled={busy || loading}
-              onClick={() => loadQuotingData(selectedRunId)}
-              className="mt-4 flex w-full items-center justify-center rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={toggleInspectionRunsCollapsed}
+              className="flex h-full w-full items-center justify-center bg-white text-[#273f7a] transition hover:bg-[#f5f7ff]"
+              aria-label="Open inspection runs"
+              title="Open inspection runs"
             >
-              Reload Runs
+              <span className="[writing-mode:vertical-rl] rotate-180 text-[12px] font-black uppercase tracking-[0.12em]">
+                Inspection Runs
+              </span>
             </button>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-            <div className="space-y-2">
-              {runs.map((run) => (
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={toggleInspectionRunsCollapsed}
+                className="absolute right-[-15px] top-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[#d4dbea] bg-white text-[17px] font-black text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
+                aria-label="Hide inspection runs"
+                title="Hide inspection runs"
+              >
+                ‹
+              </button>
+              <div className="border-b border-[#d9dce5] px-4 py-5">
+                <p className="text-[16px] font-black text-[#1f2430]">Inspection Runs</p>
+                <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
+                  Select a report to review extracted quote jobs.
+                </p>
                 <button
-                  key={run.id}
                   type="button"
-                  onClick={() => setSelectedRunId(run.id)}
-                  className={`w-full rounded-md border px-3 py-3 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition ${
-                    selectedRunId === run.id
-                      ? 'border-[#9bb0dc] bg-[#f5f7ff]'
-                      : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]'
-                  }`}
+                  disabled={busy || loading}
+                  onClick={() => loadQuotingData(selectedRunId)}
+                  className="mt-4 flex w-full items-center justify-center rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <span className="block truncate text-[13px] font-black leading-tight text-[#273f7a]">
-                    {run.sourceFileName}
-                  </span>
-                  <span className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold text-[#747b8a]">
-                    <span>{formatDate(run.createdAt)}</span>
-                    <span className="rounded-sm bg-[#eef3ff] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a]">
-                      {formatStatus(run.status)}
-                    </span>
-                  </span>
+                  Reload Runs
                 </button>
-              ))}
+              </div>
 
-              {!loading && runs.length === 0 ? (
-                <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-8 text-center text-[12px] font-bold text-[#747b8a]">
-                  No inspection reports uploaded yet.
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                <div className="space-y-2">
+                  {runs.map((run) => (
+                    <button
+                      key={run.id}
+                      type="button"
+                      onClick={() => setSelectedRunId(run.id)}
+                      className={`w-full rounded-md border px-3 py-3 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition ${
+                        selectedRunId === run.id
+                          ? 'border-[#9bb0dc] bg-[#f5f7ff]'
+                          : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]'
+                      }`}
+                    >
+                      <span className="block truncate text-[13px] font-black leading-tight text-[#273f7a]">
+                        {run.sourceFileName}
+                      </span>
+                      <span className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold text-[#747b8a]">
+                        <span>{formatDate(run.createdAt)}</span>
+                        <span className="rounded-sm bg-[#eef3ff] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a]">
+                          {formatStatus(run.status)}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+
+                  {!loading && runs.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-8 text-center text-[12px] font-bold text-[#747b8a]">
+                      No inspection reports uploaded yet.
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
-          </div>
+              </div>
+            </>
+          )}
         </aside>
 
         <section className="min-w-0 flex-1 overflow-auto px-5 py-5 sm:px-8">
@@ -509,16 +562,16 @@ export default function JobsQuotingList() {
                 ) : null}
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] border-collapse text-left">
+              <div className="overflow-x-hidden">
+                <table className="w-full table-fixed border-collapse text-left">
                   <thead>
                     <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
-                      <th className="px-5 py-3">Job PDF</th>
-                      <th className="px-5 py-3">Type</th>
-                      <th className="px-5 py-3 text-right">Repairs</th>
-                      <th className="px-5 py-3 text-right">Safety</th>
-                      <th className="px-5 py-3 text-right">Total</th>
-                      <th className="px-5 py-3">PDF</th>
+                      <th className="w-[31%] px-3 py-3">Job PDF</th>
+                      <th className="w-[17%] px-2 py-3">Type</th>
+                      <th className="w-[9%] px-2 py-3 text-right">Repairs</th>
+                      <th className="w-[9%] px-2 py-3 text-right">Safety</th>
+                      <th className="w-[8%] px-2 py-3 text-right">Total</th>
+                      <th className="w-[26%] px-3 py-3">PDF</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -527,41 +580,41 @@ export default function JobsQuotingList() {
                         key={item.id}
                         className="border-b border-[#e4e8f1] transition hover:bg-[#fbfcff] last:border-b-0"
                       >
-                        <td className="px-5 py-4">
-                          <p className="max-w-[360px] truncate text-sm font-black text-[#1f2430]">
+                        <td className="px-3 py-4 align-top">
+                          <p className="whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
                             {item.documentName}
                           </p>
-                          <p className="mt-1 text-xs font-semibold text-[#747b8a]">
+                          <p className="mt-1 whitespace-normal break-words text-xs font-semibold leading-snug text-[#747b8a]">
                             {item.splitIdentifier || 'No split identifier'}
                           </p>
                         </td>
-                        <td className="px-5 py-4 text-sm font-bold text-[#4d5360]">
+                        <td className="px-2 py-4 align-top text-sm font-bold text-[#4d5360]">
                           {item.splitType || 'Inspection split'}
                         </td>
-                        <td className="px-5 py-4 text-right text-lg font-black text-[#273f7a]">
+                        <td className="px-2 py-4 text-right align-top text-lg font-black text-[#273f7a]">
                           {item.repairCount}
                         </td>
-                        <td className="px-5 py-4 text-right text-lg font-black text-[#a2472f]">
+                        <td className="px-2 py-4 text-right align-top text-lg font-black text-[#a2472f]">
                           {item.safetyCount}
                         </td>
-                        <td className="px-5 py-4 text-right text-lg font-black text-[#111]">
+                        <td className="px-2 py-4 text-right align-top text-lg font-black text-[#111]">
                           {item.priorityCount}
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-3 py-4 align-top">
                           {item.pdfStoragePath || item.pdfUrl ? (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-nowrap gap-2">
                               <button
                                 type="button"
                                 disabled={openingItemId === item.id}
                                 onClick={() => openItemPdf(item)}
-                                className="inline-flex rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                                className="inline-flex whitespace-nowrap rounded-md border border-[#bdc4d3] bg-white px-2.5 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {openingItemId === item.id ? 'Opening...' : 'Open PDF'}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
-                                className="inline-flex rounded-md bg-[#273f7a] px-3 py-2 text-xs font-black text-white transition hover:bg-[#1f3262]"
+                                className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2.5 py-2 text-xs font-black text-white transition hover:bg-[#1f3262]"
                               >
                                 Edit Quote
                               </button>
@@ -586,84 +639,113 @@ export default function JobsQuotingList() {
               </div>
             </section>
         </section>
-        <aside className="hidden w-[320px] shrink-0 flex-col border-l border-[#d9dce5] bg-[#fbfcff] shadow-sm xl:flex">
-          <div className="border-b border-[#dfe4ef] px-4 py-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-[15px] font-black text-[#1f2430]">Saved Reports</h2>
-                <p className="mt-0.5 text-[11px] font-semibold text-[#747b8a]">Editable quote drafts</p>
-              </div>
+        <aside
+          className={`relative hidden shrink-0 flex-col border-l border-[#d9dce5] bg-[#fbfcff] shadow-sm transition-[width] duration-200 xl:flex ${
+            savedReportsCollapsed ? 'w-[42px]' : 'w-[320px]'
+          }`}
+        >
+          {savedReportsCollapsed ? (
+            <button
+              type="button"
+              onClick={toggleSavedReportsCollapsed}
+              className="flex h-full w-full items-center justify-center bg-white text-[#273f7a] transition hover:bg-[#f5f7ff]"
+              aria-label="Open saved reports"
+              title="Open saved reports"
+            >
+              <span className="[writing-mode:vertical-rl] rotate-180 text-[12px] font-black uppercase tracking-[0.12em]">
+                Saved Reports
+              </span>
+            </button>
+          ) : (
+            <>
               <button
                 type="button"
-                onClick={loadSavedReports}
-                disabled={savedReportsLoading}
-                className="rounded-md border border-[#bdc4d3] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-wait disabled:opacity-60"
+                onClick={toggleSavedReportsCollapsed}
+                className="absolute left-[-15px] top-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[#d4dbea] bg-white text-[17px] font-black text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
+                aria-label="Hide saved reports"
+                title="Hide saved reports"
               >
-                Reload
+                ›
               </button>
-            </div>
-            <div
-              className={`mt-3 rounded-md border px-3 py-2 text-[11px] font-bold leading-tight ${
-                savedReportsMessage.toLowerCase().includes('could not') || savedReportsMessage.toLowerCase().includes('failed')
-                  ? 'border-[#f3c7c7] bg-[#fff5f5] text-[#9f1d1d]'
-                  : 'border-[#cfe6d5] bg-[#f3fbf5] text-[#286239]'
-              }`}
-            >
-              {savedReportsLoading ? 'Loading saved editable reports.' : savedReportsMessage || 'Saved editable reports will appear here.'}
-            </div>
-          </div>
+              <div className="border-b border-[#dfe4ef] px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-[15px] font-black text-[#1f2430]">Saved Reports</h2>
+                    <p className="mt-0.5 text-[11px] font-semibold text-[#747b8a]">Editable quote drafts</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadSavedReports}
+                    disabled={savedReportsLoading}
+                    className="rounded-md border border-[#bdc4d3] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    Reload
+                  </button>
+                </div>
+                <div
+                  className={`mt-3 rounded-md border px-3 py-2 text-[11px] font-bold leading-tight ${
+                    savedReportsMessage.toLowerCase().includes('could not') || savedReportsMessage.toLowerCase().includes('failed')
+                      ? 'border-[#f3c7c7] bg-[#fff5f5] text-[#9f1d1d]'
+                      : 'border-[#cfe6d5] bg-[#f3fbf5] text-[#286239]'
+                  }`}
+                >
+                  {savedReportsLoading ? 'Loading saved editable reports.' : savedReportsMessage || 'Saved editable reports will appear here.'}
+                </div>
+              </div>
 
-          <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
-            {savedReportsLoading && savedReports.length === 0 ? (
-              <div className="rounded-md border border-[#dfe4ef] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
-                Loading saved reports...
-              </div>
-            ) : savedReports.length > 0 ? (
-              <div className="space-y-2">
-                {savedReports.map((savedReport) => {
-                  const displayName = getEditableReportDisplayName(savedReport)
+              <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
+                {savedReportsLoading && savedReports.length === 0 ? (
+                  <div className="rounded-md border border-[#dfe4ef] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
+                    Loading saved reports...
+                  </div>
+                ) : savedReports.length > 0 ? (
+                  <div className="space-y-2">
+                    {savedReports.map((savedReport) => {
+                      const displayName = getEditableReportDisplayName(savedReport)
 
-                  return (
-                    <div
-                      key={savedReport.id}
-                      className="relative rounded-md border border-[#dfe4ef] bg-white transition hover:bg-[#f4f6fb]"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => openSavedReport(savedReport)}
-                        disabled={savedReportsLoading}
-                        className="w-full px-3 py-2 pr-10 text-left disabled:cursor-wait disabled:opacity-65"
-                      >
-                        <span className="block whitespace-normal break-words text-[13px] font-black leading-snug text-[#1f2430]">
-                          {displayName}
-                        </span>
-                        <span className="mt-1 block whitespace-normal break-words text-[11px] font-semibold leading-snug text-[#747b8a]">
-                          {savedReport.sourceDocumentName}
-                        </span>
-                        <span className="mt-2 block text-[10px] font-black uppercase text-[#8b91a1]">
-                          {formatDate(savedReport.updatedAt)}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteSavedReport(savedReport)}
-                        disabled={savedReportsLoading}
-                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md border border-[#e0b8b8] bg-white text-[13px] font-black leading-none text-[#a82727] transition hover:border-[#d98b8b] hover:bg-[#fff5f5] disabled:cursor-wait disabled:opacity-60"
-                        aria-label={`Delete ${displayName}`}
-                        title={`Delete ${displayName}`}
-                      >
-                        x
-                      </button>
-                    </div>
-                  )
-                })}
+                      return (
+                        <div
+                          key={savedReport.id}
+                          className="relative rounded-md border border-[#dfe4ef] bg-white transition hover:bg-[#f4f6fb]"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => openSavedReport(savedReport)}
+                            disabled={savedReportsLoading}
+                            className="w-full px-3 py-2 pr-10 text-left disabled:cursor-wait disabled:opacity-65"
+                          >
+                            <span className="block whitespace-normal break-words text-[13px] font-black leading-snug text-[#1f2430]">
+                              {displayName}
+                            </span>
+                            <span className="mt-1 block whitespace-normal break-words text-[11px] font-semibold leading-snug text-[#747b8a]">
+                              {savedReport.sourceDocumentName}
+                            </span>
+                            <span className="mt-2 block text-[10px] font-black uppercase text-[#8b91a1]">
+                              {formatDate(savedReport.updatedAt)}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteSavedReport(savedReport)}
+                            disabled={savedReportsLoading}
+                            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md border border-[#e0b8b8] bg-white text-[13px] font-black leading-none text-[#a82727] transition hover:border-[#d98b8b] hover:bg-[#fff5f5] disabled:cursor-wait disabled:opacity-60"
+                            aria-label={`Delete ${displayName}`}
+                            title={`Delete ${displayName}`}
+                          >
+                            x
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
+                    No saved editable reports yet.
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
-                No saved editable reports yet.
-              </div>
-            )}
-          </div>
+            </>
+          )}
         </aside>
       </main>
     </div>
