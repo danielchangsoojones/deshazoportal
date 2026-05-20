@@ -24,6 +24,10 @@ create table if not exists public.editable_inspection_menu_items (
   label text not null,
   description text not null,
   rate numeric(12, 2) not null default 0,
+  source_document_id uuid references public.editable_inspection_documents (id) on delete set null,
+  source_document_name text,
+  source_document_bucket text,
+  source_document_file_path text,
   display_order integer not null default 0,
   sync_token uuid not null default gen_random_uuid(),
   created_at timestamptz not null default timezone('utc', now()),
@@ -37,6 +41,12 @@ create table if not exists public.editable_inspection_menu_items (
   constraint editable_inspection_menu_items_display_order_not_negative
     check (display_order >= 0)
 );
+
+alter table public.editable_inspection_menu_items
+  add column if not exists source_document_id uuid references public.editable_inspection_documents (id) on delete set null,
+  add column if not exists source_document_name text,
+  add column if not exists source_document_bucket text,
+  add column if not exists source_document_file_path text;
 
 do $$
 begin
@@ -95,6 +105,9 @@ create index if not exists editable_inspection_menu_items_user_label_idx
 
 create index if not exists editable_inspection_menu_items_user_sync_token_idx
   on public.editable_inspection_menu_items (user_id, sync_token);
+
+create index if not exists editable_inspection_menu_items_user_source_document_idx
+  on public.editable_inspection_menu_items (user_id, source_document_id);
 
 create or replace function public.set_editable_inspection_menu_items_updated_at()
 returns trigger

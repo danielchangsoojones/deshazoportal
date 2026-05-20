@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 
-const bucketName = 'editable-inspection-documents'
+export const editableInspectionDocumentsBucketName = 'editable-inspection-documents'
 const signedUrlTtlSeconds = 60 * 60
 const defaultVendorInvoicePdfUploadUrl =
   'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com/extend/deshazo-quote-vendor-invoice/pdf'
@@ -79,7 +79,26 @@ async function createSignedUrl(filePath: string) {
   }
 
   const { data, error } = await supabase.storage
-    .from(bucketName)
+    .from(editableInspectionDocumentsBucketName)
+    .createSignedUrl(filePath, signedUrlTtlSeconds)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data.signedUrl
+}
+
+export async function getEditableInspectionDocumentSignedUrl(
+  filePath: string,
+  bucketName = editableInspectionDocumentsBucketName,
+) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const { data, error } = await supabase.storage
+    .from(bucketName || editableInspectionDocumentsBucketName)
     .createSignedUrl(filePath, signedUrlTtlSeconds)
 
   if (error) {
@@ -103,13 +122,23 @@ async function mapDocumentRow(row: EditableInspectionDocumentRow): Promise<Edita
   }
 }
 
-async function submitPdfToVendorInvoiceWorkflow(file: File, fileName: string, userId: string, craneIdentifier?: string) {
+async function submitPdfToVendorInvoiceWorkflow(
+  file: File,
+  fileName: string,
+  userId: string,
+  document: EditableInspectionDocument,
+  craneIdentifier?: string,
+) {
   const response = await fetch(vendorInvoicePdfUploadUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/pdf',
       'x-file-name': fileName,
       'x-menu-item-user-id': userId,
+      'x-source-document-id': document.id,
+      'x-source-document-name': document.name,
+      'x-source-document-bucket': editableInspectionDocumentsBucketName,
+      'x-source-document-file-path': document.filePath,
       ...(craneIdentifier ? { 'x-crane-identifier': craneIdentifier } : {}),
     },
     body: file,
@@ -131,7 +160,7 @@ async function addWorkflowSubmissionStatus(
   craneIdentifier?: string,
 ) {
   try {
-    await submitPdfToVendorInvoiceWorkflow(file, fileName, userId, craneIdentifier)
+    await submitPdfToVendorInvoiceWorkflow(file, fileName, userId, document, craneIdentifier)
     return document
   } catch (error) {
     return {
@@ -207,7 +236,7 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
   const filePath = `${userId}/${documentId}/${fileName}`
 
   const { error: uploadError } = await supabase.storage
-    .from(bucketName)
+    .from(editableInspectionDocumentsBucketName)
     .upload(filePath, input.file, {
       contentType: 'application/pdf',
       upsert: false,
@@ -235,7 +264,7 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
     .single()
 
   if (error) {
-    await supabase.storage.from(bucketName).remove([filePath])
+    await supabase.storage.from(editableInspectionDocumentsBucketName).remove([filePath])
     throw new Error(error.message)
   }
 
@@ -269,7 +298,7 @@ export async function deleteEditableInspectionDocument(document: EditableInspect
   }
 
   const { error: deleteFileError } = await supabase.storage
-    .from(bucketName)
+    .from(editableInspectionDocumentsBucketName)
     .remove([document.filePath])
 
   if (deleteFileError) {

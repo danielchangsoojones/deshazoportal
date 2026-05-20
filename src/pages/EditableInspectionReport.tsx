@@ -10,6 +10,7 @@ import {
 import {
   deleteEditableInspectionDocument,
   getEditableInspectionDocuments,
+  getEditableInspectionDocumentSignedUrl,
   uploadEditableInspectionDocument,
   type EditableInspectionDocument,
 } from '../lib/editableInspectionDocuments'
@@ -2145,6 +2146,23 @@ export default function EditableInspectionReport() {
     await addRelatedDocuments(pdfs, 'Uploaded PDF')
   }
 
+  const openMenuItemSourceDocument = async (item: MenuItem) => {
+    if (!item.sourceDocumentFilePath) {
+      setRelatedDocumentsMessage('This menu item does not have a source PDF path yet.')
+      return
+    }
+
+    try {
+      const sourceDocumentUrl = await getEditableInspectionDocumentSignedUrl(
+        item.sourceDocumentFilePath,
+        item.sourceDocumentBucket ?? undefined,
+      )
+      window.open(sourceDocumentUrl, '_blank', 'noopener,noreferrer')
+    } catch (error) {
+      setRelatedDocumentsMessage(error instanceof Error ? error.message : 'Source PDF could not be opened.')
+    }
+  }
+
   const deleteRelatedDocument = async (document: RelatedDocument) => {
     setRelatedDocumentsMessage(`Deleting ${document.name}.`)
 
@@ -2936,6 +2954,21 @@ export default function EditableInspectionReport() {
                                 className="mt-2 rounded-md border border-[#f5b400] bg-[#fff2bf] px-2 py-1 text-[10px] font-black uppercase leading-tight text-[#6c4a00] shadow-sm transition hover:bg-[#ffe68a]"
                               >
                                 Master Service Agreement
+                              </button>
+                            ) : null}
+                            {item.sourceDocumentName ? (
+                              <button
+                                type="button"
+                                draggable={false}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openMenuItemSourceDocument(item)
+                                }}
+                                onDragStart={(event) => event.preventDefault()}
+                                className="mt-2 block max-w-full whitespace-normal break-words rounded-md border border-[#9fd5b0] bg-[#effaf2] px-2 py-1 text-left text-[10px] font-black uppercase leading-tight text-[#1f7a3a] shadow-sm transition hover:border-[#70bd87] hover:bg-[#e3f6e8]"
+                                title={`Open source PDF: ${item.sourceDocumentName}`}
+                              >
+                                {item.sourceDocumentName}
                               </button>
                             ) : null}
                           </div>

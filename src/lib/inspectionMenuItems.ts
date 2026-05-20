@@ -5,6 +5,10 @@ export type InspectionMenuItem = {
   label: string
   description: string
   rate: string
+  sourceDocumentId?: string | null
+  sourceDocumentName?: string | null
+  sourceDocumentBucket?: string | null
+  sourceDocumentFilePath?: string | null
 }
 
 export type InspectionMenuItemSection = {
@@ -25,6 +29,10 @@ type EditableInspectionMenuItemsRow = {
   label: string
   description: string
   rate: string | number
+  source_document_id: string | null
+  source_document_name: string | null
+  source_document_bucket: string | null
+  source_document_file_path: string | null
   display_order: number
   sync_token: string
   updated_at: string
@@ -37,9 +45,29 @@ type EditableInspectionMenuItemsInsert = {
   label: string
   description: string
   rate: string
+  source_document_id?: string | null
+  source_document_name?: string | null
+  source_document_bucket?: string | null
+  source_document_file_path?: string | null
   display_order: number
   sync_token: string
 }
+
+const inspectionMenuItemsSelect = `
+  id,
+  user_id,
+  section_title,
+  label,
+  description,
+  rate,
+  source_document_id,
+  source_document_name,
+  source_document_bucket,
+  source_document_file_path,
+  display_order,
+  sync_token,
+  updated_at
+`
 
 function createMenuItemId() {
   return globalThis.crypto?.randomUUID?.()
@@ -58,6 +86,10 @@ function mapMenuItemsRows(userId: string, rows: EditableInspectionMenuItemsRow[]
       label: row.label,
       description: row.description,
       rate: String(row.rate),
+      sourceDocumentId: row.source_document_id,
+      sourceDocumentName: row.source_document_name,
+      sourceDocumentBucket: row.source_document_bucket,
+      sourceDocumentFilePath: row.source_document_file_path,
     })
     sectionMap.set(row.section_title, items)
 
@@ -80,6 +112,10 @@ function flattenMenuSections(userId: string, syncToken: string, menuSections: In
         label: item.label,
         description: item.description,
         rate: item.rate,
+        source_document_id: item.sourceDocumentId ?? null,
+        source_document_name: item.sourceDocumentName ?? null,
+        source_document_bucket: item.sourceDocumentBucket ?? null,
+        source_document_file_path: item.sourceDocumentFilePath ?? null,
         display_order: itemIndex,
         sync_token: syncToken,
       }
@@ -121,7 +157,7 @@ export async function getInspectionMenuItems() {
   const userId = await getCurrentUserId()
   const { data, error } = await supabase
     .from('editable_inspection_menu_items')
-    .select('id, user_id, section_title, label, description, rate, display_order, sync_token, updated_at')
+    .select(inspectionMenuItemsSelect)
     .eq('user_id', userId)
     .order('section_title', { ascending: true })
     .order('display_order', { ascending: true })
@@ -166,7 +202,7 @@ export async function upsertInspectionMenuItems(menuSections: InspectionMenuItem
   const { data, error } = await supabase
     .from('editable_inspection_menu_items')
     .upsert(rows, { onConflict: 'id' })
-    .select('id, user_id, section_title, label, description, rate, display_order, sync_token, updated_at')
+    .select(inspectionMenuItemsSelect)
     .order('section_title', { ascending: true })
     .order('display_order', { ascending: true })
     .order('label', { ascending: true })
