@@ -2412,6 +2412,20 @@ export default function EditableInspectionReport() {
     })
   }
 
+  const printEditableReport = () => {
+    const previousTitle = document.title
+    document.title = currentReportName || 'DESHAZO Quote Proposal'
+
+    const restoreTitle = () => {
+      document.title = previousTitle
+      window.removeEventListener('afterprint', restoreTitle)
+    }
+
+    window.addEventListener('afterprint', restoreTitle)
+    window.print()
+    window.setTimeout(restoreTitle, 1000)
+  }
+
   return (
     <div className="min-h-screen bg-[#e8eaef] text-[#111]">
       <style>
@@ -2461,6 +2475,13 @@ export default function EditableInspectionReport() {
           }
 
           @media print {
+            *,
+            *::before,
+            *::after {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+
             @page {
               size: ${printedPageWidthIn}in ${printedPageHeightIn}in;
               margin: ${printedPageMarginIn}in;
@@ -2749,7 +2770,7 @@ export default function EditableInspectionReport() {
             </button>
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={printEditableReport}
               className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff]"
             >
               Print PDF
