@@ -11,6 +11,11 @@ import {
   type JobsQuotingItem,
   type JobsQuotingRun,
 } from '../lib/jobsQuoting'
+import {
+  deleteEditableInspectionReport,
+  getEditableInspectionReports,
+  type EditableInspectionReport,
+} from '../lib/editableInspectionReports'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const activeStatuses = new Set(['uploading', 'pending', 'processing', 'needs_review'])
@@ -44,12 +49,32 @@ function getFriendlyErrorMessage(error: unknown) {
   return message
 }
 
+function removeReportValueLabel(value: string) {
+  return value.includes(':') ? value.split(':').slice(1).join(':').trim() : value.trim()
+}
+
+function getDNumberFromReport(reportData: Record<string, string>) {
+  const reportText = Object.values(reportData).join(' ')
+  const match = reportText.match(/\bD[\s-]*\d{3,}\b/i)
+  return match ? match[0].replace(/[\s-]+/g, '').toUpperCase() : ''
+}
+
+function getEditableReportDisplayName(report: EditableInspectionReport) {
+  const dNumber = getDNumberFromReport(report.reportData)
+  const jobNumber = removeReportValueLabel(report.reportData.jobNumber ?? '').replace(/^#\s*/, '')
+  const nameParts = [dNumber, jobNumber ? `Job #${jobNumber}` : ''].filter(Boolean)
+  return nameParts.length > 0 ? nameParts.join(' - ') : report.reportName
+}
+
 export default function JobsQuotingList() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [runs, setRuns] = useState<JobsQuotingRun[]>([])
   const [items, setItems] = useState<JobsQuotingItem[]>([])
+  const [savedReports, setSavedReports] = useState<EditableInspectionReport[]>([])
+  const [savedReportsLoading, setSavedReportsLoading] = useState(false)
+  const [savedReportsMessage, setSavedReportsMessage] = useState('')
   const [selectedRunId, setSelectedRunId] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -100,14 +125,30 @@ export default function JobsQuotingList() {
     }
   }, [selectedRunId])
 
+  const loadSavedReports = useCallback(async () => {
+    setSavedReportsLoading(true)
+    setSavedReportsMessage('')
+
+    try {
+      const reports = await getEditableInspectionReports()
+      setSavedReports(reports)
+      setSavedReportsMessage(reports.length > 0 ? `${reports.length} saved editable report${reports.length === 1 ? '' : 's'}.` : 'No saved editable reports yet.')
+    } catch (error) {
+      setSavedReportsMessage(error instanceof Error ? error.message : 'Saved reports could not be loaded.')
+    } finally {
+      setSavedReportsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (user) {
       loadQuotingData()
+      loadSavedReports()
       getCurrentUserTag(user.id)
         .then(setUserTag)
         .catch(() => setUserTag(null))
     }
-  }, [loadQuotingData, user])
+  }, [loadQuotingData, loadSavedReports, user])
 
   useEffect(() => {
     if (user) {
@@ -231,6 +272,28 @@ export default function JobsQuotingList() {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
       setOpeningItemId(null)
+    }
+  }
+
+  const openSavedReport = (report: EditableInspectionReport) => {
+    navigate(`/editable-inspection-report?editableReportId=${encodeURIComponent(report.id)}`)
+  }
+
+  const deleteSavedReport = async (report: EditableInspectionReport) => {
+    const reportName = getEditableReportDisplayName(report)
+    if (!window.confirm(`Delete saved report "${reportName}"?`)) return
+
+    setSavedReportsLoading(true)
+    setSavedReportsMessage(`Deleting ${reportName}.`)
+
+    try {
+      await deleteEditableInspectionReport(report.id)
+      setSavedReports((currentReports) => currentReports.filter((currentReport) => currentReport.id !== report.id))
+      setSavedReportsMessage(`Deleted ${reportName}.`)
+    } catch (error) {
+      setSavedReportsMessage(error instanceof Error ? error.message : 'Saved report could not be deleted.')
+    } finally {
+      setSavedReportsLoading(false)
     }
   }
 
@@ -523,6 +586,85 @@ export default function JobsQuotingList() {
               </div>
             </section>
         </section>
+        <aside className="hidden w-[320px] shrink-0 flex-col border-l border-[#d9dce5] bg-[#fbfcff] shadow-sm xl:flex">
+          <div className="border-b border-[#dfe4ef] px-4 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-[15px] font-black text-[#1f2430]">Saved Reports</h2>
+                <p className="mt-0.5 text-[11px] font-semibold text-[#747b8a]">Editable quote drafts</p>
+              </div>
+              <button
+                type="button"
+                onClick={loadSavedReports}
+                disabled={savedReportsLoading}
+                className="rounded-md border border-[#bdc4d3] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-wait disabled:opacity-60"
+              >
+                Reload
+              </button>
+            </div>
+            <div
+              className={`mt-3 rounded-md border px-3 py-2 text-[11px] font-bold leading-tight ${
+                savedReportsMessage.toLowerCase().includes('could not') || savedReportsMessage.toLowerCase().includes('failed')
+                  ? 'border-[#f3c7c7] bg-[#fff5f5] text-[#9f1d1d]'
+                  : 'border-[#cfe6d5] bg-[#f3fbf5] text-[#286239]'
+              }`}
+            >
+              {savedReportsLoading ? 'Loading saved editable reports.' : savedReportsMessage || 'Saved editable reports will appear here.'}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
+            {savedReportsLoading && savedReports.length === 0 ? (
+              <div className="rounded-md border border-[#dfe4ef] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
+                Loading saved reports...
+              </div>
+            ) : savedReports.length > 0 ? (
+              <div className="space-y-2">
+                {savedReports.map((savedReport) => {
+                  const displayName = getEditableReportDisplayName(savedReport)
+
+                  return (
+                    <div
+                      key={savedReport.id}
+                      className="relative rounded-md border border-[#dfe4ef] bg-white transition hover:bg-[#f4f6fb]"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openSavedReport(savedReport)}
+                        disabled={savedReportsLoading}
+                        className="w-full px-3 py-2 pr-10 text-left disabled:cursor-wait disabled:opacity-65"
+                      >
+                        <span className="block whitespace-normal break-words text-[13px] font-black leading-snug text-[#1f2430]">
+                          {displayName}
+                        </span>
+                        <span className="mt-1 block whitespace-normal break-words text-[11px] font-semibold leading-snug text-[#747b8a]">
+                          {savedReport.sourceDocumentName}
+                        </span>
+                        <span className="mt-2 block text-[10px] font-black uppercase text-[#8b91a1]">
+                          {formatDate(savedReport.updatedAt)}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteSavedReport(savedReport)}
+                        disabled={savedReportsLoading}
+                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md border border-[#e0b8b8] bg-white text-[13px] font-black leading-none text-[#a82727] transition hover:border-[#d98b8b] hover:bg-[#fff5f5] disabled:cursor-wait disabled:opacity-60"
+                        aria-label={`Delete ${displayName}`}
+                        title={`Delete ${displayName}`}
+                      >
+                        x
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
+                No saved editable reports yet.
+              </div>
+            )}
+          </div>
+        </aside>
       </main>
     </div>
   )
