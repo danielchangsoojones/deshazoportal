@@ -11,6 +11,7 @@ import {
   type JobsQuotingItem,
   type JobsQuotingRun,
 } from '../lib/jobsQuoting'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const activeStatuses = new Set(['uploading', 'pending', 'processing', 'needs_review'])
 
@@ -46,6 +47,7 @@ function getFriendlyErrorMessage(error: unknown) {
 export default function JobsQuotingList() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [runs, setRuns] = useState<JobsQuotingRun[]>([])
   const [items, setItems] = useState<JobsQuotingItem[]>([])
   const [selectedRunId, setSelectedRunId] = useState<string>('')
@@ -57,6 +59,7 @@ export default function JobsQuotingList() {
   const navigate = useNavigate()
 
   const selectedRun = runs.find((run) => run.id === selectedRunId)
+  const canUseExtendControls = userTag === 'developer'
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -100,6 +103,9 @@ export default function JobsQuotingList() {
   useEffect(() => {
     if (user) {
       loadQuotingData()
+      getCurrentUserTag(user.id)
+        .then(setUserTag)
+        .catch(() => setUserTag(null))
     }
   }, [loadQuotingData, user])
 
@@ -416,7 +422,7 @@ export default function JobsQuotingList() {
                   </p>
                 </div>
 
-                {selectedRun ? (
+                {selectedRun && canUseExtendControls ? (
                   <div className="flex flex-wrap gap-2">
                     {selectedRun.extendWorkflowUrl ? (
                       <a
