@@ -634,7 +634,7 @@ export default function JobsQuotingList() {
             <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
               <div className="rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
                 <div className="text-[12px] font-black uppercase text-[#273f7a]">Upload Inspection Reports</div>
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className={`mt-2 grid gap-2 ${canUseExtendControls ? 'grid-cols-3' : 'grid-cols-2'}`}>
                   <button
                     type="button"
                     disabled={busy}
@@ -643,25 +643,23 @@ export default function JobsQuotingList() {
                   >
                     Upload PDF
                   </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => splitFolderInputRef.current?.click()}
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Choose Folder
+                  </button>
                   {canUseExtendControls ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => splitFolderInputRef.current?.click()}
-                        className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Choose Folder
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => giantPdfInputRef.current?.click()}
-                        className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Giant PDF
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => giantPdfInputRef.current?.click()}
+                      className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Giant PDF
+                    </button>
                   ) : null}
                 </div>
               </div>
