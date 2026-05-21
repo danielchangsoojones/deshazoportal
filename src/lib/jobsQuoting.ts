@@ -42,6 +42,7 @@ export type JobsQuotingItem = {
   pdfContentType: string
   extractionData: Record<string, unknown>
   createdAt: string
+  updatedAt: string
 }
 
 type JobsQuotingRunRow = {
@@ -73,6 +74,7 @@ type JobsQuotingItemRow = {
   pdf_content_type: string | null
   extraction_data: Record<string, unknown> | null
   created_at: string
+  updated_at: string
 }
 
 export type JobsQuotingUploadResult = {
@@ -83,6 +85,9 @@ export type JobsQuotingUploadResult = {
 }
 
 export type JobsQuotingRunDetails = JobsQuotingUploadResult
+
+const supabasePageSize = 1000
+const runIdFilterChunkSize = 100
 
 function mapRun(row: JobsQuotingRunRow): JobsQuotingRun {
   return {
@@ -120,6 +125,7 @@ function mapItem(row: JobsQuotingItemRow): JobsQuotingItem {
     pdfContentType: row.pdf_content_type ?? 'application/pdf',
     extractionData: row.extraction_data ?? {},
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 
@@ -129,6 +135,40 @@ function requireSupabase() {
   }
 
   return supabase
+}
+
+function chunkValues<T>(values: T[], size: number) {
+  const chunks: T[][] = []
+
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size))
+  }
+
+  return chunks
+}
+
+async function fetchAllPages<Row>(buildQuery: (from: number, to: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>) {
+  const rows: Row[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await buildQuery(from, from + supabasePageSize - 1)
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    const pageRows = data ?? []
+    rows.push(...pageRows)
+
+    if (pageRows.length < supabasePageSize) {
+      break
+    }
+
+    from += supabasePageSize
+  }
+
+  return rows
 }
 
 async function getCurrentUserId() {
@@ -164,45 +204,43 @@ async function getAccessToken() {
 
 export async function getJobsQuotingRuns(): Promise<JobsQuotingRun[]> {
   const client = requireSupabase()
-  const userId = await getCurrentUserId()
+  await getCurrentUserId()
 
-  const { data, error } = await client
-    .from('jobs_quoting_runs')
-    .select('id, source_file_name, status, extend_workflow_run_id, extend_workflow_url, error_message, created_at, updated_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
+  const rows = await fetchAllPages<JobsQuotingRunRow>((from, to) =>
+    client
+      .from('jobs_quoting_runs')
+      .select('id, source_file_name, status, extend_workflow_run_id, extend_workflow_url, error_message, created_at, updated_at')
+      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(from, to),
+  )
 
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return ((data ?? []) as JobsQuotingRunRow[]).map(mapRun)
+  return rows.map(mapRun)
 }
 
 export async function getJobsQuotingItems(runId?: string): Promise<JobsQuotingItem[]> {
   const client = requireSupabase()
-  const userId = await getCurrentUserId()
-  let query = client
-    .from('jobs_quoting_items')
-    .select(
-      'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at',
-    )
-    .eq('user_id', userId)
-    .order('repair_count', { ascending: false })
-    .order('safety_count', { ascending: false })
-    .order('created_at', { ascending: false })
+  await getCurrentUserId()
+  const rows = await fetchAllPages<JobsQuotingItemRow>((from, to) => {
+    let query = client
+      .from('jobs_quoting_items')
+      .select(
+        'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
+      )
+      .order('repair_count', { ascending: false })
+      .order('safety_count', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(from, to)
 
-  if (runId) {
-    query = query.eq('run_id', runId)
-  }
+    if (runId) {
+      query = query.eq('run_id', runId)
+    }
 
-  const { data, error } = await query
+    return query
+  })
 
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return ((data ?? []) as JobsQuotingItemRow[]).map(mapItem)
+  return rows.map(mapItem)
 }
 
 export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<JobsQuotingItem[]> {
@@ -210,35 +248,40 @@ export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<Jobs
   if (uniqueRunIds.length === 0) return []
 
   const client = requireSupabase()
-  const userId = await getCurrentUserId()
-  const { data, error } = await client
-    .from('jobs_quoting_items')
-    .select(
-      'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at',
-    )
-    .eq('user_id', userId)
-    .in('run_id', uniqueRunIds)
-    .order('repair_count', { ascending: false })
-    .order('safety_count', { ascending: false })
-    .order('created_at', { ascending: false })
+  await getCurrentUserId()
 
-  if (error) {
-    throw new Error(error.message)
+  const rows: JobsQuotingItemRow[] = []
+
+  for (const runIdChunk of chunkValues(uniqueRunIds, runIdFilterChunkSize)) {
+    const chunkRows = await fetchAllPages<JobsQuotingItemRow>((from, to) =>
+      client
+        .from('jobs_quoting_items')
+        .select(
+          'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
+        )
+        .in('run_id', runIdChunk)
+        .order('repair_count', { ascending: false })
+        .order('safety_count', { ascending: false })
+        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .range(from, to),
+    )
+
+    rows.push(...chunkRows)
   }
 
-  return ((data ?? []) as JobsQuotingItemRow[]).map(mapItem)
+  return rows.map(mapItem)
 }
 
 export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingItem> {
   const client = requireSupabase()
-  const userId = await getCurrentUserId()
+  await getCurrentUserId()
   const { data, error } = await client
     .from('jobs_quoting_items')
     .select(
-      'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at',
+      'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
     )
     .eq('id', itemId)
-    .eq('user_id', userId)
     .single()
 
   if (error) {

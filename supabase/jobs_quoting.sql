@@ -105,18 +105,16 @@ grant select, insert, update, delete on table public.editable_inspection_documen
 
 do $$
 begin
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'jobs_quoting_runs'
-      and policyname = 'Authenticated users can read their quote runs'
-  ) then
-    create policy "Authenticated users can read their quote runs"
-      on public.jobs_quoting_runs
-      for select
-      to authenticated
-      using ((select auth.uid()) = user_id);
-  end if;
+  drop policy if exists "Authenticated users can read their quote runs"
+    on public.jobs_quoting_runs;
+  drop policy if exists "Authenticated users can read all quote runs"
+    on public.jobs_quoting_runs;
+
+  create policy "Authenticated users can read all quote runs"
+    on public.jobs_quoting_runs
+    for select
+    to authenticated
+    using (true);
 
   if not exists (
     select 1 from pg_policies
@@ -145,18 +143,16 @@ begin
       with check ((select auth.uid()) = user_id);
   end if;
 
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'jobs_quoting_items'
-      and policyname = 'Authenticated users can read their quote items'
-  ) then
-    create policy "Authenticated users can read their quote items"
-      on public.jobs_quoting_items
-      for select
-      to authenticated
-      using ((select auth.uid()) = user_id);
-  end if;
+  drop policy if exists "Authenticated users can read their quote items"
+    on public.jobs_quoting_items;
+  drop policy if exists "Authenticated users can read all quote items"
+    on public.jobs_quoting_items;
+
+  create policy "Authenticated users can read all quote items"
+    on public.jobs_quoting_items
+    for select
+    to authenticated
+    using (true);
 
   if not exists (
     select 1 from pg_policies
@@ -189,21 +185,16 @@ $$;
 
 do $$
 begin
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'storage'
-      and tablename = 'objects'
-      and policyname = 'Authenticated users can read their jobs quoting PDFs'
-  ) then
-    create policy "Authenticated users can read their jobs quoting PDFs"
-      on storage.objects
-      for select
-      to authenticated
-      using (
-        bucket_id = 'jobs-quoting-pdfs'
-        and (storage.foldername(name))[1] = (select auth.uid())::text
-      );
-  end if;
+  drop policy if exists "Authenticated users can read their jobs quoting PDFs"
+    on storage.objects;
+  drop policy if exists "Authenticated users can read all jobs quoting PDFs"
+    on storage.objects;
+
+  create policy "Authenticated users can read all jobs quoting PDFs"
+    on storage.objects
+    for select
+    to authenticated
+    using (bucket_id = 'jobs-quoting-pdfs');
 
   if not exists (
     select 1 from pg_policies

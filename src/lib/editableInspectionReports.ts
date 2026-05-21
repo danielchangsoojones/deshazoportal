@@ -103,11 +103,10 @@ export async function getEditableInspectionReports() {
     throw new Error('Supabase is not configured.')
   }
 
-  const userId = await getCurrentUserId()
+  await getCurrentUserId()
   const { data, error } = await supabase
     .from('editable_inspection_reports')
     .select(editableInspectionReportsSelect)
-    .eq('user_id', userId)
     .order('updated_at', { ascending: false })
 
   if (error) {
@@ -122,12 +121,11 @@ export async function getEditableInspectionReport(reportId: string) {
     throw new Error('Supabase is not configured.')
   }
 
-  const userId = await getCurrentUserId()
+  await getCurrentUserId()
   const { data, error } = await supabase
     .from('editable_inspection_reports')
     .select(editableInspectionReportsSelect)
     .eq('id', reportId)
-    .eq('user_id', userId)
     .single()
 
   if (error) {
@@ -142,11 +140,10 @@ export async function getEditableInspectionReportForJobsQuotingItem(jobsQuotingI
     throw new Error('Supabase is not configured.')
   }
 
-  const userId = await getCurrentUserId()
+  await getCurrentUserId()
   const { data, error } = await supabase
     .from('editable_inspection_reports')
     .select(editableInspectionReportsSelect)
-    .eq('user_id', userId)
     .eq('jobs_quoting_item_id', jobsQuotingItemId)
     .order('updated_at', { ascending: false })
     .limit(1)

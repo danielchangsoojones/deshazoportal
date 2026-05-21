@@ -52,19 +52,16 @@ grant select, insert, update, delete on table public.editable_inspection_reports
 
 do $$
 begin
-  if not exists (
-    select 1
-    from pg_policies
-    where schemaname = 'public'
-      and tablename = 'editable_inspection_reports'
-      and policyname = 'Authenticated users can read their editable inspection reports'
-  ) then
-    create policy "Authenticated users can read their editable inspection reports"
-      on public.editable_inspection_reports
-      for select
-      to authenticated
-      using ((select auth.uid()) = user_id);
-  end if;
+  drop policy if exists "Authenticated users can read their editable inspection reports"
+    on public.editable_inspection_reports;
+  drop policy if exists "Authenticated users can read all editable inspection reports"
+    on public.editable_inspection_reports;
+
+  create policy "Authenticated users can read all editable inspection reports"
+    on public.editable_inspection_reports
+    for select
+    to authenticated
+    using (true);
 
   if not exists (
     select 1
@@ -80,33 +77,27 @@ begin
       with check ((select auth.uid()) = user_id);
   end if;
 
-  if not exists (
-    select 1
-    from pg_policies
-    where schemaname = 'public'
-      and tablename = 'editable_inspection_reports'
-      and policyname = 'Authenticated users can update their editable inspection reports'
-  ) then
-    create policy "Authenticated users can update their editable inspection reports"
-      on public.editable_inspection_reports
-      for update
-      to authenticated
-      using ((select auth.uid()) = user_id)
-      with check ((select auth.uid()) = user_id);
-  end if;
+  drop policy if exists "Authenticated users can update their editable inspection reports"
+    on public.editable_inspection_reports;
+  drop policy if exists "Authenticated users can update all editable inspection reports"
+    on public.editable_inspection_reports;
 
-  if not exists (
-    select 1
-    from pg_policies
-    where schemaname = 'public'
-      and tablename = 'editable_inspection_reports'
-      and policyname = 'Authenticated users can delete their editable inspection reports'
-  ) then
-    create policy "Authenticated users can delete their editable inspection reports"
-      on public.editable_inspection_reports
-      for delete
-      to authenticated
-      using ((select auth.uid()) = user_id);
-  end if;
+  create policy "Authenticated users can update all editable inspection reports"
+    on public.editable_inspection_reports
+    for update
+    to authenticated
+    using (true)
+    with check (true);
+
+  drop policy if exists "Authenticated users can delete their editable inspection reports"
+    on public.editable_inspection_reports;
+  drop policy if exists "Authenticated users can delete all editable inspection reports"
+    on public.editable_inspection_reports;
+
+  create policy "Authenticated users can delete all editable inspection reports"
+    on public.editable_inspection_reports
+    for delete
+    to authenticated
+    using (true);
 end
 $$;
