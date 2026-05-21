@@ -22,7 +22,22 @@
       "Bash(/opt/homebrew/bin/brew list:*)",
       "Read(//opt/homebrew/bin/**)",
       "Bash(/Users/danieljones/Documents/deshazoportal/.env.local:*)",
-      "Bash(git -C /Users/danieljones/Documents/deshazoportal remote -v)"
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal remote -v)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal checkout danielmockdata)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal fetch --all)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal branch -a)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal checkout develop-EricNotesToBuild)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal checkout -b danielmockdata)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal add src/pages/AssetInfo.tsx)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal commit -m ' *)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal push -u origin danielmockdata)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal push origin danielmockdata)",
+      "Bash(npm run *)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal diff --stat)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal add .claude/settings.local.json)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal add src/pages/AssetInfo.tsx package.json package-lock.json)",
+      "Bash(git -C /Users/danieljones/Documents/deshazoportal add -A)",
+      "Bash(npx tsc *)"
     ]
   }
 }

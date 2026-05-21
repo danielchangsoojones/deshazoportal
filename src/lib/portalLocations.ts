@@ -1,0 +1,18 @@
+export const portalLocationOptions = [
+  { label: 'Apollo Beach, FL', value: 'apollo_beach_fl' },
+  { label: 'Cadiz, KY', value: 'cadiz_ky' },
+  { label: 'Cleburne, TX', value: 'cleburne_tx' },
+  { label: 'Elroy, WI', value: 'elroy_wi' },
+  { label: 'Fond du Lac, WI', value: 'fond_du_lac_wi' },
+  { label: 'Goshen, IN', value: 'goshen_in' },
+  { label: 'Griffin, GA', value: 'griffin_ga' },
+  { label: 'Groveport, OH', value: 'groveport_oh' },
+  { label: 'Harrison, AK', value: 'harrison_ak' },
+  { label: 'Jonestown, PA', value: 'jonestown_pa' },
+  { label: 'Ligonier, IN', value: 'ligonier_in' },
+  { label: 'Little Falls, MN', value: 'little_falls_mn' },
+  { label: 'Maustin, WI', value: 'maustin_wi' },
+  { label: 'Moreno Valley, CA', value: 'moreno_valley_ca' },
+  { label: 'New Lisbon, WI', value: 'new_lisbon_wi' },
+  { label: 'Perris, CA', value: 'perris_ca' },
+] as const
