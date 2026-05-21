@@ -350,6 +350,21 @@ const getNormalizedMenuSectionTitle = (title: string, craneIdentifier: string) =
   return craneIdentifier
 }
 
+const getMenuItemModifiedTime = (item: MenuItem) => {
+  if (!item.updatedAt) return 0
+  const modifiedTime = Date.parse(item.updatedAt)
+  return Number.isFinite(modifiedTime) ? modifiedTime : 0
+}
+
+const sortMenuItemsByModifiedDate = (items: MenuItem[]) =>
+  items
+    .map((item, index) => ({ item, index }))
+    .sort((first, second) => {
+      const modifiedDateDifference = getMenuItemModifiedTime(second.item) - getMenuItemModifiedTime(first.item)
+      return modifiedDateDifference || first.index - second.index
+    })
+    .map(({ item }) => item)
+
 const getCraneIdentifierFromReport = (report: ReportData) => {
   const reportText = [
     report.summary,
@@ -761,7 +776,13 @@ const normalizeMenuItemSections = (sections: MenuItemSection[], craneIdentifier 
         ![recentlyUsedMenuSectionTitle, craneIdentifier, 'Customer specific', 'Shared'].includes(sectionTitle),
     ),
   ]
-    .map((sectionTitle) => sectionMap.get(sectionTitle))
+    .map((sectionTitle) => {
+      const section = sectionMap.get(sectionTitle)
+      if (!section) return undefined
+      return section.title === craneIdentifier
+        ? { ...section, items: sortMenuItemsByModifiedDate(section.items) }
+        : section
+    })
     .filter((section): section is MenuItemSection => Boolean(section))
 }
 
@@ -1857,6 +1878,7 @@ export default function EditableInspectionReport() {
       label,
       description,
       rate: parseMoney(newMenuRate).toFixed(2),
+      updatedAt: new Date().toISOString(),
     }
 
     setMenuItemSections((currentSections) =>
@@ -1890,6 +1912,7 @@ export default function EditableInspectionReport() {
     if (!label || !description) return
 
     const nextRate = parseMoney(editingMenuItem.rate).toFixed(2)
+    const updatedAt = new Date().toISOString()
 
     setMenuItemSections((currentSections) =>
       saveMenuItemSections(
@@ -1900,6 +1923,7 @@ export default function EditableInspectionReport() {
               label,
               description,
               rate: nextRate,
+              updatedAt,
             }
 
             if (section.title === editingMenuItem.originalSectionTitle) {

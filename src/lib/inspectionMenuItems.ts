@@ -5,6 +5,7 @@ export type InspectionMenuItem = {
   label: string
   description: string
   rate: string
+  updatedAt?: string
   sourceDocumentId?: string | null
   sourceDocumentName?: string | null
   sourceDocumentBucket?: string | null
@@ -86,6 +87,7 @@ function mapMenuItemsRows(userId: string, rows: EditableInspectionMenuItemsRow[]
       label: row.label,
       description: row.description,
       rate: String(row.rate),
+      updatedAt: row.updated_at,
       sourceDocumentId: row.source_document_id,
       sourceDocumentName: row.source_document_name,
       sourceDocumentBucket: row.source_document_bucket,
