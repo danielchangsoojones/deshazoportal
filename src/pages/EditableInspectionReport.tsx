@@ -999,6 +999,7 @@ export default function EditableInspectionReport() {
   const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
+  const menuItemsRefreshRequestId = useRef(0)
   const textBoxDragStart = useRef<Record<string, { clientX: number; clientY: number; x: number; y: number }>>({})
   const reportContentRef = useRef<HTMLElement>(null)
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
@@ -1556,12 +1557,14 @@ export default function EditableInspectionReport() {
         return false
       }
 
+      const refreshRequestId = menuItemsRefreshRequestId.current + 1
+      menuItemsRefreshRequestId.current = refreshRequestId
       setMenuDatabaseStatus('loading')
       setMenuDatabaseMessage(loadingMessage)
 
       try {
         const savedMenu = await getInspectionMenuItems()
-        if (!shouldApply()) return false
+        if (!shouldApply() || refreshRequestId !== menuItemsRefreshRequestId.current) return false
 
         if (savedMenu) {
           const normalizedSections = normalizeMenuItemSections(
@@ -1580,7 +1583,7 @@ export default function EditableInspectionReport() {
         setMenuDatabaseStatus('saved')
         return true
       } catch (error) {
-        if (!shouldApply()) return false
+        if (!shouldApply() || refreshRequestId !== menuItemsRefreshRequestId.current) return false
         if (markSyncReady) menuDatabaseSyncReady.current = false
         setMenuDatabaseStatus(markSyncReady ? 'local' : 'error')
         setMenuDatabaseMessage(error instanceof Error ? error.message : 'Menu items could not be loaded.')

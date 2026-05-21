@@ -162,6 +162,7 @@ export async function getInspectionMenuItems() {
     .select(inspectionMenuItemsSelect)
     .eq('user_id', userId)
     .order('section_title', { ascending: true })
+    .order('updated_at', { ascending: false })
     .order('display_order', { ascending: true })
     .order('label', { ascending: true })
 
@@ -206,6 +207,7 @@ export async function upsertInspectionMenuItems(menuSections: InspectionMenuItem
     .upsert(rows, { onConflict: 'id' })
     .select(inspectionMenuItemsSelect)
     .order('section_title', { ascending: true })
+    .order('updated_at', { ascending: false })
     .order('display_order', { ascending: true })
     .order('label', { ascending: true })
 
