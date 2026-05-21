@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import {
-  getJobsQuotingItems,
+  getJobsQuotingItemsForRuns,
   getJobsQuotingItemPdfUrl,
   getJobsQuotingRuns,
   syncJobsQuotingRun,
+  uploadExtractOnlyInspectionForQuoting,
   uploadInspectionForQuoting,
   type JobsQuotingItem,
   type JobsQuotingRun,
@@ -21,6 +22,20 @@ import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 const activeStatuses = new Set(['uploading', 'pending', 'processing', 'needs_review'])
 const inspectionRunsCollapsedStorageKey = 'deshazo-jobs-quoting-inspection-runs-collapsed'
 const savedReportsCollapsedStorageKey = 'deshazo-jobs-quoting-saved-reports-collapsed'
+const extractOnlyUploadMaxFilesPerRequest = 25
+const extractOnlyUploadMaxBytesPerRequest = 60 * 1024 * 1024
+const runGroupWindowMs = 10 * 60 * 1000
+
+type JobsQuotingRunGroup = {
+  id: string
+  sourceFileName: string
+  status: string
+  extendWorkflowUrl: string | null
+  createdAt: string
+  updatedAt: string
+  runs: JobsQuotingRun[]
+  runIds: string[]
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -39,6 +54,18 @@ function formatStatus(status: string) {
 function getFriendlyErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : 'Job quoting data could not be loaded.'
   const lowerMessage = message.toLowerCase()
+
+  if (lowerMessage === 'load failed' || lowerMessage.includes('failed to fetch')) {
+    return 'Upload request could not reach the backend. Try fewer PDFs at once; if it still happens, confirm the extract-only backend route is deployed and the Heroku env vars are set.'
+  }
+
+  if (lowerMessage.includes('rate_limit_exceeded') || lowerMessage.includes('status 429')) {
+    return 'Extend is rate limiting this upload. Wait a minute and try again, or upload fewer PDFs at once.'
+  }
+
+  if (lowerMessage.includes('does not have an extend workflow run id')) {
+    return 'This upload did not start an Extend run, likely because Extend rejected the upload before returning a workflow id. Please upload it again.'
+  }
 
   if (
     lowerMessage.includes('schema cache') ||
@@ -68,16 +95,104 @@ function getEditableReportDisplayName(report: EditableInspectionReport) {
   return nameParts.length > 0 ? nameParts.join(' - ') : report.reportName
 }
 
+function chunkFilesForUpload(files: File[]) {
+  const batches: File[][] = []
+  let batch: File[] = []
+  let batchBytes = 0
+
+  files.forEach((file) => {
+    const shouldStartNextBatch =
+      batch.length >= extractOnlyUploadMaxFilesPerRequest ||
+      (batch.length > 0 && batchBytes + file.size > extractOnlyUploadMaxBytesPerRequest)
+
+    if (shouldStartNextBatch) {
+      batches.push(batch)
+      batch = []
+      batchBytes = 0
+    }
+
+    batch.push(file)
+    batchBytes += file.size
+  })
+
+  if (batch.length > 0) {
+    batches.push(batch)
+  }
+
+  return batches
+}
+
+function getFileListFolderName(files: File[]) {
+  const relativePath = files[0]?.webkitRelativePath || ''
+  return relativePath.includes('/') ? relativePath.split('/')[0] : ''
+}
+
+function getRunGroupPdfCount(group: JobsQuotingRunGroup) {
+  return group.runs.length
+}
+
+function renameRunsForDisplay(runs: JobsQuotingRun[], sourceFileName: string) {
+  return runs.map((run) => ({ ...run, sourceFileName }))
+}
+
+function getGroupStatus(runs: JobsQuotingRun[]) {
+  const statuses = runs.map((run) => run.status)
+  if (statuses.some((status) => status === 'failed')) return 'failed'
+  if (statuses.some((status) => activeStatuses.has(status))) return statuses.find((status) => activeStatuses.has(status)) ?? 'processing'
+  if (statuses.every((status) => status === 'ready')) return 'ready'
+  if (statuses.some((status) => status === 'ready')) return 'ready'
+  return statuses[0] ?? 'pending'
+}
+
+function buildRunGroups(runs: JobsQuotingRun[]): JobsQuotingRunGroup[] {
+  const groups: JobsQuotingRunGroup[] = []
+
+  runs.forEach((run) => {
+    const runCreatedAt = new Date(run.createdAt).getTime()
+    const matchingGroup = groups.find((group) => {
+      const groupCreatedAt = new Date(group.createdAt).getTime()
+      return group.sourceFileName === run.sourceFileName && Math.abs(groupCreatedAt - runCreatedAt) <= runGroupWindowMs
+    })
+
+    if (matchingGroup) {
+      matchingGroup.runs.push(run)
+      matchingGroup.runIds.push(run.id)
+      matchingGroup.status = getGroupStatus(matchingGroup.runs)
+      matchingGroup.extendWorkflowUrl = matchingGroup.extendWorkflowUrl || run.extendWorkflowUrl
+      if (new Date(run.updatedAt).getTime() > new Date(matchingGroup.updatedAt).getTime()) {
+        matchingGroup.updatedAt = run.updatedAt
+      }
+      return
+    }
+
+    groups.push({
+      id: run.id,
+      sourceFileName: run.sourceFileName,
+      status: run.status,
+      extendWorkflowUrl: run.extendWorkflowUrl,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+      runs: [run],
+      runIds: [run.id],
+    })
+  })
+
+  return groups
+}
+
 export default function JobsQuotingList() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [runs, setRuns] = useState<JobsQuotingRun[]>([])
   const [items, setItems] = useState<JobsQuotingItem[]>([])
+  const [itemsRunId, setItemsRunId] = useState('')
+  const [itemsLoading, setItemsLoading] = useState(false)
   const [savedReports, setSavedReports] = useState<EditableInspectionReport[]>([])
   const [savedReportsLoading, setSavedReportsLoading] = useState(false)
   const [savedReportsMessage, setSavedReportsMessage] = useState('')
   const [selectedRunId, setSelectedRunId] = useState<string>('')
+  const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [openingItemId, setOpeningItemId] = useState<string | null>(null)
@@ -88,10 +203,13 @@ export default function JobsQuotingList() {
   const [savedReportsCollapsed, setSavedReportsCollapsed] = useState(
     () => window.localStorage.getItem(savedReportsCollapsedStorageKey) === 'true',
   )
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const extractPdfInputRef = useRef<HTMLInputElement>(null)
+  const splitFolderInputRef = useRef<HTMLInputElement>(null)
+  const giantPdfInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
-  const selectedRun = runs.find((run) => run.id === selectedRunId)
+  const runGroups = useMemo(() => buildRunGroups(runs), [runs])
+  const selectedRunGroup = runGroups.find((group) => group.id === selectedRunId)
   const canUseExtendControls = userTag === 'developer'
 
   useEffect(() => {
@@ -110,28 +228,32 @@ export default function JobsQuotingList() {
     })
   }, [navigate])
 
-  const loadQuotingData = useCallback(async (runId = selectedRunId) => {
+  const loadQuotingData = useCallback(async (runId?: string) => {
     setLoading(true)
+    setItemsLoading(true)
     setMessage('')
 
     try {
-      const [nextRuns, nextItems] = await Promise.all([
-        getJobsQuotingRuns(),
-        getJobsQuotingItems(runId || undefined),
-      ])
+      const nextRuns = await getJobsQuotingRuns()
+      const nextRunGroups = buildRunGroups(nextRuns)
+      const nextSelectedRunId =
+        runId && nextRunGroups.some((group) => group.id === runId)
+          ? runId
+          : nextRunGroups[0]?.id ?? ''
+      const nextRunIds = nextRunGroups.find((group) => group.id === nextSelectedRunId)?.runIds ?? []
+      const nextItems = nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : []
 
       setRuns(nextRuns)
+      setSelectedRunId(nextSelectedRunId)
       setItems(nextItems)
-
-      if (!runId && nextRuns[0]?.id) {
-        setSelectedRunId(nextRuns[0].id)
-      }
+      setItemsRunId(nextSelectedRunId)
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
       setLoading(false)
+      setItemsLoading(false)
     }
-  }, [selectedRunId])
+  }, [])
 
   const loadSavedReports = useCallback(async () => {
     setSavedReportsLoading(true)
@@ -160,14 +282,39 @@ export default function JobsQuotingList() {
 
   useEffect(() => {
     if (user) {
-      getJobsQuotingItems(selectedRunId || undefined)
-        .then(setItems)
+      if (!selectedRunId) {
+        setItems([])
+        setItemsRunId('')
+        return
+      }
+
+      if (itemsRunId === selectedRunId) return
+
+      let cancelled = false
+      setItems([])
+      setItemsLoading(true)
+      const selectedRunIds = selectedRunGroup?.runIds ?? [selectedRunId]
+      getJobsQuotingItemsForRuns(selectedRunIds)
+        .then((nextItems) => {
+          if (!cancelled) {
+            setItems(nextItems)
+            setItemsRunId(selectedRunId)
+          }
+        })
         .catch((error) => setMessage(getFriendlyErrorMessage(error)))
+        .finally(() => {
+          if (!cancelled) setItemsLoading(false)
+        })
+
+      return () => {
+        cancelled = true
+      }
     }
-  }, [selectedRunId, user])
+  }, [itemsRunId, selectedRunGroup, selectedRunId, user])
 
   useEffect(() => {
-    if (!user || !selectedRun || !activeStatuses.has(selectedRun.status) || busy) return
+    const activeRuns = runs.filter((run) => activeStatuses.has(run.status))
+    if (!user || activeRuns.length === 0 || busy) return
 
     let syncing = false
     let cancelled = false
@@ -177,13 +324,34 @@ export default function JobsQuotingList() {
       syncing = true
 
       try {
-        const result = await syncJobsQuotingRun(selectedRun.id)
+        const results = await Promise.allSettled(activeRuns.map((run) => syncJobsQuotingRun(run.id)))
         if (cancelled) return
 
-        setRuns((currentRuns) =>
-          currentRuns.map((run) => (run.id === result.run.id ? result.run : run)),
-        )
-        setItems(result.items)
+        const syncedResults = results
+          .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof syncJobsQuotingRun>>> => result.status === 'fulfilled')
+          .map((result) => result.value)
+        const failedResult = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+
+        if (syncedResults.length > 0) {
+          const syncedRunsById = new Map(syncedResults.map((result) => [result.run.id, result.run]))
+          setRuns((currentRuns) =>
+            currentRuns.map((run) => syncedRunsById.get(run.id) ?? run),
+          )
+
+          const selectedResult = syncedResults.find((result) => result.run.id === selectedRunId)
+          if (selectedResult) {
+            setItems(selectedResult.items)
+            setItemsRunId(selectedResult.run.id)
+          } else if (selectedRunGroup && syncedResults.some((result) => selectedRunGroup.runIds.includes(result.run.id))) {
+            const nextItems = await getJobsQuotingItemsForRuns(selectedRunGroup.runIds)
+            setItems(nextItems)
+            setItemsRunId(selectedRunGroup.id)
+          }
+        }
+
+        if (failedResult) {
+          setMessage(getFriendlyErrorMessage(failedResult.reason))
+        }
       } catch (error) {
         if (cancelled) return
         setMessage(getFriendlyErrorMessage(error))
@@ -196,9 +364,26 @@ export default function JobsQuotingList() {
       cancelled = true
       window.clearInterval(refreshInterval)
     }
-  }, [busy, selectedRun, selectedRunId, user])
+  }, [busy, runs, selectedRunGroup, selectedRunId, user])
 
-  const uploadPdf = async (fileList: FileList | null) => {
+  const mergeUploadedRuns = (uploadedRuns: JobsQuotingRun[]) => {
+    const uploadedRunIds = new Set(uploadedRuns.map((run) => run.id))
+    setRuns((currentRuns) => [
+      ...uploadedRuns,
+      ...currentRuns.filter((run) => !uploadedRunIds.has(run.id)),
+    ])
+  }
+
+  const applyUploadResult = (result: Awaited<ReturnType<typeof uploadInspectionForQuoting>>) => {
+    const uploadedRuns = result.runs && result.runs.length > 0 ? result.runs : [result.run]
+    mergeUploadedRuns(uploadedRuns)
+    setSelectedRunId(result.run.id)
+    setItems(result.items)
+    setItemsRunId(result.run.id)
+    setMessage(result.message ?? 'Inspection report sent to Extend.')
+  }
+
+  const uploadGiantPdf = async (fileList: FileList | null) => {
     const file = Array.from(fileList ?? []).find((currentFile) => currentFile.name.toLowerCase().endsWith('.pdf'))
     if (!file) {
       setMessage('Choose a PDF inspection report to upload.')
@@ -206,14 +391,12 @@ export default function JobsQuotingList() {
     }
 
     setBusy(true)
+    setUploadMenuOpen(false)
     setMessage(`Sending ${file.name} to Extend for splitting.`)
 
     try {
       const result = await uploadInspectionForQuoting(file)
-      setRuns((currentRuns) => [result.run, ...currentRuns.filter((run) => run.id !== result.run.id)])
-      setSelectedRunId(result.run.id)
-      setItems(result.items)
-      setMessage(result.message ?? 'Inspection report sent to Extend.')
+      applyUploadResult(result)
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
@@ -221,23 +404,121 @@ export default function JobsQuotingList() {
     }
   }
 
-  const syncRun = async (runId: string) => {
+  const uploadFolderThroughSplitter = async (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []).filter((currentFile) => currentFile.name.toLowerCase().endsWith('.pdf'))
+    if (files.length === 0) {
+      setMessage('Choose at least one PDF inspection report to upload.')
+      return
+    }
+
+    const folderName = getFileListFolderName(files) || `${files.length} inspection reports`
     setBusy(true)
-    setMessage('Checking Extend for split reports and extracted repair items.')
+    setUploadMenuOpen(false)
+    setMessage(`Sending ${folderName} through the split workflow.`)
 
     try {
-      const result = await syncJobsQuotingRun(runId)
-      setRuns((currentRuns) =>
-        currentRuns.map((run) => (run.id === result.run.id ? result.run : run)),
-      )
-      setItems(result.items)
-      setMessage(result.message ?? 'Quote jobs refreshed.')
+      let firstResult: Awaited<ReturnType<typeof uploadInspectionForQuoting>> | null = null
+
+      for (const [fileIndex, file] of files.entries()) {
+        setMessage(`Sending PDF ${fileIndex + 1} of ${files.length} through the split workflow.`)
+        const result = await uploadInspectionForQuoting(file, folderName)
+        const uploadedRuns = renameRunsForDisplay(result.runs && result.runs.length > 0 ? result.runs : [result.run], folderName)
+        mergeUploadedRuns(uploadedRuns)
+        setSelectedRunId(result.run.id)
+
+        if (!firstResult) {
+          firstResult = result
+          setItems(result.items)
+          setItemsRunId(result.run.id)
+        }
+      }
+
+      setMessage(`${files.length} PDFs from ${folderName} sent through the split workflow. Runs will refresh as Extend finishes.`)
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
       setBusy(false)
     }
   }
+
+  const uploadExtractOnlyPdfs = async (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []).filter((currentFile) => currentFile.name.toLowerCase().endsWith('.pdf'))
+    if (files.length === 0) {
+      setMessage('Choose at least one PDF inspection report to upload.')
+      return
+    }
+
+    setBusy(true)
+    setUploadMenuOpen(false)
+    const folderName = getFileListFolderName(files)
+    const sourceFileName = folderName || undefined
+    const batches = chunkFilesForUpload(files)
+    setMessage(
+      files.length === 1
+        ? `Sending ${files[0].name} to Extend for extraction.`
+        : `Uploading ${files.length} PDFs in ${batches.length} batches.`,
+    )
+
+    try {
+      let firstResult: Awaited<ReturnType<typeof uploadExtractOnlyInspectionForQuoting>> | null = null
+      let latestRunId = ''
+
+      for (const [batchIndex, batch] of batches.entries()) {
+        setMessage(`Uploading batch ${batchIndex + 1} of ${batches.length} (${batch.length} PDF${batch.length === 1 ? '' : 's'}).`)
+        const result = await uploadExtractOnlyInspectionForQuoting(batch, sourceFileName)
+        const uploadedRuns = sourceFileName
+          ? renameRunsForDisplay(result.runs && result.runs.length > 0 ? result.runs : [result.run], sourceFileName)
+          : result.runs && result.runs.length > 0
+            ? result.runs
+            : [result.run]
+        mergeUploadedRuns(uploadedRuns)
+        latestRunId = result.run.id
+
+        if (!firstResult) {
+          firstResult = result
+          setItems(result.items)
+          setItemsRunId(result.run.id)
+        }
+      }
+
+      if (latestRunId) {
+        setSelectedRunId(latestRunId)
+      }
+
+      if (firstResult) {
+        setMessage(
+          batches.length === 1
+            ? firstResult.message ?? 'Inspection report sent to Extend.'
+            : `${files.length} PDFs uploaded in ${batches.length} batches. Runs will refresh as Extend finishes.`,
+        )
+      }
+    } catch (error) {
+      setMessage(getFriendlyErrorMessage(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const syncRunGroup = async (group: JobsQuotingRunGroup) => {
+    setBusy(true)
+    setMessage('Checking Extend for extracted repair items.')
+
+    try {
+      const results = await Promise.all(group.runIds.map((runId) => syncJobsQuotingRun(runId)))
+      const syncedRunsById = new Map(results.map((result) => [result.run.id, result.run]))
+      setRuns((currentRuns) =>
+        currentRuns.map((run) => syncedRunsById.get(run.id) ?? run),
+      )
+      setItems(await getJobsQuotingItemsForRuns(group.runIds))
+      setItemsRunId(group.id)
+      setMessage(results.map((result) => result.message).filter(Boolean).join(' ') || 'Quote jobs refreshed.')
+    } catch (error) {
+      setMessage(getFriendlyErrorMessage(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
 
   const getItemPdfUrl = async (item: JobsQuotingItem) => {
     return getJobsQuotingItemPdfUrl(item)
@@ -257,12 +538,18 @@ export default function JobsQuotingList() {
     try {
       let nextItem = item
 
-      if (selectedRun?.id) {
-        const result = await syncJobsQuotingRun(selectedRun.id)
+      if (item.runId) {
+        const result = await syncJobsQuotingRun(item.runId)
         setRuns((currentRuns) =>
           currentRuns.map((run) => (run.id === result.run.id ? result.run : run)),
         )
-        setItems(result.items)
+        if (selectedRunGroup) {
+          setItems(await getJobsQuotingItemsForRuns(selectedRunGroup.runIds))
+          setItemsRunId(selectedRunGroup.id)
+        } else {
+          setItems(result.items)
+          setItemsRunId(result.run.id)
+        }
         nextItem = result.items.find((currentItem) => currentItem.id === item.id) ?? item
       }
 
@@ -333,6 +620,7 @@ export default function JobsQuotingList() {
 
   if (!user) return null
 
+  const jobsListLoading = loading || itemsLoading || Boolean(selectedRunId && itemsRunId !== selectedRunId)
   const totalRepairItems = items.reduce((total, item) => total + item.repairCount, 0)
   const totalSafetyItems = items.reduce((total, item) => total + item.safetyCount, 0)
 
@@ -355,28 +643,88 @@ export default function JobsQuotingList() {
 
         <div className="text-sm font-black tracking-wide">DESHAZO Quote Builder</div>
 
-        <div className="flex items-center gap-2">
+        <div className="relative flex items-center gap-2">
           <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
             {user.email}
           </div>
           <input
-            ref={fileInputRef}
+            ref={extractPdfInputRef}
             type="file"
             accept="application/pdf,.pdf"
             className="hidden"
             onChange={(event) => {
-              uploadPdf(event.currentTarget.files)
+              uploadExtractOnlyPdfs(event.currentTarget.files)
+              event.currentTarget.value = ''
+            }}
+          />
+          <input
+            ref={splitFolderInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            multiple
+            className="hidden"
+            {...{ webkitdirectory: '', directory: '' }}
+            onChange={(event) => {
+              uploadFolderThroughSplitter(event.currentTarget.files)
+              event.currentTarget.value = ''
+            }}
+          />
+          <input
+            ref={giantPdfInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            className="hidden"
+            onChange={(event) => {
+              uploadGiantPdf(event.currentTarget.files)
               event.currentTarget.value = ''
             }}
           />
           <button
             type="button"
             disabled={busy}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => setUploadMenuOpen((currentOpen) => !currentOpen)}
             className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
+            aria-expanded={uploadMenuOpen}
           >
-            Upload PDF
+            Upload
           </button>
+          {uploadMenuOpen ? (
+            <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+              <div className="rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
+                <div className="text-[12px] font-black uppercase text-[#273f7a]">Upload Inspection Reports</div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => extractPdfInputRef.current?.click()}
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Upload PDF
+                  </button>
+                  {canUseExtendControls ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => splitFolderInputRef.current?.click()}
+                        className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Choose Folder
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => giantPdfInputRef.current?.click()}
+                        className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Giant PDF
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -426,30 +774,33 @@ export default function JobsQuotingList() {
 
               <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
                 <div className="space-y-2">
-                  {runs.map((run) => (
+                  {runGroups.map((runGroup) => (
                     <button
-                      key={run.id}
+                      key={runGroup.id}
                       type="button"
-                      onClick={() => setSelectedRunId(run.id)}
+                      onClick={() => setSelectedRunId(runGroup.id)}
                       className={`w-full rounded-md border px-3 py-3 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition ${
-                        selectedRunId === run.id
+                        selectedRunId === runGroup.id
                           ? 'border-[#9bb0dc] bg-[#f5f7ff]'
                           : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]'
                       }`}
                     >
                       <span className="block truncate text-[13px] font-black leading-tight text-[#273f7a]">
-                        {run.sourceFileName}
+                        {runGroup.sourceFileName}
                       </span>
                       <span className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold text-[#747b8a]">
-                        <span>{formatDate(run.createdAt)}</span>
+                        <span>
+                          {formatDate(runGroup.createdAt)}
+                          {getRunGroupPdfCount(runGroup) > 1 ? ` • ${getRunGroupPdfCount(runGroup)} PDFs` : ''}
+                        </span>
                         <span className="rounded-sm bg-[#eef3ff] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a]">
-                          {formatStatus(run.status)}
+                          {formatStatus(runGroup.status)}
                         </span>
                       </span>
                     </button>
                   ))}
 
-                  {!loading && runs.length === 0 ? (
+                  {!loading && runGroups.length === 0 ? (
                     <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-8 text-center text-[12px] font-bold text-[#747b8a]">
                       No inspection reports uploaded yet.
                     </div>
@@ -461,17 +812,6 @@ export default function JobsQuotingList() {
         </aside>
 
         <section className="min-w-0 flex-1 overflow-auto px-5 py-5 sm:px-8">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            className="hidden"
-            onChange={(event) => {
-              uploadPdf(event.currentTarget.files)
-              event.currentTarget.value = ''
-            }}
-          />
-
           <div className="mb-4 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
               <h1 className="text-[clamp(24px,2.4vw,34px)] font-black leading-tight tracking-normal text-[#1f2430]">
@@ -485,11 +825,11 @@ export default function JobsQuotingList() {
             <div className="grid min-w-[280px] grid-cols-2 overflow-hidden rounded-md border border-[#dfe4ef] bg-white shadow-[0_16px_44px_-36px_rgba(15,23,42,0.55)]">
               <div className="border-r border-[#dfe4ef] px-4 py-3">
                 <p className="text-[11px] font-black uppercase text-[#747b8a]">Repairs</p>
-                <p className="mt-1 text-2xl font-black text-[#273f7a]">{totalRepairItems}</p>
+                <p className="mt-1 text-2xl font-black text-[#273f7a]">{jobsListLoading ? '...' : totalRepairItems}</p>
               </div>
               <div className="px-4 py-3">
                 <p className="text-[11px] font-black uppercase text-[#747b8a]">Safety</p>
-                <p className="mt-1 text-2xl font-black text-[#a2472f]">{totalSafetyItems}</p>
+                <p className="mt-1 text-2xl font-black text-[#a2472f]">{jobsListLoading ? '...' : totalSafetyItems}</p>
               </div>
             </div>
           </div>
@@ -518,9 +858,9 @@ export default function JobsQuotingList() {
                 onChange={(event) => setSelectedRunId(event.currentTarget.value)}
                 className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none focus:border-[#273f7a]"
               >
-                {runs.map((run) => (
-                  <option key={run.id} value={run.id}>
-                    {run.sourceFileName} - {formatStatus(run.status)}
+                {runGroups.map((runGroup) => (
+                  <option key={runGroup.id} value={runGroup.id}>
+                    {runGroup.sourceFileName} - {formatStatus(runGroup.status)}
                   </option>
                 ))}
               </select>
@@ -531,18 +871,18 @@ export default function JobsQuotingList() {
               <div className="flex flex-col justify-between gap-3 border-b border-[#dfe4ef] bg-[#fbfcff] px-5 py-4 lg:flex-row lg:items-center">
                 <div className="min-w-0">
                   <h2 className="truncate text-[20px] font-black tracking-normal text-[#1f2430]">
-                    {selectedRun?.sourceFileName ?? 'Repair and Safety Jobs'}
+                    {selectedRunGroup?.sourceFileName ?? 'Repair and Safety Jobs'}
                   </h2>
                   <p className="mt-1 text-[13px] font-semibold text-[#747b8a]">
                     Sorted by the split reports with the most repair and safety items.
                   </p>
                 </div>
 
-                {selectedRun && canUseExtendControls ? (
+                {selectedRunGroup && canUseExtendControls ? (
                   <div className="flex flex-wrap gap-2">
-                    {selectedRun.extendWorkflowUrl ? (
+                    {selectedRunGroup.extendWorkflowUrl ? (
                       <a
-                        href={selectedRun.extendWorkflowUrl}
+                        href={selectedRunGroup.extendWorkflowUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
@@ -553,10 +893,10 @@ export default function JobsQuotingList() {
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => syncRun(selectedRun.id)}
+                      onClick={() => syncRunGroup(selectedRunGroup)}
                       className="rounded-md bg-[#273f7a] px-3 py-2 text-xs font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {activeStatuses.has(selectedRun.status) ? 'Check Extend' : 'Refresh Jobs'}
+                      {activeStatuses.has(selectedRunGroup.status) ? 'Check Extend' : 'Refresh Jobs'}
                     </button>
                   </div>
                 ) : null}
@@ -567,15 +907,27 @@ export default function JobsQuotingList() {
                   <thead>
                     <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
                       <th className="w-[31%] px-3 py-3">Job PDF</th>
-                      <th className="w-[17%] px-2 py-3">Type</th>
-                      <th className="w-[9%] px-2 py-3 text-right">Repairs</th>
-                      <th className="w-[9%] px-2 py-3 text-right">Safety</th>
-                      <th className="w-[8%] px-2 py-3 text-right">Total</th>
-                      <th className="w-[26%] px-3 py-3">PDF</th>
+                      <th className="w-[14%] px-2 py-3">Type</th>
+                      <th className="w-[7%] px-1 py-3 text-right">Repairs</th>
+                      <th className="w-[7%] px-1 py-3 text-right">Safety</th>
+                      <th className="w-[7%] px-1 py-3 text-right">Total</th>
+                      <th className="w-[34%] px-3 py-3">PDF</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => (
+                    {jobsListLoading ? (
+                      <tr>
+                        <td colSpan={6} className="px-5 py-16">
+                          <div className="mx-auto flex max-w-xs flex-col items-center justify-center text-center">
+                            <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#dfe4ef] border-t-[#273f7a]" />
+                            <p className="mt-4 text-sm font-black text-[#1f2430]">Loading quote jobs...</p>
+                            <p className="mt-1 text-xs font-semibold text-[#747b8a]">
+                              Matching the selected inspection run to its saved reports.
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : items.map((item) => (
                       <tr
                         key={item.id}
                         className="border-b border-[#e4e8f1] transition hover:bg-[#fbfcff] last:border-b-0"
@@ -588,33 +940,35 @@ export default function JobsQuotingList() {
                             {item.splitIdentifier || 'No split identifier'}
                           </p>
                         </td>
-                        <td className="px-2 py-4 align-top text-sm font-bold text-[#4d5360]">
-                          {item.splitType || 'Inspection split'}
+                        <td className="min-w-0 px-2 py-4 align-top text-sm font-bold text-[#4d5360]">
+                          <span className="block truncate" title={item.splitType || 'Inspection split'}>
+                            {item.splitType || 'Inspection split'}
+                          </span>
                         </td>
-                        <td className="px-2 py-4 text-right align-top text-lg font-black text-[#273f7a]">
+                        <td className="px-1 py-4 text-right align-top text-lg font-black text-[#273f7a]">
                           {item.repairCount}
                         </td>
-                        <td className="px-2 py-4 text-right align-top text-lg font-black text-[#a2472f]">
+                        <td className="px-1 py-4 text-right align-top text-lg font-black text-[#a2472f]">
                           {item.safetyCount}
                         </td>
-                        <td className="px-2 py-4 text-right align-top text-lg font-black text-[#111]">
+                        <td className="px-1 py-4 text-right align-top text-lg font-black text-[#111]">
                           {item.priorityCount}
                         </td>
                         <td className="px-3 py-4 align-top">
                           {item.pdfStoragePath || item.pdfUrl ? (
-                            <div className="flex flex-nowrap gap-2">
+                            <div className="flex flex-nowrap justify-end gap-2">
                               <button
                                 type="button"
                                 disabled={openingItemId === item.id}
                                 onClick={() => openItemPdf(item)}
-                                className="inline-flex whitespace-nowrap rounded-md border border-[#bdc4d3] bg-white px-2.5 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                                className="inline-flex whitespace-nowrap rounded-md border border-[#bdc4d3] bg-white px-2 py-2 text-[11px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {openingItemId === item.id ? 'Opening...' : 'Open PDF'}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
-                                className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2.5 py-2 text-xs font-black text-white transition hover:bg-[#1f3262]"
+                                className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
                               >
                                 Edit Quote
                               </button>
@@ -628,7 +982,7 @@ export default function JobsQuotingList() {
                   </tbody>
                 </table>
 
-                {!loading && items.length === 0 ? (
+                {!jobsListLoading && items.length === 0 ? (
                   <div className="px-5 py-16 text-center">
                     <p className="text-base font-black text-[#1f2430]">No repair jobs yet.</p>
                     <p className="mt-2 text-sm font-semibold text-[#747b8a]">

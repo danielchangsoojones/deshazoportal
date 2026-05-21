@@ -2,9 +2,14 @@ import { supabase } from './supabase'
 
 const defaultInspectionSplitBackendUrl =
   'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com/extend/deshazo-inspection-split'
+const defaultInspectionExtractOnlyBackendUrl =
+  'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com/extend/deshazo-inspection-extractonly'
 const inspectionSplitBackendUrl =
   (import.meta.env.VITE_EXTEND_INSPECTION_SPLIT_UPLOAD_URL as string | undefined)?.trim() ||
   defaultInspectionSplitBackendUrl
+const inspectionExtractOnlyBackendUrl =
+  (import.meta.env.VITE_EXTEND_INSPECTION_EXTRACTONLY_UPLOAD_URL as string | undefined)?.trim() ||
+  defaultInspectionExtractOnlyBackendUrl
 export const jobsQuotingPdfBucket = 'jobs-quoting-pdfs'
 
 export type JobsQuotingRun = {
@@ -72,6 +77,7 @@ type JobsQuotingItemRow = {
 
 export type JobsQuotingUploadResult = {
   run: JobsQuotingRun
+  runs?: JobsQuotingRun[]
   items: JobsQuotingItem[]
   message?: string
 }
@@ -199,6 +205,30 @@ export async function getJobsQuotingItems(runId?: string): Promise<JobsQuotingIt
   return ((data ?? []) as JobsQuotingItemRow[]).map(mapItem)
 }
 
+export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<JobsQuotingItem[]> {
+  const uniqueRunIds = Array.from(new Set(runIds.filter(Boolean)))
+  if (uniqueRunIds.length === 0) return []
+
+  const client = requireSupabase()
+  const userId = await getCurrentUserId()
+  const { data, error } = await client
+    .from('jobs_quoting_items')
+    .select(
+      'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at',
+    )
+    .eq('user_id', userId)
+    .in('run_id', uniqueRunIds)
+    .order('repair_count', { ascending: false })
+    .order('safety_count', { ascending: false })
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return ((data ?? []) as JobsQuotingItemRow[]).map(mapItem)
+}
+
 export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingItem> {
   const client = requireSupabase()
   const userId = await getCurrentUserId()
@@ -236,10 +266,10 @@ export async function getJobsQuotingItemPdfUrl(item: JobsQuotingItem): Promise<s
   return item.pdfUrl
 }
 
-async function sendToJobsQuotingBackend(body: FormData | Record<string, unknown>) {
+async function sendToJobsQuotingBackend(url: string, body: FormData | Record<string, unknown>) {
   const accessToken = await getAccessToken()
   const isFormData = body instanceof FormData
-  const response = await fetch(inspectionSplitBackendUrl, {
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -273,7 +303,7 @@ async function sendToJobsQuotingBackend(body: FormData | Record<string, unknown>
   return data as JobsQuotingUploadResult
 }
 
-export async function uploadInspectionForQuoting(file: File): Promise<JobsQuotingUploadResult> {
+export async function uploadInspectionForQuoting(file: File, sourceFileName?: string): Promise<JobsQuotingUploadResult> {
   if (file.type && file.type !== 'application/pdf') {
     throw new Error(`${file.name} is not a PDF.`)
   }
@@ -281,10 +311,32 @@ export async function uploadInspectionForQuoting(file: File): Promise<JobsQuotin
   const formData = new FormData()
   formData.append('action', 'upload')
   formData.append('file', file)
+  if (sourceFileName) {
+    formData.append('sourceFileName', sourceFileName)
+  }
 
-  return sendToJobsQuotingBackend(formData)
+  return sendToJobsQuotingBackend(inspectionSplitBackendUrl, formData)
+}
+
+export async function uploadExtractOnlyInspectionForQuoting(files: File[], sourceFileName?: string): Promise<JobsQuotingUploadResult> {
+  const pdfFiles = files.filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+  if (pdfFiles.length === 0) {
+    throw new Error('Choose at least one PDF inspection report to upload.')
+  }
+
+  const invalidFile = pdfFiles.find((file) => file.type && file.type !== 'application/pdf')
+  if (invalidFile) {
+    throw new Error(`${invalidFile.name} is not a PDF.`)
+  }
+
+  const formData = new FormData()
+  formData.append('action', 'upload')
+  pdfFiles.forEach((file) => formData.append('files', file))
+  formData.append('sourceFileName', sourceFileName || (pdfFiles.length === 1 ? pdfFiles[0].name : `${pdfFiles.length} inspection reports`))
+
+  return sendToJobsQuotingBackend(inspectionExtractOnlyBackendUrl, formData)
 }
 
 export async function syncJobsQuotingRun(runId: string): Promise<JobsQuotingRunDetails> {
-  return sendToJobsQuotingBackend({ action: 'sync', runId })
+  return sendToJobsQuotingBackend(inspectionSplitBackendUrl, { action: 'sync', runId })
 }
