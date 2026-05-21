@@ -103,6 +103,14 @@ grant select, insert, update, delete on table public.jobs_quoting_runs to servic
 grant select, insert, update, delete on table public.jobs_quoting_items to service_role;
 grant select, insert, update, delete on table public.editable_inspection_documents to service_role;
 
+create or replace view public.user_tag_display_names as
+select
+  user_id,
+  display_name
+from public.user_tags;
+
+grant select on public.user_tag_display_names to authenticated;
+
 do $$
 begin
   drop policy if exists "Authenticated users can read their quote runs"

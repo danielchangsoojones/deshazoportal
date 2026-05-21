@@ -14,6 +14,7 @@ export const jobsQuotingPdfBucket = 'jobs-quoting-pdfs'
 
 export type JobsQuotingRun = {
   id: string
+  userId: string
   sourceFileName: string
   status: string
   extendWorkflowRunId: string | null
@@ -47,6 +48,7 @@ export type JobsQuotingItem = {
 
 type JobsQuotingRunRow = {
   id: string
+  user_id: string
   source_file_name: string
   status: string
   extend_workflow_run_id: string | null
@@ -92,6 +94,7 @@ const runIdFilterChunkSize = 100
 function mapRun(row: JobsQuotingRunRow): JobsQuotingRun {
   return {
     id: row.id,
+    userId: row.user_id,
     sourceFileName: row.source_file_name,
     status: row.status,
     extendWorkflowRunId: row.extend_workflow_run_id,
@@ -209,7 +212,7 @@ export async function getJobsQuotingRuns(): Promise<JobsQuotingRun[]> {
   const rows = await fetchAllPages<JobsQuotingRunRow>((from, to) =>
     client
       .from('jobs_quoting_runs')
-      .select('id, source_file_name, status, extend_workflow_run_id, extend_workflow_url, error_message, created_at, updated_at')
+      .select('id, user_id, source_file_name, status, extend_workflow_run_id, extend_workflow_url, error_message, created_at, updated_at')
       .order('updated_at', { ascending: false })
       .order('created_at', { ascending: false })
       .range(from, to),
