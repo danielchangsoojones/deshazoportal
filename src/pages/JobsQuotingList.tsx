@@ -908,18 +908,19 @@ export default function JobsQuotingList() {
                 <table className="w-full table-fixed border-collapse text-left">
                   <thead>
                     <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
-                      <th className="w-[38%] px-3 py-3">Job PDF</th>
-                      <th className="w-[14%] px-2 py-3 text-center">Uploaded By</th>
+                      <th className="w-[32%] px-3 py-3">Job PDF</th>
+                      <th className="w-[12%] px-2 py-3 text-center">Date Modified</th>
+                      <th className="w-[12%] px-2 py-3 text-center">Uploaded By</th>
                       <th className="w-[7%] px-1 py-3 text-center">Repairs</th>
                       <th className="w-[7%] px-1 py-3 text-center">Safety</th>
                       <th className="w-[7%] px-1 py-3 text-center">Total</th>
-                      <th className="w-[27%] px-3 py-3 text-center">PDF</th>
+                      <th className="w-[23%] px-3 py-3 text-center">PDF</th>
                     </tr>
                   </thead>
                   <tbody>
                     {jobsListLoading ? (
                       <tr>
-                        <td colSpan={6} className="px-5 py-16">
+                        <td colSpan={7} className="px-5 py-16">
                           <div className="mx-auto flex max-w-xs flex-col items-center justify-center text-center">
                             <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#dfe4ef] border-t-[#273f7a]" />
                             <p className="mt-4 text-sm font-black text-[#1f2430]">Loading quote jobs...</p>
@@ -943,6 +944,9 @@ export default function JobsQuotingList() {
                               {item.splitIdentifier}
                             </p>
                           ) : null}
+                        </td>
+                        <td className="px-2 py-4 text-center align-top text-xs font-bold leading-snug text-[#4d5360]">
+                          {formatDate(item.updatedAt)}
                         </td>
                         <td className="px-2 py-4 text-center align-top text-sm font-bold text-[#4d5360]">
                           <span className="block truncate" title={getRunUploaderName(runsById.get(item.runId))}>
