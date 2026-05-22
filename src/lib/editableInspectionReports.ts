@@ -27,6 +27,11 @@ export type SaveEditableInspectionReportInput = EditableInspectionReportPayload 
   sourceDocumentName?: string | null
 }
 
+export type EditableInspectionReportModifiedTime = {
+  jobsQuotingItemId: string
+  updatedAt: string
+}
+
 type EditableInspectionReportRow = {
   id: string
   report_name: string
@@ -41,6 +46,11 @@ type EditableInspectionReportRow = {
   text_boxes: unknown[]
   equipment_rental_settings: Record<string, unknown>
   created_at: string
+  updated_at: string
+}
+
+type EditableInspectionReportModifiedTimeRow = {
+  jobs_quoting_item_id: string | null
   updated_at: string
 }
 
@@ -114,6 +124,36 @@ export async function getEditableInspectionReports() {
   }
 
   return ((data ?? []) as EditableInspectionReportRow[]).map(mapEditableInspectionReportRow)
+}
+
+export async function getEditableInspectionReportModifiedTimes() {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  await getCurrentUserId()
+  const { data, error } = await supabase
+    .from('editable_inspection_reports')
+    .select('jobs_quoting_item_id, updated_at')
+    .not('jobs_quoting_item_id', 'is', null)
+    .order('updated_at', { ascending: false })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const modifiedTimesByItemId = new Map<string, EditableInspectionReportModifiedTime>()
+
+  ;((data ?? []) as EditableInspectionReportModifiedTimeRow[]).forEach((row) => {
+    if (!row.jobs_quoting_item_id || modifiedTimesByItemId.has(row.jobs_quoting_item_id)) return
+
+    modifiedTimesByItemId.set(row.jobs_quoting_item_id, {
+      jobsQuotingItemId: row.jobs_quoting_item_id,
+      updatedAt: row.updated_at,
+    })
+  })
+
+  return Array.from(modifiedTimesByItemId.values())
 }
 
 export async function getEditableInspectionReport(reportId: string) {

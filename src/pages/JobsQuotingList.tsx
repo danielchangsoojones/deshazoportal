@@ -12,6 +12,7 @@ import {
   type JobsQuotingItem,
   type JobsQuotingRun,
 } from '../lib/jobsQuoting'
+import { getEditableInspectionReportModifiedTimes } from '../lib/editableInspectionReports'
 import { getCurrentUserTag, getUserDisplayNames, type UserTag } from '../lib/userTags'
 
 const activeStatuses = new Set(['uploading', 'pending', 'processing', 'needs_review'])
@@ -185,6 +186,18 @@ function sortItemsByNewest(items: JobsQuotingItem[]) {
   return [...items].sort((firstItem, secondItem) => new Date(secondItem.updatedAt).getTime() - new Date(firstItem.updatedAt).getTime())
 }
 
+function getItemModifiedAt(item: JobsQuotingItem, savedReportModifiedTimesByItemId: Map<string, string>) {
+  return savedReportModifiedTimesByItemId.get(item.id) ?? item.updatedAt
+}
+
+function sortItemsByModifiedNewest(items: JobsQuotingItem[], savedReportModifiedTimesByItemId: Map<string, string>) {
+  return [...items].sort(
+    (firstItem, secondItem) =>
+      new Date(getItemModifiedAt(secondItem, savedReportModifiedTimesByItemId)).getTime() -
+      new Date(getItemModifiedAt(firstItem, savedReportModifiedTimesByItemId)).getTime(),
+  )
+}
+
 function sortItemsByPriority(items: JobsQuotingItem[]) {
   return [...items].sort((firstItem, secondItem) => {
     if (secondItem.priorityCount !== firstItem.priorityCount) return secondItem.priorityCount - firstItem.priorityCount
@@ -200,6 +213,7 @@ export default function JobsQuotingList() {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [runs, setRuns] = useState<JobsQuotingRun[]>([])
   const [items, setItems] = useState<JobsQuotingItem[]>([])
+  const [savedReportModifiedTimesByItemId, setSavedReportModifiedTimesByItemId] = useState<Map<string, string>>(new Map())
   const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
   const [itemsLoading, setItemsLoading] = useState(false)
   const [selectedRunId, setSelectedRunId] = useState<string>(allReportsRunId)
@@ -227,11 +241,11 @@ export default function JobsQuotingList() {
     [userDisplayNames],
   )
   const visibleItems = useMemo(() => {
-    if (selectedRunId === allReportsRunId || !selectedRunGroup) return sortItemsByNewest(items)
+    if (selectedRunId === allReportsRunId || !selectedRunGroup) return sortItemsByModifiedNewest(items, savedReportModifiedTimesByItemId)
 
     const selectedRunIds = new Set(selectedRunGroup.runIds)
     return sortItemsByPriority(items.filter((item) => selectedRunIds.has(item.runId)))
-  }, [items, selectedRunGroup, selectedRunId])
+  }, [items, savedReportModifiedTimesByItemId, selectedRunGroup, selectedRunId])
   const filteredItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
     if (!normalizedQuery) return visibleItems
@@ -281,11 +295,17 @@ export default function JobsQuotingList() {
           ? runId
           : allReportsRunId
       const nextRunIds = nextRunGroups.flatMap((group) => group.runIds)
-      const nextItems = nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : []
+      const [nextItems, nextSavedReportModifiedTimes] = await Promise.all([
+        nextRunIds.length > 0 ? getJobsQuotingItemsForRuns(nextRunIds) : Promise.resolve([]),
+        getEditableInspectionReportModifiedTimes(),
+      ])
 
       setRuns(nextRuns)
       setSelectedRunId(nextSelectedRunId)
       setItems(nextItems)
+      setSavedReportModifiedTimesByItemId(
+        new Map(nextSavedReportModifiedTimes.map((modifiedTime) => [modifiedTime.jobsQuotingItemId, modifiedTime.updatedAt])),
+      )
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
@@ -946,7 +966,7 @@ export default function JobsQuotingList() {
                           ) : null}
                         </td>
                         <td className="px-2 py-4 text-center align-top text-xs font-bold leading-snug text-[#4d5360]">
-                          {formatDate(item.updatedAt)}
+                          {formatDate(getItemModifiedAt(item, savedReportModifiedTimesByItemId))}
                         </td>
                         <td className="px-2 py-4 text-center align-top text-sm font-bold text-[#4d5360]">
                           <span className="block truncate" title={getRunUploaderName(runsById.get(item.runId))}>

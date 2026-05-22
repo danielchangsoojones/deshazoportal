@@ -195,8 +195,7 @@ const defaultReport: ReportData = {
   estimateTopNote: 'Top note: Add estimate context here.',
   estimateBottomNote: 'Bottom note: Add estimate terms here.',
   notesHeader: 'Additional Notes',
-  notes:
-    'Click into any text on this report and type to edit. Use the print button to save as PDF from the browser print dialog.',
+  notes: '',
 }
 
 const defaultRepairSections: RepairSection[] = [
@@ -547,11 +546,6 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
   const serialHoist4 = getTopLevelExtractedText(data, ['serial_hoist_4', 'serialHoist4'])
   const capacityHoist4 = getTopLevelExtractedText(data, ['capacity_hoist_4', 'capacityHoist4'])
   const modelHoist4 = getTopLevelExtractedText(data, ['model_hoist_4', 'modelHoist4'])
-  const repairCount = getTopLevelExtractedText(data, ['repair_count', 'repairCount', 'Repair']) || '0'
-  const safetyCount = getTopLevelExtractedText(data, ['safety_and_monitor_count', 'safety_count', 'safetyCount', 'Safety and Monitor Items']) || '0'
-  const satisfactoryCount = getTopLevelExtractedText(data, ['satisfactory_count', 'satisfactoryCount', 'Satisfactory Items']) || '0'
-  const naCount = getTopLevelExtractedText(data, ['na_count', 'naCount', 'N/A Items'])
-
   return {
     ...defaultReport,
     branch: formatReportValue('DESHAZO Branch', branch, '---'),
@@ -586,14 +580,8 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
     serialHoist4: formatReportValue('Hoist 4', serialHoist4, '---'),
     capacityHoist4: formatReportValue('Hoist 4', capacityHoist4, '---'),
     modelHoist4: formatReportValue('Hoist 4', modelHoist4, '---'),
-    scopeOfWork: [
-      dNumber ? `Prepare quote from inspection report ${dNumber}.` : 'Prepare quote from selected inspection report.',
-      `Repair items: ${repairCount}.`,
-      `Safety and monitor items: ${safetyCount}.`,
-      `Satisfactory items: ${satisfactoryCount}.`,
-      naCount ? `N/A items: ${naCount}.` : '',
-    ].filter(Boolean).join(' '),
-    notes: `Seeded from jobs_quoting_items.extraction_data for ${dNumber || item.documentName}. Open Related Documents to view the split inspection PDF.`,
+    scopeOfWork: '',
+    notes: '',
   }
 }
 
