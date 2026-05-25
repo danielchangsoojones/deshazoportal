@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 
 export type InspectionMenuItem = {
   id?: string
+  userId?: string
   label: string
   description: string
   rate: string
@@ -84,6 +85,7 @@ function mapMenuItemsRows(userId: string, rows: EditableInspectionMenuItemsRow[]
     const items = sectionMap.get(row.section_title) ?? []
     items.push({
       id: row.id,
+      userId: row.user_id,
       label: row.label,
       description: row.description,
       rate: String(row.rate),
@@ -160,7 +162,6 @@ export async function getInspectionMenuItems() {
   const { data, error } = await supabase
     .from('editable_inspection_menu_items')
     .select(inspectionMenuItemsSelect)
-    .eq('user_id', userId)
     .order('section_title', { ascending: true })
     .order('updated_at', { ascending: false })
     .order('display_order', { ascending: true })
@@ -171,6 +172,94 @@ export async function getInspectionMenuItems() {
   }
 
   return mapMenuItemsRows(userId, (data ?? []) as EditableInspectionMenuItemsRow[])
+}
+
+function mergeMenuItemRows(rows: EditableInspectionMenuItemsRow[]) {
+  const rowsById = new Map<string, EditableInspectionMenuItemsRow>()
+
+  rows.forEach((row) => {
+    if (!rowsById.has(row.id)) rowsById.set(row.id, row)
+  })
+
+  return Array.from(rowsById.values()).sort((firstRow, secondRow) => {
+    const sectionComparison = firstRow.section_title.localeCompare(secondRow.section_title)
+    if (sectionComparison !== 0) return sectionComparison
+
+    const updatedComparison = secondRow.updated_at.localeCompare(firstRow.updated_at)
+    if (updatedComparison !== 0) return updatedComparison
+
+    if (firstRow.display_order !== secondRow.display_order) return firstRow.display_order - secondRow.display_order
+    return firstRow.label.localeCompare(secondRow.label)
+  })
+}
+
+function parseRateSearchValue(searchValue: string) {
+  const normalizedValue = searchValue.replace(/[$,\s]/g, '')
+  if (!normalizedValue || !/^-?\d+(\.\d+)?$/.test(normalizedValue)) return null
+
+  return Number(normalizedValue)
+}
+
+export async function searchInspectionMenuItems(searchValue: string) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const userId = await getCurrentUserId()
+  const normalizedSearchValue = searchValue.trim()
+  if (!normalizedSearchValue) return null
+
+  const likeSearchValue = `%${normalizedSearchValue}%`
+  const rateSearchValue = parseRateSearchValue(normalizedSearchValue)
+  const searchLimit = 100
+
+  const labelSearch = supabase
+    .from('editable_inspection_menu_items')
+    .select(inspectionMenuItemsSelect)
+    .ilike('label', likeSearchValue)
+    .order('section_title', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('display_order', { ascending: true })
+    .order('label', { ascending: true })
+    .limit(searchLimit)
+
+  const descriptionSearch = supabase
+    .from('editable_inspection_menu_items')
+    .select(inspectionMenuItemsSelect)
+    .ilike('description', likeSearchValue)
+    .order('section_title', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('display_order', { ascending: true })
+    .order('label', { ascending: true })
+    .limit(searchLimit)
+
+  const rateSearch = rateSearchValue == null
+    ? Promise.resolve({ data: [], error: null })
+    : supabase
+        .from('editable_inspection_menu_items')
+        .select(inspectionMenuItemsSelect)
+        .eq('rate', rateSearchValue)
+        .order('section_title', { ascending: true })
+        .order('updated_at', { ascending: false })
+        .order('display_order', { ascending: true })
+        .order('label', { ascending: true })
+        .limit(searchLimit)
+
+  const results = await Promise.all([labelSearch, descriptionSearch, rateSearch])
+  const error = results.find((result) => result.error)?.error
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const rows = mergeMenuItemRows(
+    results.flatMap((result) => (result.data ?? []) as EditableInspectionMenuItemsRow[]),
+  ).slice(0, searchLimit)
+
+  return mapMenuItemsRows(userId, rows) ?? {
+    userId,
+    menuSections: [],
+    updatedAt: new Date().toISOString(),
+  }
 }
 
 export async function upsertInspectionMenuItems(menuSections: InspectionMenuItemSection[]) {
@@ -230,4 +319,24 @@ export async function upsertInspectionMenuItems(menuSections: InspectionMenuItem
     menuSections: [],
     updatedAt: new Date().toISOString(),
   }
+}
+
+export async function deleteInspectionMenuItem(menuItemId: string) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const userId = await getCurrentUserId()
+  const { data, error } = await supabase
+    .from('editable_inspection_menu_items')
+    .delete()
+    .eq('id', menuItemId)
+    .eq('user_id', userId)
+    .select('id')
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data ?? []).length > 0
 }

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isConfigured } from '../lib/supabase'
 import {
+  deleteInspectionMenuItem,
   getInspectionMenuItems,
+  searchInspectionMenuItems,
   upsertInspectionMenuItems,
   type InspectionMenuItem,
   type InspectionMenuItemSection,
@@ -27,6 +29,7 @@ import {
   type EditableInspectionReport,
   type EditableInspectionReportPayload,
 } from '../lib/editableInspectionReports'
+import { getUserDisplayNames } from '../lib/userTags'
 
 type ReportData = Record<string, string>
 
@@ -67,6 +70,7 @@ type EditingMenuItem = {
   originalSectionTitle: string
   sectionTitle: string
   itemId: string
+  userId?: string
   label: string
   description: string
   rate: string
@@ -114,6 +118,7 @@ const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
 const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
+const menuSearchDebounceMs = 300
 const defaultCraneIdentifier = 'D200235'
 const originalInspectionStableKey = 'built-in:original-inspection'
 const masterServiceAgreementStableKey = 'built-in:master-service-agreement'
@@ -148,6 +153,18 @@ const defaultEstimateNoteVisibility: EstimateNoteVisibility = {
 
 const legacyScopeOfWorkSample =
   'Remove 2 old Budgit 2 ton hoists and install (2) new 2 ton Harrington chain hoist model: NER2M020LD-LD specs are listed below for hoists.'
+
+const defaultAdditionalNotes = `1. Quote is subject to DeSHAZO General Terms and Conditions, available at http://www.deshazo.com/terms.
+2. Unless specified in Scope of Work, all work is to be performed during normal working hours, Monday- Friday.
+3. Any additional work beyond scope provided will be billed on a time and material basis.
+4. Quote assumes free & clear access to crane, runway, and all components to be serviced.
+5. Quote does not include tax and freight.
+6. If a man-lift or equipment is required, Customer to provide, or DeShazo can provide at cost plus 20%.
+7. Quote is valid for 30 days.
+8. Payment Terms: Net 30 days.
+9. Field work schedule subject to availability and delivery of parts, if applicable.
+
+DeSHAZO appreciates the opportunity to provide you with this quotation. If you have any questions, please feel free to email me at jmelton@deshazo.com`
 
 const defaultReport: ReportData = {
   logoName: 'DESHAZO',
@@ -195,7 +212,7 @@ const defaultReport: ReportData = {
   estimateTopNote: 'Top note: Add estimate context here.',
   estimateBottomNote: 'Bottom note: Add estimate terms here.',
   notesHeader: 'Additional Notes',
-  notes: '',
+  notes: defaultAdditionalNotes,
 }
 
 const defaultRepairSections: RepairSection[] = [
@@ -581,7 +598,7 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
     capacityHoist4: formatReportValue('Hoist 4', capacityHoist4, '---'),
     modelHoist4: formatReportValue('Hoist 4', modelHoist4, '---'),
     scopeOfWork: '',
-    notes: '',
+    notes: defaultAdditionalNotes,
   }
 }
 
@@ -856,6 +873,7 @@ const normalizeReport = (report: ReportData) => {
   if (!nextReport.scopeOfWorkHeader?.trim()) nextReport.scopeOfWorkHeader = defaultReport.scopeOfWorkHeader
   if (nextReport.scopeOfWork === legacyScopeOfWorkSample) nextReport.scopeOfWork = ''
   if (nextReport.notesHeader === 'Notes') nextReport.notesHeader = defaultReport.notesHeader
+  if (!nextReport.notes?.trim()) nextReport.notes = defaultAdditionalNotes
 
   return nextReport
 }
@@ -889,11 +907,12 @@ type EditableTextProps = {
   id: string
   data: ReportData
   className?: string
+  linkify?: boolean
   multiline?: boolean
   onChange: (id: string, value: string) => void
 }
 
-function EditableText({ id, data, className = '', multiline = false, onChange }: EditableTextProps) {
+function EditableText({ id, data, className = '', linkify = false, multiline = false, onChange }: EditableTextProps) {
   const fieldValue = data[id] ?? ''
   const value =
     id === 'scopeOfWorkHeader' && !fieldValue.trim()
@@ -905,6 +924,7 @@ function EditableText({ id, data, className = '', multiline = false, onChange }:
       label={id}
       value={value}
       className={className}
+      linkify={linkify}
       multiline={multiline}
       onChange={(value) => onChange(id, value)}
     />
@@ -915,30 +935,78 @@ type EditableValueProps = {
   label: string
   value: string
   className?: string
+  linkify?: boolean
   multiline?: boolean
   onChange: (value: string) => void
   onDropMenuItem?: (item: MenuItem) => void
 }
 
-function EditableValue({ label, value, className = '', onChange, onDropMenuItem }: EditableValueProps) {
+function renderLinkifiedText(value: string) {
+  const linkPattern = /(https?:\/\/[^\s]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi
+  const parts = value.split(linkPattern)
+
+  return parts.map((part, index) => {
+    if (!part) return null
+    if (/^https?:\/\//i.test(part)) {
+      return (
+        <a key={`${part}-${index}`} href={part} target="_blank" rel="noreferrer" className="text-[#273f7a] underline">
+          {part}
+        </a>
+      )
+    }
+    if (/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(part)) {
+      return (
+        <a key={`${part}-${index}`} href={`mailto:${part}`} className="text-[#273f7a] underline">
+          {part}
+        </a>
+      )
+    }
+
+    return part
+  })
+}
+
+function EditableValue({ label, value, className = '', linkify = false, onChange, onDropMenuItem }: EditableValueProps) {
   const elementRef = useRef<HTMLDivElement>(null)
+  const [isEditing, setIsEditing] = useState(false)
 
   useEffect(() => {
+    if (linkify && !isEditing) return
     if (elementRef.current && elementRef.current.innerText !== value) {
       elementRef.current.innerText = value
     }
-  }, [value])
+  }, [isEditing, linkify, value])
 
   return (
     <div
       ref={elementRef}
       role="textbox"
       aria-label={label}
-      contentEditable
+      contentEditable={!linkify || isEditing}
       suppressContentEditableWarning
       spellCheck
+      tabIndex={linkify && !isEditing ? 0 : undefined}
       className={`editable-report-field ${className}`}
-      onBlur={(event) => onChange(event.currentTarget.innerText)}
+      onClick={(event) => {
+        if (!linkify || isEditing || event.target instanceof HTMLAnchorElement) return
+        setIsEditing(true)
+        window.setTimeout(() => {
+          if (!elementRef.current) return
+          elementRef.current.innerText = value
+          elementRef.current.focus()
+        })
+      }}
+      onFocus={() => {
+        if (!linkify) return
+        setIsEditing(true)
+        window.setTimeout(() => {
+          if (elementRef.current) elementRef.current.innerText = value
+        })
+      }}
+      onBlur={(event) => {
+        onChange(event.currentTarget.innerText)
+        if (linkify) setIsEditing(false)
+      }}
       onDragOver={(event) => {
         if (onDropMenuItem) event.preventDefault()
       }}
@@ -960,7 +1028,7 @@ function EditableValue({ label, value, className = '', onChange, onDropMenuItem 
         document.execCommand('insertText', false, text)
       }}
     >
-      {value}
+      {linkify && !isEditing ? renderLinkifiedText(value) : value}
     </div>
   )
 }
@@ -1002,6 +1070,11 @@ export default function EditableInspectionReport() {
   const [relatedDocumentsOpen, setRelatedDocumentsOpen] = useState(false)
   const [masterServiceAgreementOpen, setMasterServiceAgreementOpen] = useState(false)
   const [menuSearch, setMenuSearch] = useState('')
+  const [menuSearchSections, setMenuSearchSections] = useState<InspectionMenuItemSection[] | null>(null)
+  const [menuSearchLoading, setMenuSearchLoading] = useState(false)
+  const [menuSearchMessage, setMenuSearchMessage] = useState('')
+  const [menuItemDeleting, setMenuItemDeleting] = useState(false)
+  const [menuItemUploaderNames, setMenuItemUploaderNames] = useState<Record<string, string>>({})
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
@@ -1195,18 +1268,12 @@ export default function EditableInspectionReport() {
   )
   const visibleMenuItemSections = useMemo(() => {
     const searchValue = menuSearch.trim().toLowerCase()
-    const cappedSections = normalizeMenuItemSections(menuItemSections, currentCraneIdentifier)
+    const sourceSections = searchValue && menuSearchSections ? menuSearchSections : menuItemSections
+    const cappedSections = normalizeMenuItemSections(sourceSections, currentCraneIdentifier)
     if (!searchValue) return cappedSections
 
     return cappedSections
-      .map((section) => ({
-        ...section,
-        items: section.items.filter((item) =>
-          `${item.label} ${item.description} ${item.rate}`.toLowerCase().includes(searchValue),
-        ),
-      }))
-      .filter((section) => section.items.length > 0)
-  }, [currentCraneIdentifier, menuItemSections, menuSearch])
+  }, [currentCraneIdentifier, menuItemSections, menuSearch, menuSearchSections])
   const addableMenuItemSections = useMemo(
     () => menuItemSections.filter((section) => section.title !== recentlyUsedMenuSectionTitle),
     [menuItemSections],
@@ -1218,6 +1285,78 @@ export default function EditableInspectionReport() {
       (section) => section.title !== recentlyUsedMenuSectionTitle || section.title === editingMenuItem.originalSectionTitle,
     )
   }, [addableMenuItemSections, editingMenuItem, menuItemSections])
+
+  useEffect(() => {
+    const searchValue = menuSearch.trim()
+
+    if (!searchValue) {
+      setMenuSearchSections(null)
+      setMenuSearchLoading(false)
+      setMenuSearchMessage('')
+      return
+    }
+
+    if (!isConfigured) {
+      setMenuSearchSections([])
+      setMenuSearchLoading(false)
+      setMenuSearchMessage('Supabase is not configured. Menu search is unavailable.')
+      return
+    }
+
+    let active = true
+    setMenuSearchLoading(true)
+    setMenuSearchMessage('Searching menu items...')
+
+    const searchTimer = window.setTimeout(() => {
+      searchInspectionMenuItems(searchValue)
+        .then((savedMenu) => {
+          if (!active) return
+
+          const nextSections = normalizeMenuItemSections(savedMenu?.menuSections ?? [], currentCraneIdentifier)
+          setMenuSearchSections(nextSections)
+          setMenuSearchMessage(nextSections.length > 0 ? '' : 'No database menu items found.')
+        })
+        .catch((error) => {
+          if (!active) return
+
+          setMenuSearchSections([])
+          setMenuSearchMessage(error instanceof Error ? error.message : 'Menu item search failed.')
+        })
+        .finally(() => {
+          if (active) setMenuSearchLoading(false)
+        })
+    }, menuSearchDebounceMs)
+
+    return () => {
+      active = false
+      window.clearTimeout(searchTimer)
+    }
+  }, [currentCraneIdentifier, menuSearch])
+
+  useEffect(() => {
+    const sourceSections = menuSearchSections ?? menuItemSections
+    const userIds = sourceSections.flatMap((section) => section.items.map((item) => item.userId).filter(Boolean)) as string[]
+
+    if (userIds.length === 0) {
+      setMenuItemUploaderNames({})
+      return
+    }
+
+    let active = true
+
+    getUserDisplayNames(userIds)
+      .then((displayNames) => {
+        if (active) setMenuItemUploaderNames(displayNames)
+      })
+      .catch(() => {
+        if (active) setMenuItemUploaderNames({})
+      })
+
+    return () => {
+      active = false
+    }
+  }, [menuItemSections, menuSearchSections])
+
   const selectedAddableMenuSection = addableMenuItemSections.some((section) => section.title === newMenuSection)
     ? newMenuSection
     : getDefaultAddableMenuSection(addableMenuItemSections)
@@ -1889,6 +2028,7 @@ export default function EditableInspectionReport() {
       originalSectionTitle: sectionTitle,
       sectionTitle,
       itemId: item.id ?? createMenuItemId(),
+      userId: item.userId,
       label: item.label,
       description: item.description,
       rate: item.rate,
@@ -1911,6 +2051,7 @@ export default function EditableInspectionReport() {
           if (section.title === editingMenuItem.sectionTitle) {
             const updatedItem = {
               id: editingMenuItem.itemId,
+              userId: editingMenuItem.userId,
               label,
               description,
               rate: nextRate,
@@ -1949,19 +2090,44 @@ export default function EditableInspectionReport() {
   const deleteEditedMenuItem = () => {
     if (!editingMenuItem) return
 
-    setMenuItemSections((currentSections) =>
-      saveMenuItemSections(
-        currentSections.map((section) =>
-          section.title === editingMenuItem.originalSectionTitle
-            ? {
-                ...section,
-                items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
-              }
-            : section,
-        ),
-      ),
-    )
-    setEditingMenuItem(null)
+    setMenuItemDeleting(true)
+    setMenuDatabaseStatus('saving')
+    setMenuDatabaseMessage('Deleting menu item.')
+
+    deleteInspectionMenuItem(editingMenuItem.itemId)
+      .then((deleted) => {
+        if (!deleted) {
+          setMenuDatabaseStatus('error')
+          setMenuDatabaseMessage('Only the user who uploaded this menu item can delete it.')
+          return
+        }
+
+        const removeDeletedItem = (sections: MenuItemSection[]) =>
+          saveMenuItemSections(
+            sections.map((section) =>
+              section.title === editingMenuItem.originalSectionTitle
+                ? {
+                    ...section,
+                    items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
+                  }
+                : section,
+            ),
+          )
+
+        skipNextMenuDatabaseSave.current = true
+        setMenuItemSections((currentSections) => removeDeletedItem(currentSections))
+        setMenuSearchSections((currentSections) => (currentSections ? removeDeletedItem(currentSections) : currentSections))
+        setMenuDatabaseStatus('saved')
+        setMenuDatabaseMessage('Menu item deleted from the server.')
+        setEditingMenuItem(null)
+      })
+      .catch((error) => {
+        setMenuDatabaseStatus('error')
+        setMenuDatabaseMessage(error instanceof Error ? error.message : 'Menu item could not be deleted.')
+      })
+      .finally(() => {
+        setMenuItemDeleting(false)
+      })
   }
 
   const addMenuItemToRecentlyUsed = (item: MenuItem) => {
@@ -2486,7 +2652,6 @@ export default function EditableInspectionReport() {
           .report-runtime-page-break {
             break-before: page;
             page-break-before: always;
-            margin-top: 0 !important;
           }
 
           @media print {
@@ -2834,9 +2999,18 @@ export default function EditableInspectionReport() {
                     className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none transition placeholder:text-[#9aa2b2] focus:border-[#273f7a]"
                   />
                 </label>
+                {menuSearchMessage ? (
+                  <p className="mb-3 rounded-md border border-[#dfe4ef] bg-white px-3 py-2 text-[11px] font-bold text-[#4d5360]">
+                    {menuSearchMessage}
+                  </p>
+                ) : null}
 
                 <div className="space-y-4">
-                  {visibleMenuItemSections.length > 0 ? visibleMenuItemSections.map((section) => (
+                  {menuSearchLoading ? (
+                    <div className="rounded-md border border-[#dfe4ef] bg-white px-3 py-4 text-center text-[12px] font-bold text-[#747b8a]">
+                      Searching database...
+                    </div>
+                  ) : visibleMenuItemSections.length > 0 ? visibleMenuItemSections.map((section) => (
                     <section key={section.title}>
                       <h3 className="mb-2 border-b border-[#dfe4ef] pb-1 text-[12px] font-black uppercase tracking-[0.02em] text-[#273f7a]">
                         {getMenuSectionDisplayTitle(section.title)}
@@ -3687,7 +3861,7 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="notes"
               style={getRuntimePageBreakStyle('notes')}
-              className={`relative mt-5 border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative ${blockVisibility.grandTotal ? 'mt-6' : 'mt-5'} border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
             >
               {unlocked ? (
                 <button
@@ -3705,7 +3879,7 @@ export default function EditableInspectionReport() {
                 onChange={updateField}
                 className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase"
               />
-              <EditableText id="notes" data={report} onChange={updateField} multiline className="min-h-[96px] px-3 py-3 text-[15px] font-semibold" />
+              <EditableText id="notes" data={report} onChange={updateField} multiline linkify className="min-h-[96px] px-3 py-3 text-[15px] font-semibold" />
             </section>
             ) : null}
           </section>
@@ -3922,14 +4096,20 @@ export default function EditableInspectionReport() {
           </div>
 
           <div className="flex items-center justify-between border-t border-[#dfe4ef] bg-[#fbfcff] px-5 py-4">
-            <p className="text-[12px] font-semibold text-[#747b8a]">{menuDatabaseMessage}</p>
+            <div className="min-w-0 pr-4 text-[12px] font-semibold text-[#747b8a]">
+              <p className="font-black text-[#273f7a]">
+                Uploaded by: {editingMenuItem.userId ? menuItemUploaderNames[editingMenuItem.userId] || 'Unknown user' : '-'}
+              </p>
+              <p>{menuDatabaseMessage}</p>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={deleteEditedMenuItem}
-                className="rounded-md border border-[#e0b8b8] bg-white px-4 py-2.5 text-[13px] font-black text-[#a82727] transition hover:border-[#d98b8b] hover:bg-[#fff5f5]"
+                disabled={menuItemDeleting}
+                className="rounded-md border border-[#e0b8b8] bg-white px-4 py-2.5 text-[13px] font-black text-[#a82727] transition hover:border-[#d98b8b] hover:bg-[#fff5f5] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Delete Item
+                {menuItemDeleting ? 'Deleting...' : 'Delete Item'}
               </button>
               <button
                 type="button"

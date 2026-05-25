@@ -133,22 +133,20 @@ alter table public.editable_inspection_menu_items enable row level security;
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on table public.editable_inspection_menu_items to authenticated;
 
+drop policy if exists "Authenticated users can read their inspection menu items"
+  on public.editable_inspection_menu_items;
+
+drop policy if exists "Authenticated users can read all inspection menu items"
+  on public.editable_inspection_menu_items;
+
+create policy "Authenticated users can read all inspection menu items"
+  on public.editable_inspection_menu_items
+  for select
+  to authenticated
+  using (true);
+
 do $$
 begin
-  if not exists (
-    select 1
-    from pg_policies
-    where schemaname = 'public'
-      and tablename = 'editable_inspection_menu_items'
-      and policyname = 'Authenticated users can read their inspection menu items'
-  ) then
-    create policy "Authenticated users can read their inspection menu items"
-      on public.editable_inspection_menu_items
-      for select
-      to authenticated
-      using ((select auth.uid()) = user_id);
-  end if;
-
   if not exists (
     select 1
     from pg_policies
