@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 
 export default function ForgotPassword() {
+  const [searchParams] = useSearchParams()
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const backToLoginPath = searchParams.get('from') === 'quote' ? '/quotelogin' : '/login'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -78,7 +80,7 @@ export default function ForgotPassword() {
         </form>
 
         <p className="mt-6 text-center text-sm text-gray-600">
-          <Link to="/login" className="font-medium text-indigo-600 hover:underline">
+          <Link to={backToLoginPath} className="font-medium text-indigo-600 hover:underline">
             Back to sign in
           </Link>
         </p>

@@ -268,13 +268,13 @@ export default function JobsQuotingList() {
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate('/quotelogin')
       return
     }
 
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate('/quotelogin')
       } else {
         setUser(data.user)
       }
@@ -596,6 +596,14 @@ export default function JobsQuotingList() {
     })
   }
 
+  const signOut = async () => {
+    if (!supabase) return
+
+    await supabase.auth.signOut()
+    setUser(null)
+    navigate('/quotelogin', { replace: true })
+  }
+
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#e8eaef] px-4">
@@ -632,9 +640,13 @@ export default function JobsQuotingList() {
         <div className="text-sm font-black tracking-wide">DESHAZO Quote Builder</div>
 
         <div className="relative flex items-center gap-2">
-          <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
-            {user.email}
-          </div>
+          <button
+            type="button"
+            onClick={signOut}
+            className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold transition hover:bg-white/20 md:block"
+          >
+            Sign out: {user.email}
+          </button>
           <input
             ref={extractPdfInputRef}
             type="file"
