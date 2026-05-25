@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isConfigured } from '../lib/supabase'
 import {
@@ -941,6 +941,12 @@ type EditableValueProps = {
   onDropMenuItem?: (item: MenuItem) => void
 }
 
+const menuItemDataTransferType = 'application/deshazo-menu-item'
+
+function isMenuItemDrag(event: DragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.types).includes(menuItemDataTransferType)
+}
+
 function renderLinkifiedText(value: string) {
   const linkPattern = /(https?:\/\/[^\s]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi
   const parts = value.split(linkPattern)
@@ -1008,12 +1014,24 @@ function EditableValue({ label, value, className = '', linkify = false, onChange
         if (linkify) setIsEditing(false)
       }}
       onDragOver={(event) => {
-        if (onDropMenuItem) event.preventDefault()
+        if (onDropMenuItem) {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'copy'
+          return
+        }
+
+        if (isMenuItemDrag(event)) {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'none'
+        }
       }}
       onDrop={(event) => {
-        if (!onDropMenuItem) return
+        if (!onDropMenuItem) {
+          if (isMenuItemDrag(event)) event.preventDefault()
+          return
+        }
         event.preventDefault()
-        const payload = event.dataTransfer.getData('application/deshazo-menu-item')
+        const payload = event.dataTransfer.getData(menuItemDataTransferType)
         if (!payload) return
 
         try {
@@ -1086,6 +1104,7 @@ export default function EditableInspectionReport() {
   const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(jobsQuotingItemId || null)
   const [runtimePageBreaks, setRuntimePageBreaks] = useState<Record<string, number>>({})
   const [runtimePageCount, setRuntimePageCount] = useState(1)
+  const [isReportEditing, setIsReportEditing] = useState(false)
   const [menuItemsRefreshProgress, setMenuItemsRefreshProgress] = useState<MenuItemsRefreshProgress>({
     active: false,
     percent: 0,
@@ -1362,9 +1381,11 @@ export default function EditableInspectionReport() {
     : getDefaultAddableMenuSection(addableMenuItemSections)
 
   const getRuntimePageBreakClassName = (blockId: string) =>
-    runtimePageBreaks[blockId] ? 'report-runtime-page-break' : ''
+    !isReportEditing && runtimePageBreaks[blockId] ? 'report-runtime-page-break' : ''
 
   const getRuntimePageBreakStyle = (blockId: string) => {
+    if (isReportEditing) return undefined
+
     const spacer = runtimePageBreaks[blockId]
     return spacer ? { marginTop: `${spacer}px` } : undefined
   }
@@ -2614,20 +2635,20 @@ export default function EditableInspectionReport() {
           .editable-report-field {
             min-width: 0;
             border-radius: 2px;
-            outline: 1px solid transparent;
             white-space: pre-wrap;
             overflow-wrap: anywhere;
+            box-shadow: inset 0 0 0 1px transparent;
           }
 
           .editable-report-field:hover {
             background: rgba(255, 184, 0, 0.12);
-            outline-color: rgba(245, 175, 0, 0.38);
+            box-shadow: inset 0 0 0 1px rgba(245, 175, 0, 0.38);
           }
 
           .editable-report-field:focus {
             background: #fffdf3;
-            outline: 2px solid #f3a900;
-            box-shadow: 0 0 0 3px rgba(243, 169, 0, 0.14);
+            outline: 0;
+            box-shadow: inset 0 0 0 1.5px #f3a900;
           }
 
           .report-document {
@@ -2652,6 +2673,24 @@ export default function EditableInspectionReport() {
           .report-runtime-page-break {
             break-before: page;
             page-break-before: always;
+          }
+
+          .report-content-layer:focus-within .report-runtime-page-break {
+            break-before: auto;
+            page-break-before: auto;
+            margin-top: 0 !important;
+          }
+
+          .report-content-layer:focus-within .report-runtime-page-break.mt-3 {
+            margin-top: 0.75rem !important;
+          }
+
+          .report-content-layer:focus-within .report-runtime-page-break.mt-5 {
+            margin-top: 1.25rem !important;
+          }
+
+          .report-content-layer:focus-within .report-runtime-page-break.mt-6 {
+            margin-top: 1.5rem !important;
           }
 
           @media print {
@@ -3021,7 +3060,7 @@ export default function EditableInspectionReport() {
                             key={`${section.title}-${item.id ?? item.label}`}
                             draggable
                             onDragStart={(event) => {
-                              event.dataTransfer.setData('application/deshazo-menu-item', JSON.stringify(item))
+                              event.dataTransfer.setData(menuItemDataTransferType, JSON.stringify(item))
                               event.dataTransfer.setData('text/plain', item.description)
                               event.dataTransfer.effectAllowed = 'copy'
                             }}
@@ -3259,7 +3298,18 @@ export default function EditableInspectionReport() {
                   aria-hidden="true"
                 />
               ))}
-            <article ref={reportContentRef} className="report-content-layer relative z-10">
+            <article
+              ref={reportContentRef}
+              className="report-content-layer relative z-10"
+              onFocusCapture={() => setIsReportEditing(true)}
+              onBlurCapture={() => {
+                window.setTimeout(() => {
+                  if (!reportContentRef.current?.contains(document.activeElement)) {
+                    setIsReportEditing(false)
+                  }
+                })
+              }}
+            >
           <section className="grid grid-cols-[1.2fr_1fr_0.95fr] items-center bg-[#f5b400] px-6 py-2">
             <div>
               <EditableText id="logoName" data={report} onChange={updateField} className="text-[30px] font-black leading-none tracking-[-0.04em]" />

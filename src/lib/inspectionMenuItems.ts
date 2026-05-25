@@ -110,6 +110,8 @@ function mapMenuItemsRows(userId: string, rows: EditableInspectionMenuItemsRow[]
 function flattenMenuSections(userId: string, syncToken: string, menuSections: InspectionMenuItemSection[]) {
   return menuSections.flatMap((section) =>
     section.items.map((item, itemIndex) => {
+      if (item.userId && item.userId !== userId) return null
+
       const row: EditableInspectionMenuItemsInsert = {
         user_id: userId,
         section_title: section.title,
@@ -131,7 +133,7 @@ function flattenMenuSections(userId: string, syncToken: string, menuSections: In
       }
 
       return row
-    }),
+    }).filter((row): row is EditableInspectionMenuItemsInsert => Boolean(row)),
   )
 }
 
