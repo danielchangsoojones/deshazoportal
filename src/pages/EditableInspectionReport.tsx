@@ -2563,27 +2563,74 @@ export default function EditableInspectionReport() {
     )
   }
 
-  const resetTemplate = () => {
-    window.localStorage.removeItem(storageKey)
-    window.localStorage.removeItem(repairStorageKey)
-    window.localStorage.removeItem(costStorageKey)
-    window.localStorage.removeItem(menuStorageKey)
-    window.localStorage.removeItem(blockVisibilityStorageKey)
-    window.localStorage.removeItem(textBoxStorageKey)
-    window.localStorage.removeItem(menuCollapsedStorageKey)
-    window.localStorage.removeItem(estimateNoteVisibilityStorageKey)
-    window.localStorage.removeItem(repairSectionVisibilityStorageKey)
-    window.localStorage.removeItem(equipmentRentalSettingsStorageKey)
-    setReport(defaultReport)
-    setRepairSections(defaultRepairSections)
-    setCostSections(defaultCostSections)
-    setMenuItemSections(normalizeMenuItemSections(defaultMenuItemSections, currentCraneIdentifier))
-    setBlockVisibility(defaultBlockVisibility)
-    setEstimateNoteVisibility(defaultEstimateNoteVisibility)
-    setRepairSectionVisibility({})
-    setCanvasTextBoxes([])
-    setMenuCollapsed(false)
-    setEquipmentRentalSettings(defaultEquipmentRentalSettings)
+  const resetTemplate = async () => {
+    if (!isConfigured) {
+      setReportDatabaseStatus('local')
+      return
+    }
+
+    setReportDatabaseStatus('loading')
+
+    try {
+      let savedReport: EditableInspectionReport | null = null
+
+      if (currentEditableReportId) {
+        savedReport = await getEditableInspectionReport(currentEditableReportId)
+      } else if (currentJobsQuotingItemId) {
+        savedReport = await getEditableInspectionReportForJobsQuotingItem(currentJobsQuotingItemId)
+      }
+
+      if (savedReport) {
+        applyEditableReportPayload(getNormalizedReportPayload(savedReport))
+        setCurrentEditableReportId(savedReport.id)
+        setCurrentReportName(savedReport.reportName)
+        setCurrentSourceDocumentName(savedReport.sourceDocumentName)
+        setCurrentJobsQuotingItemId(savedReport.jobsQuotingItemId)
+        setSearchParams({ editableReportId: savedReport.id }, { replace: true })
+      } else if (currentJobsQuotingItemId) {
+        const quoteItem = await getJobsQuotingItem(currentJobsQuotingItemId)
+        const quoteReport = buildReportFromJobsQuotingItem(quoteItem)
+
+        applyEditableReportPayload({
+          reportData: quoteReport,
+          repairSections: buildRepairSectionsFromJobsQuotingItem(quoteItem),
+          costSections: defaultCostSections,
+          blockVisibility: defaultBlockVisibility,
+          estimateNoteVisibility: defaultEstimateNoteVisibility,
+          repairSectionVisibility: {},
+          textBoxes: [],
+          equipmentRentalSettings: defaultEquipmentRentalSettings,
+        })
+        setCurrentEditableReportId('')
+        setCurrentReportName(getEditableReportDisplayName(quoteReport, quoteItem.documentName))
+        setCurrentSourceDocumentName(quoteItem.documentName)
+        setCurrentJobsQuotingItemId(quoteItem.id)
+        setSearchParams({ jobsQuotingItemId: quoteItem.id }, { replace: true })
+      } else {
+        applyEditableReportPayload({
+          reportData: defaultReport,
+          repairSections: defaultRepairSections,
+          costSections: defaultCostSections,
+          blockVisibility: defaultBlockVisibility,
+          estimateNoteVisibility: defaultEstimateNoteVisibility,
+          repairSectionVisibility: {},
+          textBoxes: [],
+          equipmentRentalSettings: defaultEquipmentRentalSettings,
+        })
+        setCurrentEditableReportId('')
+        setCurrentReportName('Untitled quote report')
+        setCurrentSourceDocumentName('Untitled quote report')
+        setCurrentJobsQuotingItemId(null)
+      }
+
+      skipNextReportDatabaseSave.current = true
+      pendingReportChanges.current = false
+      setReportDatabaseStatus('saved')
+    } catch (error) {
+      setReportDatabaseStatus('error')
+      console.error('Editable report could not be reset.', error)
+    }
+
     setUnlocked(false)
     setTextMenuOpen(false)
     setPageLayoutMenuOpen(false)
@@ -2982,7 +3029,9 @@ export default function EditableInspectionReport() {
             </button>
             <button
               type="button"
-              onClick={resetTemplate}
+              onClick={() => {
+                void resetTemplate()
+              }}
               className="rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
             >
               Reset
