@@ -371,6 +371,9 @@ const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => ({
   source: 'menu',
 })
 
+const shouldShowAddMenuItemTag = (lineItem: RepairLineItem) =>
+  lineItem.source === 'manual' && Boolean(lineItem.description.trim()) && parseMoney(lineItem.rate) > 0
+
 const getMenuSectionDisplayTitle = (title: string) => {
   if (title === recentlyUsedMenuSectionTitle) return 'Recently used'
   if (title === 'Customer specific') return 'Customer specific (Wabash)'
@@ -3569,15 +3572,18 @@ export default function EditableInspectionReport() {
                                 <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
                               </span>
                             ) : null}
-                            {lineItem.source === 'manual' ? (
+                            {shouldShowAddMenuItemTag(lineItem) ? (
                               <button
                                 type="button"
                                 onClick={() => openMenuSettingsFromLineItem(lineItem)}
-                                className="report-inline-action absolute left-[-62px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
-                                aria-label={`Create market item from ${lineItem.description}`}
-                                title="Create market item"
+                                className="report-inline-action absolute left-[-96px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
+                                aria-label={`Add menu item from ${lineItem.description}`}
+                                title="Add menu item"
                               >
-                                Market
+                                <span className="mr-1 inline-flex h-3 w-3 items-center justify-center rounded-full bg-[#d8a91e] text-[9px] leading-none text-white">
+                                  +
+                                </span>
+                                Add Menu Item
                               </button>
                             ) : null}
                             <div className="flex min-h-[25px] items-start gap-2 px-2 py-1.5">
@@ -3826,15 +3832,18 @@ export default function EditableInspectionReport() {
                             <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
                           </span>
                         ) : null}
-                        {lineItem.source === 'manual' ? (
+                        {shouldShowAddMenuItemTag(lineItem) ? (
                           <button
                             type="button"
                             onClick={() => openMenuSettingsFromLineItem(lineItem)}
-                            className="report-inline-action absolute left-[-62px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
-                            aria-label={`Create market item from ${lineItem.description}`}
-                            title="Create market item"
+                            className="report-inline-action absolute left-[-96px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
+                            aria-label={`Add menu item from ${lineItem.description}`}
+                            title="Add menu item"
                           >
-                            Market
+                            <span className="mr-1 inline-flex h-3 w-3 items-center justify-center rounded-full bg-[#d8a91e] text-[9px] leading-none text-white">
+                              +
+                            </span>
+                            Add Menu Item
                           </button>
                         ) : null}
                         <div className="flex min-h-[25px] items-start gap-2 px-2 py-1.5">
