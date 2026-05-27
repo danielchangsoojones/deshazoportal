@@ -129,6 +129,12 @@ const menuSearchDebounceMs = 300
 const defaultCraneIdentifier = 'D200235'
 const originalInspectionStableKey = 'built-in:original-inspection'
 const masterServiceAgreementStableKey = 'built-in:master-service-agreement'
+const estimateSummaryRuntimePageBreakIds = new Set([
+  'estimate-summary-header',
+  'estimate-top-note',
+  'estimate-bottom-note',
+  'notes',
+])
 
 type EquipmentRentalSettings = {
   applyMarginToAll: boolean
@@ -977,6 +983,17 @@ function isMenuItemDrag(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes(menuItemDataTransferType)
 }
 
+function getDroppedMenuItem(event: DragEvent<HTMLElement>) {
+  const payload = event.dataTransfer.getData(menuItemDataTransferType)
+  if (!payload) return null
+
+  try {
+    return JSON.parse(payload) as MenuItem
+  } catch {
+    return { label: 'Menu item', description: payload, rate: '0.00' }
+  }
+}
+
 function renderLinkifiedText(value: string) {
   const linkPattern = /(https?:\/\/[^\s]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi
   const parts = value.split(linkPattern)
@@ -1046,6 +1063,7 @@ function EditableValue({ label, value, className = '', linkify = false, onChange
       onDragOver={(event) => {
         if (onDropMenuItem) {
           event.preventDefault()
+          event.stopPropagation()
           event.dataTransfer.dropEffect = 'copy'
           return
         }
@@ -1061,14 +1079,9 @@ function EditableValue({ label, value, className = '', linkify = false, onChange
           return
         }
         event.preventDefault()
-        const payload = event.dataTransfer.getData(menuItemDataTransferType)
-        if (!payload) return
-
-        try {
-          onDropMenuItem(JSON.parse(payload) as MenuItem)
-        } catch {
-          onDropMenuItem({ label: 'Menu item', description: payload, rate: '0.00' })
-        }
+        event.stopPropagation()
+        const item = getDroppedMenuItem(event)
+        if (item) onDropMenuItem(item)
       }}
       onPaste={(event) => {
         event.preventDefault()
@@ -1461,10 +1474,12 @@ export default function EditableInspectionReport() {
   }
 
   const getRuntimePageBreakClassName = (blockId: string) =>
-    !isReportEditing && runtimePageBreaks[blockId] ? 'report-runtime-page-break' : ''
+    !isReportEditing && runtimePageBreaks[blockId] && !estimateSummaryRuntimePageBreakIds.has(blockId)
+      ? 'report-runtime-page-break'
+      : ''
 
   const getRuntimePageBreakStyle = (blockId: string) => {
-    if (isReportEditing) return undefined
+    if (isReportEditing || estimateSummaryRuntimePageBreakIds.has(blockId)) return undefined
 
     const spacer = runtimePageBreaks[blockId]
     return spacer ? { marginTop: `${spacer}px` } : undefined
@@ -3565,6 +3580,17 @@ export default function EditableInspectionReport() {
                       key={section.id}
                       data-report-block-id={`repair-section-${section.id}`}
                       style={getRuntimePageBreakStyle(`repair-section-${section.id}`)}
+                      onDragOver={(event) => {
+                        if (!isMenuItemDrag(event)) return
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = 'copy'
+                      }}
+                      onDrop={(event) => {
+                        if (!isMenuItemDrag(event)) return
+                        event.preventDefault()
+                        const item = getDroppedMenuItem(event)
+                        if (item) addMenuItemToRepairSection(section.id, item)
+                      }}
                       className={`repair-section ${sectionTone.sectionBackground} ${getRuntimePageBreakClassName(`repair-section-${section.id}`)} ${
                         sectionIndex > 0 ? `border-t ${sectionTone.sectionBorder}` : ''
                       }`}
@@ -3760,7 +3786,7 @@ export default function EditableInspectionReport() {
             </section>
             ) : null}
             {blockVisibility.estimateSummary ? (
-            <section className={`relative mt-5 ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+            <section className={`relative mt-3 ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
               {unlocked ? (
                 <button
                   type="button"
@@ -4059,7 +4085,7 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="grand-total"
               style={getRuntimePageBreakStyle('grand-total')}
-              className={`relative mt-5 border-2 border-[#111] ${getRuntimePageBreakClassName('grand-total')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border-2 border-[#111] ${getRuntimePageBreakClassName('grand-total')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
             >
               {unlocked ? (
                 <button
@@ -4085,7 +4111,7 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="notes"
               style={getRuntimePageBreakStyle('notes')}
-              className={`relative ${blockVisibility.grandTotal ? 'mt-6' : 'mt-5'} border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
             >
               {unlocked ? (
                 <button
