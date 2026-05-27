@@ -136,6 +136,9 @@ const estimateSummaryRuntimePageBreakIds = new Set([
   'notes',
 ])
 
+const shouldSuppressRuntimePageBreak = (blockId: string) =>
+  estimateSummaryRuntimePageBreakIds.has(blockId) || blockId.startsWith('repair-section-')
+
 type EquipmentRentalSettings = {
   applyMarginToAll: boolean
   margin: string
@@ -1474,12 +1477,12 @@ export default function EditableInspectionReport() {
   }
 
   const getRuntimePageBreakClassName = (blockId: string) =>
-    !isReportEditing && runtimePageBreaks[blockId] && !estimateSummaryRuntimePageBreakIds.has(blockId)
+    !isReportEditing && runtimePageBreaks[blockId] && !shouldSuppressRuntimePageBreak(blockId)
       ? 'report-runtime-page-break'
       : ''
 
   const getRuntimePageBreakStyle = (blockId: string) => {
-    if (isReportEditing || estimateSummaryRuntimePageBreakIds.has(blockId)) return undefined
+    if (isReportEditing || shouldSuppressRuntimePageBreak(blockId)) return undefined
 
     const spacer = runtimePageBreaks[blockId]
     return spacer ? { marginTop: `${spacer}px` } : undefined
