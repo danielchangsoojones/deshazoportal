@@ -3831,6 +3831,17 @@ export default function EditableInspectionReport() {
                     key={section.id}
                     data-report-block-id={`cost-section-${section.id}`}
                     style={getRuntimePageBreakStyle(`cost-section-${section.id}`)}
+                    onDragOver={(event) => {
+                      if (!isMenuItemDrag(event)) return
+                      event.preventDefault()
+                      event.dataTransfer.dropEffect = 'copy'
+                    }}
+                    onDrop={(event) => {
+                      if (!isMenuItemDrag(event)) return
+                      event.preventDefault()
+                      const item = getDroppedMenuItem(event)
+                      if (item) addMenuItemToCostSection(section.id, item)
+                    }}
                     className={`repair-section border-x border-b border-[#d4d4d4] bg-white ${getRuntimePageBreakClassName(`cost-section-${section.id}`)}`}
                   >
                     <div className="relative flex items-center justify-between gap-3 border-b border-[#d8d8d8] bg-[#f7f7f7] px-3 py-1.5">
