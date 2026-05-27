@@ -77,6 +77,12 @@ type EditingMenuItem = {
   rate: string
 }
 
+type PendingAddMenuLineItem = {
+  collection: 'repair' | 'cost'
+  sectionId: string
+  lineItemId: string
+}
+
 type CanvasTextBox = {
   id: string
   text: string
@@ -1138,6 +1144,7 @@ export default function EditableInspectionReport() {
   const [newMenuDescription, setNewMenuDescription] = useState('')
   const [newMenuRate, setNewMenuRate] = useState('0.00')
   const [editingMenuItem, setEditingMenuItem] = useState<EditingMenuItem | null>(null)
+  const [pendingAddMenuLineItem, setPendingAddMenuLineItem] = useState<PendingAddMenuLineItem | null>(null)
   const [menuDatabaseStatus, setMenuDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -1404,12 +1411,51 @@ export default function EditableInspectionReport() {
     ? newMenuSection
     : getDefaultAddableMenuSection(addableMenuItemSections)
 
-  const openMenuSettingsFromLineItem = (lineItem: RepairLineItem) => {
+  const markPendingLineItemAddedToMenu = () => {
+    if (!pendingAddMenuLineItem) return
+
+    if (pendingAddMenuLineItem.collection === 'repair') {
+      setRepairSections((currentSections) =>
+        saveRepairSections(
+          currentSections.map((section) =>
+            section.id === pendingAddMenuLineItem.sectionId
+              ? {
+                  ...section,
+                  lineItems: section.lineItems.map((lineItem) =>
+                    lineItem.id === pendingAddMenuLineItem.lineItemId ? { ...lineItem, source: 'menu' } : lineItem,
+                  ),
+                }
+              : section,
+          ),
+        ),
+      )
+    } else {
+      setCostSections((currentSections) =>
+        saveCostSections(
+          currentSections.map((section) =>
+            section.id === pendingAddMenuLineItem.sectionId
+              ? {
+                  ...section,
+                  lineItems: section.lineItems.map((lineItem) =>
+                    lineItem.id === pendingAddMenuLineItem.lineItemId ? { ...lineItem, source: 'menu' } : lineItem,
+                  ),
+                }
+              : section,
+          ),
+        ),
+      )
+    }
+
+    setPendingAddMenuLineItem(null)
+  }
+
+  const openMenuSettingsFromLineItem = (lineItem: RepairLineItem, pendingLineItem: PendingAddMenuLineItem) => {
     const itemName = lineItem.description.trim() || 'New line item'
     setNewMenuSection(selectedAddableMenuSection)
     setNewMenuLabel(itemName)
     setNewMenuDescription(itemName)
     setNewMenuRate(parseMoney(lineItem.rate).toFixed(2))
+    setPendingAddMenuLineItem(pendingLineItem)
     setActiveLineMenu('')
     setMenuSettingsOpen(true)
   }
@@ -2076,6 +2122,7 @@ export default function EditableInspectionReport() {
     setNewMenuLabel('')
     setNewMenuDescription('')
     setNewMenuRate('0.00')
+    markPendingLineItemAddedToMenu()
   }
 
   const openMenuItemEditor = (sectionTitle: string, item: MenuItem) => {
@@ -2670,6 +2717,7 @@ export default function EditableInspectionReport() {
     setPageLayoutMenuOpen(false)
     setRelatedDocumentsOpen(false)
     setMenuSettingsOpen(false)
+    setPendingAddMenuLineItem(null)
   }
 
   const goBackToJobsQuotingList = async () => {
@@ -3240,7 +3288,10 @@ export default function EditableInspectionReport() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setMenuSettingsOpen(true)}
+                  onClick={() => {
+                    setPendingAddMenuLineItem(null)
+                    setMenuSettingsOpen(true)
+                  }}
                   className="flex w-full items-center justify-center gap-2 rounded-md bg-[#273f7a] px-3 py-2.5 text-[13px] font-black text-white transition hover:bg-[#1f3262]"
                 >
                   <span className="text-[16px]">⚙</span>
@@ -3575,8 +3626,14 @@ export default function EditableInspectionReport() {
                             {shouldShowAddMenuItemTag(lineItem) ? (
                               <button
                                 type="button"
-                                onClick={() => openMenuSettingsFromLineItem(lineItem)}
-                                className="report-inline-action absolute left-[-96px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
+                                onClick={() =>
+                                  openMenuSettingsFromLineItem(lineItem, {
+                                    collection: 'repair',
+                                    sectionId: section.id,
+                                    lineItemId: lineItem.id,
+                                  })
+                                }
+                                className="report-inline-action absolute left-[-112px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
                                 aria-label={`Add menu item from ${lineItem.description}`}
                                 title="Add menu item"
                               >
@@ -3835,8 +3892,14 @@ export default function EditableInspectionReport() {
                         {shouldShowAddMenuItemTag(lineItem) ? (
                           <button
                             type="button"
-                            onClick={() => openMenuSettingsFromLineItem(lineItem)}
-                            className="report-inline-action absolute left-[-96px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
+                            onClick={() =>
+                              openMenuSettingsFromLineItem(lineItem, {
+                                collection: 'cost',
+                                sectionId: section.id,
+                                lineItemId: lineItem.id,
+                              })
+                            }
+                            className="report-inline-action absolute left-[-112px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
                             aria-label={`Add menu item from ${lineItem.description}`}
                             title="Add menu item"
                           >
@@ -4102,7 +4165,10 @@ export default function EditableInspectionReport() {
             </div>
             <button
               type="button"
-              onClick={() => setMenuSettingsOpen(false)}
+              onClick={() => {
+                setPendingAddMenuLineItem(null)
+                setMenuSettingsOpen(false)
+              }}
               className="flex h-9 w-9 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[16px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
               aria-label="Close menu settings"
             >
