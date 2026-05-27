@@ -39,6 +39,7 @@ type RepairLineItem = {
   quantity: string
   rate: string
   margin: string
+  source?: 'manual' | 'menu'
 }
 
 type RepairSection = {
@@ -351,6 +352,24 @@ const globalMenuSectionTitles = new Set([recentlyUsedMenuSectionTitle, 'Customer
 
 const getDefaultAddableMenuSection = (sections: MenuItemSection[]) =>
   sections.find((section) => section.title !== recentlyUsedMenuSectionTitle)?.title ?? 'Shared'
+
+const createManualLineItem = (id: string, description: string): RepairLineItem => ({
+  id,
+  description,
+  quantity: '1',
+  rate: '0.00',
+  margin: '0',
+  source: 'manual',
+})
+
+const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => ({
+  id,
+  description: item.description,
+  quantity: '1',
+  rate: item.rate,
+  margin: '0',
+  source: 'menu',
+})
 
 const getMenuSectionDisplayTitle = (title: string) => {
   if (title === recentlyUsedMenuSectionTitle) return 'Recently used'
@@ -846,6 +865,7 @@ const normalizeRepairSections = (sections: RepairSection[]) =>
         quantity: savedLineItem.quantity ?? '1',
         rate: savedLineItem.rate ?? '0.00',
         margin: savedLineItem.margin ?? '0',
+        source: savedLineItem.source,
       }
     }),
   }))
@@ -862,6 +882,7 @@ const normalizeCostSections = (sections: CostSection[]) =>
         quantity: savedLineItem.quantity ?? '1',
         rate: savedLineItem.rate ?? '0.00',
         margin: savedLineItem.margin ?? '0',
+        source: savedLineItem.source,
       }
     }),
   }))
@@ -1379,6 +1400,16 @@ export default function EditableInspectionReport() {
   const selectedAddableMenuSection = addableMenuItemSections.some((section) => section.title === newMenuSection)
     ? newMenuSection
     : getDefaultAddableMenuSection(addableMenuItemSections)
+
+  const openMenuSettingsFromLineItem = (lineItem: RepairLineItem) => {
+    const itemName = lineItem.description.trim() || 'New line item'
+    setNewMenuSection(selectedAddableMenuSection)
+    setNewMenuLabel(itemName)
+    setNewMenuDescription(itemName)
+    setNewMenuRate(parseMoney(lineItem.rate).toFixed(2))
+    setActiveLineMenu('')
+    setMenuSettingsOpen(true)
+  }
 
   const getRuntimePageBreakClassName = (blockId: string) =>
     !isReportEditing && runtimePageBreaks[blockId] ? 'report-runtime-page-break' : ''
@@ -2359,7 +2390,7 @@ export default function EditableInspectionReport() {
           id: nextSectionId,
           title: 'New Repair Item',
           status: 'Repair',
-          lineItems: [{ id: createId('line'), description: 'Add repair detail here.', quantity: '1', rate: '0.00', margin: '0' }],
+          lineItems: [createManualLineItem(createId('line'), 'Add repair detail here.')],
         },
       ]),
     )
@@ -2391,7 +2422,7 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: [
                   ...section.lineItems,
-                  { id: createId('line'), description: 'Add repair detail here.', quantity: '1', rate: '0.00', margin: '0' },
+                  createManualLineItem(createId('line'), 'Add repair detail here.'),
                 ],
               }
             : section,
@@ -2432,7 +2463,7 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: [
                   ...section.lineItems,
-                  { id: createId('line'), description: item.description, quantity: '1', rate: item.rate, margin: '0' },
+                  createMenuLineItem(createId('line'), item),
                 ],
               }
             : section,
@@ -2465,7 +2496,7 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: [
                   ...section.lineItems,
-                  { id: createId('line'), description: 'Add line item here.', quantity: '1', rate: '0.00', margin: '0' },
+                  createManualLineItem(createId('line'), 'Add line item here.'),
                 ],
               }
             : section,
@@ -2539,7 +2570,7 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: [
                   ...section.lineItems,
-                  { id: createId('line'), description: item.description, quantity: '1', rate: item.rate, margin: '0' },
+                  createMenuLineItem(createId('line'), item),
                 ],
               }
             : section,
@@ -3538,6 +3569,17 @@ export default function EditableInspectionReport() {
                                 <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
                               </span>
                             ) : null}
+                            {lineItem.source === 'manual' ? (
+                              <button
+                                type="button"
+                                onClick={() => openMenuSettingsFromLineItem(lineItem)}
+                                className="report-inline-action absolute left-[-62px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
+                                aria-label={`Create market item from ${lineItem.description}`}
+                                title="Create market item"
+                              >
+                                Market
+                              </button>
+                            ) : null}
                             <div className="flex min-h-[25px] items-start gap-2 px-2 py-1.5">
                               <EditableValue
                                 label={`${section.title} line item ${lineIndex + 1}`}
@@ -3783,6 +3825,17 @@ export default function EditableInspectionReport() {
                             </span>
                             <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
                           </span>
+                        ) : null}
+                        {lineItem.source === 'manual' ? (
+                          <button
+                            type="button"
+                            onClick={() => openMenuSettingsFromLineItem(lineItem)}
+                            className="report-inline-action absolute left-[-62px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
+                            aria-label={`Create market item from ${lineItem.description}`}
+                            title="Create market item"
+                          >
+                            Market
+                          </button>
                         ) : null}
                         <div className="flex min-h-[25px] items-start gap-2 px-2 py-1.5">
                           <EditableValue
