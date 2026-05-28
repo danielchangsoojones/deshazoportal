@@ -3629,8 +3629,8 @@ export default function EditableInspectionReport() {
                       <div className="grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
                         <div className="px-2 py-1">Description</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Rate</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Amount</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Cost</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total</div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
                       </div>
                       <div>
@@ -3684,9 +3684,9 @@ export default function EditableInspectionReport() {
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
                             <EditableValue
-                              label={`${section.title} rate ${lineIndex + 1}`}
-                              value={lineItem.rate}
-                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'rate', value)}
+                              label={`${section.title} cost ${lineIndex + 1}`}
+                              value={formatMoney(parseMoney(lineItem.rate))}
+                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'rate', parseMoney(value).toFixed(2))}
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
                             <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
@@ -3906,8 +3906,8 @@ export default function EditableInspectionReport() {
                     <div className="grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[10px] font-black uppercase text-[#555b66]">
                       <div className="px-2 py-1">Description</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
-                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Rate</div>
-                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Amount</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Cost</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total</div>
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
                     </div>
 
@@ -3962,9 +3962,9 @@ export default function EditableInspectionReport() {
                         {section.id === equipmentRentalSectionId && equipmentRentalSettings.applyMarginToAll ? (
                           <div className="flex min-h-[25px] items-center justify-end gap-1 border-l border-[#e5e5e5] px-2 py-1.5 text-right">
                             <EditableValue
-                              label={`${section.title} rate ${lineIndex + 1}`}
-                              value={lineItem.rate}
-                              onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', value)}
+                              label={`${section.title} cost ${lineIndex + 1}`}
+                              value={formatMoney(parseMoney(lineItem.rate))}
+                              onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', parseMoney(value).toFixed(2))}
                               className="min-w-0"
                             />
                             <span className="whitespace-nowrap font-black text-[#17652b]">
@@ -3973,9 +3973,9 @@ export default function EditableInspectionReport() {
                           </div>
                         ) : (
                           <EditableValue
-                            label={`${section.title} rate ${lineIndex + 1}`}
-                            value={lineItem.rate}
-                            onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', value)}
+                            label={`${section.title} cost ${lineIndex + 1}`}
+                            value={formatMoney(parseMoney(lineItem.rate))}
+                            onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', parseMoney(value).toFixed(2))}
                             className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                           />
                         )}
