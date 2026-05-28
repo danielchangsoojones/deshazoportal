@@ -2928,6 +2928,10 @@ export default function EditableInspectionReport() {
             page-break-before: always;
           }
 
+          .report-content-layer > article + .original-inspection-attachment-page {
+            margin-top: 0.8in;
+          }
+
           .original-inspection-attachment-page canvas {
             display: block;
             max-width: 100%;
@@ -3020,6 +3024,10 @@ export default function EditableInspectionReport() {
               padding: 0 !important;
               border: 0 !important;
               box-shadow: none !important;
+            }
+
+            .report-content-layer > article + .original-inspection-attachment-page {
+              margin-top: 0 !important;
             }
 
             .report-page-sheet {
