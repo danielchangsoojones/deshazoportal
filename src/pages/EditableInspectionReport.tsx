@@ -129,6 +129,15 @@ const menuSearchDebounceMs = 300
 const defaultCraneIdentifier = 'D200235'
 const originalInspectionStableKey = 'built-in:original-inspection'
 const masterServiceAgreementStableKey = 'built-in:master-service-agreement'
+const estimateSummaryRuntimePageBreakIds = new Set([
+  'estimate-summary-header',
+  'estimate-top-note',
+  'estimate-bottom-note',
+  'notes',
+])
+
+const shouldSuppressRuntimePageBreak = (blockId: string) =>
+  estimateSummaryRuntimePageBreakIds.has(blockId) || blockId.startsWith('repair-section-')
 
 type EquipmentRentalSettings = {
   applyMarginToAll: boolean
@@ -503,6 +512,9 @@ const normalizeReportIdentityValue = (value: string) => value.replace(/[^a-z0-9]
 const getJobNumberFromReport = (reportData: ReportData | Record<string, string>) =>
   normalizeReportIdentityValue(removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, ''))
 
+const getJobNumberDisplayFromReport = (reportData: ReportData | Record<string, string>) =>
+  removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, '').trim() || '---'
+
 const getReportIdentity = (reportData: ReportData | Record<string, string>) => ({
   dNumber: normalizeReportIdentityValue(getDNumberFromReport(reportData)),
   jobNumber: getJobNumberFromReport(reportData),
@@ -537,9 +549,6 @@ const getEditableReportDisplayName = (
 
   return nameParts.length > 0 ? nameParts.join(' - ') : fallbackName
 }
-
-const getSavedReportDisplayName = (savedReport: EditableInspectionReport) =>
-  getEditableReportDisplayName(savedReport.reportData, savedReport.reportName)
 
 const formatReportValue = (label: string, value: string, fallback = '---') =>
   `${label}: ${value.trim() || fallback}`
@@ -977,6 +986,17 @@ function isMenuItemDrag(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes(menuItemDataTransferType)
 }
 
+function getDroppedMenuItem(event: DragEvent<HTMLElement>) {
+  const payload = event.dataTransfer.getData(menuItemDataTransferType)
+  if (!payload) return null
+
+  try {
+    return JSON.parse(payload) as MenuItem
+  } catch {
+    return { label: 'Menu item', description: payload, rate: '0.00' }
+  }
+}
+
 function renderLinkifiedText(value: string) {
   const linkPattern = /(https?:\/\/[^\s]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi
   const parts = value.split(linkPattern)
@@ -1046,6 +1066,7 @@ function EditableValue({ label, value, className = '', linkify = false, onChange
       onDragOver={(event) => {
         if (onDropMenuItem) {
           event.preventDefault()
+          event.stopPropagation()
           event.dataTransfer.dropEffect = 'copy'
           return
         }
@@ -1061,14 +1082,9 @@ function EditableValue({ label, value, className = '', linkify = false, onChange
           return
         }
         event.preventDefault()
-        const payload = event.dataTransfer.getData(menuItemDataTransferType)
-        if (!payload) return
-
-        try {
-          onDropMenuItem(JSON.parse(payload) as MenuItem)
-        } catch {
-          onDropMenuItem({ label: 'Menu item', description: payload, rate: '0.00' })
-        }
+        event.stopPropagation()
+        const item = getDroppedMenuItem(event)
+        if (item) onDropMenuItem(item)
       }}
       onPaste={(event) => {
         event.preventDefault()
@@ -1461,10 +1477,12 @@ export default function EditableInspectionReport() {
   }
 
   const getRuntimePageBreakClassName = (blockId: string) =>
-    !isReportEditing && runtimePageBreaks[blockId] ? 'report-runtime-page-break' : ''
+    !isReportEditing && runtimePageBreaks[blockId] && !shouldSuppressRuntimePageBreak(blockId)
+      ? 'report-runtime-page-break'
+      : ''
 
   const getRuntimePageBreakStyle = (blockId: string) => {
-    if (isReportEditing) return undefined
+    if (isReportEditing || shouldSuppressRuntimePageBreak(blockId)) return undefined
 
     const spacer = runtimePageBreaks[blockId]
     return spacer ? { marginTop: `${spacer}px` } : undefined
@@ -1583,24 +1601,17 @@ export default function EditableInspectionReport() {
           if (!active) return
 
           if (existingReport) {
-            const existingReportName = getSavedReportDisplayName(existingReport)
-            const shouldOpenSavedReport = window.confirm(
-              `A saved editable copy already exists for ${existingReportName}.\n\nPress OK to open the saved edited copy, or Cancel to start fresh from the extracted report.`,
-            )
-
-            if (shouldOpenSavedReport) {
-              applyEditableReportPayload(getNormalizedReportPayload(existingReport))
-              setCurrentEditableReportId(existingReport.id)
-              setCurrentReportName(existingReport.reportName)
-              setCurrentSourceDocumentName(existingReport.sourceDocumentName)
-              setCurrentJobsQuotingItemId(existingReport.jobsQuotingItemId)
-              setReportDatabaseStatus('saved')
-              skipNextReportDatabaseSave.current = true
-              pendingReportChanges.current = false
-              reportHydrationReady.current = true
-              setSearchParams({ editableReportId: existingReport.id }, { replace: true })
-              return
-            }
+            applyEditableReportPayload(getNormalizedReportPayload(existingReport))
+            setCurrentEditableReportId(existingReport.id)
+            setCurrentReportName(existingReport.reportName)
+            setCurrentSourceDocumentName(existingReport.sourceDocumentName)
+            setCurrentJobsQuotingItemId(existingReport.jobsQuotingItemId)
+            setReportDatabaseStatus('saved')
+            skipNextReportDatabaseSave.current = true
+            pendingReportChanges.current = false
+            reportHydrationReady.current = true
+            setSearchParams({ editableReportId: existingReport.id }, { replace: true })
+            return
           }
 
           applyEditableReportPayload({
@@ -2902,12 +2913,12 @@ export default function EditableInspectionReport() {
         `}
       </style>
 
-      <header className="report-toolbar sticky top-0 z-30 flex h-14 items-center justify-between bg-[linear-gradient(90deg,#3cb9c5_0%,#7a35e8_100%)] px-4 text-white shadow-sm">
+      <header className="report-toolbar sticky top-0 z-30 flex h-14 items-center justify-between bg-[var(--deshazo-blue)] px-5 text-white shadow-sm">
         <div className="flex items-center gap-5">
           <button
             type="button"
             onClick={goBackToJobsQuotingList}
-            className="text-[22px] font-black leading-none transition hover:scale-105 hover:text-white/85"
+            className="flex h-9 w-9 items-center justify-center rounded-md border-2 border-white/80 text-[20px] font-black leading-none transition hover:bg-white/10"
             aria-label="Go back to Jobs Quoting List"
             title="Back to Jobs Quoting List"
           >
@@ -2917,26 +2928,26 @@ export default function EditableInspectionReport() {
             <button
               type="button"
               onClick={() => setTextMenuOpen((currentOpen) => !currentOpen)}
-              className="rounded-md px-2 py-1 text-sm font-black transition hover:bg-white/15"
+              className="rounded-md px-3 py-2 text-sm font-black transition hover:bg-white/10"
               aria-expanded={textMenuOpen}
             >
               Text
             </button>
             {textMenuOpen ? (
-              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[360px] rounded-[22px] border border-[#dfe4ef] bg-white p-4 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[360px] rounded-[22px] border border-[var(--deshazo-border)] bg-white p-4 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(47,86,166,0.45)]">
                 <label className="relative block">
                   <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[28px] leading-none text-[#111]">
                     ⌕
                   </span>
                   <input
                     placeholder="Search fonts and combinations"
-                    className="w-full rounded-[18px] border-2 border-[#eadcff] bg-white py-4 pl-14 pr-4 text-[18px] font-semibold text-[#1f2430] outline-none placeholder:text-[#7b808b]"
+                    className="w-full rounded-[18px] border-2 border-[var(--deshazo-border)] bg-white py-4 pl-14 pr-4 text-[18px] font-semibold text-[var(--deshazo-text)] outline-none placeholder:text-[var(--deshazo-muted)] focus:border-[var(--deshazo-blue)]"
                   />
                 </label>
                 <button
                   type="button"
                   onClick={addCanvasTextBox}
-                  className="mt-4 flex w-full items-center justify-center gap-4 rounded-xl bg-[#8b3dff] px-4 py-4 text-[18px] font-black text-white transition hover:bg-[#7830e8]"
+                  className="mt-4 flex w-full items-center justify-center gap-4 rounded-xl bg-[var(--deshazo-blue)] px-4 py-4 text-[18px] font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)]"
                 >
                   <span className="text-[31px] leading-none">T</span>
                   <span>Add a text box</span>
@@ -2948,13 +2959,13 @@ export default function EditableInspectionReport() {
             <button
               type="button"
               onClick={() => setRelatedDocumentsOpen((currentOpen) => !currentOpen)}
-              className="rounded-md px-2 py-1 text-sm font-black transition hover:bg-white/15"
+              className="rounded-md px-3 py-2 text-sm font-black transition hover:bg-white/10"
               aria-expanded={relatedDocumentsOpen}
             >
               Related Documents
             </button>
             {relatedDocumentsOpen ? (
-              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-[18px] border border-[var(--deshazo-border)] bg-white p-2 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(47,86,166,0.45)]">
                 <input
                   ref={relatedFolderInputRef}
                   type="file"
@@ -3080,7 +3091,7 @@ export default function EditableInspectionReport() {
             onClick={() => setUnlocked((currentUnlocked) => !currentUnlocked)}
             className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-black transition ${
               unlocked
-                ? 'border-white bg-white text-[#35245f]'
+                ? 'border-white bg-white text-[var(--deshazo-blue)]'
                 : 'border-white/25 bg-white/10 text-white hover:bg-white/20'
             }`}
           >
@@ -3089,7 +3100,9 @@ export default function EditableInspectionReport() {
           </button>
         </div>
 
-        <div className="text-sm font-black tracking-wide">DESHAZO Quote Builder</div>
+        <div className="rounded-md bg-white/10 px-4 py-2 text-sm font-black tracking-wide shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)]">
+          Job Number {getJobNumberDisplayFromReport(report)}
+        </div>
 
         <div className="flex items-center gap-2">
           <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
@@ -3121,7 +3134,7 @@ export default function EditableInspectionReport() {
             <button
               type="button"
               onClick={printEditableReport}
-              className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff]"
+              className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.55)] transition hover:bg-[var(--deshazo-surface)]"
             >
               Print PDF
             </button>
@@ -3129,7 +3142,7 @@ export default function EditableInspectionReport() {
         </div>
       </header>
 
-      <div className="editor-workspace report-shell flex h-[calc(100vh-56px)] overflow-hidden bg-[#f3f4f8]">
+      <div className="editor-workspace report-shell flex h-[calc(100vh-56px)] overflow-hidden bg-[var(--bg)]">
         <aside className={`report-toolbar relative flex shrink-0 flex-col border-r border-[#d9dce5] bg-[#fbfcff] shadow-sm transition-[width] duration-200 ${menuCollapsed ? 'w-[42px]' : 'w-[260px]'}`}>
           {menuCollapsed ? (
             <button
@@ -3156,7 +3169,7 @@ export default function EditableInspectionReport() {
                 <div className="mb-4 pr-4">
                   <p className="text-[16px] font-black text-[#1f2430]">Menu Items</p>
                   <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
-                    Drag an item into any line-item description.
+                    Drag an item into a repair or estimate section.
                   </p>
                 </div>
 
@@ -3262,14 +3275,14 @@ export default function EditableInspectionReport() {
 
               <div className="border-t border-[#d9dce5] bg-white p-4">
                 {menuItemsRefreshProgress.active ? (
-                  <div className="mb-3 rounded-md border border-[#cfd9ef] bg-[#f4f7ff] px-3 py-2">
-                    <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-black uppercase text-[#273f7a]">
+                  <div className="mb-3 rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2">
+                    <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-black uppercase text-[var(--deshazo-blue)]">
                       <span>Loading in vendor items</span>
                       <span>{Math.round(menuItemsRefreshProgress.percent)}%</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-[#dfe4ef]">
                       <div
-                        className="h-full rounded-full bg-[#273f7a] transition-[width] duration-500"
+                        className="h-full rounded-full bg-[var(--deshazo-blue)] transition-[width] duration-500"
                         style={{ width: `${menuItemsRefreshProgress.percent}%` }}
                       />
                     </div>
@@ -3280,7 +3293,7 @@ export default function EditableInspectionReport() {
                     menuDatabaseStatus === 'error'
                       ? 'border-[#f3c7c7] bg-[#fff5f5] text-[#9f1d1d]'
                       : menuDatabaseStatus === 'local'
-                        ? 'border-[#dfe4ef] bg-[#fbfcff] text-[#747b8a]'
+                        ? 'border-[var(--deshazo-border)] bg-white text-[rgba(21,24,33,0.58)]'
                         : 'border-[#cfe6d5] bg-[#f3fbf5] text-[#286239]'
                   }`}
                 >
@@ -3292,7 +3305,7 @@ export default function EditableInspectionReport() {
                     setPendingAddMenuLineItem(null)
                     setMenuSettingsOpen(true)
                   }}
-                  className="flex w-full items-center justify-center gap-2 rounded-md bg-[#273f7a] px-3 py-2.5 text-[13px] font-black text-white transition hover:bg-[#1f3262]"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--deshazo-blue)] px-3 py-2.5 text-[13px] font-black text-white shadow-[0_12px_26px_-20px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)]"
                 >
                   <span className="text-[16px]">⚙</span>
                   <span>Menu Settings</span>
@@ -3302,11 +3315,11 @@ export default function EditableInspectionReport() {
           )}
         </aside>
 
-        <main className="canvas-stage min-w-0 flex-1 overflow-auto px-8 py-7">
+        <main className="canvas-stage min-w-0 flex-1 overflow-auto bg-[linear-gradient(180deg,var(--deshazo-surface)_0%,var(--bg)_100%)] px-8 py-7">
           <div className="mx-auto w-fit">
-            <div className="report-toolbar mb-3 flex items-center justify-between text-[#5b606b]">
-              <div className="text-[16px] font-black text-[#1e222b]">
-                Page 1 <span className="font-bold text-[#7b808b]">- Quote proposal</span>
+            <div className="report-toolbar mb-3 flex items-center justify-between rounded-[14px] border border-[var(--deshazo-border)] bg-white/80 px-4 py-3 text-[rgba(21,24,33,0.62)] shadow-[0_14px_30px_-28px_rgba(47,86,166,0.42)]">
+              <div className="text-[16px] font-black text-[var(--deshazo-text)]">
+                Page 1 <span className="font-bold text-[rgba(21,24,33,0.55)]">- Quote proposal</span>
               </div>
               <div className="relative">
                 <button
@@ -3565,6 +3578,17 @@ export default function EditableInspectionReport() {
                       key={section.id}
                       data-report-block-id={`repair-section-${section.id}`}
                       style={getRuntimePageBreakStyle(`repair-section-${section.id}`)}
+                      onDragOver={(event) => {
+                        if (!isMenuItemDrag(event)) return
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = 'copy'
+                      }}
+                      onDrop={(event) => {
+                        if (!isMenuItemDrag(event)) return
+                        event.preventDefault()
+                        const item = getDroppedMenuItem(event)
+                        if (item) addMenuItemToRepairSection(section.id, item)
+                      }}
                       className={`repair-section ${sectionTone.sectionBackground} ${getRuntimePageBreakClassName(`repair-section-${section.id}`)} ${
                         sectionIndex > 0 ? `border-t ${sectionTone.sectionBorder}` : ''
                       }`}
@@ -3760,7 +3784,7 @@ export default function EditableInspectionReport() {
             </section>
             ) : null}
             {blockVisibility.estimateSummary ? (
-            <section className={`relative mt-5 ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
+            <section className={`relative mt-3 ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
               {unlocked ? (
                 <button
                   type="button"
@@ -3802,6 +3826,17 @@ export default function EditableInspectionReport() {
                     key={section.id}
                     data-report-block-id={`cost-section-${section.id}`}
                     style={getRuntimePageBreakStyle(`cost-section-${section.id}`)}
+                    onDragOver={(event) => {
+                      if (!isMenuItemDrag(event)) return
+                      event.preventDefault()
+                      event.dataTransfer.dropEffect = 'copy'
+                    }}
+                    onDrop={(event) => {
+                      if (!isMenuItemDrag(event)) return
+                      event.preventDefault()
+                      const item = getDroppedMenuItem(event)
+                      if (item) addMenuItemToCostSection(section.id, item)
+                    }}
                     className={`repair-section border-x border-b border-[#d4d4d4] bg-white ${getRuntimePageBreakClassName(`cost-section-${section.id}`)}`}
                   >
                     <div className="relative flex items-center justify-between gap-3 border-b border-[#d8d8d8] bg-[#f7f7f7] px-3 py-1.5">
@@ -4059,7 +4094,7 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="grand-total"
               style={getRuntimePageBreakStyle('grand-total')}
-              className={`relative mt-5 border-2 border-[#111] ${getRuntimePageBreakClassName('grand-total')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border-2 border-[#111] ${getRuntimePageBreakClassName('grand-total')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
             >
               {unlocked ? (
                 <button
@@ -4085,7 +4120,7 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="notes"
               style={getRuntimePageBreakStyle('notes')}
-              className={`relative ${blockVisibility.grandTotal ? 'mt-6' : 'mt-5'} border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
             >
               {unlocked ? (
                 <button
@@ -4156,12 +4191,12 @@ export default function EditableInspectionReport() {
       </main>
     </div>
     {menuSettingsOpen ? (
-      <div className="report-toolbar fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/45 px-4">
-        <div className="w-full max-w-[680px] rounded-md border border-[#cfd6e5] bg-white shadow-[0_28px_80px_-36px_rgba(15,23,42,0.75)]">
-          <div className="flex items-center justify-between border-b border-[#dfe4ef] px-5 py-4">
+      <div className="report-toolbar fixed inset-0 z-50 flex items-center justify-center bg-[#151821]/45 px-4">
+        <div className="w-full max-w-[680px] overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_28px_80px_-36px_rgba(47,86,166,0.65)]">
+          <div className="flex items-center justify-between border-b border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,var(--deshazo-surface)_100%)] px-5 py-4">
             <div>
-              <h2 className="text-[20px] font-black text-[#1f2430]">Menu Settings</h2>
-              <p className="mt-1 text-[13px] font-semibold text-[#747b8a]">Add a draggable item to one of the menu sections.</p>
+              <h2 className="text-[20px] font-black text-[var(--deshazo-text)]">Menu Settings</h2>
+              <p className="mt-1 text-[13px] font-semibold text-[rgba(21,24,33,0.58)]">Add a draggable item to one of the menu sections.</p>
             </div>
             <button
               type="button"
@@ -4169,7 +4204,7 @@ export default function EditableInspectionReport() {
                 setPendingAddMenuLineItem(null)
                 setMenuSettingsOpen(false)
               }}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[16px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[16px] font-black text-[rgba(21,24,33,0.62)] transition hover:bg-[var(--deshazo-surface)]"
               aria-label="Close menu settings"
             >
               x
@@ -4177,12 +4212,12 @@ export default function EditableInspectionReport() {
           </div>
 
           <div className="grid gap-4 px-5 py-5">
-            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
               Section
               <select
                 value={selectedAddableMenuSection}
                 onChange={(event) => setNewMenuSection(event.currentTarget.value)}
-                className="rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+                className="rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
               >
                 {addableMenuItemSections.map((section) => (
                   <option key={section.title} value={section.title}>
@@ -4192,44 +4227,44 @@ export default function EditableInspectionReport() {
               </select>
             </label>
 
-            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
               Item name
               <input
                 value={newMenuLabel}
                 onChange={(event) => setNewMenuLabel(event.currentTarget.value)}
                 placeholder="Example: Replacement contactor"
-                className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+                className="rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
               />
             </label>
 
-            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
               Description
               <textarea
                 value={newMenuDescription}
                 onChange={(event) => setNewMenuDescription(event.currentTarget.value)}
                 placeholder="Description that will appear in the quote line item"
-                className="min-h-[110px] resize-y rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-semibold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+                className="min-h-[110px] resize-y rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-[14px] font-semibold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
               />
             </label>
 
-            <label className="grid max-w-[220px] gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+            <label className="grid max-w-[220px] gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
               Rate
               <input
                 value={newMenuRate}
                 onChange={(event) => setNewMenuRate(event.currentTarget.value)}
                 inputMode="decimal"
-                className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+                className="rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
               />
             </label>
           </div>
 
-          <div className="flex items-center justify-between border-t border-[#dfe4ef] bg-[#fbfcff] px-5 py-4">
-            <p className="text-[12px] font-semibold text-[#747b8a]">{menuDatabaseMessage}</p>
+          <div className="flex items-center justify-between border-t border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/55 px-5 py-4">
+            <p className="text-[12px] font-semibold text-[rgba(21,24,33,0.58)]">{menuDatabaseMessage}</p>
             <button
               type="button"
               onClick={addMenuItemFromSettings}
               disabled={!newMenuLabel.trim() || !newMenuDescription.trim()}
-              className="rounded-md bg-[#273f7a] px-5 py-2.5 text-[13px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-45"
+              className="rounded-md bg-[var(--deshazo-blue)] px-5 py-2.5 text-[13px] font-black text-white shadow-[0_12px_26px_-20px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-45"
             >
               Add Item
             </button>
