@@ -2922,8 +2922,10 @@ export default function EditableInspectionReport() {
             width: ${printedPageWidthIn}in;
             min-height: ${printedPageHeightIn}in;
             padding: ${printedPageMarginIn}in;
-            border-top: 1px solid #d4d4d4;
+            margin-top: ${runtimePageGapPx}px;
+            border: 1px solid #111;
             background: #fff;
+            box-shadow: 0 24px 70px -40px rgba(17, 24, 39, 0.62);
             break-before: page;
             page-break-before: always;
           }
@@ -3020,6 +3022,7 @@ export default function EditableInspectionReport() {
               padding: 0 !important;
               border: 0 !important;
               box-shadow: none !important;
+              margin-top: 0 !important;
             }
 
             .report-page-sheet {
@@ -4320,8 +4323,8 @@ export default function EditableInspectionReport() {
             </div>
           ))}
         </article>
-        {originalInspectionDocument ? <OriginalInspectionAttachment url={originalInspectionDocument.url} /> : null}
             </div>
+            {originalInspectionDocument ? <OriginalInspectionAttachment url={originalInspectionDocument.url} /> : null}
           </div>
       </main>
     </div>
