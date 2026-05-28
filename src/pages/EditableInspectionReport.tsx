@@ -389,6 +389,9 @@ const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => ({
 const shouldShowAddMenuItemTag = (lineItem: RepairLineItem) =>
   lineItem.source === 'manual' && Boolean(lineItem.description.trim()) && parseMoney(lineItem.rate) > 0
 
+const shouldClearPlaceholderDescription = (description: string) =>
+  ['Add repair detail here.', 'Add line item here.'].includes(description.trim())
+
 const getMenuSectionDisplayTitle = (title: string) => {
   if (title === recentlyUsedMenuSectionTitle) return 'Recently used'
   if (title === 'Customer specific') return 'Customer specific (Wabash)'
@@ -976,6 +979,8 @@ type EditableValueProps = {
   className?: string
   linkify?: boolean
   multiline?: boolean
+  clearOnFocus?: boolean
+  onEditFocus?: () => void
   onChange: (value: string) => void
   onDropMenuItem?: (item: MenuItem) => void
 }
@@ -1022,9 +1027,29 @@ function renderLinkifiedText(value: string) {
   })
 }
 
-function EditableValue({ label, value, className = '', linkify = false, onChange, onDropMenuItem }: EditableValueProps) {
+function EditableValue({
+  label,
+  value,
+  className = '',
+  linkify = false,
+  clearOnFocus = false,
+  onEditFocus,
+  onChange,
+  onDropMenuItem,
+}: EditableValueProps) {
   const elementRef = useRef<HTMLDivElement>(null)
   const [isEditing, setIsEditing] = useState(false)
+
+  const clearValueIfPlaceholder = () => {
+    if (clearOnFocus && elementRef.current?.innerText === value) {
+      elementRef.current.innerText = ''
+    }
+  }
+
+  const startEditing = () => {
+    onEditFocus?.()
+    clearValueIfPlaceholder()
+  }
 
   useEffect(() => {
     if (linkify && !isEditing) return
@@ -1043,7 +1068,9 @@ function EditableValue({ label, value, className = '', linkify = false, onChange
       spellCheck
       tabIndex={linkify && !isEditing ? 0 : undefined}
       className={`editable-report-field ${className}`}
+      onMouseDown={startEditing}
       onClick={(event) => {
+        startEditing()
         if (!linkify || isEditing || event.target instanceof HTMLAnchorElement) return
         setIsEditing(true)
         window.setTimeout(() => {
@@ -1053,6 +1080,7 @@ function EditableValue({ label, value, className = '', linkify = false, onChange
         })
       }}
       onFocus={() => {
+        startEditing()
         if (!linkify) return
         setIsEditing(true)
         window.setTimeout(() => {
@@ -1125,6 +1153,7 @@ export default function EditableInspectionReport() {
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
   const relatedPdfInputRef = useRef<HTMLInputElement>(null)
   const [activeLineMenu, setActiveLineMenu] = useState('')
+  const [activeDoneLineItem, setActiveDoneLineItem] = useState('')
   const [unlocked, setUnlocked] = useState(false)
   const [textMenuOpen, setTextMenuOpen] = useState(false)
   const [equipmentRentalSettingsOpen, setEquipmentRentalSettingsOpen] = useState(false)
@@ -3639,6 +3668,20 @@ export default function EditableInspectionReport() {
                             key={lineItem.id}
                             className="relative grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                           >
+                            {activeDoneLineItem === `repair-${section.id}-${lineItem.id}` ? (
+                              <button
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+                                  setActiveDoneLineItem('')
+                                }}
+                                className="report-inline-action absolute right-[-84px] top-1/2 z-20 -translate-y-1/2 rounded-r-md border border-l-0 border-[#2f9e44] bg-[#e7f8ec] px-2.5 py-1 text-[10px] font-black uppercase leading-none text-[#17652b] shadow-sm transition hover:bg-[#d3f3dc]"
+                                aria-label={`Finish editing ${section.title} line item ${lineIndex + 1}`}
+                              >
+                                Done
+                              </button>
+                            ) : null}
                             {parseMoney(lineItem.margin) > 0 ? (
                               <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
                                 <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1f9d45] text-[12px] leading-none text-white">
@@ -3673,6 +3716,8 @@ export default function EditableInspectionReport() {
                                 value={lineItem.description}
                                 onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'description', value)}
                                 onDropMenuItem={(item) => addMenuItemToRepairSection(section.id, item)}
+                                clearOnFocus={shouldClearPlaceholderDescription(lineItem.description)}
+                                onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
                                 className="min-w-0 flex-1 leading-tight"
                                 multiline
                               />
@@ -3681,12 +3726,15 @@ export default function EditableInspectionReport() {
                               label={`${section.title} quantity ${lineIndex + 1}`}
                               value={lineItem.quantity}
                               onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'quantity', value)}
+                              onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
                             <EditableValue
                               label={`${section.title} cost ${lineIndex + 1}`}
                               value={formatMoney(parseMoney(lineItem.rate))}
                               onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'rate', parseMoney(value).toFixed(2))}
+                              clearOnFocus={parseMoney(lineItem.rate) === 0}
+                              onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
                             <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
@@ -3916,6 +3964,20 @@ export default function EditableInspectionReport() {
                         key={lineItem.id}
                         className="relative grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                       >
+                        {activeDoneLineItem === `cost-${section.id}-${lineItem.id}` ? (
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+                              setActiveDoneLineItem('')
+                            }}
+                            className="report-inline-action absolute right-[-84px] top-1/2 z-20 -translate-y-1/2 rounded-r-md border border-l-0 border-[#2f9e44] bg-[#e7f8ec] px-2.5 py-1 text-[10px] font-black uppercase leading-none text-[#17652b] shadow-sm transition hover:bg-[#d3f3dc]"
+                            aria-label={`Finish editing ${section.title} line item ${lineIndex + 1}`}
+                          >
+                            Done
+                          </button>
+                        ) : null}
                         {parseMoney(lineItem.margin) > 0 ? (
                           <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
                             <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1f9d45] text-[12px] leading-none text-white">
@@ -3950,6 +4012,8 @@ export default function EditableInspectionReport() {
                             value={lineItem.description}
                             onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'description', value)}
                             onDropMenuItem={(item) => addMenuItemToCostSection(section.id, item)}
+                            clearOnFocus={shouldClearPlaceholderDescription(lineItem.description)}
+                            onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                             className="min-w-0 flex-1 leading-tight"
                           />
                         </div>
@@ -3957,6 +4021,7 @@ export default function EditableInspectionReport() {
                           label={`${section.title} quantity ${lineIndex + 1}`}
                           value={lineItem.quantity}
                           onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'quantity', value)}
+                          onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                           className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                         />
                         {section.id === equipmentRentalSectionId && equipmentRentalSettings.applyMarginToAll ? (
@@ -3965,6 +4030,8 @@ export default function EditableInspectionReport() {
                               label={`${section.title} cost ${lineIndex + 1}`}
                               value={formatMoney(parseMoney(lineItem.rate))}
                               onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', parseMoney(value).toFixed(2))}
+                              clearOnFocus={parseMoney(lineItem.rate) === 0}
+                              onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                               className="min-w-0"
                             />
                             <span className="whitespace-nowrap font-black text-[#17652b]">
@@ -3976,6 +4043,8 @@ export default function EditableInspectionReport() {
                             label={`${section.title} cost ${lineIndex + 1}`}
                             value={formatMoney(parseMoney(lineItem.rate))}
                             onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', parseMoney(value).toFixed(2))}
+                            clearOnFocus={parseMoney(lineItem.rate) === 0}
+                            onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                             className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                           />
                         )}
