@@ -512,6 +512,9 @@ const normalizeReportIdentityValue = (value: string) => value.replace(/[^a-z0-9]
 const getJobNumberFromReport = (reportData: ReportData | Record<string, string>) =>
   normalizeReportIdentityValue(removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, ''))
 
+const getJobNumberDisplayFromReport = (reportData: ReportData | Record<string, string>) =>
+  removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, '').trim() || '---'
+
 const getReportIdentity = (reportData: ReportData | Record<string, string>) => ({
   dNumber: normalizeReportIdentityValue(getDNumberFromReport(reportData)),
   jobNumber: getJobNumberFromReport(reportData),
@@ -3107,7 +3110,9 @@ export default function EditableInspectionReport() {
           </button>
         </div>
 
-        <div className="text-sm font-black tracking-wide">DESHAZO Quote Builder</div>
+        <div className="text-sm font-black tracking-wide">
+          Job Number {getJobNumberDisplayFromReport(report)}
+        </div>
 
         <div className="flex items-center gap-2">
           <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
