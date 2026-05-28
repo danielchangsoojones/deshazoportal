@@ -248,7 +248,7 @@ function renderSectionedItems(items: SectionedItem[], itemLabel: string) {
                 (item) => `
                   <div class="page2-point">
                     <div class="page2-point-name">${escapeHtml(item.label)}</div>
-                    <div class="page2-point-status">${escapeHtml(toTitleCase(item.status))}</div>
+                    <div class="${page2StatusClass(item.status)}">${escapeHtml(toTitleCase(item.status))}</div>
                     ${
                       item.notes
                         ? `<div class="page2-note"><span>${item.status === 'REPAIR' ? 'Note:' : 'Notes:'}</span> ${escapeHtml(item.notes)}</div>`
@@ -319,6 +319,13 @@ function toneClass(point: DeshazoInspectionPoint) {
   return 'status status-danger'
 }
 
+function page2StatusClass(status: string) {
+  const normalizedStatus = status.toUpperCase()
+  if (normalizedStatus === 'SATISFACTORY') return 'page2-point-status page2-status-success'
+  if (normalizedStatus === 'N/A') return 'page2-point-status page2-status-neutral'
+  return 'page2-point-status page2-status-danger'
+}
+
 function buildEquipmentLines(
   craneReport: DeshazoCraneReport,
   accessor: (craneReport: DeshazoCraneReport) => string,
@@ -364,42 +371,57 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   const primaryCrane = selectedCrane.crane
   const overviewDate = selectedCrane.inspections?.find((inspection) => inspection.completedAt)?.completedAt || report.summary?.completedAt
 
-  const sectionsMarkup = sections
-    .map((section) => {
-      const satisfactoryCount = section.points.filter((point) => getConditionTone(point) === 'success').length
-      return `
-        <section class="detail-section">
-          <div class="detail-header">${escapeHtml(section.name)} <span>${satisfactoryCount}/${section.points.length || 0} Satisfactory</span></div>
-          <div class="detail-grid">
-            ${section.points
-              .map(
-                (point) => `
-                  <div class="detail-row">
-                    <div class="detail-label">${escapeHtml(point.name ?? 'Inspection point')}</div>
-                    <div class="${toneClass(point)}">${escapeHtml(toTitleCase(getPointDisplayValue(point)))}</div>
-                  </div>
-                `,
-              )
-              .join('')}
-          </div>
-        </section>
-      `
-    })
+  const renderDetailSections = (detailSections: ResolvedSection[]) =>
+    detailSections
+      .map((section) => {
+        const satisfactoryCount = section.points.filter((point) => getConditionTone(point) === 'success').length
+        return `
+          <section class="detail-section">
+            <div class="detail-header">${escapeHtml(section.name)} <span>${satisfactoryCount}/${section.points.length || 0} Satisfactory</span></div>
+            <div class="detail-grid">
+              ${section.points
+                .map(
+                  (point) => `
+                    <div class="detail-row">
+                      <div class="detail-label">${escapeHtml(point.name ?? 'Inspection point')}</div>
+                      <div class="${toneClass(point)}">${escapeHtml(toTitleCase(getPointDisplayValue(point)))}</div>
+                    </div>
+                  `,
+                )
+                .join('')}
+            </div>
+          </section>
+        `
+      })
+      .join('')
+
+  const firstPageSections = sections.length > 2 ? sections.slice(0, 2) : sections
+  const secondPageSections = sections.length > 2 ? sections.slice(2) : []
+  const firstPageSectionsMarkup = renderDetailSections(firstPageSections)
+  const secondPageSectionsMarkup = secondPageSections.length
+    ? `<div class="page2-continuation">${renderDetailSections(secondPageSections)}</div>`
+    : ''
+
+  const firstPageActions = actionItems
+    .slice(0, 6)
+    .map(
+      (item) => `
+        <div class="mini-action-row">
+          <div>${escapeHtml(item.sectionName)}:<br />${escapeHtml(item.label)}</div>
+          <div><span class="action-pill">${escapeHtml(toTitleCase(item.status))}</span></div>
+        </div>
+      `,
+    )
     .join('')
 
-  const firstPageActions = actionItems.length
-    ? actionItems
-        .slice(0, 6)
-        .map(
-          (item) => `
-            <div class="mini-action-row">
-              <div>${escapeHtml(item.sectionName)}:<br />${escapeHtml(item.label)}</div>
-              <div><span class="action-pill">${escapeHtml(toTitleCase(item.status))}</span></div>
-            </div>
-          `,
-        )
-        .join('')
-    : '<div class="empty-note">No action items were flagged in this synced report.</div>'
+  const firstPageActionPanel = actionItems.length
+    ? `
+      <div class="panel panel-danger">
+        <div class="panel-title">Action Items ${actionItems.length}</div>
+        <div class="panel-body"><div class="mini-action-grid">${firstPageActions}</div></div>
+      </div>
+    `
+    : ''
 
   const photoMarkup = photos.length
     ? `
@@ -481,10 +503,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
           <div class="stat-card"><div class="stat-value">${stats.naPointCount}</div><div class="stat-label">N/A Items</div></div>
         </div>
 
-        <div class="panel panel-danger">
-          <div class="panel-title">Action Items ${actionItems.length > 0 ? actionItems.length : ''}</div>
-          <div class="panel-body"><div class="mini-action-grid">${firstPageActions}</div></div>
-        </div>
+        ${firstPageActionPanel}
 
         <div class="panel">
           <div class="panel-title">Inspection Overview</div>
@@ -495,7 +514,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
           </div>
         </div>
 
-        ${sectionsMarkup}
+        ${firstPageSectionsMarkup}
         <div class="footer">Page 1/2</div>
       </div>
     </div>
@@ -515,6 +534,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
           </div>
         </div>
         <div class="page2-content">
+          ${secondPageSectionsMarkup}
           ${page2MainContent}
         </div>
         <div class="page2-dot">.</div>
@@ -538,6 +558,8 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
       background: #fff;
       color: #171821;
       font-family: Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
     }
     .pdf-page {
       width: ${DESHAZO_PDF_PAGE_WIDTH_PX}px;
@@ -575,14 +597,14 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .panel-body { padding: 9px 10px; }
     .mini-action-grid { display: grid; grid-template-columns: 1fr; gap: 7px; }
     .mini-action-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 12px; }
-    .action-pill { display: inline-flex; padding: 5px 9px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; }
+    .action-pill { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 80px; height: 18px; padding: 0 9px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 1; }
     .overview-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; font-size: 13px; }
     .detail-section { padding-top: 13px; margin-top: 13px; border-top: 1px solid #dadada; break-inside: avoid; }
     .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 7px; font-size: 13px; font-weight: 700; }
     .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px 16px; }
-    .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 100px; align-items: center; gap: 7px; font-size: 13px; }
+    .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 100px; align-items: center; gap: 7px; min-height: 18px; font-size: 13px; }
     .detail-label { min-width: 0; line-height: 1.18; }
-    .status { min-width: 100px; padding: 3px 7px; text-align: center; font-size: 12px; font-weight: 700; line-height: 1.1; }
+    .status { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100px; height: 18px; padding: 0 7px; text-align: center; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; }
     .status-success { background: #bff2be; color: #1f6a2e; }
     .status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .status-danger { background: #f7c7c7; color: #a61616; }
@@ -593,6 +615,8 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-meta { display: grid; grid-template-columns: 1fr 96px; gap: 6px 32px; justify-self: end; width: 366px; font-size: 12px; line-height: 1.32; }
     .page2-meta span { font-weight: 700; }
     .page2-content { margin-top: 28px; }
+    .page2-continuation { margin-bottom: 24px; }
+    .page2-continuation .detail-section:first-child { margin-top: 0; }
     .page2-title { margin-left: 5px; padding-bottom: 13px; border-bottom: 1px solid #b81717; font-size: 16px; font-weight: 700; line-height: 1.05; text-transform: uppercase; color: #171821; }
     .page2-title-repair { color: #b81717; }
     .page2-title-pictures { margin-top: 22px; border-bottom-color: #d8d8d8; color: #171821; }
@@ -604,7 +628,10 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-point { margin: 0; font-size: 12px; }
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
-    .page2-point-status { display: inline-flex; min-width: 86px; margin: 7px 0 0 18px; padding: 4px 10px; background: #e8c7c9; color: #9d1c1c; font-size: 10px; font-weight: 700; line-height: 1; }
+    .page2-point-status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 86px; height: 18px; margin: 7px 0 0 18px; padding: 0 10px; font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
+    .page2-status-success { background: #bff2be; color: #1f6a2e; }
+    .page2-status-neutral { background: #d9d9d9; color: #4d4d4d; }
+    .page2-status-danger { background: #e8c7c9; color: #9d1c1c; }
     .page2-note { margin-top: 7px; font-size: 10px; line-height: 1.35; }
     .page2-note span { font-weight: 700; }
     .page2-dot { position: absolute; left: 18px; top: 470px; font-size: 10px; line-height: 1; }

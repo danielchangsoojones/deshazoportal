@@ -80,7 +80,6 @@ function PdfReportPreview({
   selectedCraneIndex: number
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const initialDevicePixelRatioRef = useRef(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1)
   const [scale, setScale] = useState(1)
   const [currentPage, setCurrentPage] = useState(0)
   const reportMarkup = useMemo(
@@ -107,8 +106,7 @@ function PdfReportPreview({
 
     const updateScale = () => {
       const availableWidth = Math.max(0, node.clientWidth - 32)
-      const zoomRatio = (window.devicePixelRatio || 1) / initialDevicePixelRatioRef.current
-      const nextScale = (availableWidth / DESHAZO_PDF_PAGE_WIDTH_PX) * zoomRatio
+      const nextScale = availableWidth / DESHAZO_PDF_PAGE_WIDTH_PX
       setScale(Math.max(0.35, Math.min(1, nextScale)))
     }
 
