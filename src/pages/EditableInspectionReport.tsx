@@ -131,7 +131,6 @@ const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
 const menuSearchDebounceMs = 300
 const defaultCraneIdentifier = 'D200235'
-const originalInspectionStableKey = 'built-in:original-inspection'
 const masterServiceAgreementStableKey = 'built-in:master-service-agreement'
 const estimateSummaryRuntimePageBreakIds = new Set([
   'estimate-summary-header',
@@ -1447,7 +1446,6 @@ export default function EditableInspectionReport() {
     () => relatedDocuments.find((document) => document.name === 'Original Inspection'),
     [relatedDocuments],
   )
-  const originalInspectionUrl = originalInspectionDocument?.url ?? '/testassessment.pdf'
   const masterServiceAgreementDocument = useMemo(
     () => relatedDocuments.find((document) => document.name === 'Master Service Agreement'),
     [relatedDocuments],
@@ -2096,24 +2094,6 @@ export default function EditableInspectionReport() {
             url: quotePdfUrl,
             createdAt: quoteItem.createdAt,
           }
-        } else {
-          const originalInspectionResponse = await fetch('/testassessment.pdf')
-          if (!originalInspectionResponse.ok) {
-            throw new Error('Original inspection PDF could not be loaded.')
-          }
-
-          const originalInspectionBlob = await originalInspectionResponse.blob()
-          const originalInspectionFile = new File([originalInspectionBlob], 'original-inspection.pdf', {
-            type: 'application/pdf',
-          })
-
-          await uploadEditableInspectionDocument({
-            file: originalInspectionFile,
-            name: 'Original Inspection',
-            description: 'Source inspection PDF used for this editable quote proposal.',
-            source: 'Built-in document',
-            stableKey: originalInspectionStableKey,
-          })
         }
 
         await uploadEditableInspectionDocument({
@@ -3176,16 +3156,18 @@ export default function EditableInspectionReport() {
                     </div>
                   ) : null}
                 </div>
-                <a
-                  href={originalInspectionUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => setRelatedDocumentsOpen(false)}
-                  className="w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f4f6fb]"
-                >
-                  <span className="block text-[14px] font-black text-[#1f2430]">Original Inspection</span>
-                  <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open the source inspection PDF in a new tab.</span>
-                </a>
+                {originalInspectionDocument ? (
+                  <a
+                    href={originalInspectionDocument.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setRelatedDocumentsOpen(false)}
+                    className="w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f4f6fb]"
+                  >
+                    <span className="block text-[14px] font-black text-[#1f2430]">Original Inspection</span>
+                    <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open the source inspection PDF in a new tab.</span>
+                  </a>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => {
@@ -4338,7 +4320,7 @@ export default function EditableInspectionReport() {
             </div>
           ))}
         </article>
-        <OriginalInspectionAttachment url={originalInspectionUrl} />
+        {originalInspectionDocument ? <OriginalInspectionAttachment url={originalInspectionDocument.url} /> : null}
             </div>
           </div>
       </main>
