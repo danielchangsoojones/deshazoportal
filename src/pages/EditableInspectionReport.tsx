@@ -1109,19 +1109,23 @@ function PencilIcon() {
   )
 }
 
-function OriginalInspectionAttachment({ url }: { url: string }) {
+function OriginalInspectionPage({
+  document,
+  pageNumber,
+}: {
+  document: pdfjs.PDFDocumentProxy
+  pageNumber: number
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
     let cancelled = false
-    const loadingTask = pdfjs.getDocument(url)
 
     async function renderOriginalInspectionPage() {
       try {
         setStatus('loading')
-        const document = await loadingTask.promise
-        const page = await document.getPage(1)
+        const page = await document.getPage(pageNumber)
         const baseViewport = page.getViewport({ scale: 1 })
         const viewport = page.getViewport({ scale: originalInspectionPageRenderWidthPx / baseViewport.width })
         const canvas = canvasRef.current
@@ -1145,24 +1149,85 @@ function OriginalInspectionAttachment({ url }: { url: string }) {
 
     return () => {
       cancelled = true
+    }
+  }, [document, pageNumber])
+
+  return (
+    <section className="original-inspection-attachment-page">
+      <div className="relative min-h-[8.75in] border border-[#d4d4d4] bg-white">
+        <canvas ref={canvasRef} className={status === 'error' ? 'hidden' : 'block w-full'} />
+        {status === 'loading' ? (
+          <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold text-[#747b8a]">
+            Loading original inspection page {pageNumber}...
+          </div>
+        ) : null}
+        {status === 'error' ? (
+          <div className="flex min-h-[8.75in] items-center justify-center px-4 text-center text-[13px] font-bold text-[#a82727]">
+            Original inspection page {pageNumber} could not be displayed. Use Related Documents to open it.
+          </div>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
+function OriginalInspectionAttachment({ url }: { url: string }) {
+  const [document, setDocument] = useState<pdfjs.PDFDocumentProxy | null>(null)
+  const [pageCount, setPageCount] = useState(0)
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+
+  useEffect(() => {
+    let cancelled = false
+    const loadingTask = pdfjs.getDocument(url)
+
+    async function loadOriginalInspection() {
+      try {
+        setStatus('loading')
+        const loadedDocument = await loadingTask.promise
+        if (cancelled) return
+        setDocument(loadedDocument)
+        setPageCount(loadedDocument.numPages)
+        setStatus('ready')
+      } catch {
+        if (!cancelled) setStatus('error')
+      }
+    }
+
+    loadOriginalInspection()
+
+    return () => {
+      cancelled = true
+      setDocument(null)
       loadingTask.destroy()
     }
   }, [url])
 
-  return (
-    <div className="relative min-h-[8.75in] border border-[#d4d4d4] bg-white">
-      <canvas ref={canvasRef} className={status === 'error' ? 'hidden' : 'block w-full'} />
-      {status === 'loading' ? (
-        <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold text-[#747b8a]">
+  if (status === 'loading') {
+    return (
+      <section className="original-inspection-attachment-page">
+        <div className="flex min-h-[8.75in] items-center justify-center border border-[#d4d4d4] bg-white text-[13px] font-bold text-[#747b8a]">
           Loading original inspection...
         </div>
-      ) : null}
-      {status === 'error' ? (
-        <div className="flex min-h-[8.75in] items-center justify-center px-4 text-center text-[13px] font-bold text-[#a82727]">
+      </section>
+    )
+  }
+
+  if (status === 'error' || !document || pageCount === 0) {
+    return (
+      <section className="original-inspection-attachment-page">
+        <div className="flex min-h-[8.75in] items-center justify-center border border-[#d4d4d4] bg-white px-4 text-center text-[13px] font-bold text-[#a82727]">
           Original inspection could not be displayed. Use Related Documents to open it.
         </div>
-      ) : null}
-    </div>
+      </section>
+    )
+  }
+
+  return (
+    <>
+      {Array.from({ length: pageCount }, (_, index) => (
+        <OriginalInspectionPage key={`${url}-${index + 1}`} document={document} pageNumber={index + 1} />
+      ))}
+    </>
   )
 }
 
@@ -4273,9 +4338,7 @@ export default function EditableInspectionReport() {
             </div>
           ))}
         </article>
-        <section className="original-inspection-attachment-page">
-          <OriginalInspectionAttachment url={originalInspectionUrl} />
-        </section>
+        <OriginalInspectionAttachment url={originalInspectionUrl} />
             </div>
           </div>
       </main>
