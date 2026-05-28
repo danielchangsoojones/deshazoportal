@@ -59,9 +59,9 @@ const portalCards = [
 
 const developerPortalCard = {
   eyebrow: 'Developer',
-  title: 'Deshazo Reports',
-  description: 'Open saved external inspection reports from Supabase and generate the first frontend PDF proof.',
-  href: '/deshazo-external-reports',
+  title: 'Work Orders',
+  description: 'Open synced DeShazo work orders from Supabase and drill into inspection ticket PDFs.',
+  href: '/deshazo-work-orders',
 }
 
 export default function Dashboard() {

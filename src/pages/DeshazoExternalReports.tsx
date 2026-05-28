@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import JSZip from 'jszip'
 import { isConfigured, supabase } from '../lib/supabase'
@@ -28,6 +28,7 @@ const menuItems = [
   { label: 'Location Comparison', href: '/location-comparison' },
   { label: 'Documents', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
+  { label: 'Work Orders', href: '/deshazo-work-orders' },
   { label: 'Deshazo Reports', href: '/deshazo-external-reports' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
@@ -187,6 +188,7 @@ export default function DeshazoExternalReports() {
   const [message, setMessage] = useState('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const activeMenuItems = useMemo(
     () =>
@@ -221,12 +223,18 @@ export default function DeshazoExternalReports() {
           return
         }
 
-        const nextReports = await getSavedDeshazoInspectionReports(12)
+        const nextReports = await getSavedDeshazoInspectionReports(100)
         if (cancelled) return
+
+        const requestedWorkOrderId = Number(searchParams.get('workOrderId'))
+        const nextSelectedWorkOrderId =
+          Number.isFinite(requestedWorkOrderId) && nextReports.some((report) => report.workOrderId === requestedWorkOrderId)
+            ? requestedWorkOrderId
+            : nextReports[0]?.workOrderId ?? null
 
         setUser(nextUser)
         setReports(nextReports)
-        setSelectedWorkOrderId(nextReports[0]?.workOrderId ?? null)
+        setSelectedWorkOrderId(nextSelectedWorkOrderId)
         setSelectedCraneIndex(0)
         setMessage(nextReports.length > 0 ? `Showing ${nextReports.length} recent synced work orders from Supabase.` : 'No saved reports found yet.')
       } catch (error) {
@@ -241,7 +249,7 @@ export default function DeshazoExternalReports() {
     return () => {
       cancelled = true
     }
-  }, [navigate])
+  }, [navigate, searchParams])
 
   const selectedReport = reports.find((report) => report.workOrderId === selectedWorkOrderId) ?? reports[0] ?? null
   const craneTickets: CraneTicketEntry[] = (selectedReport?.rawPayload.cranes ?? [])

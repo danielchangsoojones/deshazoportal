@@ -395,20 +395,21 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
       })
       .join('')
 
-  const firstPageSections = sections.length > 2 ? sections.slice(0, 2) : sections
-  const secondPageSections = sections.length > 2 ? sections.slice(2) : []
+  const firstPageSectionCount = sections.length > 1 ? 1 : sections.length
+  const firstPageSections = sections.slice(0, firstPageSectionCount)
+  const continuationSections = sections.slice(firstPageSectionCount)
   const firstPageSectionsMarkup = renderDetailSections(firstPageSections)
-  const secondPageSectionsMarkup = secondPageSections.length
-    ? `<div class="page2-continuation">${renderDetailSections(secondPageSections)}</div>`
-    : ''
+  const continuationPageContents = continuationSections.map(
+    (section) => `<div class="page2-continuation">${renderDetailSections([section])}</div>`,
+  )
 
   const firstPageActions = actionItems
     .slice(0, 6)
     .map(
       (item) => `
         <div class="mini-action-row">
-          <div>${escapeHtml(item.sectionName)}:<br />${escapeHtml(item.label)}</div>
-          <div><span class="action-pill">${escapeHtml(toTitleCase(item.status))}</span></div>
+          <div class="mini-action-label">${escapeHtml(item.sectionName)}:<br />${escapeHtml(item.label)}</div>
+          <div class="mini-action-status"><span class="action-pill">${escapeHtml(toTitleCase(item.status))}</span></div>
         </div>
       `,
     )
@@ -418,7 +419,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     ? `
       <div class="panel panel-danger">
         <div class="panel-title">Action Items ${actionItems.length}</div>
-        <div class="panel-body"><div class="mini-action-grid">${firstPageActions}</div></div>
+        <div class="panel-body panel-body-actions"><div class="mini-action-grid">${firstPageActions}</div></div>
       </div>
     `
     : ''
@@ -442,12 +443,15 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     `
     : ''
 
-  const page2MainContent = actionItems.length
+  const followUpContent = actionItems.length
     ? `
       <div class="page2-title page2-title-repair">ACTION LIST - REPAIR ITEMS</div>
       ${renderSectionedItems(actionItems, 'Repair item')}
-      <div class="page2-title page2-title-pictures">ADDITIONAL DETAILS - PICTURES</div>
-      ${photoMarkup}
+      ${
+        photos.length
+          ? `<div class="page2-title page2-title-pictures">ADDITIONAL DETAILS - PICTURES</div>${photoMarkup}`
+          : ''
+      }
     `
     : notesAndPhotoItems.length
       ? `
@@ -455,10 +459,39 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
         ${renderSectionedItems(notesAndPhotoItems, 'item')}
         ${photoMarkup}
       `
-      : `
-        <div class="page2-title page2-title-pictures-only">ADDITIONAL DETAILS - PICTURES</div>
-        ${photoMarkup}
-      `
+      : photos.length
+        ? `
+          <div class="page2-title page2-title-pictures-only">ADDITIONAL DETAILS - PICTURES</div>
+          ${photoMarkup}
+        `
+        : ''
+
+  const followUpPageContents = followUpContent.trim() ? [followUpContent] : []
+  const remainingPageContents = [...continuationPageContents, ...followUpPageContents]
+  const totalPages = 1 + remainingPageContents.length
+
+  const renderContinuationPage = (content: string, pageNumber: number) => `
+    <div class="pdf-page">
+      <div class="body body-full body-page2">
+        <div class="page2-header">
+          <div>
+            <div class="page2-brand">DESHA<span>Z</span>O</div>
+            <div class="page2-brand-sub">Cranes / Service / Automation</div>
+          </div>
+          <div class="page2-meta">
+            <div><span>Purchase Order:</span> ${escapeHtml(report.summary?.customerPoNo || 'UNAVAILABLE')}</div>
+            <div><span>Job #:</span> ${escapeHtml(report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId))}</div>
+            <div><span>Service Location:</span> ${escapeHtml(report.summary?.serviceLocationName || '001 California')}</div>
+            <div><span>Customer Name:</span> ${escapeHtml(report.summary?.customerName || 'Wabash')}</div>
+          </div>
+        </div>
+        <div class="page2-content">
+          ${content}
+        </div>
+        <div class="footer footer-page2">Page ${pageNumber}/${totalPages}</div>
+      </div>
+    </div>
+  `
 
   return `
     <div class="pdf-page">
@@ -515,32 +548,11 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
         </div>
 
         ${firstPageSectionsMarkup}
-        <div class="footer">Page 1/2</div>
+        <div class="footer">Page 1/${totalPages}</div>
       </div>
     </div>
 
-    <div class="pdf-page">
-      <div class="body body-full body-page2">
-        <div class="page2-header">
-          <div>
-            <div class="page2-brand">DESHA<span>Z</span>O</div>
-            <div class="page2-brand-sub">Cranes / Service / Automation</div>
-          </div>
-          <div class="page2-meta">
-            <div><span>Purchase Order:</span> ${escapeHtml(report.summary?.customerPoNo || 'UNAVAILABLE')}</div>
-            <div><span>Job #:</span> ${escapeHtml(report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId))}</div>
-            <div><span>Service Location:</span> ${escapeHtml(report.summary?.serviceLocationName || '001 California')}</div>
-            <div><span>Customer Name:</span> ${escapeHtml(report.summary?.customerName || 'Wabash')}</div>
-          </div>
-        </div>
-        <div class="page2-content">
-          ${secondPageSectionsMarkup}
-          ${page2MainContent}
-        </div>
-        <div class="page2-dot">.</div>
-        <div class="footer footer-page2">Page 2/2</div>
-      </div>
-    </div>
+    ${remainingPageContents.map((content, index) => renderContinuationPage(content, index + 2)).join('')}
   `
 }
 
@@ -595,9 +607,14 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .panel-title { padding: 7px 10px; font-size: 13px; font-weight: 700; border-bottom: 1px solid #d8d8d8; }
     .panel.panel-danger .panel-title { color: #7e0e0e; border-color: #efcccc; }
     .panel-body { padding: 9px 10px; }
-    .mini-action-grid { display: grid; grid-template-columns: 1fr; gap: 7px; }
-    .mini-action-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 12px; }
-    .action-pill { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 80px; height: 18px; padding: 0 9px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 1; }
+    .panel-body-actions { padding: 0; }
+    .mini-action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .mini-action-row { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 8px; align-items: center; min-height: 54px; padding: 11px 12px; border-right: 1px solid #efcccc; border-bottom: 1px solid #efcccc; font-size: 12px; }
+    .mini-action-row:nth-child(3n) { border-right: 0; }
+    .mini-action-row:nth-last-child(-n+3) { border-bottom: 0; }
+    .mini-action-label { min-width: 0; line-height: 1.15; }
+    .mini-action-status { display: flex; align-items: center; justify-content: flex-end; }
+    .action-pill { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 104px; height: 18px; padding: 0 9px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 1; }
     .overview-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; font-size: 13px; }
     .detail-section { padding-top: 13px; margin-top: 13px; border-top: 1px solid #dadada; break-inside: avoid; }
     .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 7px; font-size: 13px; font-weight: 700; }

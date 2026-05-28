@@ -151,6 +151,11 @@ export type DeshazoSavedInspectionReport = {
   summary: DeshazoSavedWorkOrderSummary | null
 }
 
+export type DeshazoSavedWorkOrderListItem = DeshazoSavedWorkOrderSummary & {
+  hasInspectionReport: boolean
+  syncedAt: string
+}
+
 function normalizeSavedReport(
   row: DeshazoInspectionReportRow,
   summary: DeshazoExternalWorkOrderRow | undefined,
@@ -245,6 +250,68 @@ export async function getSavedDeshazoInspectionReports(limit = 20) {
   }
 
   return reportRows.map((row) => normalizeSavedReport(row, summariesById.get(row.work_order_id)))
+}
+
+export async function getSavedDeshazoWorkOrders(limit = 100, search = '') {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  let query = supabase
+    .from('deshazo_external_work_orders')
+    .select(
+      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload, synced_at',
+      { count: 'exact' },
+    )
+    .order('start_date', { ascending: false, nullsFirst: false })
+    .order('work_order_id', { ascending: false })
+    .limit(limit)
+
+  const trimmedSearch = search.trim()
+  if (trimmedSearch) {
+    const escapedSearch = trimmedSearch.replaceAll('%', '\\%').replaceAll('_', '\\_')
+    query = query.or(
+      [
+        `job_no.ilike.%${escapedSearch}%`,
+        `sales_order_no.ilike.%${escapedSearch}%`,
+        `bill_to_name.ilike.%${escapedSearch}%`,
+        `customer_location_name.ilike.%${escapedSearch}%`,
+        `service_location_name.ilike.%${escapedSearch}%`,
+        `comment.ilike.%${escapedSearch}%`,
+      ].join(','),
+    )
+  }
+
+  const { data, error, count } = await query
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const rows = (data ?? []) as Array<DeshazoExternalWorkOrderRow & { synced_at: string | null }>
+  const workOrderIds = rows.map((row) => row.work_order_id)
+  const reportIds = new Set<number>()
+
+  if (workOrderIds.length > 0) {
+    const { data: reportData, error: reportError } = await supabase
+      .from('deshazo_external_inspection_reports')
+      .select('work_order_id')
+      .in('work_order_id', workOrderIds)
+
+    if (reportError) {
+      throw new Error(reportError.message)
+    }
+
+    ;((reportData ?? []) as Array<{ work_order_id: number }>).forEach((row) => reportIds.add(row.work_order_id))
+  }
+
+  return {
+    totalCount: count ?? rows.length,
+    workOrders: rows.map((row) => ({
+      ...normalizeSavedWorkOrderSummary(row),
+      hasInspectionReport: reportIds.has(row.work_order_id),
+      syncedAt: row.synced_at ?? '',
+    })),
+  }
 }
 
 export function getInspectionStats(report: DeshazoInspectionReportPayload) {
