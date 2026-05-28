@@ -4,6 +4,7 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import type { User } from '@supabase/supabase-js'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const portalCards = [
   {
@@ -56,21 +57,34 @@ const portalCards = [
   },
 ]
 
+const developerPortalCard = {
+  eyebrow: 'Developer',
+  title: 'Deshazo Reports',
+  description: 'Open saved external inspection reports from Supabase and generate the first frontend PDF proof.',
+  href: '/deshazo-external-reports',
+}
+
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+
+  const visiblePortalCards = useMemo(
+    () => (userTag === 'developer' ? [...portalCards, developerPortalCard] : portalCards),
+    [userTag],
+  )
 
   const menuItems = useMemo(
     () => [
       { label: 'Home', active: true, href: '/dashboard' },
-      ...portalCards.map((card) => ({
+      ...visiblePortalCards.map((card) => ({
         label: card.title,
         active: false,
         href: card.href,
       })),
     ],
-    [],
+    [visiblePortalCards],
   )
 
   useEffect(() => {
@@ -83,6 +97,9 @@ export default function Dashboard() {
         navigate('/login')
       } else {
         setUser(data.user)
+        getCurrentUserTag(data.user.id)
+          .then((tag) => setUserTag(tag))
+          .catch(() => setUserTag(null))
       }
     })
   }, [navigate])
@@ -204,7 +221,7 @@ export default function Dashboard() {
           </div>
 
           <section className="grid w-full grid-cols-1 gap-x-8 gap-y-8 md:grid-cols-2 xl:grid-cols-3">
-            {portalCards.map((card) => (
+            {visiblePortalCards.map((card) => (
               <article
                 key={card.title}
                 className="group relative flex min-h-[260px] flex-col overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 pb-5 pt-5 text-left shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_26px_48px_-34px_rgba(47,86,166,0.42)]"
