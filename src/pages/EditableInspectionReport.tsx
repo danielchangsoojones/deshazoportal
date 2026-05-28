@@ -550,9 +550,6 @@ const getEditableReportDisplayName = (
   return nameParts.length > 0 ? nameParts.join(' - ') : fallbackName
 }
 
-const getSavedReportDisplayName = (savedReport: EditableInspectionReport) =>
-  getEditableReportDisplayName(savedReport.reportData, savedReport.reportName)
-
 const formatReportValue = (label: string, value: string, fallback = '---') =>
   `${label}: ${value.trim() || fallback}`
 
@@ -1604,24 +1601,17 @@ export default function EditableInspectionReport() {
           if (!active) return
 
           if (existingReport) {
-            const existingReportName = getSavedReportDisplayName(existingReport)
-            const shouldOpenSavedReport = window.confirm(
-              `A saved editable copy already exists for ${existingReportName}.\n\nPress OK to open the saved edited copy, or Cancel to start fresh from the extracted report.`,
-            )
-
-            if (shouldOpenSavedReport) {
-              applyEditableReportPayload(getNormalizedReportPayload(existingReport))
-              setCurrentEditableReportId(existingReport.id)
-              setCurrentReportName(existingReport.reportName)
-              setCurrentSourceDocumentName(existingReport.sourceDocumentName)
-              setCurrentJobsQuotingItemId(existingReport.jobsQuotingItemId)
-              setReportDatabaseStatus('saved')
-              skipNextReportDatabaseSave.current = true
-              pendingReportChanges.current = false
-              reportHydrationReady.current = true
-              setSearchParams({ editableReportId: existingReport.id }, { replace: true })
-              return
-            }
+            applyEditableReportPayload(getNormalizedReportPayload(existingReport))
+            setCurrentEditableReportId(existingReport.id)
+            setCurrentReportName(existingReport.reportName)
+            setCurrentSourceDocumentName(existingReport.sourceDocumentName)
+            setCurrentJobsQuotingItemId(existingReport.jobsQuotingItemId)
+            setReportDatabaseStatus('saved')
+            skipNextReportDatabaseSave.current = true
+            pendingReportChanges.current = false
+            reportHydrationReady.current = true
+            setSearchParams({ editableReportId: existingReport.id }, { replace: true })
+            return
           }
 
           applyEditableReportPayload({
