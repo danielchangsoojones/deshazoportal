@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import * as pdfjs from 'pdfjs-dist'
 import { isConfigured } from '../lib/supabase'
 import {
   deleteInspectionMenuItem,
@@ -30,6 +31,8 @@ import {
   type EditableInspectionReportPayload,
 } from '../lib/editableInspectionReports'
 import { getUserDisplayNames } from '../lib/userTags'
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 
 type ReportData = Record<string, string>
 
@@ -121,6 +124,7 @@ const equipmentRentalDefaultMargin = 15
 const printedPageWidthIn = 8.5
 const printedPageHeightIn = 11
 const printedPageMarginIn = 0.45
+const originalInspectionPageRenderWidthPx = 730
 const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
 const menuItemsUploadRefreshDurationMs = 60 * 1000
@@ -1105,6 +1109,63 @@ function PencilIcon() {
   )
 }
 
+function OriginalInspectionAttachment({ url }: { url: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+
+  useEffect(() => {
+    let cancelled = false
+    const loadingTask = pdfjs.getDocument(url)
+
+    async function renderOriginalInspectionPage() {
+      try {
+        setStatus('loading')
+        const document = await loadingTask.promise
+        const page = await document.getPage(1)
+        const baseViewport = page.getViewport({ scale: 1 })
+        const viewport = page.getViewport({ scale: originalInspectionPageRenderWidthPx / baseViewport.width })
+        const canvas = canvasRef.current
+        const context = canvas?.getContext('2d')
+
+        if (!canvas || !context || cancelled) return
+
+        canvas.width = Math.floor(viewport.width)
+        canvas.height = Math.floor(viewport.height)
+        canvas.style.width = '100%'
+        canvas.style.height = 'auto'
+
+        await page.render({ canvas, canvasContext: context, viewport }).promise
+        if (!cancelled) setStatus('ready')
+      } catch {
+        if (!cancelled) setStatus('error')
+      }
+    }
+
+    renderOriginalInspectionPage()
+
+    return () => {
+      cancelled = true
+      loadingTask.destroy()
+    }
+  }, [url])
+
+  return (
+    <div className="relative min-h-[8.75in] border border-[#d4d4d4] bg-white">
+      <canvas ref={canvasRef} className={status === 'error' ? 'hidden' : 'block w-full'} />
+      {status === 'loading' ? (
+        <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold text-[#747b8a]">
+          Loading original inspection...
+        </div>
+      ) : null}
+      {status === 'error' ? (
+        <div className="flex min-h-[8.75in] items-center justify-center px-4 text-center text-[13px] font-bold text-[#a82727]">
+          Original inspection could not be displayed. Use Related Documents to open it.
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
   const navigate = useNavigate()
@@ -1321,6 +1382,7 @@ export default function EditableInspectionReport() {
     () => relatedDocuments.find((document) => document.name === 'Original Inspection'),
     [relatedDocuments],
   )
+  const originalInspectionUrl = originalInspectionDocument?.url ?? '/testassessment.pdf'
   const masterServiceAgreementDocument = useMemo(
     () => relatedDocuments.find((document) => document.name === 'Master Service Agreement'),
     [relatedDocuments],
@@ -2810,6 +2872,23 @@ export default function EditableInspectionReport() {
             padding: ${printedPageMarginIn}in;
           }
 
+          .original-inspection-attachment-page {
+            box-sizing: border-box;
+            width: ${printedPageWidthIn}in;
+            min-height: ${printedPageHeightIn}in;
+            padding: ${printedPageMarginIn}in;
+            border-top: 1px solid #d4d4d4;
+            background: #fff;
+            break-before: page;
+            page-break-before: always;
+          }
+
+          .original-inspection-attachment-page canvas {
+            display: block;
+            max-width: 100%;
+            height: auto !important;
+          }
+
           .report-runtime-page-break {
             break-before: page;
             page-break-before: always;
@@ -2888,6 +2967,14 @@ export default function EditableInspectionReport() {
               height: auto !important;
               box-shadow: none !important;
               border: 0 !important;
+            }
+
+            .original-inspection-attachment-page {
+              width: auto !important;
+              min-height: auto !important;
+              padding: 0 !important;
+              border: 0 !important;
+              box-shadow: none !important;
             }
 
             .report-page-sheet {
@@ -3025,7 +3112,7 @@ export default function EditableInspectionReport() {
                   ) : null}
                 </div>
                 <a
-                  href={originalInspectionDocument?.url ?? '/testassessment.pdf'}
+                  href={originalInspectionUrl}
                   target="_blank"
                   rel="noreferrer"
                   onClick={() => setRelatedDocumentsOpen(false)}
@@ -4186,6 +4273,9 @@ export default function EditableInspectionReport() {
             </div>
           ))}
         </article>
+        <section className="original-inspection-attachment-page">
+          <OriginalInspectionAttachment url={originalInspectionUrl} />
+        </section>
             </div>
           </div>
       </main>
