@@ -233,7 +233,7 @@ function groupItemsBySection(items: SectionedItem[]) {
   }, [])
 }
 
-function renderSectionedItems(items: SectionedItem[], itemLabel: string) {
+function renderSectionedItems(items: SectionedItem[], itemLabel: string, includePhotos = false) {
   return groupItemsBySection(items)
     .map(
       (group) => `
@@ -249,6 +249,23 @@ function renderSectionedItems(items: SectionedItem[], itemLabel: string) {
                   <div class="page2-point">
                     <div class="page2-point-name">${escapeHtml(item.label)}</div>
                     <div class="${page2StatusClass(item.status)}">${escapeHtml(toTitleCase(item.status))}</div>
+                    ${
+                      includePhotos && item.photos.length > 0
+                        ? `<div class="page2-action-photos">
+                            ${item.photos
+                              .slice(0, 2)
+                              .map(
+                                (photo, photoIndex) => `
+                                  <figure class="page2-action-photo">
+                                    <img src="${escapeHtml(photo.content ?? '')}" alt="${escapeHtml(item.label)}" />
+                                    <figcaption>${photoIndex + 1} / ${item.photos.length}</figcaption>
+                                  </figure>
+                                `,
+                              )
+                              .join('')}
+                          </div>`
+                        : ''
+                    }
                     ${
                       item.notes
                         ? `<div class="page2-note"><span>${item.status === 'REPAIR' ? 'Note:' : 'Notes:'}</span> ${escapeHtml(item.notes)}</div>`
@@ -366,7 +383,10 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   const stats = getInspectionStats(selectedCrane)
   const actionItems = getActionItems(selectedCrane)
   const notesAndPhotoItems = getNotesAndPhotoItems(selectedCrane)
-  const photos = getAllPhotos(selectedCrane).slice(0, 18)
+  const actionPhotoUrls = new Set(actionItems.flatMap((item) => item.photos.map((photo) => photo.content).filter(Boolean)))
+  const photos = getAllPhotos(selectedCrane)
+    .filter((photo) => !actionPhotoUrls.has(photo.content))
+    .slice(0, 18)
   const sections = resolveSections(selectedCrane)
   const primaryCrane = selectedCrane.crane
   const overviewDate = selectedCrane.inspections?.find((inspection) => inspection.completedAt)?.completedAt || report.summary?.completedAt
@@ -395,13 +415,70 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
       })
       .join('')
 
-  const firstPageSectionCount = sections.length > 1 ? 1 : sections.length
+  const estimateDetailSectionHeight = (section: ResolvedSection) => {
+    const visualRows = Math.ceil(section.points.length / 3)
+    return 44 + visualRows * 22
+  }
+
+  const estimateFollowUpHeight = () => {
+    let height = 0
+
+    if (actionItems.length > 0) {
+      height += 45
+      groupItemsBySection(actionItems).forEach((group) => {
+        height += 28
+        group.items.forEach((item) => {
+          height += 34
+          if (item.photos.length > 0) height += 144
+          if (item.notes) height += 22
+        })
+      })
+    } else if (notesAndPhotoItems.length > 0) {
+      height += 45
+      groupItemsBySection(notesAndPhotoItems).forEach((group) => {
+        height += 28 + group.items.length * 58
+      })
+    }
+
+    if (photos.length > 0) {
+      height += 58 + Math.ceil(photos.length / 3) * 184
+    }
+
+    return height
+  }
+
+  const packPageBlocks = (blocks: Array<{ html: string; estimatedHeight: number }>) => {
+    const packedPages: string[] = []
+    let currentPageBlocks: string[] = []
+    let currentHeight = 0
+    const usableHeight = 760
+
+    blocks.forEach((block) => {
+      const shouldStartNextPage =
+        currentPageBlocks.length > 0 && currentHeight + block.estimatedHeight > usableHeight
+
+      if (shouldStartNextPage) {
+        packedPages.push(currentPageBlocks.join(''))
+        currentPageBlocks = []
+        currentHeight = 0
+      }
+
+      currentPageBlocks.push(block.html)
+      currentHeight += block.estimatedHeight
+    })
+
+    if (currentPageBlocks.length > 0) packedPages.push(currentPageBlocks.join(''))
+    return packedPages
+  }
+
+  const firstPageSectionCount = sections.length > 2 ? 2 : sections.length
   const firstPageSections = sections.slice(0, firstPageSectionCount)
   const continuationSections = sections.slice(firstPageSectionCount)
   const firstPageSectionsMarkup = renderDetailSections(firstPageSections)
-  const continuationPageContents = continuationSections.map(
-    (section) => `<div class="page2-continuation">${renderDetailSections([section])}</div>`,
-  )
+  const continuationBlocks = continuationSections.map((section) => ({
+    html: `<div class="page2-continuation">${renderDetailSections([section])}</div>`,
+    estimatedHeight: estimateDetailSectionHeight(section) + 22,
+  }))
 
   const firstPageActions = actionItems
     .slice(0, 6)
@@ -443,10 +520,10 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     `
     : ''
 
-  const followUpContent = actionItems.length
+  const page2MainContent = actionItems.length
     ? `
       <div class="page2-title page2-title-repair">ACTION LIST - REPAIR ITEMS</div>
-      ${renderSectionedItems(actionItems, 'Repair item')}
+      ${renderSectionedItems(actionItems, 'Repair item', true)}
       ${
         photos.length
           ? `<div class="page2-title page2-title-pictures">ADDITIONAL DETAILS - PICTURES</div>${photoMarkup}`
@@ -466,8 +543,10 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
         `
         : ''
 
-  const followUpPageContents = followUpContent.trim() ? [followUpContent] : []
-  const remainingPageContents = [...continuationPageContents, ...followUpPageContents]
+  const followUpBlocks = page2MainContent.trim()
+    ? [{ html: page2MainContent, estimatedHeight: estimateFollowUpHeight() }]
+    : []
+  const remainingPageContents = packPageBlocks([...continuationBlocks, ...followUpBlocks])
   const totalPages = 1 + remainingPageContents.length
 
   const renderContinuationPage = (content: string, pageNumber: number) => `
@@ -583,45 +662,45 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
       page-break-after: always;
     }
     ${pageSpacing}
-    .hero { display: grid; grid-template-columns: 1.25fr 1fr .9fr; gap: 14px; height: 86px; padding: 15px 24px 12px; background: #f6b23b; color: #000; }
-    .brand { font-size: 40px; font-weight: 900; letter-spacing: -1.5px; line-height: .9; }
-    .brand-sub { margin-top: 5px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
-    .hero-meta { padding-top: 3px; font-size: 13px; font-weight: 400; line-height: 1.5; }
-    .hero-title { display: flex; justify-content: flex-end; align-items: center; font-size: 30px; line-height: 1.05; font-weight: 900; text-transform: uppercase; }
-    .body { padding: 17px 24px 18px; }
+    .hero { display: grid; grid-template-columns: 1.25fr 1fr .9fr; gap: 14px; height: 82px; padding: 14px 24px 10px; background: #f6b23b; color: #000; }
+    .brand { font-size: 38px; font-weight: 900; letter-spacing: -1.5px; line-height: .9; }
+    .brand-sub { margin-top: 4px; font-size: 9.5px; font-weight: 900; text-transform: uppercase; }
+    .hero-meta { padding-top: 2px; font-size: 12px; font-weight: 400; line-height: 1.45; }
+    .hero-title { display: flex; justify-content: flex-end; align-items: center; font-size: 28px; line-height: 1.05; font-weight: 900; text-transform: uppercase; }
+    .body { padding: 14px 24px 16px; }
     .body-full { height: ${DESHAZO_PDF_PAGE_HEIGHT_PX - 2}px; }
     .body-page2 { position: relative; padding: 25px 24px 18px; }
-    .summary-top { display: grid; grid-template-columns: 1.7fr 1fr 1fr; gap: 12px; padding-bottom: 11px; border-bottom: 1px solid #cfcfcf; font-size: 13px; }
+    .summary-top { display: grid; grid-template-columns: 1.7fr 1fr 1fr; gap: 12px; padding-bottom: 9px; border-bottom: 1px solid #cfcfcf; font-size: 12px; }
     .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #d8d8d8; border-left: 1px solid #d8d8d8; }
-    .summary-cell { min-height: 50px; padding: 6px 7px; border-right: 1px solid #d8d8d8; border-bottom: 1px solid #d8d8d8; font-size: 12px; }
-    .summary-label { font-size: 11px; font-weight: 700; text-transform: none; color: #111; }
-    .summary-value { margin-top: 4px; font-weight: 600; line-height: 1.24; }
+    .summary-cell { min-height: 46px; padding: 5px 7px; border-right: 1px solid #d8d8d8; border-bottom: 1px solid #d8d8d8; font-size: 11px; }
+    .summary-label { font-size: 10.5px; font-weight: 700; text-transform: none; color: #111; }
+    .summary-value { margin-top: 3px; font-weight: 600; line-height: 1.22; }
     .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); background: #f3f3f3; border-left: 1px solid #d8d8d8; border-right: 1px solid #d8d8d8; border-bottom: 1px solid #d8d8d8; }
-    .stat-card { padding: 7px 8px 9px; text-align: center; border-right: 1px solid #d8d8d8; }
+    .stat-card { padding: 6px 8px 8px; text-align: center; border-right: 1px solid #d8d8d8; }
     .stat-card:last-child { border-right: 0; }
-    .stat-value { font-size: 42px; font-weight: 900; line-height: .95; }
-    .stat-label { margin-top: 5px; font-size: 13px; font-weight: 700; }
+    .stat-value { font-size: 38px; font-weight: 900; line-height: .95; }
+    .stat-label { margin-top: 4px; font-size: 12px; font-weight: 700; }
     .danger-text { color: #b81717; }
-    .panel { margin-top: 10px; border: 1px solid #d8d8d8; }
+    .panel { margin-top: 8px; border: 1px solid #d8d8d8; }
     .panel.panel-danger { background: #fff2f2; border-color: #efcccc; }
-    .panel-title { padding: 7px 10px; font-size: 13px; font-weight: 700; border-bottom: 1px solid #d8d8d8; }
+    .panel-title { padding: 6px 10px; font-size: 12px; font-weight: 700; border-bottom: 1px solid #d8d8d8; }
     .panel.panel-danger .panel-title { color: #7e0e0e; border-color: #efcccc; }
-    .panel-body { padding: 9px 10px; }
+    .panel-body { padding: 8px 10px; }
     .panel-body-actions { padding: 0; }
     .mini-action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .mini-action-row { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 8px; align-items: center; min-height: 54px; padding: 11px 12px; border-right: 1px solid #efcccc; border-bottom: 1px solid #efcccc; font-size: 12px; }
+    .mini-action-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; align-items: center; min-height: 48px; padding: 9px 12px; border-right: 1px solid #efcccc; border-bottom: 1px solid #efcccc; font-size: 11px; }
     .mini-action-row:nth-child(3n) { border-right: 0; }
     .mini-action-row:nth-last-child(-n+3) { border-bottom: 0; }
     .mini-action-label { min-width: 0; line-height: 1.15; }
     .mini-action-status { display: flex; align-items: center; justify-content: flex-end; }
-    .action-pill { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 104px; height: 18px; padding: 0 9px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 1; }
-    .overview-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; font-size: 13px; }
-    .detail-section { padding-top: 13px; margin-top: 13px; border-top: 1px solid #dadada; break-inside: avoid; }
-    .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 7px; font-size: 13px; font-weight: 700; }
-    .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px 16px; }
-    .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 100px; align-items: center; gap: 7px; min-height: 18px; font-size: 13px; }
+    .action-pill { display: inline-block; box-sizing: border-box; width: 104px; height: 18px; padding: 0 9px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: middle; overflow: hidden; }
+    .overview-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; font-size: 12px; }
+    .detail-section { padding-top: 11px; margin-top: 11px; border-top: 1px solid #dadada; break-inside: avoid; }
+    .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 6px; font-size: 12px; font-weight: 700; }
+    .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 14px; }
+    .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 7px; min-height: 17px; font-size: 12px; }
     .detail-label { min-width: 0; line-height: 1.18; }
-    .status { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100px; height: 18px; padding: 0 7px; text-align: center; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; }
+    .status { display: block; box-sizing: border-box; width: 92px; height: 17px; padding: 0 6px; text-align: center; font-size: 11px; font-weight: 700; line-height: 17px; white-space: nowrap; overflow: hidden; }
     .status-success { background: #bff2be; color: #1f6a2e; }
     .status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .status-danger { background: #f7c7c7; color: #a61616; }
@@ -631,10 +710,10 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-brand-sub { margin-top: 5px; font-size: 9.8px; font-weight: 900; line-height: 1; text-transform: uppercase; }
     .page2-meta { display: grid; grid-template-columns: 1fr 96px; gap: 6px 32px; justify-self: end; width: 366px; font-size: 12px; line-height: 1.32; }
     .page2-meta span { font-weight: 700; }
-    .page2-content { margin-top: 28px; }
-    .page2-continuation { margin-bottom: 24px; }
+    .page2-content { margin-top: 22px; }
+    .page2-continuation { margin-bottom: 18px; }
     .page2-continuation .detail-section:first-child { margin-top: 0; }
-    .page2-title { margin-left: 5px; padding-bottom: 13px; border-bottom: 1px solid #b81717; font-size: 16px; font-weight: 700; line-height: 1.05; text-transform: uppercase; color: #171821; }
+    .page2-title { margin-left: 5px; padding-bottom: 11px; border-bottom: 1px solid #b81717; font-size: 15px; font-weight: 700; line-height: 1.05; text-transform: uppercase; color: #171821; }
     .page2-title-repair { color: #b81717; }
     .page2-title-pictures { margin-top: 22px; border-bottom-color: #d8d8d8; color: #171821; }
     .page2-title-pictures-only { margin-top: 20px; }
@@ -645,10 +724,14 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-point { margin: 0; font-size: 12px; }
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
-    .page2-point-status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 86px; height: 18px; margin: 7px 0 0 18px; padding: 0 10px; font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
+    .page2-point-status { display: inline-block; box-sizing: border-box; min-width: 86px; height: 18px; margin: 7px 0 0 18px; padding: 0 10px; font-size: 10px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: middle; white-space: nowrap; overflow: hidden; }
     .page2-status-success { background: #bff2be; color: #1f6a2e; }
     .page2-status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .page2-status-danger { background: #e8c7c9; color: #9d1c1c; }
+    .page2-action-photos { display: grid; grid-template-columns: repeat(2, 112px); gap: 0; margin: 7px 0 0 18px; }
+    .page2-action-photo { position: relative; width: 112px; height: 136px; margin: 0; background: #ecdcdc; overflow: hidden; }
+    .page2-action-photo img { display: block; width: 100%; height: 118px; object-fit: cover; }
+    .page2-action-photo figcaption { position: absolute; top: 4px; right: 5px; font-size: 8px; font-weight: 700; color: #8d1111; }
     .page2-note { margin-top: 7px; font-size: 10px; line-height: 1.35; }
     .page2-note span { font-weight: 700; }
     .page2-dot { position: absolute; left: 18px; top: 470px; font-size: 10px; line-height: 1; }
@@ -672,7 +755,33 @@ function createRenderRoot(report: DeshazoSavedInspectionReport, selectedCraneInd
 }
 
 async function waitForImages(root: HTMLElement) {
-  const images = Array.from(root.querySelectorAll('img'))
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'))
+  await Promise.all(
+    images.map(async (image) => {
+      const src = image.currentSrc || image.src
+      if (!src || src.startsWith('data:') || src.startsWith('blob:')) return
+
+      try {
+        const response = await fetch(src, { mode: 'cors', credentials: 'omit' })
+        if (!response.ok) return
+
+        const blob = await response.blob()
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(blob)
+        })
+
+        image.crossOrigin = 'anonymous'
+        image.referrerPolicy = 'no-referrer'
+        image.src = dataUrl
+      } catch {
+        // Keep the original URL if the host does not allow CORS; html2canvas can still try useCORS below.
+      }
+    }),
+  )
+
   await Promise.all(
     images.map(
       (image) =>
@@ -710,7 +819,7 @@ export async function createDeshazoInspectionPdfBlob(report: DeshazoSavedInspect
         backgroundColor: '#ffffff',
         scale: 3,
         useCORS: true,
-        allowTaint: true,
+        allowTaint: false,
         logging: false,
       })
       const imageData = canvas.toDataURL('image/png')
