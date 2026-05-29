@@ -1,5 +1,10 @@
 import { supabase } from './supabase'
 
+const deshazoExternalApiBaseUrl =
+  (import.meta.env.VITE_DESHAZO_EXTERNAL_API_BASE_URL as string | undefined)?.trim() ||
+  'https://deshazo-api.belovedrobot.com/api'
+const deshazoExternalApiKey = (import.meta.env.VITE_DESHAZO_EXTERNAL_API_KEY as string | undefined)?.trim() || ''
+
 export type DeshazoInspectionPhoto = {
   id?: string
   content?: string
@@ -154,6 +159,17 @@ export type DeshazoSavedInspectionReport = {
 export type DeshazoSavedWorkOrderListItem = DeshazoSavedWorkOrderSummary & {
   hasInspectionReport: boolean
   syncedAt: string
+}
+
+export type DeshazoExternalSyncResult = {
+  saved: boolean
+  pagesProcessed: number
+  pageSize: number
+  totalCount: number | null
+  totalPages: number | null
+  workOrdersSeen: number
+  reportsSeen: number
+  failures: Array<Record<string, unknown>>
 }
 
 function normalizeSavedReport(
@@ -312,6 +328,43 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '') {
       syncedAt: row.synced_at ?? '',
     })),
   }
+}
+
+export async function syncDeshazoExternalWorkOrders(options: { pageSize: number; maxPages?: number }) {
+  if (!deshazoExternalApiKey) {
+    throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
+  }
+
+  const url = new URL('/api/external/work-orders/sync', deshazoExternalApiBaseUrl)
+  url.searchParams.set('page', '1')
+  url.searchParams.set('pageSize', String(options.pageSize))
+  if (options.maxPages) url.searchParams.set('maxPages', String(options.maxPages))
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'X-API-Key': deshazoExternalApiKey,
+    },
+  })
+
+  const responseText = await response.text()
+  let body: unknown = responseText
+  try {
+    body = JSON.parse(responseText)
+  } catch {
+    // Keep non-JSON backend errors readable.
+  }
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `External sync failed with status ${response.status}.`
+    throw new Error(message)
+  }
+
+  return body as DeshazoExternalSyncResult
 }
 
 export function getInspectionStats(report: DeshazoInspectionReportPayload) {

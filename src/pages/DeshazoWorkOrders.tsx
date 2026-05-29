@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
@@ -6,6 +6,7 @@ import { usePortalMenu } from '../lib/usePortalMenu'
 import {
   type DeshazoSavedWorkOrderListItem,
   getSavedDeshazoWorkOrders,
+  syncDeshazoExternalWorkOrders,
 } from '../lib/deshazoExternalReports'
 import { getCurrentUserTag } from '../lib/userTags'
 
@@ -85,6 +86,7 @@ export default function DeshazoWorkOrders() {
   const [search, setSearch] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
@@ -98,55 +100,60 @@ export default function DeshazoWorkOrders() {
     [],
   )
 
-  useEffect(() => {
+  const loadWorkOrders = useCallback(async (cancelledRef?: { cancelled: boolean }) => {
     if (!isConfigured || !supabase) {
       navigate('/login')
       return
     }
 
     const client = supabase
-    let cancelled = false
 
-    async function loadPage() {
-      try {
-        setLoading(true)
-        const { data } = await client.auth.getUser()
-        const nextUser = data.user
-        if (!nextUser) {
-          navigate('/login')
-          return
-        }
-
-        const userTag = await getCurrentUserTag(nextUser.id)
-        if (userTag !== 'developer') {
-          navigate('/dashboard')
-          return
-        }
-
-        const result = await getSavedDeshazoWorkOrders(100, submittedSearch)
-        if (cancelled) return
-
-        setUser(nextUser)
-        setWorkOrders(result.workOrders)
-        setTotalCount(result.totalCount)
-        setMessage(
-          result.totalCount > 0
-            ? `Showing ${result.workOrders.length} of ${result.totalCount} saved work orders from Supabase.`
-            : 'No saved work orders found yet.',
-        )
-      } catch (error) {
-        if (cancelled) return
-        setMessage(error instanceof Error ? error.message : 'Saved work orders could not be loaded.')
-      } finally {
-        if (!cancelled) setLoading(false)
+    try {
+      setLoading(true)
+      const { data } = await client.auth.getUser()
+      const nextUser = data.user
+      if (!nextUser) {
+        navigate('/login')
+        return
       }
-    }
 
-    loadPage()
-    return () => {
-      cancelled = true
+      const userTag = await getCurrentUserTag(nextUser.id)
+      if (userTag !== 'developer') {
+        navigate('/dashboard')
+        return
+      }
+
+      const result = await getSavedDeshazoWorkOrders(100, submittedSearch)
+      if (cancelledRef?.cancelled) return
+
+      setUser(nextUser)
+      setWorkOrders(result.workOrders)
+      setTotalCount(result.totalCount)
+      setMessage(
+        result.totalCount > 0
+          ? `Showing ${result.workOrders.length} of ${result.totalCount} saved work orders from Supabase.`
+          : 'No saved work orders found yet.',
+      )
+    } catch (error) {
+      if (cancelledRef?.cancelled) return
+      setMessage(error instanceof Error ? error.message : 'Saved work orders could not be loaded.')
+    } finally {
+      if (!cancelledRef?.cancelled) setLoading(false)
     }
   }, [navigate, submittedSearch])
+
+  useEffect(() => {
+    if (!isConfigured || !supabase) {
+      navigate('/login')
+      return
+    }
+
+    const cancelledRef = { cancelled: false }
+    loadWorkOrders(cancelledRef)
+    return () => {
+      cancelledRef.cancelled = true
+    }
+  }, [loadWorkOrders, navigate])
 
   const fullName =
     user?.user_metadata?.full_name ||
@@ -169,6 +176,29 @@ export default function DeshazoWorkOrders() {
   const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSubmittedSearch(search)
+  }
+
+  const handleSync = async (label: string, pageSize: number, maxPages?: number) => {
+    const scopeText = maxPages ? `${pageSize} work orders` : `all work orders using page size ${pageSize}`
+    const confirmed = window.confirm(
+      `This will call the production DeShazo sync API and save/update ${scopeText} in Supabase. Continue?`,
+    )
+    if (!confirmed) return
+
+    try {
+      setSyncing(true)
+      setMessage(`Syncing ${label} from production API...`)
+      const result = await syncDeshazoExternalWorkOrders({ pageSize, maxPages })
+      const failureText = result.failures?.length ? ` ${result.failures.length} failures returned.` : ''
+      await loadWorkOrders()
+      setMessage(
+        `Sync complete: ${result.workOrdersSeen} work orders and ${result.reportsSeen} reports processed.${failureText}`,
+      )
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'External work order sync failed.')
+    } finally {
+      setSyncing(false)
+    }
   }
 
   if (loading && !user) {
@@ -260,17 +290,45 @@ export default function DeshazoWorkOrders() {
                   Synced
                 </div>
               </div>
-              <form onSubmit={handleSearchSubmit} className="flex w-full max-w-[360px] items-stretch">
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="wabash"
-                  className="min-w-0 flex-1 border border-[#bfc7d8] px-3 py-2 text-sm font-semibold outline-none focus:border-[var(--deshazo-blue)]"
-                />
-                <button type="submit" className="bg-[#f4b331] px-4 text-lg font-black text-white">
-                  ⌕
-                </button>
-              </form>
+              <div className="flex w-full flex-col gap-3 lg:max-w-[760px] lg:items-end">
+                <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handleSync('latest 10 work orders', 10, 1)}
+                    disabled={syncing}
+                    className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    Fetch 10
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSync('latest 50 work orders', 50, 1)}
+                    disabled={syncing}
+                    className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    Fetch 50
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSync('all work orders', 100)}
+                    disabled={syncing}
+                    className="rounded-sm bg-[#4f9879] px-3 py-2 text-sm font-black text-white transition hover:bg-[#43886c] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    Fetch All
+                  </button>
+                </div>
+                <form onSubmit={handleSearchSubmit} className="flex w-full max-w-[360px] items-stretch">
+                  <input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="wabash"
+                    className="min-w-0 flex-1 border border-[#bfc7d8] px-3 py-2 text-sm font-semibold outline-none focus:border-[var(--deshazo-blue)]"
+                  />
+                  <button type="submit" className="bg-[#f4b331] px-4 text-lg font-black text-white">
+                    ⌕
+                  </button>
+                </form>
+              </div>
             </div>
 
             {message ? (
