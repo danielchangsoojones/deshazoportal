@@ -344,7 +344,7 @@ export async function syncDeshazoExternalWorkOrders(options: { pageSize: number;
     method: 'POST',
     headers: {
       Accept: 'application/json',
-      'X-API-Key': deshazoExternalApiKey,
+      Authorization: `Bearer ${deshazoExternalApiKey}`,
     },
   })
 
