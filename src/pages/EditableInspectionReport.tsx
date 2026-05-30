@@ -870,8 +870,13 @@ const getLineProfit = (internalLineAmount: number, customerLineAmount: number) =
 const getUnitProfit = (internalUnitCost: number, customerUnitPrice: number) =>
   customerUnitPrice - internalUnitCost
 
-const getLineMarginPercent = (internalLineAmount: number, customerLineAmount: number) =>
-  customerLineAmount > 0 ? (getLineProfit(internalLineAmount, customerLineAmount) / customerLineAmount) * 100 : 0
+const getUnitMargin = (internalUnitCost: number, customerUnitPrice: number) =>
+  internalUnitCost > 0 ? ((customerUnitPrice - internalUnitCost) / internalUnitCost) * 100 : 0
+
+const getMarginCellClassName = (margin: string) =>
+  parseMoney(margin) < 30
+    ? 'bg-[#fbe3e3] text-[#8a1a1a] hover:bg-[#f7d4d4]'
+    : 'bg-[#e2f5e7] text-[#17652b] hover:bg-[#d0edda]'
 
 const getCostCustomerUnitPrice = (
   sectionId: string,
@@ -1175,6 +1180,7 @@ export default function EditableInspectionReport() {
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
   const relatedPdfInputRef = useRef<HTMLInputElement>(null)
   const [activeLineMenu, setActiveLineMenu] = useState('')
+  const [activeMarginMenu, setActiveMarginMenu] = useState('')
   const [activeDoneLineItem, setActiveDoneLineItem] = useState('')
   const [unlocked, setUnlocked] = useState(false)
   const [textMenuOpen, setTextMenuOpen] = useState(false)
@@ -2540,8 +2546,21 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: section.lineItems.map((lineItem) => {
                   if (lineItem.id !== lineItemId) return lineItem
-                  if (field === 'internalCost') return { ...lineItem, internalCost: value, rate: value }
-                  if (field === 'customerPrice') return { ...lineItem, customerPrice: value }
+                  if (field === 'internalCost') {
+                    return {
+                      ...lineItem,
+                      internalCost: value,
+                      rate: value,
+                      margin: getUnitMargin(parseMoney(value), getCustomerUnitPrice(lineItem)).toFixed(2),
+                    }
+                  }
+                  if (field === 'customerPrice') {
+                    return {
+                      ...lineItem,
+                      customerPrice: value,
+                      margin: getUnitMargin(getInternalUnitCost(lineItem), parseMoney(value)).toFixed(2),
+                    }
+                  }
                   if (field === 'margin') {
                     return {
                       ...lineItem,
@@ -2657,8 +2676,21 @@ export default function EditableInspectionReport() {
                 ...section,
                 lineItems: section.lineItems.map((lineItem) => {
                   if (lineItem.id !== lineItemId) return lineItem
-                  if (field === 'internalCost') return { ...lineItem, internalCost: value, rate: value }
-                  if (field === 'customerPrice') return { ...lineItem, customerPrice: value }
+                  if (field === 'internalCost') {
+                    return {
+                      ...lineItem,
+                      internalCost: value,
+                      rate: value,
+                      margin: getUnitMargin(parseMoney(value), getCustomerUnitPrice(lineItem)).toFixed(2),
+                    }
+                  }
+                  if (field === 'customerPrice') {
+                    return {
+                      ...lineItem,
+                      customerPrice: value,
+                      margin: getUnitMargin(getInternalUnitCost(lineItem), parseMoney(value)).toFixed(2),
+                    }
+                  }
                   if (field === 'margin') {
                     return {
                       ...lineItem,
@@ -3744,14 +3776,6 @@ export default function EditableInspectionReport() {
                                 Done
                               </button>
                             ) : null}
-                            {parseMoney(lineItem.margin) > 0 ? (
-                              <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
-                                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1f9d45] text-[12px] leading-none text-white">
-                                  +
-                                </span>
-                                <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
-                              </span>
-                            ) : null}
                             {shouldShowAddMenuItemTag(lineItem) ? (
                               <button
                                 type="button"
@@ -3813,9 +3837,52 @@ export default function EditableInspectionReport() {
                             <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                               {formatMoney(getCustomerLineAmount(lineItem))}
                             </div>
-                            <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-hidden border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
-                              <div className="flex items-center px-3 py-1.5">
-                                {getLineMarginPercent(getInternalLineAmount(lineItem), getCustomerLineAmount(lineItem)).toFixed(1)}%
+                            <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                              <div className="relative flex items-stretch">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveLineMenu('')
+                                    setActiveMarginMenu((currentMenu) =>
+                                      currentMenu === `repair-${section.id}-${lineItem.id}`
+                                        ? ''
+                                        : `repair-${section.id}-${lineItem.id}`,
+                                    )
+                                  }}
+                                  className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
+                                  aria-label={`Open margin settings for ${section.title} line item ${lineIndex + 1}`}
+                                >
+                                  {Math.round(parseMoney(lineItem.margin))}%
+                                </button>
+                                {activeMarginMenu === `repair-${section.id}-${lineItem.id}` ? (
+                                  <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                      <span className="text-[11px] font-black uppercase text-[#555b66]">Margin</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setActiveMarginMenu('')}
+                                        className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                        aria-label="Close margin settings"
+                                      >
+                                        x
+                                      </button>
+                                    </div>
+                                    <label className="block text-[11px] font-black uppercase text-[#555b66]">
+                                      Margin: {Math.round(parseMoney(lineItem.margin))}%
+                                    </label>
+                                    <input
+                                      type="range"
+                                      min="-100"
+                                      max="100"
+                                      step="1"
+                                      value={parseMoney(lineItem.margin)}
+                                      onChange={(event) =>
+                                        updateRepairLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
+                                      }
+                                      className="mt-2 w-full accent-[#273f7a]"
+                                    />
+                                  </div>
+                                ) : null}
                               </div>
                               <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
                                 {formatMoney(getUnitProfit(getInternalUnitCost(lineItem), getCustomerUnitPrice(lineItem)))}
@@ -3827,13 +3894,14 @@ export default function EditableInspectionReport() {
                             <div className="report-inline-action relative border-l border-[#e5e5e5]">
                               <button
                                 type="button"
-                                onClick={() =>
+                                onClick={() => {
+                                  setActiveMarginMenu('')
                                   setActiveLineMenu((currentMenu) =>
                                     currentMenu === `repair-${section.id}-${lineItem.id}`
                                       ? ''
                                       : `repair-${section.id}-${lineItem.id}`,
                                   )
-                                }
+                                }}
                                 className="flex min-h-[25px] w-full items-center justify-center bg-white text-[19px] font-black leading-none text-[#4d5360] transition hover:bg-[#f4f6fb]"
                                 aria-label={`Open settings for line item ${lineIndex + 1}`}
                               >
@@ -3862,20 +3930,6 @@ export default function EditableInspectionReport() {
                                   >
                                     Delete item
                                   </button>
-                                  <label className="block text-[11px] font-black uppercase text-[#555b66]">
-                                    Add margin: {Math.round(parseMoney(lineItem.margin))}%
-                                  </label>
-                                  <input
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    step="1"
-                                    value={parseMoney(lineItem.margin)}
-                                    onChange={(event) =>
-                                      updateRepairLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
-                                    }
-                                    className="mt-2 w-full accent-[#273f7a]"
-                                  />
                                   <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
                                     <span>Internal total</span>
                                     <span className="text-right">{formatMoney(getInternalLineAmount(lineItem))}</span>
@@ -4074,14 +4128,6 @@ export default function EditableInspectionReport() {
                             Done
                           </button>
                         ) : null}
-                        {parseMoney(lineItem.margin) > 0 ? (
-                          <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
-                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1f9d45] text-[12px] leading-none text-white">
-                              +
-                            </span>
-                            <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
-                          </span>
-                        ) : null}
                         {shouldShowAddMenuItemTag(lineItem) ? (
                           <button
                             type="button"
@@ -4158,9 +4204,52 @@ export default function EditableInspectionReport() {
                         <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                           {formatMoney(getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings))}
                         </div>
-                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-hidden border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
-                          <div className="flex items-center px-3 py-1.5">
-                            {getLineMarginPercent(getInternalLineAmount(lineItem), getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings)).toFixed(1)}%
+                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                          <div className="relative flex items-stretch">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveLineMenu('')
+                                setActiveMarginMenu((currentMenu) =>
+                                  currentMenu === `cost-${section.id}-${lineItem.id}`
+                                    ? ''
+                                    : `cost-${section.id}-${lineItem.id}`,
+                                )
+                              }}
+                              className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
+                              aria-label={`Open margin settings for ${section.title} line item ${lineIndex + 1}`}
+                            >
+                              {Math.round(parseMoney(lineItem.margin))}%
+                            </button>
+                            {activeMarginMenu === `cost-${section.id}-${lineItem.id}` ? (
+                              <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-black uppercase text-[#555b66]">Margin</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveMarginMenu('')}
+                                    className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                    aria-label="Close margin settings"
+                                  >
+                                    x
+                                  </button>
+                                </div>
+                                <label className="block text-[11px] font-black uppercase text-[#555b66]">
+                                  Margin: {Math.round(parseMoney(lineItem.margin))}%
+                                </label>
+                                <input
+                                  type="range"
+                                  min="-100"
+                                  max="100"
+                                  step="1"
+                                  value={parseMoney(lineItem.margin)}
+                                  onChange={(event) =>
+                                    updateCostLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
+                                  }
+                                  className="mt-2 w-full accent-[#273f7a]"
+                                />
+                              </div>
+                            ) : null}
                           </div>
                           <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
                             {formatMoney(getUnitProfit(getInternalUnitCost(lineItem), getCostCustomerUnitPrice(section.id, lineItem, equipmentRentalSettings)))}
@@ -4172,13 +4261,14 @@ export default function EditableInspectionReport() {
                         <div className="report-inline-action relative border-l border-[#e5e5e5]">
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={() => {
+                              setActiveMarginMenu('')
                               setActiveLineMenu((currentMenu) =>
                                 currentMenu === `cost-${section.id}-${lineItem.id}`
                                   ? ''
                                   : `cost-${section.id}-${lineItem.id}`,
                               )
-                            }
+                            }}
                             className="flex min-h-[25px] w-full items-center justify-center bg-white text-[19px] font-black leading-none text-[#4d5360] transition hover:bg-[#f4f6fb]"
                             aria-label={`Open settings for ${section.title} line item ${lineIndex + 1}`}
                           >
@@ -4207,20 +4297,6 @@ export default function EditableInspectionReport() {
                               >
                                 Delete item
                               </button>
-                              <label className="block text-[11px] font-black uppercase text-[#555b66]">
-                                Add margin: {Math.round(parseMoney(lineItem.margin))}%
-                              </label>
-                              <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="1"
-                                value={parseMoney(lineItem.margin)}
-                                onChange={(event) =>
-                                  updateCostLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
-                                }
-                                className="mt-2 w-full accent-[#273f7a]"
-                              />
                               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
                                 <span>Internal total</span>
                                 <span className="text-right">{formatMoney(getInternalLineAmount(lineItem))}</span>
