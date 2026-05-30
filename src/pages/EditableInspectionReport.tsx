@@ -95,6 +95,7 @@ type CanvasTextBox = {
 type RelatedDocument = EditableInspectionDocument
 
 type QuoteBlockVisibility = {
+  contact: boolean
   scopeOfWork: boolean
   repairItems: boolean
   estimateSummary: boolean
@@ -156,6 +157,7 @@ const defaultEquipmentRentalSettings: EquipmentRentalSettings = {
 }
 
 const defaultBlockVisibility: QuoteBlockVisibility = {
+  contact: true,
   scopeOfWork: true,
   repairItems: true,
   estimateSummary: true,
@@ -225,6 +227,9 @@ const defaultReport: ReportData = {
   modelHoist4: 'Hoist 4: ---',
   scopeOfWorkHeader: 'Scope of Work',
   scopeOfWork: '',
+  contactName: '',
+  contactEmail: '',
+  contactPhone: '',
   sectionHeader: 'Repair Items',
   estimateTopNote: 'Top note: Add estimate context here.',
   estimateBottomNote: 'Bottom note: Add estimate terms here.',
@@ -941,6 +946,9 @@ const normalizeReport = (report: ReportData) => {
   if (nextReport.title === 'INSPECTION REPORT') nextReport.title = defaultReport.title
   if (!nextReport.scopeOfWorkHeader?.trim()) nextReport.scopeOfWorkHeader = defaultReport.scopeOfWorkHeader
   if (nextReport.scopeOfWork === legacyScopeOfWorkSample) nextReport.scopeOfWork = ''
+  if (nextReport.contactName === 'Name: ---') nextReport.contactName = ''
+  if (nextReport.contactEmail === 'Email: ---') nextReport.contactEmail = ''
+  if (nextReport.contactPhone === 'Phone: ---') nextReport.contactPhone = ''
   if (nextReport.notesHeader === 'Notes') nextReport.notesHeader = defaultReport.notesHeader
   if (!nextReport.notes?.trim()) nextReport.notes = defaultAdditionalNotes
 
@@ -3479,6 +3487,23 @@ export default function EditableInspectionReport() {
                     <div className="space-y-3">
                       <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
                         <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
+                          <span>Contact</span>
+                          <input
+                            type="checkbox"
+                            checked={blockVisibility.contact}
+                            onChange={(event) => setQuoteBlockVisibility('contact', event.currentTarget.checked)}
+                            className="h-4 w-4 accent-[#273f7a]"
+                          />
+                        </label>
+                        <div className="mt-2 space-y-1 border-l border-[#d8deea] pl-3 text-[12px] font-bold text-[#4d5360]">
+                          <div className="rounded-sm px-2 py-1">Name</div>
+                          <div className="rounded-sm px-2 py-1">Email</div>
+                          <div className="rounded-sm px-2 py-1">Phone Number</div>
+                        </div>
+                      </section>
+
+                      <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
+                        <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
                           <span>Scope of Work</span>
                           <input
                             type="checkbox"
@@ -3640,6 +3665,37 @@ export default function EditableInspectionReport() {
                   : [],
               )}
             </div>
+
+            {blockVisibility.contact ? (
+            <section
+              data-report-block-id="contact"
+              style={getRuntimePageBreakStyle('contact')}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('contact')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+            >
+              {unlocked ? (
+                <button
+                  type="button"
+                  onClick={() => deleteQuoteBlock('contact')}
+                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
+                  aria-label="Delete contact block"
+                >
+                  🗑
+                </button>
+              ) : null}
+              <div className="grid grid-cols-[130px_1fr_1fr_1fr] border-b border-[#d4d4d4] bg-[#f7f7f7] text-[11px] font-black uppercase text-[#555b66]">
+                <div className="px-2 py-1">Contact</div>
+                <div className="border-l border-[#d4d4d4] px-2 py-1">Name</div>
+                <div className="border-l border-[#d4d4d4] px-2 py-1">Email</div>
+                <div className="border-l border-[#d4d4d4] px-2 py-1">Phone Number</div>
+              </div>
+              <div className="grid grid-cols-[130px_1fr_1fr_1fr] text-[12px] font-semibold leading-tight">
+                <div className="px-2 py-1.5" />
+                <EditableText id="contactName" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-1.5" />
+                <EditableText id="contactEmail" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-1.5" />
+                <EditableText id="contactPhone" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-1.5" />
+              </div>
+            </section>
+            ) : null}
 
             {blockVisibility.scopeOfWork ? (
             <section
