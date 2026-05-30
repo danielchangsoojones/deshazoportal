@@ -36,7 +36,9 @@ type ReportData = Record<string, string>
 type RepairLineItem = {
   id: string
   description: string
+  internalCost?: string
   quantity: string
+  customerPrice?: string
   rate: string
   margin: string
   source?: 'manual' | 'menu'
@@ -370,7 +372,9 @@ const getDefaultAddableMenuSection = (sections: MenuItemSection[]) =>
 const createManualLineItem = (id: string, description: string): RepairLineItem => ({
   id,
   description,
+  internalCost: '0.00',
   quantity: '1',
+  customerPrice: '0.00',
   rate: '0.00',
   margin: '0',
   source: 'manual',
@@ -379,14 +383,18 @@ const createManualLineItem = (id: string, description: string): RepairLineItem =
 const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => ({
   id,
   description: item.description,
+  internalCost: item.rate,
   quantity: '1',
+  customerPrice: item.rate,
   rate: item.rate,
   margin: '0',
   source: 'menu',
 })
 
 const shouldShowAddMenuItemTag = (lineItem: RepairLineItem) =>
-  lineItem.source === 'manual' && Boolean(lineItem.description.trim()) && parseMoney(lineItem.rate) > 0
+  lineItem.source === 'manual'
+  && Boolean(lineItem.description.trim())
+  && parseMoney(lineItem.customerPrice ?? lineItem.rate) > 0
 
 const shouldClearPlaceholderDescription = (description: string) =>
   ['Add repair detail here.', 'Add line item here.'].includes(description.trim())
@@ -841,37 +849,39 @@ const formatMoney = (value: number) =>
     currency: 'USD',
   }).format(value)
 
-const getBaseLineAmount = (lineItem: RepairLineItem) =>
-  parseMoney(lineItem.quantity) * parseMoney(lineItem.rate)
+const getLegacyCustomerUnitPrice = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.rate) * (1 + parseMoney(lineItem.margin) / 100)
 
-const getMarginAmount = (lineItem: RepairLineItem) =>
-  getBaseLineAmount(lineItem) * (parseMoney(lineItem.margin) / 100)
+const getInternalUnitCost = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.internalCost ?? lineItem.rate)
 
-const getLineAmount = (lineItem: RepairLineItem) =>
-  getBaseLineAmount(lineItem) + getMarginAmount(lineItem)
+const getCustomerUnitPrice = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.customerPrice ?? String(getLegacyCustomerUnitPrice(lineItem)))
 
-const getCostBaseLineAmount = (_sectionId: string, lineItem: RepairLineItem) => {
-  const rate = parseMoney(lineItem.rate)
-  return parseMoney(lineItem.quantity) * rate
-}
+const getInternalLineAmount = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.quantity) * getInternalUnitCost(lineItem)
 
-const getCostMarginAmount = (
+const getCustomerLineAmount = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.quantity) * getCustomerUnitPrice(lineItem)
+
+const getCostCustomerUnitPrice = (
   sectionId: string,
   lineItem: RepairLineItem,
   settings: EquipmentRentalSettings,
 ) => {
+  const customerPrice = getCustomerUnitPrice(lineItem)
   const lineMargin = parseMoney(lineItem.margin)
   const sectionMargin =
     sectionId === equipmentRentalSectionId && settings.applyMarginToAll ? parseMoney(settings.margin) : 0
-  return getCostBaseLineAmount(sectionId, lineItem) * ((lineMargin + sectionMargin) / 100)
+  return customerPrice * (1 + (lineMargin + sectionMargin) / 100)
 }
 
-const getCostLineAmount = (
+const getCostCustomerLineAmount = (
   sectionId: string,
   lineItem: RepairLineItem,
   settings: EquipmentRentalSettings,
 ) =>
-  getCostBaseLineAmount(sectionId, lineItem) + getCostMarginAmount(sectionId, lineItem, settings)
+  parseMoney(lineItem.quantity) * getCostCustomerUnitPrice(sectionId, lineItem, settings)
 
 const normalizeRepairSections = (sections: RepairSection[]) =>
   sections.map((section) => ({
@@ -882,9 +892,11 @@ const normalizeRepairSections = (sections: RepairSection[]) =>
       return {
         id: savedLineItem.id,
         description: savedLineItem.description ?? savedLineItem.text ?? 'Add repair detail here.',
+        internalCost: savedLineItem.internalCost ?? savedLineItem.rate ?? '0.00',
         quantity: savedLineItem.quantity ?? '1',
+        customerPrice: savedLineItem.customerPrice ?? getLegacyCustomerUnitPrice(savedLineItem).toFixed(2),
         rate: savedLineItem.rate ?? '0.00',
-        margin: savedLineItem.margin ?? '0',
+        margin: savedLineItem.customerPrice ? savedLineItem.margin ?? '0' : '0',
         source: savedLineItem.source,
       }
     }),
@@ -899,9 +911,11 @@ const normalizeCostSections = (sections: CostSection[]) =>
       return {
         id: savedLineItem.id,
         description: savedLineItem.description ?? savedLineItem.text ?? 'Add line item here.',
+        internalCost: savedLineItem.internalCost ?? savedLineItem.rate ?? '0.00',
         quantity: savedLineItem.quantity ?? '1',
+        customerPrice: savedLineItem.customerPrice ?? getLegacyCustomerUnitPrice(savedLineItem).toFixed(2),
         rate: savedLineItem.rate ?? '0.00',
-        margin: savedLineItem.margin ?? '0',
+        margin: savedLineItem.customerPrice ? savedLineItem.margin ?? '0' : '0',
         source: savedLineItem.source,
       }
     }),
@@ -1323,7 +1337,7 @@ export default function EditableInspectionReport() {
     () =>
       repairSections.reduce(
         (total, section) =>
-          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getLineAmount(lineItem), 0),
+          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
         0,
       ),
     [repairSections],
@@ -1333,7 +1347,8 @@ export default function EditableInspectionReport() {
       costSections.reduce(
         (total, section) =>
           total + section.lineItems.reduce(
-            (sectionTotal, lineItem) => sectionTotal + getCostLineAmount(section.id, lineItem, equipmentRentalSettings),
+            (sectionTotal, lineItem) =>
+              sectionTotal + getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings),
             0,
           ),
         0,
@@ -1498,7 +1513,7 @@ export default function EditableInspectionReport() {
     setNewMenuSection(selectedAddableMenuSection)
     setNewMenuLabel(itemName)
     setNewMenuDescription(itemName)
-    setNewMenuRate(parseMoney(lineItem.rate).toFixed(2))
+    setNewMenuRate(getCustomerUnitPrice(lineItem).toFixed(2))
     setPendingAddMenuLineItem(pendingLineItem)
     setActiveLineMenu('')
     setMenuSettingsOpen(true)
@@ -2505,7 +2520,7 @@ export default function EditableInspectionReport() {
   const updateRepairLineItem = (
     sectionId: string,
     lineItemId: string,
-    field: 'description' | 'quantity' | 'rate' | 'margin',
+    field: 'description' | 'internalCost' | 'quantity' | 'customerPrice' | 'rate' | 'margin',
     value: string,
   ) => {
     setRepairSections((currentSections) =>
@@ -2514,9 +2529,19 @@ export default function EditableInspectionReport() {
           section.id === sectionId
             ? {
                 ...section,
-                lineItems: section.lineItems.map((lineItem) =>
-                  lineItem.id === lineItemId ? { ...lineItem, [field]: value } : lineItem,
-                ),
+                lineItems: section.lineItems.map((lineItem) => {
+                  if (lineItem.id !== lineItemId) return lineItem
+                  if (field === 'internalCost') return { ...lineItem, internalCost: value, rate: value }
+                  if (field === 'customerPrice') return { ...lineItem, customerPrice: value }
+                  if (field === 'margin') {
+                    return {
+                      ...lineItem,
+                      margin: value,
+                      customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                    }
+                  }
+                  return { ...lineItem, [field]: value }
+                }),
               }
             : section,
         ),
@@ -2612,7 +2637,7 @@ export default function EditableInspectionReport() {
   const updateCostLineItem = (
     sectionId: string,
     lineItemId: string,
-    field: 'description' | 'quantity' | 'rate' | 'margin',
+    field: 'description' | 'internalCost' | 'quantity' | 'customerPrice' | 'rate' | 'margin',
     value: string,
   ) => {
     setCostSections((currentSections) =>
@@ -2621,9 +2646,19 @@ export default function EditableInspectionReport() {
           section.id === sectionId
             ? {
                 ...section,
-                lineItems: section.lineItems.map((lineItem) =>
-                  lineItem.id === lineItemId ? { ...lineItem, [field]: value } : lineItem,
-                ),
+                lineItems: section.lineItems.map((lineItem) => {
+                  if (lineItem.id !== lineItemId) return lineItem
+                  if (field === 'internalCost') return { ...lineItem, internalCost: value, rate: value }
+                  if (field === 'customerPrice') return { ...lineItem, customerPrice: value }
+                  if (field === 'margin') {
+                    return {
+                      ...lineItem,
+                      margin: value,
+                      customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                    }
+                  }
+                  return { ...lineItem, [field]: value }
+                }),
               }
             : section,
         ),
@@ -3666,18 +3701,20 @@ export default function EditableInspectionReport() {
                       </div>
 
                       <div className="bg-white">
-                      <div className="grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
+                      <div className="grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[9px] font-black uppercase text-[#555b66]">
                         <div className="px-2 py-1">Description</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Cost</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Customer Price</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
                       </div>
                       <div>
                         {section.lineItems.map((lineItem, lineIndex) => (
                           <div
                             key={lineItem.id}
-                            className="relative grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                            className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                           >
                             {activeDoneLineItem === `repair-${section.id}-${lineItem.id}` ? (
                               <button
@@ -3734,6 +3771,14 @@ export default function EditableInspectionReport() {
                               />
                             </div>
                             <EditableValue
+                              label={`${section.title} internal cost ${lineIndex + 1}`}
+                              value={formatMoney(getInternalUnitCost(lineItem))}
+                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
+                              clearOnFocus={getInternalUnitCost(lineItem) === 0}
+                              onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
+                              className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                            />
+                            <EditableValue
                               label={`${section.title} quantity ${lineIndex + 1}`}
                               value={lineItem.quantity}
                               onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'quantity', value)}
@@ -3741,15 +3786,18 @@ export default function EditableInspectionReport() {
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
                             <EditableValue
-                              label={`${section.title} cost ${lineIndex + 1}`}
-                              value={formatMoney(parseMoney(lineItem.rate))}
-                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'rate', parseMoney(value).toFixed(2))}
-                              clearOnFocus={parseMoney(lineItem.rate) === 0}
+                              label={`${section.title} customer price ${lineIndex + 1}`}
+                              value={formatMoney(getCustomerUnitPrice(lineItem))}
+                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
+                              clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
                               onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
                             <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
-                              {formatMoney(getLineAmount(lineItem))}
+                              {formatMoney(getInternalLineAmount(lineItem))}
+                            </div>
+                            <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
+                              {formatMoney(getCustomerLineAmount(lineItem))}
                             </div>
                             <div className="report-inline-action relative border-l border-[#e5e5e5]">
                               <button
@@ -3804,12 +3852,14 @@ export default function EditableInspectionReport() {
                                     className="mt-2 w-full accent-[#273f7a]"
                                   />
                                   <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
-                                    <span>Base</span>
-                                    <span className="text-right">{formatMoney(getBaseLineAmount(lineItem))}</span>
+                                    <span>Internal total</span>
+                                    <span className="text-right">{formatMoney(getInternalLineAmount(lineItem))}</span>
                                     <span>Increase</span>
-                                    <span className="text-right text-[#7d1515]">{formatMoney(getMarginAmount(lineItem))}</span>
-                                    <span className="font-black text-[#111]">New price</span>
-                                    <span className="text-right font-black text-[#111]">{formatMoney(getLineAmount(lineItem))}</span>
+                                    <span className="text-right text-[#7d1515]">
+                                      {formatMoney(getCustomerLineAmount(lineItem) - getInternalLineAmount(lineItem))}
+                                    </span>
+                                    <span className="font-black text-[#111]">Customer total</span>
+                                    <span className="text-right font-black text-[#111]">{formatMoney(getCustomerLineAmount(lineItem))}</span>
                                   </div>
                                 </div>
                               ) : null}
@@ -3817,7 +3867,7 @@ export default function EditableInspectionReport() {
                           </div>
                         ))}
                       </div>
-                      <div className="grid grid-cols-[1fr_150px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
+                      <div className="grid grid-cols-[1fr_150px_108px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
                         <div className="px-2 py-1.5">
                           <button
                             type="button"
@@ -3831,7 +3881,10 @@ export default function EditableInspectionReport() {
                           Section Subtotal
                         </div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
-                          {formatMoney(section.lineItems.reduce((total, lineItem) => total + getLineAmount(lineItem), 0))}
+                          {formatMoney(section.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0))}
+                        </div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
+                          {formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}
                         </div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
                       </div>
@@ -3962,18 +4015,20 @@ export default function EditableInspectionReport() {
                       ) : null}
                     </div>
 
-                    <div className="grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[10px] font-black uppercase text-[#555b66]">
+                    <div className="grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
                       <div className="px-2 py-1">Description</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
-                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Cost</div>
-                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Customer Price</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
                     </div>
 
                     {section.lineItems.map((lineItem, lineIndex) => (
                       <div
                         key={lineItem.id}
-                        className="relative grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                        className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                       >
                         {activeDoneLineItem === `cost-${section.id}-${lineItem.id}` ? (
                           <button
@@ -4029,6 +4084,14 @@ export default function EditableInspectionReport() {
                           />
                         </div>
                         <EditableValue
+                          label={`${section.title} internal cost ${lineIndex + 1}`}
+                          value={formatMoney(getInternalUnitCost(lineItem))}
+                          onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
+                          clearOnFocus={getInternalUnitCost(lineItem) === 0}
+                          onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
+                          className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                        />
+                        <EditableValue
                           label={`${section.title} quantity ${lineIndex + 1}`}
                           value={lineItem.quantity}
                           onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'quantity', value)}
@@ -4038,10 +4101,10 @@ export default function EditableInspectionReport() {
                         {section.id === equipmentRentalSectionId && equipmentRentalSettings.applyMarginToAll ? (
                           <div className="flex min-h-[25px] items-center justify-end gap-1 border-l border-[#e5e5e5] px-2 py-1.5 text-right">
                             <EditableValue
-                              label={`${section.title} cost ${lineIndex + 1}`}
-                              value={formatMoney(parseMoney(lineItem.rate))}
-                              onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', parseMoney(value).toFixed(2))}
-                              clearOnFocus={parseMoney(lineItem.rate) === 0}
+                              label={`${section.title} customer price ${lineIndex + 1}`}
+                              value={formatMoney(getCustomerUnitPrice(lineItem))}
+                              onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
+                              clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
                               onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                               className="min-w-0"
                             />
@@ -4051,16 +4114,19 @@ export default function EditableInspectionReport() {
                           </div>
                         ) : (
                           <EditableValue
-                            label={`${section.title} cost ${lineIndex + 1}`}
-                            value={formatMoney(parseMoney(lineItem.rate))}
-                            onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', parseMoney(value).toFixed(2))}
-                            clearOnFocus={parseMoney(lineItem.rate) === 0}
+                            label={`${section.title} customer price ${lineIndex + 1}`}
+                            value={formatMoney(getCustomerUnitPrice(lineItem))}
+                            onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
+                            clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
                             onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                             className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                           />
                         )}
                         <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
-                          {formatMoney(getCostLineAmount(section.id, lineItem, equipmentRentalSettings))}
+                          {formatMoney(getInternalLineAmount(lineItem))}
+                        </div>
+                        <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
+                          {formatMoney(getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings))}
                         </div>
                         <div className="report-inline-action relative border-l border-[#e5e5e5]">
                           <button
@@ -4115,12 +4181,16 @@ export default function EditableInspectionReport() {
                                 className="mt-2 w-full accent-[#273f7a]"
                               />
                               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
-                                <span>Base</span>
-                                <span className="text-right">{formatMoney(getCostBaseLineAmount(section.id, lineItem))}</span>
+                                <span>Internal total</span>
+                                <span className="text-right">{formatMoney(getInternalLineAmount(lineItem))}</span>
                                 <span>Increase</span>
-                                <span className="text-right text-[#7d1515]">{formatMoney(getCostMarginAmount(section.id, lineItem, equipmentRentalSettings))}</span>
-                                <span className="font-black text-[#111]">New price</span>
-                                <span className="text-right font-black text-[#111]">{formatMoney(getCostLineAmount(section.id, lineItem, equipmentRentalSettings))}</span>
+                                <span className="text-right text-[#7d1515]">
+                                  {formatMoney(getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings) - getInternalLineAmount(lineItem))}
+                                </span>
+                                <span className="font-black text-[#111]">Customer total</span>
+                                <span className="text-right font-black text-[#111]">
+                                  {formatMoney(getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings))}
+                                </span>
                               </div>
                             </div>
                           ) : null}
@@ -4128,7 +4198,7 @@ export default function EditableInspectionReport() {
                       </div>
                     ))}
 
-                    <div className="grid grid-cols-[1fr_150px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
+                    <div className="grid grid-cols-[1fr_150px_108px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
                       <div className="px-2 py-1.5">
                         <button
                           type="button"
@@ -4143,7 +4213,14 @@ export default function EditableInspectionReport() {
                       </div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
                         {formatMoney(section.lineItems.reduce(
-                          (total, lineItem) => total + getCostLineAmount(section.id, lineItem, equipmentRentalSettings),
+                          (total, lineItem) => total + getInternalLineAmount(lineItem),
+                          0,
+                        ))}
+                      </div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
+                        {formatMoney(section.lineItems.reduce(
+                          (total, lineItem) =>
+                            total + getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings),
                           0,
                         ))}
                       </div>
