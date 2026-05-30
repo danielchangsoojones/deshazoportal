@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import * as pdfjs from 'pdfjs-dist'
 import { isConfigured } from '../lib/supabase'
 import {
   deleteInspectionMenuItem,
@@ -31,8 +30,6 @@ import {
   type EditableInspectionReportPayload,
 } from '../lib/editableInspectionReports'
 import { getUserDisplayNames } from '../lib/userTags'
-
-pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 
 type ReportData = Record<string, string>
 
@@ -124,7 +121,6 @@ const equipmentRentalDefaultMargin = 15
 const printedPageWidthIn = 8.5
 const printedPageHeightIn = 11
 const printedPageMarginIn = 0.45
-const originalInspectionPageRenderWidthPx = 730
 const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
 const menuItemsUploadRefreshDurationMs = 60 * 1000
@@ -1133,128 +1129,6 @@ function PencilIcon() {
     <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2">
       <path strokeLinecap="round" strokeLinejoin="round" d="m16.86 3.49 3.65 3.65M4.75 19.25l4.34-.86L19.2 8.28a2.58 2.58 0 0 0-3.65-3.65L5.44 14.74l-.69 4.51Z" />
     </svg>
-  )
-}
-
-function OriginalInspectionPage({
-  document,
-  pageNumber,
-}: {
-  document: pdfjs.PDFDocumentProxy
-  pageNumber: number
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function renderOriginalInspectionPage() {
-      try {
-        setStatus('loading')
-        const page = await document.getPage(pageNumber)
-        const baseViewport = page.getViewport({ scale: 1 })
-        const viewport = page.getViewport({ scale: originalInspectionPageRenderWidthPx / baseViewport.width })
-        const canvas = canvasRef.current
-        const context = canvas?.getContext('2d')
-
-        if (!canvas || !context || cancelled) return
-
-        canvas.width = Math.floor(viewport.width)
-        canvas.height = Math.floor(viewport.height)
-        canvas.style.width = '100%'
-        canvas.style.height = 'auto'
-
-        await page.render({ canvas, canvasContext: context, viewport }).promise
-        if (!cancelled) setStatus('ready')
-      } catch {
-        if (!cancelled) setStatus('error')
-      }
-    }
-
-    renderOriginalInspectionPage()
-
-    return () => {
-      cancelled = true
-    }
-  }, [document, pageNumber])
-
-  return (
-    <section className="original-inspection-attachment-page">
-      <div className="relative min-h-[8.75in] border border-[#d4d4d4] bg-white">
-        <canvas ref={canvasRef} className={status === 'error' ? 'hidden' : 'block w-full'} />
-        {status === 'loading' ? (
-          <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold text-[#747b8a]">
-            Loading original inspection page {pageNumber}...
-          </div>
-        ) : null}
-        {status === 'error' ? (
-          <div className="flex min-h-[8.75in] items-center justify-center px-4 text-center text-[13px] font-bold text-[#a82727]">
-            Original inspection page {pageNumber} could not be displayed. Use Related Documents to open it.
-          </div>
-        ) : null}
-      </div>
-    </section>
-  )
-}
-
-function OriginalInspectionAttachment({ url }: { url: string }) {
-  const [document, setDocument] = useState<pdfjs.PDFDocumentProxy | null>(null)
-  const [pageCount, setPageCount] = useState(0)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
-
-  useEffect(() => {
-    let cancelled = false
-    const loadingTask = pdfjs.getDocument(url)
-
-    async function loadOriginalInspection() {
-      try {
-        setStatus('loading')
-        const loadedDocument = await loadingTask.promise
-        if (cancelled) return
-        setDocument(loadedDocument)
-        setPageCount(loadedDocument.numPages)
-        setStatus('ready')
-      } catch {
-        if (!cancelled) setStatus('error')
-      }
-    }
-
-    loadOriginalInspection()
-
-    return () => {
-      cancelled = true
-      setDocument(null)
-      loadingTask.destroy()
-    }
-  }, [url])
-
-  if (status === 'loading') {
-    return (
-      <section className="original-inspection-attachment-page">
-        <div className="flex min-h-[8.75in] items-center justify-center border border-[#d4d4d4] bg-white text-[13px] font-bold text-[#747b8a]">
-          Loading original inspection...
-        </div>
-      </section>
-    )
-  }
-
-  if (status === 'error' || !document || pageCount === 0) {
-    return (
-      <section className="original-inspection-attachment-page">
-        <div className="flex min-h-[8.75in] items-center justify-center border border-[#d4d4d4] bg-white px-4 text-center text-[13px] font-bold text-[#a82727]">
-          Original inspection could not be displayed. Use Related Documents to open it.
-        </div>
-      </section>
-    )
-  }
-
-  return (
-    <>
-      {Array.from({ length: pageCount }, (_, index) => (
-        <OriginalInspectionPage key={`${url}-${index + 1}`} document={document} pageNumber={index + 1} />
-      ))}
-    </>
   )
 }
 
@@ -4393,7 +4267,6 @@ export default function EditableInspectionReport() {
           ))}
         </article>
             </div>
-            {originalInspectionDocument ? <OriginalInspectionAttachment url={originalInspectionDocument.url} /> : null}
           </div>
       </main>
     </div>
