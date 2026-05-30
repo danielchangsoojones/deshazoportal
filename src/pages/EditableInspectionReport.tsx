@@ -864,6 +864,15 @@ const getInternalLineAmount = (lineItem: RepairLineItem) =>
 const getCustomerLineAmount = (lineItem: RepairLineItem) =>
   parseMoney(lineItem.quantity) * getCustomerUnitPrice(lineItem)
 
+const getLineProfit = (internalLineAmount: number, customerLineAmount: number) =>
+  customerLineAmount - internalLineAmount
+
+const getUnitProfit = (internalUnitCost: number, customerUnitPrice: number) =>
+  customerUnitPrice - internalUnitCost
+
+const getLineMarginPercent = (internalLineAmount: number, customerLineAmount: number) =>
+  customerLineAmount > 0 ? (getLineProfit(internalLineAmount, customerLineAmount) / customerLineAmount) * 100 : 0
+
 const getCostCustomerUnitPrice = (
   sectionId: string,
   lineItem: RepairLineItem,
@@ -3701,7 +3710,7 @@ export default function EditableInspectionReport() {
                       </div>
 
                       <div className="bg-white">
-                      <div className="grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[9px] font-black uppercase text-[#555b66]">
+                      <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[9px] font-black uppercase text-[#555b66]">
                         <div className="px-2 py-1">Description</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
@@ -3709,6 +3718,11 @@ export default function EditableInspectionReport() {
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
+                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                          <div className="px-3 py-2">Margin</div>
+                          <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
+                          <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
+                        </div>
                       </div>
                       <div>
                         {section.lineItems.map((lineItem, lineIndex) => (
@@ -3798,6 +3812,17 @@ export default function EditableInspectionReport() {
                             </div>
                             <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                               {formatMoney(getCustomerLineAmount(lineItem))}
+                            </div>
+                            <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-hidden border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                              <div className="flex items-center px-3 py-1.5">
+                                {getLineMarginPercent(getInternalLineAmount(lineItem), getCustomerLineAmount(lineItem)).toFixed(1)}%
+                              </div>
+                              <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
+                                {formatMoney(getUnitProfit(getInternalUnitCost(lineItem), getCustomerUnitPrice(lineItem)))}
+                              </div>
+                              <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
+                                {formatMoney(getLineProfit(getInternalLineAmount(lineItem), getCustomerLineAmount(lineItem)))}
+                              </div>
                             </div>
                             <div className="report-inline-action relative border-l border-[#e5e5e5]">
                               <button
@@ -4015,7 +4040,7 @@ export default function EditableInspectionReport() {
                       ) : null}
                     </div>
 
-                    <div className="grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
+                    <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
                       <div className="px-2 py-1">Description</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
@@ -4023,6 +4048,11 @@ export default function EditableInspectionReport() {
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
+                      <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                        <div className="px-3 py-2">Margin</div>
+                        <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
+                        <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
+                      </div>
                     </div>
 
                     {section.lineItems.map((lineItem, lineIndex) => (
@@ -4127,6 +4157,17 @@ export default function EditableInspectionReport() {
                         </div>
                         <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                           {formatMoney(getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings))}
+                        </div>
+                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-hidden border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                          <div className="flex items-center px-3 py-1.5">
+                            {getLineMarginPercent(getInternalLineAmount(lineItem), getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings)).toFixed(1)}%
+                          </div>
+                          <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
+                            {formatMoney(getUnitProfit(getInternalUnitCost(lineItem), getCostCustomerUnitPrice(section.id, lineItem, equipmentRentalSettings)))}
+                          </div>
+                          <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
+                            {formatMoney(getLineProfit(getInternalLineAmount(lineItem), getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings)))}
+                          </div>
                         </div>
                         <div className="report-inline-action relative border-l border-[#e5e5e5]">
                           <button
