@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
@@ -32,6 +32,17 @@ type JobsQuotingRunGroup = {
   updatedAt: string
   runs: JobsQuotingRun[]
   runIds: string[]
+}
+
+type JobsQuotingJobGroup = {
+  id: string
+  jobNumber: string
+  dNumber: string
+  items: JobsQuotingItem[]
+  repairCount: number
+  safetyCount: number
+  priorityCount: number
+  modifiedAt: string
 }
 
 function formatDate(value: string) {
@@ -182,6 +193,24 @@ function getItemSearchText(item: JobsQuotingItem) {
     .toLowerCase()
 }
 
+function getItemJobNumber(item: JobsQuotingItem) {
+  return getExtractionValue(item.extractionData, 'job_number').trim()
+}
+
+function getItemDNumber(item: JobsQuotingItem) {
+  return getExtractionValue(item.extractionData, 'd_number').trim()
+}
+
+function getItemJobGroupKey(item: JobsQuotingItem) {
+  const jobNumber = getItemJobNumber(item)
+  if (jobNumber) return `job:${jobNumber.toLowerCase()}`
+
+  const dNumber = getItemDNumber(item)
+  if (dNumber) return `d-number:${dNumber.toLowerCase()}`
+
+  return `document:${item.documentName.trim().toLowerCase() || item.id}`
+}
+
 function sortItemsByNewest(items: JobsQuotingItem[]) {
   return [...items].sort((firstItem, secondItem) => new Date(secondItem.updatedAt).getTime() - new Date(firstItem.updatedAt).getTime())
 }
@@ -205,6 +234,49 @@ function sortItemsByPriority(items: JobsQuotingItem[]) {
     if (secondItem.safetyCount !== firstItem.safetyCount) return secondItem.safetyCount - firstItem.safetyCount
     return new Date(secondItem.updatedAt).getTime() - new Date(firstItem.updatedAt).getTime()
   })
+}
+
+function buildJobGroups(items: JobsQuotingItem[], savedReportModifiedTimesByItemId: Map<string, string>) {
+  const groupsByKey = new Map<string, JobsQuotingJobGroup>()
+
+  items.forEach((item) => {
+    const groupKey = getItemJobGroupKey(item)
+    const itemModifiedAt = getItemModifiedAt(item, savedReportModifiedTimesByItemId)
+    const existingGroup = groupsByKey.get(groupKey)
+
+    if (existingGroup) {
+      existingGroup.items.push(item)
+      existingGroup.repairCount += item.repairCount
+      existingGroup.safetyCount += item.safetyCount
+      existingGroup.priorityCount += item.priorityCount
+      if (new Date(itemModifiedAt).getTime() > new Date(existingGroup.modifiedAt).getTime()) {
+        existingGroup.modifiedAt = itemModifiedAt
+      }
+      if (!existingGroup.jobNumber) {
+        existingGroup.jobNumber = getItemJobNumber(item)
+      }
+      if (!existingGroup.dNumber) {
+        existingGroup.dNumber = getItemDNumber(item)
+      }
+      return
+    }
+
+    groupsByKey.set(groupKey, {
+      id: groupKey,
+      jobNumber: getItemJobNumber(item),
+      dNumber: getItemDNumber(item),
+      items: [item],
+      repairCount: item.repairCount,
+      safetyCount: item.safetyCount,
+      priorityCount: item.priorityCount,
+      modifiedAt: itemModifiedAt,
+    })
+  })
+
+  return Array.from(groupsByKey.values()).map((group) => ({
+    ...group,
+    items: sortItemsByModifiedNewest(group.items, savedReportModifiedTimesByItemId),
+  }))
 }
 
 export default function JobsQuotingList() {
@@ -251,12 +323,31 @@ export default function JobsQuotingList() {
     if (!normalizedQuery) return visibleItems
     return visibleItems.filter((item) => getItemSearchText(item).includes(normalizedQuery))
   }, [searchQuery, visibleItems])
-  const pageCount = Math.max(1, Math.ceil(filteredItems.length / reportsPerPage))
+  const jobGroups = useMemo(
+    () => buildJobGroups(filteredItems, savedReportModifiedTimesByItemId),
+    [filteredItems, savedReportModifiedTimesByItemId],
+  )
+  const sortedJobGroups = useMemo(() => {
+    if (selectedRunId === allReportsRunId) {
+      return [...jobGroups].sort(
+        (firstGroup, secondGroup) =>
+          new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime(),
+      )
+    }
+
+    return [...jobGroups].sort((firstGroup, secondGroup) => {
+      if (secondGroup.priorityCount !== firstGroup.priorityCount) return secondGroup.priorityCount - firstGroup.priorityCount
+      if (secondGroup.repairCount !== firstGroup.repairCount) return secondGroup.repairCount - firstGroup.repairCount
+      if (secondGroup.safetyCount !== firstGroup.safetyCount) return secondGroup.safetyCount - firstGroup.safetyCount
+      return new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime()
+    })
+  }, [jobGroups, selectedRunId])
+  const pageCount = Math.max(1, Math.ceil(sortedJobGroups.length / reportsPerPage))
   const safeCurrentPage = Math.min(currentPage, pageCount)
   const pageStartIndex = (safeCurrentPage - 1) * reportsPerPage
-  const paginatedItems = filteredItems.slice(pageStartIndex, pageStartIndex + reportsPerPage)
-  const pageFirstItem = filteredItems.length === 0 ? 0 : pageStartIndex + 1
-  const pageLastItem = Math.min(pageStartIndex + paginatedItems.length, filteredItems.length)
+  const paginatedJobGroups = sortedJobGroups.slice(pageStartIndex, pageStartIndex + reportsPerPage)
+  const pageFirstJob = sortedJobGroups.length === 0 ? 0 : pageStartIndex + 1
+  const pageLastJob = Math.min(pageStartIndex + paginatedJobGroups.length, sortedJobGroups.length)
 
   useEffect(() => {
     setCurrentPage(1)
@@ -940,7 +1031,7 @@ export default function JobsQuotingList() {
                 <table className="w-full table-fixed border-collapse text-left">
                   <thead>
                     <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
-                      <th className="w-[32%] px-3 py-3">Job PDF</th>
+                      <th className="w-[32%] px-3 py-3">Job / Inspection PDF</th>
                       <th className="w-[12%] px-2 py-3 text-center">Date Modified</th>
                       <th className="w-[12%] px-2 py-3 text-center">Uploaded By</th>
                       <th className="w-[7%] px-1 py-3 text-center">Repairs</th>
@@ -962,67 +1053,98 @@ export default function JobsQuotingList() {
                           </div>
                         </td>
                       </tr>
-                    ) : paginatedItems.map((item) => (
-                      <tr
-                        key={item.id}
-                        className="border-b border-[#e4e8f1] transition hover:bg-[#fbfcff] last:border-b-0"
-                      >
-                        <td className="px-3 py-4 align-top">
-                          <p className="whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
-                            {item.documentName}
-                          </p>
-                          {item.splitIdentifier ? (
-                            <p className="mt-1 whitespace-normal break-words text-xs font-semibold leading-snug text-[#747b8a]">
-                              {item.splitIdentifier}
-                            </p>
-                          ) : null}
-                        </td>
-                        <td className="px-2 py-4 text-center align-top text-xs font-bold leading-snug text-[#4d5360]">
-                          {formatDate(getItemModifiedAt(item, savedReportModifiedTimesByItemId))}
-                        </td>
-                        <td className="px-2 py-4 text-center align-top text-sm font-bold text-[#4d5360]">
-                          <span className="block truncate" title={getRunUploaderName(runsById.get(item.runId))}>
-                            {getRunUploaderName(runsById.get(item.runId)) || '-'}
-                          </span>
-                        </td>
-                        <td className="px-1 py-4 text-center align-top text-lg font-black text-[#273f7a]">
-                          {item.repairCount}
-                        </td>
-                        <td className="px-1 py-4 text-center align-top text-lg font-black text-[#a2472f]">
-                          {item.safetyCount}
-                        </td>
-                        <td className="px-1 py-4 text-center align-top text-lg font-black text-[#111]">
-                          {item.priorityCount}
-                        </td>
-                        <td className="px-3 py-4 text-center align-top">
-                          {item.pdfStoragePath || item.pdfUrl ? (
-                            <div className="flex flex-nowrap justify-center gap-2">
-                              <button
-                                type="button"
-                                disabled={openingItemId === item.id}
-                                onClick={() => openItemPdf(item)}
-                                className="inline-flex whitespace-nowrap rounded-md border border-[#bdc4d3] bg-white px-2 py-2 text-[11px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {openingItemId === item.id ? 'Opening...' : 'Open PDF'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
-                                className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
-                              >
-                                Edit Quote
-                              </button>
+                    ) : paginatedJobGroups.map((jobGroup) => (
+                      <Fragment key={jobGroup.id}>
+                        <tr className="border-y border-[#d7deeb] bg-[#f7f9fd]">
+                          <td className="px-3 py-3 align-middle" colSpan={3}>
+                            <div className="min-w-0">
+                              <p className="text-[15px] font-black leading-tight text-[#1f2430]">
+                                {jobGroup.jobNumber ? `Job ${jobGroup.jobNumber}` : 'Job number not found'}
+                              </p>
+                              <p className="mt-1 text-[12px] font-bold text-[#747b8a]">
+                                {jobGroup.items.length} inspection report{jobGroup.items.length === 1 ? '' : 's'}
+                                {jobGroup.dNumber ? ` • D-number ${jobGroup.dNumber}` : ''}
+                              </p>
                             </div>
-                          ) : (
-                            <span className="text-xs font-bold text-[#747b8a]">Saved</span>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#273f7a]">
+                            {jobGroup.repairCount}
+                          </td>
+                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#a2472f]">
+                            {jobGroup.safetyCount}
+                          </td>
+                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#111]">
+                            {jobGroup.priorityCount}
+                          </td>
+                          <td className="px-3 py-3 text-center align-middle text-[12px] font-bold text-[#4d5360]">
+                            Modified {formatDate(jobGroup.modifiedAt)}
+                          </td>
+                        </tr>
+                        {jobGroup.items.map((item) => (
+                          <tr
+                            key={item.id}
+                            className="border-b border-[#e4e8f1] transition hover:bg-[#fbfcff] last:border-b-0"
+                          >
+                            <td className="px-3 py-4 align-top">
+                              <div className="border-l-4 border-[#dfe6f5] pl-3">
+                                <p className="whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
+                                  {item.documentName}
+                                </p>
+                                {item.splitIdentifier ? (
+                                  <p className="mt-1 whitespace-normal break-words text-xs font-semibold leading-snug text-[#747b8a]">
+                                    {item.splitIdentifier}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="px-2 py-4 text-center align-top text-xs font-bold leading-snug text-[#4d5360]">
+                              {formatDate(getItemModifiedAt(item, savedReportModifiedTimesByItemId))}
+                            </td>
+                            <td className="px-2 py-4 text-center align-top text-sm font-bold text-[#4d5360]">
+                              <span className="block truncate" title={getRunUploaderName(runsById.get(item.runId))}>
+                                {getRunUploaderName(runsById.get(item.runId)) || '-'}
+                              </span>
+                            </td>
+                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[#273f7a]">
+                              {item.repairCount}
+                            </td>
+                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[#a2472f]">
+                              {item.safetyCount}
+                            </td>
+                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[#111]">
+                              {item.priorityCount}
+                            </td>
+                            <td className="px-3 py-4 text-center align-top">
+                              {item.pdfStoragePath || item.pdfUrl ? (
+                                <div className="flex flex-nowrap justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={openingItemId === item.id}
+                                    onClick={() => openItemPdf(item)}
+                                    className="inline-flex whitespace-nowrap rounded-md border border-[#bdc4d3] bg-white px-2 py-2 text-[11px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {openingItemId === item.id ? 'Opening...' : 'Open PDF'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
+                                    className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
+                                  >
+                                    Edit Quote
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-xs font-bold text-[#747b8a]">Saved</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
 
-                {!jobsListLoading && filteredItems.length === 0 ? (
+                {!jobsListLoading && sortedJobGroups.length === 0 ? (
                   <div className="px-5 py-16 text-center">
                     <p className="text-base font-black text-[#1f2430]">{searchQuery.trim() ? 'No matching quote reports.' : 'No repair jobs yet.'}</p>
                     <p className="mt-2 text-sm font-semibold text-[#747b8a]">
@@ -1033,12 +1155,12 @@ export default function JobsQuotingList() {
                   </div>
                 ) : null}
 
-                {!jobsListLoading && filteredItems.length > 0 ? (
+                {!jobsListLoading && sortedJobGroups.length > 0 ? (
                   <div className="flex flex-col gap-3 border-t border-[#dfe4ef] bg-[#fbfcff] px-5 py-4 text-[12px] font-bold text-[#747b8a] sm:flex-row sm:items-center sm:justify-between">
                     <span>
-                      Showing {pageFirstItem}-{pageLastItem} of {filteredItems.length} reports
+                      Showing jobs {pageFirstJob}-{pageLastJob} of {sortedJobGroups.length} ({filteredItems.length} inspection report{filteredItems.length === 1 ? '' : 's'})
                     </span>
-                    {filteredItems.length > reportsPerPage ? (
+                    {sortedJobGroups.length > reportsPerPage ? (
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
