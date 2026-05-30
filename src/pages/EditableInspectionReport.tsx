@@ -1371,6 +1371,22 @@ export default function EditableInspectionReport() {
     [costSections, equipmentRentalSettings],
   )
   const invoiceTotal = repairTotal + costTotal
+  const grandTotalInternalCost = useMemo(
+    () =>
+      repairSections.reduce(
+        (total, section) =>
+          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
+        0,
+      )
+      + costSections.reduce(
+        (total, section) =>
+          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
+        0,
+      ),
+    [costSections, repairSections],
+  )
+  const grandTotalProfit = invoiceTotal - grandTotalInternalCost
+  const grandTotalMargin = getUnitMargin(grandTotalInternalCost, invoiceTotal)
   const visibleRepairSections = useMemo(
     () => repairSections.filter((section) => repairSectionVisibility[section.id] !== false),
     [repairSections, repairSectionVisibility],
@@ -3048,7 +3064,7 @@ export default function EditableInspectionReport() {
               Text
             </button>
             {textMenuOpen ? (
-              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[360px] rounded-[22px] border border-[var(--deshazo-border)] bg-white p-4 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(47,86,166,0.45)]">
+              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[252px] rounded-[22px] border border-[var(--deshazo-border)] bg-white p-4 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(47,86,166,0.45)]">
                 <label className="relative block">
                   <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[28px] leading-none text-[#111]">
                     ⌕
@@ -3750,7 +3766,7 @@ export default function EditableInspectionReport() {
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
-                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
                           <div className="px-3 py-2">Margin</div>
                           <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
                           <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
@@ -3837,7 +3853,7 @@ export default function EditableInspectionReport() {
                             <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                               {formatMoney(getCustomerLineAmount(lineItem))}
                             </div>
-                            <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                            <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
                               <div className="relative flex items-stretch">
                                 <button
                                   type="button"
@@ -4102,7 +4118,7 @@ export default function EditableInspectionReport() {
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
-                      <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                      <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
                         <div className="px-3 py-2">Margin</div>
                         <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
                         <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
@@ -4204,7 +4220,7 @@ export default function EditableInspectionReport() {
                         <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                           {formatMoney(getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings))}
                         </div>
-                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[300px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
                           <div className="relative flex items-stretch">
                             <button
                               type="button"
@@ -4387,6 +4403,20 @@ export default function EditableInspectionReport() {
                   {formatMoney(invoiceTotal)}
                 </div>
               </div>
+              <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid min-h-[70px] w-[252px] grid-cols-3 overflow-hidden border border-[#111] bg-white text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                <div className={`flex flex-col justify-center px-3 py-2.5 ${getMarginCellClassName(String(grandTotalMargin))}`}>
+                  <span className="text-[9px] font-black uppercase leading-tight">Margin</span>
+                  <span className="mt-0.5 text-[13px] font-black">{Math.round(grandTotalMargin)}%</span>
+                </div>
+                <div className="flex flex-col justify-center border-l border-[#cfcfcf] px-3 py-2.5 text-right">
+                  <span className="text-[9px] font-black uppercase leading-tight text-[#555b66]">Total Internal Cost</span>
+                  <span className="mt-0.5 text-[13px] font-black">{formatMoney(grandTotalInternalCost)}</span>
+                </div>
+                <div className="flex flex-col justify-center border-l border-[#cfcfcf] px-3 py-2.5 text-right">
+                  <span className="text-[9px] font-black uppercase leading-tight text-[#555b66]">Total Profit</span>
+                  <span className="mt-0.5 text-[13px] font-black">{formatMoney(grandTotalProfit)}</span>
+                </div>
+              </div>
             </section>
             ) : null}
 
@@ -4439,7 +4469,7 @@ export default function EditableInspectionReport() {
                 )
                 delete textBoxDragStart.current[textBox.id]
               }}
-              className="absolute z-20 min-w-[170px] max-w-[360px] cursor-move rounded-md ring-2 ring-[#8b3dff]/35"
+              className="absolute z-20 min-w-[170px] max-w-[252px] cursor-move rounded-md ring-2 ring-[#8b3dff]/35"
               style={{ left: textBox.x, top: textBox.y }}
             >
               <button
