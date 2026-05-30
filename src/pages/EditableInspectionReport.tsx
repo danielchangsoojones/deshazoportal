@@ -3946,16 +3946,6 @@ export default function EditableInspectionReport() {
                                   >
                                     Delete item
                                   </button>
-                                  <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
-                                    <span>Internal total</span>
-                                    <span className="text-right">{formatMoney(getInternalLineAmount(lineItem))}</span>
-                                    <span>Increase</span>
-                                    <span className="text-right text-[#7d1515]">
-                                      {formatMoney(getCustomerLineAmount(lineItem) - getInternalLineAmount(lineItem))}
-                                    </span>
-                                    <span className="font-black text-[#111]">Customer total</span>
-                                    <span className="text-right font-black text-[#111]">{formatMoney(getCustomerLineAmount(lineItem))}</span>
-                                  </div>
                                 </div>
                               ) : null}
                             </div>
@@ -4313,18 +4303,6 @@ export default function EditableInspectionReport() {
                               >
                                 Delete item
                               </button>
-                              <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
-                                <span>Internal total</span>
-                                <span className="text-right">{formatMoney(getInternalLineAmount(lineItem))}</span>
-                                <span>Increase</span>
-                                <span className="text-right text-[#7d1515]">
-                                  {formatMoney(getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings) - getInternalLineAmount(lineItem))}
-                                </span>
-                                <span className="font-black text-[#111]">Customer total</span>
-                                <span className="text-right font-black text-[#111]">
-                                  {formatMoney(getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings))}
-                                </span>
-                              </div>
                             </div>
                           ) : null}
                         </div>
