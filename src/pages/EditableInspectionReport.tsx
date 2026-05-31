@@ -74,7 +74,8 @@ type EditingMenuItem = {
   userId?: string
   label: string
   description: string
-  rate: string
+  internalCost: string
+  customerPrice: string
 }
 
 type PendingAddMenuLineItem = {
@@ -346,16 +347,21 @@ const createManualLineItem = (id: string, description: string): RepairLineItem =
   source: 'manual',
 })
 
-const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => ({
-  id,
-  description: item.description,
-  internalCost: item.rate,
-  quantity: '1',
-  customerPrice: item.rate,
-  rate: item.rate,
-  margin: '0',
-  source: 'menu',
-})
+const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => {
+  const internalCost = item.internalCost ?? item.rate
+  const customerPrice = item.customerPrice ?? item.rate
+
+  return {
+    id,
+    description: item.description,
+    internalCost,
+    quantity: '1',
+    customerPrice,
+    rate: internalCost,
+    margin: getUnitMargin(parseMoney(internalCost), parseMoney(customerPrice)).toFixed(2),
+    source: 'menu',
+  }
+}
 
 const shouldShowAddMenuItemTag = (lineItem: RepairLineItem) =>
   lineItem.source === 'manual'
@@ -939,7 +945,7 @@ function getDroppedMenuItem(event: DragEvent<HTMLElement>) {
   try {
     return JSON.parse(payload) as MenuItem
   } catch {
-    return { label: 'Menu item', description: payload, rate: '0.00' }
+    return { label: 'Menu item', description: payload, rate: '0.00', internalCost: '0.00', customerPrice: '0.00' }
   }
 }
 
@@ -1128,7 +1134,8 @@ export default function EditableInspectionReport() {
   })
   const [newMenuLabel, setNewMenuLabel] = useState('')
   const [newMenuDescription, setNewMenuDescription] = useState('')
-  const [newMenuRate, setNewMenuRate] = useState('0.00')
+  const [newMenuInternalCost, setNewMenuInternalCost] = useState('0.00')
+  const [newMenuCustomerPrice, setNewMenuCustomerPrice] = useState('0.00')
   const [editingMenuItem, setEditingMenuItem] = useState<EditingMenuItem | null>(null)
   const [pendingAddMenuLineItem, setPendingAddMenuLineItem] = useState<PendingAddMenuLineItem | null>(null)
   const [menuDatabaseStatus, setMenuDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
@@ -1443,7 +1450,8 @@ export default function EditableInspectionReport() {
     const itemName = lineItem.description.trim() || 'New line item'
     setNewMenuLabel(itemName)
     setNewMenuDescription(itemName)
-    setNewMenuRate(getCustomerUnitPrice(lineItem).toFixed(2))
+    setNewMenuInternalCost(getInternalUnitCost(lineItem).toFixed(2))
+    setNewMenuCustomerPrice(getCustomerUnitPrice(lineItem).toFixed(2))
     setPendingAddMenuLineItem(pendingLineItem)
     setActiveLineMenu('')
     setMenuSettingsOpen(true)
@@ -2059,11 +2067,15 @@ export default function EditableInspectionReport() {
     const description = newMenuDescription.trim()
     if (!label || !description) return
 
+    const internalCost = parseMoney(newMenuInternalCost).toFixed(2)
+    const customerPrice = parseMoney(newMenuCustomerPrice).toFixed(2)
     const nextItem: MenuItem = {
       id: createMenuItemId(),
       label,
       description,
-      rate: parseMoney(newMenuRate).toFixed(2),
+      rate: internalCost,
+      internalCost,
+      customerPrice,
       updatedAt: new Date().toISOString(),
     }
 
@@ -2074,7 +2086,8 @@ export default function EditableInspectionReport() {
     )
     setNewMenuLabel('')
     setNewMenuDescription('')
-    setNewMenuRate('0.00')
+    setNewMenuInternalCost('0.00')
+    setNewMenuCustomerPrice('0.00')
     markPendingLineItemAddedToMenu()
   }
 
@@ -2084,7 +2097,8 @@ export default function EditableInspectionReport() {
       userId: item.userId,
       label: item.label,
       description: item.description,
-      rate: item.rate,
+      internalCost: item.internalCost ?? item.rate,
+      customerPrice: item.customerPrice ?? item.rate,
     })
   }
 
@@ -2095,7 +2109,8 @@ export default function EditableInspectionReport() {
     const description = editingMenuItem.description.trim()
     if (!label || !description) return
 
-    const nextRate = parseMoney(editingMenuItem.rate).toFixed(2)
+    const nextInternalCost = parseMoney(editingMenuItem.internalCost).toFixed(2)
+    const nextCustomerPrice = parseMoney(editingMenuItem.customerPrice).toFixed(2)
     const updatedAt = new Date().toISOString()
 
     setMenuItemSections((currentSections) =>
@@ -2109,7 +2124,9 @@ export default function EditableInspectionReport() {
                   userId: editingMenuItem.userId,
                   label,
                   description,
-                  rate: nextRate,
+                  rate: nextInternalCost,
+                  internalCost: nextInternalCost,
+                  customerPrice: nextCustomerPrice,
                   updatedAt,
                 }
               : item,
@@ -3196,7 +3213,10 @@ export default function EditableInspectionReport() {
                               </button>
                             </span>
                             <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
-                            <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
+                            <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px] font-black text-[#111]">
+                              <span>Internal {formatMoney(parseMoney(item.internalCost ?? item.rate))}</span>
+                              <span>Customer {formatMoney(parseMoney(item.customerPrice ?? item.rate))}</span>
+                            </span>
                             {item.sourceDocumentName ? (
                               <button
                                 type="button"
@@ -4380,15 +4400,27 @@ export default function EditableInspectionReport() {
               />
             </label>
 
-            <label className="grid max-w-[220px] gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
-              Rate
-              <input
-                value={newMenuRate}
-                onChange={(event) => setNewMenuRate(event.currentTarget.value)}
-                inputMode="decimal"
-                className="rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
+                Internal Cost
+                <input
+                  value={newMenuInternalCost}
+                  onChange={(event) => setNewMenuInternalCost(event.currentTarget.value)}
+                  inputMode="decimal"
+                  className="rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
+                Customer Price
+                <input
+                  value={newMenuCustomerPrice}
+                  onChange={(event) => setNewMenuCustomerPrice(event.currentTarget.value)}
+                  inputMode="decimal"
+                  className="rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
+                />
+              </label>
+            </div>
           </div>
 
           <div className="flex items-center justify-between border-t border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/55 px-5 py-4">
@@ -4451,20 +4483,37 @@ export default function EditableInspectionReport() {
               />
             </label>
 
-            <label className="grid max-w-[220px] gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
-              Rate
-              <input
-                value={editingMenuItem.rate}
-                onChange={(event) => {
-                  const nextRate = event.currentTarget.value
-                  setEditingMenuItem((currentItem) =>
-                    currentItem ? { ...currentItem, rate: nextRate } : currentItem,
-                  )
-                }}
-                inputMode="decimal"
-                className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+                Internal Cost
+                <input
+                  value={editingMenuItem.internalCost}
+                  onChange={(event) => {
+                    const nextInternalCost = event.currentTarget.value
+                    setEditingMenuItem((currentItem) =>
+                      currentItem ? { ...currentItem, internalCost: nextInternalCost } : currentItem,
+                    )
+                  }}
+                  inputMode="decimal"
+                  className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+                Customer Price
+                <input
+                  value={editingMenuItem.customerPrice}
+                  onChange={(event) => {
+                    const nextCustomerPrice = event.currentTarget.value
+                    setEditingMenuItem((currentItem) =>
+                      currentItem ? { ...currentItem, customerPrice: nextCustomerPrice } : currentItem,
+                    )
+                  }}
+                  inputMode="decimal"
+                  className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+                />
+              </label>
+            </div>
           </div>
 
           <div className="flex items-center justify-between border-t border-[#dfe4ef] bg-[#fbfcff] px-5 py-4">

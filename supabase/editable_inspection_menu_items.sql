@@ -23,6 +23,8 @@ create table if not exists public.editable_inspection_menu_items (
   label text not null,
   description text not null,
   rate numeric(12, 2) not null default 0,
+  internal_cost numeric(12, 2) not null default 0,
+  customer_price numeric(12, 2) not null default 0,
   source_document_id uuid references public.editable_inspection_documents (id) on delete set null,
   source_document_name text,
   source_document_bucket text,
@@ -41,6 +43,8 @@ create table if not exists public.editable_inspection_menu_items (
 );
 
 alter table public.editable_inspection_menu_items
+  add column if not exists internal_cost numeric(12, 2) not null default 0,
+  add column if not exists customer_price numeric(12, 2) not null default 0,
   add column if not exists source_document_id uuid references public.editable_inspection_documents (id) on delete set null,
   add column if not exists source_document_name text,
   add column if not exists source_document_bucket text,
@@ -104,6 +108,8 @@ begin
       label,
       description,
       rate,
+      internal_cost,
+      customer_price,
       display_order,
       sync_token,
       created_at,
@@ -119,6 +125,8 @@ begin
       item.value->>'label',
       item.value->>'description',
       coalesce(nullif(regexp_replace(item.value->>'rate', '[^0-9.-]', '', 'g'), ''), '0')::numeric(12, 2),
+      coalesce(nullif(regexp_replace(coalesce(item.value->>'internalCost', item.value->>'rate'), '[^0-9.-]', '', 'g'), ''), '0')::numeric(12, 2),
+      coalesce(nullif(regexp_replace(coalesce(item.value->>'customerPrice', item.value->>'rate'), '[^0-9.-]', '', 'g'), ''), '0')::numeric(12, 2),
       item.ordinality::integer - 1,
       gen_random_uuid(),
       legacy.updated_at,
@@ -141,6 +149,16 @@ end
 $$;
 
 drop table if exists public.editable_inspection_menu_item_sections_legacy;
+
+update public.editable_inspection_menu_items
+set internal_cost = rate
+where internal_cost = 0
+  and rate <> 0;
+
+update public.editable_inspection_menu_items
+set customer_price = rate
+where customer_price = 0
+  and rate <> 0;
 
 drop index if exists public.editable_inspection_menu_items_user_section_order_idx;
 
