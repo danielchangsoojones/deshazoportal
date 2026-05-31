@@ -70,8 +70,6 @@ type MenuItem = InspectionMenuItem
 type MenuItemSection = InspectionMenuItemSection
 
 type EditingMenuItem = {
-  originalSectionTitle: string
-  sectionTitle: string
   itemId: string
   userId?: string
   label: string
@@ -118,7 +116,6 @@ const menuCollapsedStorageKey = 'deshazo-editable-inspection-report-menu-collaps
 const estimateNoteVisibilityStorageKey = 'deshazo-editable-inspection-report-estimate-note-visibility'
 const repairSectionVisibilityStorageKey = 'deshazo-editable-inspection-report-repair-section-visibility'
 const equipmentRentalSettingsStorageKey = 'deshazo-editable-inspection-report-equipment-rental-settings'
-const maxRecentlyUsedItems = 2
 const equipmentRentalSectionId = 'equipment-rental'
 const equipmentRentalDefaultMargin = 15
 const printedPageWidthIn = 8.5
@@ -335,44 +332,8 @@ const shouldShowReportTableRow = (row: string[], rowIndex: number, report: Repor
   return row.some((fieldId) => hasReportCellValue(report[fieldId]))
 }
 
-const defaultMenuItemSections: MenuItemSection[] = [
-  {
-    title: 'Past history',
-    items: [
-      { label: 'Previous wheel repair', description: 'Repeat repair from prior wheel inspection history.', rate: '185.00' },
-      { label: 'Known festoon issue', description: 'Address recurring festoon wear noted on past reports.', rate: '95.00' },
-    ],
-  },
-  {
-    title: 'Customer specific',
-    items: [
-      { label: 'Labor', description: 'Customer-specific labor rate for Wabash service work.', rate: '145.00' },
-      { label: 'Freight', description: 'Customer-specific freight and delivery charge.', rate: '85.00' },
-    ],
-  },
-  {
-    title: defaultCraneIdentifier,
-    items: [
-      { label: 'Wheel inspection', description: 'Inspect wheel tread wear and flange condition.', rate: '185.00' },
-      { label: 'Cable alignment', description: 'Verify conductor alignment through full bridge travel.', rate: '125.00' },
-      { label: 'Festoon repair', description: 'Replace damaged festoon cable carrier hardware.', rate: '95.00' },
-    ],
-  },
-  {
-    title: 'Shared',
-    items: [
-      { label: 'Technician labor', description: 'Technician labor.', rate: '145.00' },
-      { label: 'Lift rental', description: 'Scissor lift rental.', rate: '275.00' },
-      { label: 'Freight', description: 'Freight and delivery.', rate: '85.00' },
-    ],
-  },
-]
-
-const recentlyUsedMenuSectionTitle = 'Past history'
-const globalMenuSectionTitles = new Set([recentlyUsedMenuSectionTitle, 'Customer specific', 'Shared'])
-
-const getDefaultAddableMenuSection = (sections: MenuItemSection[]) =>
-  sections.find((section) => section.title !== recentlyUsedMenuSectionTitle)?.title ?? 'Shared'
+const menuItemsSectionTitle = 'Menu Items'
+const defaultMenuItemSections: MenuItemSection[] = [{ title: menuItemsSectionTitle, items: [] }]
 
 const createManualLineItem = (id: string, description: string): RepairLineItem => ({
   id,
@@ -404,34 +365,7 @@ const shouldShowAddMenuItemTag = (lineItem: RepairLineItem) =>
 const shouldClearPlaceholderDescription = (description: string) =>
   ['Add repair detail here.', 'Add line item here.'].includes(description.trim())
 
-const getMenuSectionDisplayTitle = (title: string) => {
-  if (title === recentlyUsedMenuSectionTitle) return 'Recently used'
-  if (title === 'Customer specific') return 'Customer specific (Wabash)'
-  return title
-}
-
 const createMenuItemId = () => globalThis.crypto?.randomUUID?.() ?? `menu-${Date.now()}-${Math.random()}`
-
-const getNormalizedMenuSectionTitle = (title: string, craneIdentifier: string) => {
-  if (title === 'This crane') return craneIdentifier
-  if (globalMenuSectionTitles.has(title)) return title
-  return craneIdentifier
-}
-
-const getMenuItemModifiedTime = (item: MenuItem) => {
-  if (!item.updatedAt) return 0
-  const modifiedTime = Date.parse(item.updatedAt)
-  return Number.isFinite(modifiedTime) ? modifiedTime : 0
-}
-
-const sortMenuItemsByModifiedDate = (items: MenuItem[]) =>
-  items
-    .map((item, index) => ({ item, index }))
-    .sort((first, second) => {
-      const modifiedDateDifference = getMenuItemModifiedTime(second.item) - getMenuItemModifiedTime(first.item)
-      return modifiedDateDifference || first.index - second.index
-    })
-    .map(({ item }) => item)
 
 const getCraneIdentifierFromReport = (report: ReportData) => {
   const reportText = [
@@ -797,15 +731,11 @@ const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifi
     'Freight: $85.00 standard delivery charge',
   ])
 
-const normalizeMenuItemSections = (sections: MenuItemSection[], craneIdentifier = defaultCraneIdentifier) => {
+const normalizeMenuItemSections = (sections: MenuItemSection[]) => {
   const usedItemIds = new Set<string>()
-  const sectionMap = new Map<string, MenuItemSection>()
 
-  sections.forEach((section) => {
-    const sectionTitle = getNormalizedMenuSectionTitle(section.title, craneIdentifier)
-    const cappedItems =
-      sectionTitle === recentlyUsedMenuSectionTitle ? section.items.slice(0, maxRecentlyUsedItems) : section.items
-    const normalizedItems = cappedItems.map((item) => {
+  const items = sections.flatMap((section) =>
+    section.items.map((item) => {
       const itemId = item.id && !usedItemIds.has(item.id) ? item.id : createMenuItemId()
       usedItemIds.add(itemId)
 
@@ -813,34 +743,10 @@ const normalizeMenuItemSections = (sections: MenuItemSection[], craneIdentifier 
         ...item,
         id: itemId,
       }
-    })
+    }),
+  )
 
-    const existingSection = sectionMap.get(sectionTitle)
-    sectionMap.set(sectionTitle, {
-      ...section,
-      title: sectionTitle,
-      items: existingSection ? [...existingSection.items, ...normalizedItems] : normalizedItems,
-    })
-  })
-
-  return [
-    recentlyUsedMenuSectionTitle,
-    craneIdentifier,
-    'Customer specific',
-    'Shared',
-    ...Array.from(sectionMap.keys()).filter(
-      (sectionTitle) =>
-        ![recentlyUsedMenuSectionTitle, craneIdentifier, 'Customer specific', 'Shared'].includes(sectionTitle),
-    ),
-  ]
-    .map((sectionTitle) => {
-      const section = sectionMap.get(sectionTitle)
-      if (!section) return undefined
-      return section.title === craneIdentifier
-        ? { ...section, items: sortMenuItemsByModifiedDate(section.items) }
-        : section
-    })
-    .filter((section): section is MenuItemSection => Boolean(section))
+  return [{ title: menuItemsSectionTitle, items }]
 }
 
 const parseMoney = (value: string) => {
@@ -1220,7 +1126,6 @@ export default function EditableInspectionReport() {
     active: false,
     percent: 0,
   })
-  const [newMenuSection, setNewMenuSection] = useState(getDefaultAddableMenuSection(defaultMenuItemSections))
   const [newMenuLabel, setNewMenuLabel] = useState('')
   const [newMenuDescription, setNewMenuDescription] = useState('')
   const [newMenuRate, setNewMenuRate] = useState('0.00')
@@ -1417,22 +1322,11 @@ export default function EditableInspectionReport() {
   const visibleMenuItemSections = useMemo(() => {
     const searchValue = menuSearch.trim().toLowerCase()
     const sourceSections = searchValue && menuSearchSections ? menuSearchSections : menuItemSections
-    const cappedSections = normalizeMenuItemSections(sourceSections, currentCraneIdentifier)
+    const cappedSections = normalizeMenuItemSections(sourceSections)
     if (!searchValue) return cappedSections
 
     return cappedSections
-  }, [currentCraneIdentifier, menuItemSections, menuSearch, menuSearchSections])
-  const addableMenuItemSections = useMemo(
-    () => menuItemSections.filter((section) => section.title !== recentlyUsedMenuSectionTitle),
-    [menuItemSections],
-  )
-  const editableMenuItemSections = useMemo(() => {
-    if (!editingMenuItem) return addableMenuItemSections
-
-    return menuItemSections.filter(
-      (section) => section.title !== recentlyUsedMenuSectionTitle || section.title === editingMenuItem.originalSectionTitle,
-    )
-  }, [addableMenuItemSections, editingMenuItem, menuItemSections])
+  }, [menuItemSections, menuSearch, menuSearchSections])
 
   useEffect(() => {
     const searchValue = menuSearch.trim()
@@ -1460,9 +1354,9 @@ export default function EditableInspectionReport() {
         .then((savedMenu) => {
           if (!active) return
 
-          const nextSections = normalizeMenuItemSections(savedMenu?.menuSections ?? [], currentCraneIdentifier)
+          const nextSections = normalizeMenuItemSections(savedMenu?.menuSections ?? [])
           setMenuSearchSections(nextSections)
-          setMenuSearchMessage(nextSections.length > 0 ? '' : 'No database menu items found.')
+          setMenuSearchMessage(nextSections[0]?.items.length ? '' : 'No database menu items found.')
         })
         .catch((error) => {
           if (!active) return
@@ -1505,10 +1399,6 @@ export default function EditableInspectionReport() {
     }
   }, [menuItemSections, menuSearchSections])
 
-  const selectedAddableMenuSection = addableMenuItemSections.some((section) => section.title === newMenuSection)
-    ? newMenuSection
-    : getDefaultAddableMenuSection(addableMenuItemSections)
-
   const markPendingLineItemAddedToMenu = () => {
     if (!pendingAddMenuLineItem) return
 
@@ -1549,7 +1439,6 @@ export default function EditableInspectionReport() {
 
   const openMenuSettingsFromLineItem = (lineItem: RepairLineItem, pendingLineItem: PendingAddMenuLineItem) => {
     const itemName = lineItem.description.trim() || 'New line item'
-    setNewMenuSection(selectedAddableMenuSection)
     setNewMenuLabel(itemName)
     setNewMenuDescription(itemName)
     setNewMenuRate(getCustomerUnitPrice(lineItem).toFixed(2))
@@ -1845,18 +1734,6 @@ export default function EditableInspectionReport() {
     repairSections,
   ])
 
-  useEffect(() => {
-    setMenuItemSections((currentSections) => {
-      if (!currentSections.some((section) => getNormalizedMenuSectionTitle(section.title, currentCraneIdentifier) !== section.title)) {
-        return currentSections
-      }
-      const normalizedSections = normalizeMenuItemSections(currentSections, currentCraneIdentifier)
-      window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
-      skipNextMenuDatabaseSave.current = true
-      return normalizedSections
-    })
-  }, [currentCraneIdentifier])
-
   const refreshMenuItemsFromDatabase = useCallback(
     async ({
       loadingMessage = 'Loading menu items from the server.',
@@ -1890,13 +1767,16 @@ export default function EditableInspectionReport() {
         if (savedMenu) {
           const normalizedSections = normalizeMenuItemSections(
             savedMenu.menuSections.length > 0 ? savedMenu.menuSections : defaultMenuItemSections,
-            currentCraneIdentifier,
           )
           window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
           skipNextMenuDatabaseSave.current = true
           setMenuItemSections(normalizedSections)
           setMenuDatabaseMessage(loadedMessage)
         } else {
+          const emptySections = normalizeMenuItemSections(defaultMenuItemSections)
+          window.localStorage.setItem(menuStorageKey, JSON.stringify(emptySections))
+          skipNextMenuDatabaseSave.current = true
+          setMenuItemSections(emptySections)
           setMenuDatabaseMessage(emptyMessage)
         }
 
@@ -1911,7 +1791,7 @@ export default function EditableInspectionReport() {
         return false
       }
     },
-    [currentCraneIdentifier],
+    [],
   )
 
   const clearMenuItemsUploadRefreshTimers = useCallback(() => {
@@ -1999,7 +1879,7 @@ export default function EditableInspectionReport() {
       return
     }
 
-    const nextSections = normalizeMenuItemSections(menuItemSections, currentCraneIdentifier)
+    const nextSections = normalizeMenuItemSections(menuItemSections)
     const saveTimer = window.setTimeout(() => {
       setMenuDatabaseStatus('saving')
       setMenuDatabaseMessage('Saving menu items to the server.')
@@ -2016,7 +1896,7 @@ export default function EditableInspectionReport() {
     }, databaseSyncIdleDelayMs)
 
     return () => window.clearTimeout(saveTimer)
-  }, [currentCraneIdentifier, menuItemSections])
+  }, [menuItemSections])
 
   useEffect(() => {
     if (!isConfigured) {
@@ -2116,7 +1996,7 @@ export default function EditableInspectionReport() {
   }
 
   const saveMenuItemSections = (nextSections: MenuItemSection[]) => {
-    const normalizedSections = normalizeMenuItemSections(nextSections, currentCraneIdentifier)
+    const normalizedSections = normalizeMenuItemSections(nextSections)
     window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
     return normalizedSections
   }
@@ -2173,8 +2053,6 @@ export default function EditableInspectionReport() {
   }
 
   const addMenuItemFromSettings = () => {
-    if (selectedAddableMenuSection === recentlyUsedMenuSectionTitle) return
-
     const label = newMenuLabel.trim()
     const description = newMenuDescription.trim()
     if (!label || !description) return
@@ -2189,9 +2067,7 @@ export default function EditableInspectionReport() {
 
     setMenuItemSections((currentSections) =>
       saveMenuItemSections(
-        currentSections.map((section) =>
-          section.title === selectedAddableMenuSection ? { ...section, items: [...section.items, nextItem] } : section,
-        ),
+        [{ title: menuItemsSectionTitle, items: [...normalizeMenuItemSections(currentSections)[0].items, nextItem] }],
       ),
     )
     setNewMenuLabel('')
@@ -2200,10 +2076,8 @@ export default function EditableInspectionReport() {
     markPendingLineItemAddedToMenu()
   }
 
-  const openMenuItemEditor = (sectionTitle: string, item: MenuItem) => {
+  const openMenuItemEditor = (item: MenuItem) => {
     setEditingMenuItem({
-      originalSectionTitle: sectionTitle,
-      sectionTitle,
       itemId: item.id ?? createMenuItemId(),
       userId: item.userId,
       label: item.label,
@@ -2224,41 +2098,21 @@ export default function EditableInspectionReport() {
 
     setMenuItemSections((currentSections) =>
       saveMenuItemSections(
-        currentSections.map((section) => {
-          if (section.title === editingMenuItem.sectionTitle) {
-            const updatedItem = {
-              id: editingMenuItem.itemId,
-              userId: editingMenuItem.userId,
-              label,
-              description,
-              rate: nextRate,
-              updatedAt,
-            }
-
-            if (section.title === editingMenuItem.originalSectionTitle) {
-              return {
-                ...section,
-                items: section.items.map((item) =>
-                  item.id === editingMenuItem.itemId ? updatedItem : item,
-                ),
-              }
-            }
-
-            return {
-              ...section,
-              items: [...section.items, updatedItem],
-            }
-          }
-
-          if (section.title === editingMenuItem.originalSectionTitle) {
-            return {
-              ...section,
-              items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
-            }
-          }
-
-          return section
-        }),
+        normalizeMenuItemSections(currentSections).map((section) => ({
+          ...section,
+          items: section.items.map((item) =>
+            item.id === editingMenuItem.itemId
+              ? {
+                  id: editingMenuItem.itemId,
+                  userId: editingMenuItem.userId,
+                  label,
+                  description,
+                  rate: nextRate,
+                  updatedAt,
+                }
+              : item,
+          ),
+        })),
       ),
     )
     setEditingMenuItem(null)
@@ -2281,14 +2135,10 @@ export default function EditableInspectionReport() {
 
         const removeDeletedItem = (sections: MenuItemSection[]) =>
           saveMenuItemSections(
-            sections.map((section) =>
-              section.title === editingMenuItem.originalSectionTitle
-                ? {
-                    ...section,
-                    items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
-                  }
-                : section,
-            ),
+            normalizeMenuItemSections(sections).map((section) => ({
+              ...section,
+              items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
+            })),
           )
 
         skipNextMenuDatabaseSave.current = true
@@ -2307,27 +2157,7 @@ export default function EditableInspectionReport() {
       })
   }
 
-  const addMenuItemToRecentlyUsed = (item: MenuItem) => {
-    setMenuItemSections((currentSections) =>
-      saveMenuItemSections(
-        currentSections.map((section) => {
-          if (section.title !== recentlyUsedMenuSectionTitle) return section
-
-          const matchingItem = (sectionItem: MenuItem) =>
-            sectionItem.label === item.label
-            || (sectionItem.description === item.description && sectionItem.rate === item.rate)
-
-          return {
-            ...section,
-            items: [
-              { ...item, id: createMenuItemId() },
-              ...section.items.filter((sectionItem) => !matchingItem(sectionItem)),
-            ].slice(0, maxRecentlyUsedItems),
-          }
-        }),
-      ),
-    )
-  }
+  const addMenuItemToRecentlyUsed = (_item: MenuItem) => {}
 
   const createId = (prefix: string) => {
     if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`
@@ -3333,15 +3163,11 @@ export default function EditableInspectionReport() {
                     <div className="rounded-md border border-[#dfe4ef] bg-white px-3 py-4 text-center text-[12px] font-bold text-[#747b8a]">
                       Searching database...
                     </div>
-                  ) : visibleMenuItemSections.length > 0 ? visibleMenuItemSections.map((section) => (
-                    <section key={section.title}>
-                      <h3 className="mb-2 border-b border-[#dfe4ef] pb-1 text-[12px] font-black uppercase tracking-[0.02em] text-[#273f7a]">
-                        {getMenuSectionDisplayTitle(section.title)}
-                      </h3>
+                  ) : visibleMenuItemSections[0]?.items.length ? (
                       <div className="space-y-2">
-                        {section.items.map((item) => (
+                        {visibleMenuItemSections[0].items.map((item) => (
                           <div
-                            key={`${section.title}-${item.id ?? item.label}`}
+                            key={item.id ?? item.label}
                             draggable
                             onDragStart={(event) => {
                               event.dataTransfer.setData(menuItemDataTransferType, JSON.stringify(item))
@@ -3357,7 +3183,7 @@ export default function EditableInspectionReport() {
                                 draggable={false}
                                 onClick={(event) => {
                                   event.stopPropagation()
-                                  openMenuItemEditor(section.title, item)
+                                  openMenuItemEditor(item)
                                 }}
                                 onDragStart={(event) => event.preventDefault()}
                                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[#4d5360] transition hover:border-[#9bb0dc] hover:bg-[#eef3ff] hover:text-[#273f7a]"
@@ -3369,23 +3195,6 @@ export default function EditableInspectionReport() {
                             </span>
                             <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
                             <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
-                            {section.title === 'Customer specific' && ['Labor', 'Freight'].includes(item.label) ? (
-                              <button
-                                type="button"
-                                draggable={false}
-                                onClick={() => {
-                                  if (masterServiceAgreementDocument?.url) {
-                                    window.open(masterServiceAgreementDocument.url, '_blank', 'noopener,noreferrer')
-                                  } else {
-                                    setMasterServiceAgreementOpen(true)
-                                  }
-                                }}
-                                onDragStart={(event) => event.preventDefault()}
-                                className="mt-2 rounded-md border border-[#f5b400] bg-[#fff2bf] px-2 py-1 text-[10px] font-black uppercase leading-tight text-[#6c4a00] shadow-sm transition hover:bg-[#ffe68a]"
-                              >
-                                Master Service Agreement
-                              </button>
-                            ) : null}
                             {item.sourceDocumentName ? (
                               <button
                                 type="button"
@@ -3404,8 +3213,7 @@ export default function EditableInspectionReport() {
                           </div>
                         ))}
                       </div>
-                    </section>
-                  )) : (
+                  ) : (
                     <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
                       No menu items found.
                     </div>
@@ -4534,7 +4342,7 @@ export default function EditableInspectionReport() {
           <div className="flex items-center justify-between border-b border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,var(--deshazo-surface)_100%)] px-5 py-4">
             <div>
               <h2 className="text-[20px] font-black text-[var(--deshazo-text)]">Menu Settings</h2>
-              <p className="mt-1 text-[13px] font-semibold text-[rgba(21,24,33,0.58)]">Add a draggable item to one of the menu sections.</p>
+              <p className="mt-1 text-[13px] font-semibold text-[rgba(21,24,33,0.58)]">Add a draggable menu item.</p>
             </div>
             <button
               type="button"
@@ -4550,21 +4358,6 @@ export default function EditableInspectionReport() {
           </div>
 
           <div className="grid gap-4 px-5 py-5">
-            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
-              Section
-              <select
-                value={selectedAddableMenuSection}
-                onChange={(event) => setNewMenuSection(event.currentTarget.value)}
-                className="rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
-              >
-                {addableMenuItemSections.map((section) => (
-                  <option key={section.title} value={section.title}>
-                    {getMenuSectionDisplayTitle(section.title)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
             <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
               Item name
               <input
@@ -4616,9 +4409,6 @@ export default function EditableInspectionReport() {
           <div className="flex items-center justify-between border-b border-[#dfe4ef] px-5 py-4">
             <div>
               <h2 className="text-[20px] font-black text-[#1f2430]">Edit Menu Item</h2>
-              <p className="mt-1 text-[13px] font-semibold text-[#747b8a]">
-                {getMenuSectionDisplayTitle(editingMenuItem.sectionTitle)}
-              </p>
             </div>
             <button
               type="button"
@@ -4631,26 +4421,6 @@ export default function EditableInspectionReport() {
           </div>
 
           <div className="grid gap-4 px-5 py-5">
-            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
-              Section
-              <select
-                value={editingMenuItem.sectionTitle}
-                onChange={(event) => {
-                  const nextSectionTitle = event.currentTarget.value
-                  setEditingMenuItem((currentItem) =>
-                    currentItem ? { ...currentItem, sectionTitle: nextSectionTitle } : currentItem,
-                  )
-                }}
-                className="rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
-              >
-                {editableMenuItemSections.map((section) => (
-                  <option key={section.title} value={section.title}>
-                    {getMenuSectionDisplayTitle(section.title)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
             <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
               Item name
               <input

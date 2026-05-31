@@ -7,6 +7,10 @@ type UserTagDisplayRow = {
   display_name: string | null
 }
 
+type UserBranchesRow = {
+  deshazo_branches: string[] | null
+}
+
 export async function getCurrentUserTag(userId: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
@@ -49,4 +53,23 @@ export async function getUserDisplayNames(userIds: string[]) {
     }
     return displayNames
   }, {})
+}
+
+export async function getCurrentUserBranches(userId: string) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const { data, error } = await supabase
+    .from('user_tags')
+    .select('deshazo_branches')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const row = data as UserBranchesRow | null
+  return Array.from(new Set((row?.deshazo_branches ?? []).map((branch) => branch.trim()).filter(Boolean)))
 }
