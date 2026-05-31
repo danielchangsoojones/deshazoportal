@@ -1092,7 +1092,6 @@ export default function EditableInspectionReport() {
   const [activeLineMenu, setActiveLineMenu] = useState('')
   const [activeMarginMenu, setActiveMarginMenu] = useState('')
   const [activeDoneLineItem, setActiveDoneLineItem] = useState('')
-  const [unlocked, setUnlocked] = useState(false)
   const [equipmentRentalSettingsOpen, setEquipmentRentalSettingsOpen] = useState(false)
   const [pageLayoutMenuOpen, setPageLayoutMenuOpen] = useState(false)
   const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
@@ -1999,14 +1998,6 @@ export default function EditableInspectionReport() {
     )
   }
 
-  const deleteQuoteBlock = (block: keyof QuoteBlockVisibility) => {
-    setBlockVisibility((currentVisibility) => {
-      const nextVisibility = { ...currentVisibility, [block]: false }
-      window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(nextVisibility))
-      return nextVisibility
-    })
-  }
-
   const setQuoteBlockVisibility = (block: keyof QuoteBlockVisibility, visible: boolean) => {
     setBlockVisibility((currentVisibility) => {
       const nextVisibility = { ...currentVisibility, [block]: visible }
@@ -2604,7 +2595,6 @@ export default function EditableInspectionReport() {
       console.error('Editable report could not be reset.', error)
     }
 
-    setUnlocked(false)
     setPageLayoutMenuOpen(false)
     setRelatedDocumentsOpen(false)
     setMenuSettingsOpen(false)
@@ -2965,18 +2955,6 @@ export default function EditableInspectionReport() {
               </div>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() => setUnlocked((currentUnlocked) => !currentUnlocked)}
-            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-black transition ${
-              unlocked
-                ? 'border-white bg-white text-[var(--deshazo-blue)]'
-                : 'border-white/25 bg-white/10 text-white hover:bg-white/20'
-            }`}
-          >
-            <span className="text-base">{unlocked ? '🔓' : '🔒'}</span>
-            <span>{unlocked ? 'Unlocked' : 'Locked'}</span>
-          </button>
         </div>
 
         <div className="rounded-md bg-white/10 px-4 py-2 text-sm font-black tracking-wide shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)]">
@@ -3390,18 +3368,8 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="contact"
               style={getRuntimePageBreakStyle('contact')}
-              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('contact')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('contact')}`}
             >
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('contact')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete contact block"
-                >
-                  🗑
-                </button>
-              ) : null}
               <div className="grid grid-cols-[130px_1fr_1fr_1fr] border-b border-[#d4d4d4] bg-[#f7f7f7] text-[11px] font-black uppercase text-[#555b66]">
                 <div className="px-2 py-1">Contact</div>
                 <div className="border-l border-[#d4d4d4] px-2 py-1">Name</div>
@@ -3421,18 +3389,8 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="scope-of-work"
               style={getRuntimePageBreakStyle('scope-of-work')}
-              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('scope-of-work')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('scope-of-work')}`}
             >
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('scopeOfWork')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete scope of work block"
-                >
-                  🗑
-                </button>
-              ) : null}
               <EditableText
                 id="scopeOfWorkHeader"
                 data={report}
@@ -3450,17 +3408,7 @@ export default function EditableInspectionReport() {
             ) : null}
 
             {blockVisibility.repairItems ? (
-            <section className={`relative mt-3 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('repairItems')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete repair items block"
-                >
-                  🗑
-                </button>
-              ) : null}
+            <section className="relative mt-3 border border-[#d4d4d4]">
               <div className="flex items-center justify-between gap-3 bg-[#f2f2f2]">
                 <EditableText
                   id="sectionHeader"
@@ -3757,17 +3705,7 @@ export default function EditableInspectionReport() {
             </section>
             ) : null}
             {blockVisibility.estimateSummary ? (
-            <section className={`relative mt-3 ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('estimateSummary')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete estimate summary block"
-                >
-                  🗑
-                </button>
-              ) : null}
+            <section className="relative mt-3">
               <div
                 data-report-block-id="estimate-summary-header"
                 data-report-keep-with-next="true"
@@ -4138,18 +4076,8 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="grand-total"
               style={getRuntimePageBreakStyle('grand-total')}
-              className={`relative mt-3 border-2 border-[#111] ${getRuntimePageBreakClassName('grand-total')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border-2 border-[#111] ${getRuntimePageBreakClassName('grand-total')}`}
             >
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('grandTotal')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete grand total block"
-                >
-                  🗑
-                </button>
-              ) : null}
               <div className="grid grid-cols-[1fr_180px_160px] bg-[#f2f2f2] text-[16px] font-black">
                 <div className="px-4 py-3 uppercase text-[#555b66]">Grand Total</div>
                 <div className="border-l border-[#cfcfcf] px-4 py-3 text-right uppercase text-[#555b66]">Total</div>
@@ -4178,18 +4106,8 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="notes"
               style={getRuntimePageBreakStyle('notes')}
-              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')}`}
             >
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('notes')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete notes block"
-                >
-                  🗑
-                </button>
-              ) : null}
               <EditableText
                 id="notesHeader"
                 data={report}
