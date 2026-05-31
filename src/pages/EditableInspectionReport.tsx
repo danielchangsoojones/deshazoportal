@@ -84,13 +84,6 @@ type PendingAddMenuLineItem = {
   lineItemId: string
 }
 
-type CanvasTextBox = {
-  id: string
-  text: string
-  x: number
-  y: number
-}
-
 type RelatedDocument = EditableInspectionDocument
 
 type QuoteBlockVisibility = {
@@ -112,7 +105,6 @@ const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
 const costStorageKey = 'deshazo-editable-inspection-report-costs'
 const menuStorageKey = 'deshazo-editable-inspection-report-menu-items'
 const blockVisibilityStorageKey = 'deshazo-editable-inspection-report-block-visibility'
-const textBoxStorageKey = 'deshazo-editable-inspection-report-text-boxes'
 const menuCollapsedStorageKey = 'deshazo-editable-inspection-report-menu-collapsed'
 const estimateNoteVisibilityStorageKey = 'deshazo-editable-inspection-report-estimate-note-visibility'
 const repairSectionVisibilityStorageKey = 'deshazo-editable-inspection-report-repair-section-visibility'
@@ -874,7 +866,7 @@ const getNormalizedReportPayload = (report: EditableInspectionReport): EditableI
   blockVisibility: { ...defaultBlockVisibility, ...report.blockVisibility },
   estimateNoteVisibility: { ...defaultEstimateNoteVisibility, ...report.estimateNoteVisibility },
   repairSectionVisibility: report.repairSectionVisibility,
-  textBoxes: report.textBoxes as CanvasTextBox[],
+  textBoxes: [],
   equipmentRentalSettings: {
     ...defaultEquipmentRentalSettings,
     ...report.equipmentRentalSettings,
@@ -888,7 +880,6 @@ const saveEditableReportPayloadLocally = (payload: EditableInspectionReportPaylo
   window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(payload.blockVisibility))
   window.localStorage.setItem(estimateNoteVisibilityStorageKey, JSON.stringify(payload.estimateNoteVisibility))
   window.localStorage.setItem(repairSectionVisibilityStorageKey, JSON.stringify(payload.repairSectionVisibility))
-  window.localStorage.setItem(textBoxStorageKey, JSON.stringify(payload.textBoxes))
   window.localStorage.setItem(equipmentRentalSettingsStorageKey, JSON.stringify(payload.equipmentRentalSettings))
 }
 
@@ -1095,7 +1086,6 @@ export default function EditableInspectionReport() {
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
   const menuItemsRefreshRequestId = useRef(0)
-  const textBoxDragStart = useRef<Record<string, { clientX: number; clientY: number; x: number; y: number }>>({})
   const reportContentRef = useRef<HTMLElement>(null)
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
   const relatedPdfInputRef = useRef<HTMLInputElement>(null)
@@ -1103,7 +1093,6 @@ export default function EditableInspectionReport() {
   const [activeMarginMenu, setActiveMarginMenu] = useState('')
   const [activeDoneLineItem, setActiveDoneLineItem] = useState('')
   const [unlocked, setUnlocked] = useState(false)
-  const [textMenuOpen, setTextMenuOpen] = useState(false)
   const [equipmentRentalSettingsOpen, setEquipmentRentalSettingsOpen] = useState(false)
   const [pageLayoutMenuOpen, setPageLayoutMenuOpen] = useState(false)
   const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
@@ -1224,17 +1213,6 @@ export default function EditableInspectionReport() {
       return {}
     }
   })
-  const [canvasTextBoxes, setCanvasTextBoxes] = useState<CanvasTextBox[]>(() => {
-    const savedTextBoxes = window.localStorage.getItem(textBoxStorageKey)
-
-    if (!savedTextBoxes) return []
-
-    try {
-      return JSON.parse(savedTextBoxes) as CanvasTextBox[]
-    } catch {
-      return []
-    }
-  })
   const [equipmentRentalSettings, setEquipmentRentalSettings] = useState<EquipmentRentalSettings>(() => {
     const savedSettings = window.localStorage.getItem(equipmentRentalSettingsStorageKey)
 
@@ -1255,12 +1233,11 @@ export default function EditableInspectionReport() {
       blockVisibility,
       estimateNoteVisibility,
       repairSectionVisibility,
-      textBoxes: canvasTextBoxes,
+      textBoxes: [],
       equipmentRentalSettings,
     }),
     [
       blockVisibility,
-      canvasTextBoxes,
       costSections,
       equipmentRentalSettings,
       estimateNoteVisibility,
@@ -1476,7 +1453,6 @@ export default function EditableInspectionReport() {
     const nextBlockVisibility = { ...defaultBlockVisibility, ...payload.blockVisibility }
     const nextEstimateNoteVisibility = { ...defaultEstimateNoteVisibility, ...payload.estimateNoteVisibility }
     const nextRepairSectionVisibility = payload.repairSectionVisibility
-    const nextTextBoxes = payload.textBoxes as CanvasTextBox[]
     const nextEquipmentRentalSettings = {
       ...defaultEquipmentRentalSettings,
       ...payload.equipmentRentalSettings,
@@ -1489,7 +1465,7 @@ export default function EditableInspectionReport() {
       blockVisibility: nextBlockVisibility,
       estimateNoteVisibility: nextEstimateNoteVisibility,
       repairSectionVisibility: nextRepairSectionVisibility,
-      textBoxes: nextTextBoxes,
+      textBoxes: [],
       equipmentRentalSettings: nextEquipmentRentalSettings,
     })
     setReport(nextReport)
@@ -1498,7 +1474,6 @@ export default function EditableInspectionReport() {
     setBlockVisibility(nextBlockVisibility)
     setEstimateNoteVisibility(nextEstimateNoteVisibility)
     setRepairSectionVisibility(nextRepairSectionVisibility)
-    setCanvasTextBoxes(nextTextBoxes)
     setEquipmentRentalSettings(nextEquipmentRentalSettings)
   }, [])
 
@@ -1735,7 +1710,6 @@ export default function EditableInspectionReport() {
     setRuntimePageCount((currentPageCount) => (currentPageCount === nextPageCount ? currentPageCount : nextPageCount))
   }, [
     blockVisibility,
-    canvasTextBoxes,
     costSections,
     estimateNoteVisibility,
     equipmentRentalSettings,
@@ -2011,11 +1985,6 @@ export default function EditableInspectionReport() {
     return normalizedSections
   }
 
-  const saveCanvasTextBoxes = (nextTextBoxes: CanvasTextBox[]) => {
-    window.localStorage.setItem(textBoxStorageKey, JSON.stringify(nextTextBoxes))
-    return nextTextBoxes
-  }
-
   const saveEquipmentRentalSettings = (nextSettings: EquipmentRentalSettings) => {
     window.localStorage.setItem(equipmentRentalSettingsStorageKey, JSON.stringify(nextSettings))
     return nextSettings
@@ -2184,21 +2153,6 @@ export default function EditableInspectionReport() {
     return `${prefix}-${generatedId.current}`
   }
 
-  const addCanvasTextBox = () => {
-    setCanvasTextBoxes((currentTextBoxes) =>
-      saveCanvasTextBoxes([
-        ...currentTextBoxes,
-        {
-          id: createId('text-box'),
-          text: 'Add text',
-          x: 360,
-          y: 255 + currentTextBoxes.length * 22,
-        },
-      ]),
-    )
-    setTextMenuOpen(false)
-  }
-
   const addRelatedDocuments = async (files: Array<File & { webkitRelativePath?: string }>, source: string) => {
     if (files.length === 0) {
       setRelatedDocumentsMessage(
@@ -2321,38 +2275,6 @@ export default function EditableInspectionReport() {
     } catch (error) {
       setRelatedDocumentsMessage(error instanceof Error ? error.message : 'Document could not be deleted.')
     }
-  }
-
-  const updateCanvasTextBox = (textBoxId: string, value: string) => {
-    setCanvasTextBoxes((currentTextBoxes) =>
-      saveCanvasTextBoxes(
-        currentTextBoxes.map((textBox) =>
-          textBox.id === textBoxId ? { ...textBox, text: value } : textBox,
-        ),
-      ),
-    )
-  }
-
-  const moveCanvasTextBox = (textBoxId: string, x: number, y: number) => {
-    setCanvasTextBoxes((currentTextBoxes) =>
-      saveCanvasTextBoxes(
-        currentTextBoxes.map((textBox) =>
-          textBox.id === textBoxId
-            ? {
-                ...textBox,
-                x: Math.max(12, Math.min(960, x)),
-                y: Math.max(12, Math.min(790, y)),
-              }
-            : textBox,
-        ),
-      ),
-    )
-  }
-
-  const deleteCanvasTextBox = (textBoxId: string) => {
-    setCanvasTextBoxes((currentTextBoxes) =>
-      saveCanvasTextBoxes(currentTextBoxes.filter((textBox) => textBox.id !== textBoxId)),
-    )
   }
 
   const addRepairSection = () => {
@@ -2683,7 +2605,6 @@ export default function EditableInspectionReport() {
     }
 
     setUnlocked(false)
-    setTextMenuOpen(false)
     setPageLayoutMenuOpen(false)
     setRelatedDocumentsOpen(false)
     setMenuSettingsOpen(false)
@@ -2911,37 +2832,6 @@ export default function EditableInspectionReport() {
           >
             ⌂
           </button>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setTextMenuOpen((currentOpen) => !currentOpen)}
-              className="rounded-md px-3 py-2 text-sm font-black transition hover:bg-white/10"
-              aria-expanded={textMenuOpen}
-            >
-              Text
-            </button>
-            {textMenuOpen ? (
-              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[252px] rounded-[22px] border border-[var(--deshazo-border)] bg-white p-4 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(47,86,166,0.45)]">
-                <label className="relative block">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[28px] leading-none text-[#111]">
-                    ⌕
-                  </span>
-                  <input
-                    placeholder="Search fonts and combinations"
-                    className="w-full rounded-[18px] border-2 border-[var(--deshazo-border)] bg-white py-4 pl-14 pr-4 text-[18px] font-semibold text-[var(--deshazo-text)] outline-none placeholder:text-[var(--deshazo-muted)] focus:border-[var(--deshazo-blue)]"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={addCanvasTextBox}
-                  className="mt-4 flex w-full items-center justify-center gap-4 rounded-xl bg-[var(--deshazo-blue)] px-4 py-4 text-[18px] font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)]"
-                >
-                  <span className="text-[31px] leading-none">T</span>
-                  <span>Add a text box</span>
-                </button>
-              </div>
-            ) : null}
-          </div>
           <div className="relative">
             <button
               type="button"
@@ -4310,49 +4200,6 @@ export default function EditableInspectionReport() {
             </section>
             ) : null}
           </section>
-          {canvasTextBoxes.map((textBox) => (
-            <div
-              key={textBox.id}
-              draggable
-              onDragStart={(event) => {
-                textBoxDragStart.current[textBox.id] = {
-                  clientX: event.clientX,
-                  clientY: event.clientY,
-                  x: textBox.x,
-                  y: textBox.y,
-                }
-                event.dataTransfer.effectAllowed = 'move'
-              }}
-              onDragEnd={(event) => {
-                const start = textBoxDragStart.current[textBox.id]
-                if (!start || event.clientX === 0 || event.clientY === 0) return
-                moveCanvasTextBox(
-                  textBox.id,
-                  start.x + event.clientX - start.clientX,
-                  start.y + event.clientY - start.clientY,
-                )
-                delete textBoxDragStart.current[textBox.id]
-              }}
-              className="absolute z-20 min-w-[170px] max-w-[252px] cursor-move rounded-md ring-2 ring-[#8b3dff]/35"
-              style={{ left: textBox.x, top: textBox.y }}
-            >
-              <button
-                type="button"
-                onClick={() => deleteCanvasTextBox(textBox.id)}
-                className="report-toolbar absolute right-[-12px] top-[-12px] z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[13px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                aria-label="Delete text box"
-              >
-                🗑
-              </button>
-              <EditableValue
-                label="Canvas text box"
-                value={textBox.text}
-                onChange={(value) => updateCanvasTextBox(textBox.id, value)}
-                className="min-h-[34px] rounded-md border border-dashed border-[#8b3dff]/55 bg-white/90 px-2.5 py-1.5 font-['Times_New_Roman',Times,serif] text-[18px] font-normal leading-tight shadow-[0_8px_22px_-20px_rgba(15,23,42,0.55)]"
-                multiline
-              />
-            </div>
-          ))}
         </article>
             </div>
           </div>
