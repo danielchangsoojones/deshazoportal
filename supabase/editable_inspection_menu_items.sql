@@ -223,8 +223,7 @@ create policy "Authenticated users can read branch inspection menu items"
   for select
   to authenticated
   using (
-    user_id = (select auth.uid())
-    or (
+    (
       cardinality(public.current_user_branches()) > 0
       and branches && public.current_user_branches()
     )

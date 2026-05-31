@@ -1171,6 +1171,8 @@ export default function EditableInspectionReport() {
     }
   })
   const [menuItemSections, setMenuItemSections] = useState<MenuItemSection[]>(() => {
+    if (isConfigured) return normalizeMenuItemSections(defaultMenuItemSections)
+
     const savedSections = window.localStorage.getItem(menuStorageKey)
 
     if (!savedSections) return normalizeMenuItemSections(defaultMenuItemSections)
