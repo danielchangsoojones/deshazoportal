@@ -103,3 +103,47 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+.notebook-answer table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.notebook-answer th,
+.notebook-answer td {
+  border: 1px solid var(--deshazo-border);
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.notebook-answer th {
+  background: #f7f9fd;
+  color: var(--deshazo-text);
+  font-weight: 800;
+}
+
+.notebook-ref {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #2563eb;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin: 0 2px;
+  padding: 2px 7px;
+  text-decoration: none;
+}
+
+.notebook-ref:hover {
+  background: #bfdbfe;
+  color: #1d4ed8;
+}

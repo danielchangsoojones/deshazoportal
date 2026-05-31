@@ -2979,6 +2979,20 @@ export default function EditableInspectionReport() {
             >
               Save
             </button>
+            {currentJobsQuotingItemId || currentEditableReportId ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const params = currentJobsQuotingItemId
+                    ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId)}`
+                    : `editableReportId=${encodeURIComponent(currentEditableReportId)}`
+                  navigate(`/equipment-notebook-llm?${params}`)
+                }}
+                className="rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
+              >
+                AI Chat
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => {
