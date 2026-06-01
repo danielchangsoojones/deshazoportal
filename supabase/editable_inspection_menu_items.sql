@@ -212,6 +212,29 @@ begin
 end;
 $$;
 
+create schema if not exists private;
+
+create or replace function private.set_editable_inspection_menu_item_branches()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if cardinality(coalesce(new.branches, '{}'::text[])) = 0 then
+    select coalesce(user_tags.deshazo_branches, '{}'::text[])
+      into new.branches
+    from public.user_tags
+    where user_tags.user_id = new.user_id
+    limit 1;
+
+    new.branches := coalesce(new.branches, '{}'::text[]);
+  end if;
+
+  return new;
+end;
+$$;
+
 drop trigger if exists editable_inspection_menu_items_updated_at_trigger
   on public.editable_inspection_menu_items;
 
@@ -219,6 +242,14 @@ create trigger editable_inspection_menu_items_updated_at_trigger
 before insert or update on public.editable_inspection_menu_items
 for each row
 execute function public.set_editable_inspection_menu_items_updated_at();
+
+drop trigger if exists editable_inspection_menu_items_branches_trigger
+  on public.editable_inspection_menu_items;
+
+create trigger editable_inspection_menu_items_branches_trigger
+before insert on public.editable_inspection_menu_items
+for each row
+execute function private.set_editable_inspection_menu_item_branches();
 
 alter table public.editable_inspection_menu_items enable row level security;
 
