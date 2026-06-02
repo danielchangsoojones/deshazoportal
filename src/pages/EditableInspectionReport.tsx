@@ -1569,7 +1569,7 @@ export default function EditableInspectionReport() {
             return
           }
 
-          applyEditableReportPayload({
+          const editableReportPayload = {
             reportData: quoteReport,
             repairSections: buildRepairSectionsFromJobsQuotingItem(quoteItem),
             costSections: defaultCostSections,
@@ -1578,12 +1578,24 @@ export default function EditableInspectionReport() {
             repairSectionVisibility: {},
             textBoxes: [],
             equipmentRentalSettings: defaultEquipmentRentalSettings,
+          }
+          const reportName = getEditableReportDisplayName(quoteReport, quoteItem.documentName)
+          const savedReport = await saveEditableInspectionReport({
+            ...editableReportPayload,
+            id: null,
+            jobsQuotingItemId: quoteItem.id,
+            reportName,
+            sourceDocumentName: quoteItem.documentName,
           })
-          setCurrentEditableReportId('')
-          setCurrentReportName(getEditableReportDisplayName(quoteReport, quoteItem.documentName))
-          setCurrentSourceDocumentName(quoteItem.documentName)
-          setCurrentJobsQuotingItemId(quoteItem.id)
+          if (!active) return
+
+          applyEditableReportPayload(editableReportPayload)
+          setCurrentEditableReportId(savedReport.id)
+          setCurrentReportName(savedReport.reportName)
+          setCurrentSourceDocumentName(savedReport.sourceDocumentName)
+          setCurrentJobsQuotingItemId(savedReport.jobsQuotingItemId)
           setReportDatabaseStatus('saved')
+          setSearchParams({ editableReportId: savedReport.id }, { replace: true })
         } else {
           setCurrentEditableReportId('')
           setCurrentReportName('Untitled quote report')

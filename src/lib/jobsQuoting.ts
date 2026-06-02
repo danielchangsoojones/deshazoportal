@@ -29,6 +29,7 @@ export type JobsQuotingItem = {
   runId: string
   editableDocumentId: string | null
   documentName: string
+  jobNumber: string
   splitType: string
   splitIdentifier: string
   repairCount: number
@@ -63,6 +64,7 @@ type JobsQuotingItemRow = {
   run_id: string
   editable_document_id: string | null
   document_name: string
+  job_number: string | null
   split_type: string | null
   split_identifier: string | null
   repair_count: number | null
@@ -114,6 +116,7 @@ function mapItem(row: JobsQuotingItemRow): JobsQuotingItem {
     runId: row.run_id,
     editableDocumentId: row.editable_document_id,
     documentName: row.document_name,
+    jobNumber: row.job_number ?? '',
     splitType: row.split_type ?? '',
     splitIdentifier: row.split_identifier ?? '',
     repairCount,
@@ -228,7 +231,7 @@ export async function getJobsQuotingItems(runId?: string): Promise<JobsQuotingIt
     let query = client
       .from('jobs_quoting_items')
       .select(
-        'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
+        'id, run_id, editable_document_id, document_name, job_number, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
       )
       .order('repair_count', { ascending: false })
       .order('safety_count', { ascending: false })
@@ -260,7 +263,7 @@ export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<Jobs
       client
         .from('jobs_quoting_items')
         .select(
-          'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
+          'id, run_id, editable_document_id, document_name, job_number, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
         )
         .in('run_id', runIdChunk)
         .order('repair_count', { ascending: false })
@@ -282,7 +285,7 @@ export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingIte
   const { data, error } = await client
     .from('jobs_quoting_items')
     .select(
-      'id, run_id, editable_document_id, document_name, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
+      'id, run_id, editable_document_id, document_name, job_number, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
     )
     .eq('id', itemId)
     .single()
