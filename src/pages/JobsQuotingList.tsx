@@ -187,14 +187,14 @@ function getItemSearchText(item: JobsQuotingItem) {
     item.splitIdentifier,
     item.pdfFileName,
     getExtractionValue(item.extractionData, 'd_number'),
-    getExtractionValue(item.extractionData, 'job_number'),
+    getItemJobNumber(item),
   ]
     .join(' ')
     .toLowerCase()
 }
 
 function getItemJobNumber(item: JobsQuotingItem) {
-  return getExtractionValue(item.extractionData, 'job_number').trim()
+  return (item.jobNumber || getExtractionValue(item.extractionData, 'job_number')).trim()
 }
 
 function getItemDNumber(item: JobsQuotingItem) {

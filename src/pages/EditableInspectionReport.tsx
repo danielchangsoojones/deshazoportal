@@ -24,6 +24,7 @@ import {
 import {
   getEditableInspectionReport,
   getEditableInspectionReportForJobsQuotingItem,
+  getEditableInspectionReportsForJobNumber,
   getEditableInspectionReports,
   saveEditableInspectionReport,
   type EditableInspectionReport,
@@ -714,6 +715,583 @@ const createSimplePdfFile = (fileName: string, title: string, lines: string[]) =
   return new File([new Blob([pdf], { type: 'application/pdf' })], fileName, { type: 'application/pdf' })
 }
 
+type CombinedReportPdfSource = {
+  dNumber: string
+  reportName: string
+  payload: EditableInspectionReportPayload
+}
+
+const escapeHtml = (value: string | number) =>
+  String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const sanitizePdfText = (text: string) =>
+  text
+    .replace(/[–—]/g, '-')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[^\x20-\x7E]/g, '')
+
+const wrapPdfLine = (line: string, maxLength = 92) => {
+  const words = sanitizePdfText(line).split(/\s+/)
+  const wrappedLines: string[] = []
+  let currentLine = ''
+
+  words.forEach((word) => {
+    if (!word) return
+    if (!currentLine) {
+      currentLine = word
+      return
+    }
+    if (`${currentLine} ${word}`.length <= maxLength) {
+      currentLine = `${currentLine} ${word}`
+      return
+    }
+    wrappedLines.push(currentLine)
+    currentLine = word
+  })
+
+  if (currentLine) wrappedLines.push(currentLine)
+  return wrappedLines.length > 0 ? wrappedLines : ['']
+}
+
+const chunkPdfLines = (lines: string[], maxLinesPerPage = 48) => {
+  const pages: string[][] = []
+  let currentPage: string[] = []
+
+  lines.forEach((line) => {
+    const wrappedLines = line ? wrapPdfLine(line) : ['']
+    wrappedLines.forEach((wrappedLine) => {
+      if (currentPage.length >= maxLinesPerPage) {
+        pages.push(currentPage)
+        currentPage = []
+      }
+      currentPage.push(wrappedLine)
+    })
+  })
+
+  if (currentPage.length > 0) pages.push(currentPage)
+  return pages
+}
+
+const getPdfLineItemSummary = (lineItem: RepairLineItem, sectionId?: string, settings = defaultEquipmentRentalSettings) => {
+  const customerAmount = sectionId
+    ? getCostCustomerLineAmount(sectionId, lineItem, settings)
+    : getCustomerLineAmount(lineItem)
+  return [
+    lineItem.description,
+    `Qty ${lineItem.quantity || '1'}`,
+    `Customer ${formatMoney(customerAmount)}`,
+  ].join(' | ')
+}
+
+const getReportPdfLines = (source: CombinedReportPdfSource) => {
+  const { payload } = source
+  const reportData = payload.reportData
+  const repairSections = normalizeRepairSections(payload.repairSections as RepairSection[])
+  const costSections = normalizeCostSections(payload.costSections as CostSection[])
+  const equipmentSettings = {
+    ...defaultEquipmentRentalSettings,
+    ...payload.equipmentRentalSettings,
+  } as EquipmentRentalSettings
+  const lines = [
+    `D Number: ${source.dNumber}`,
+    `Report: ${source.reportName}`,
+    `Job Number: ${getJobNumberDisplayFromReport(reportData)}`,
+    '',
+    reportData.customer,
+    reportData.date,
+    reportData.summary,
+    reportData.type,
+    reportData.structure,
+    reportData.description,
+    reportData.location,
+    reportData.customerAddress,
+    reportData.purchaseOrder,
+    '',
+    'Contact',
+    `Name: ${reportData.contactName || '---'}`,
+    `Email: ${reportData.contactEmail || '---'}`,
+    `Phone: ${reportData.contactPhone || '---'}`,
+    '',
+    reportData.scopeOfWorkHeader || 'Scope of Work',
+    reportData.scopeOfWork || '---',
+    '',
+    'Repair Items',
+  ]
+
+  repairSections.forEach((section) => {
+    lines.push('', `${section.title} (${section.status || 'Repair'})`)
+    section.lineItems.forEach((lineItem) => {
+      lines.push(getPdfLineItemSummary(lineItem))
+    })
+  })
+
+  lines.push('', 'Estimate Summary')
+  costSections.forEach((section) => {
+    lines.push('', section.title)
+    section.lineItems.forEach((lineItem) => {
+      lines.push(getPdfLineItemSummary(lineItem, section.id, equipmentSettings))
+    })
+  })
+
+  const repairTotal = repairSections.reduce(
+    (total, section) =>
+      total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+    0,
+  )
+  const costTotal = costSections.reduce(
+    (total, section) =>
+      total + section.lineItems.reduce(
+        (sectionTotal, lineItem) => sectionTotal + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
+        0,
+      ),
+    0,
+  )
+
+  lines.push('', `Grand Total: ${formatMoney(repairTotal + costTotal)}`, '', reportData.notesHeader || 'Additional Notes', reportData.notes || '---')
+  return lines
+}
+
+const createCombinedReportsPdfBlob = (sources: CombinedReportPdfSource[]) => {
+  const pageLineSets = sources.flatMap((source) =>
+    chunkPdfLines(getReportPdfLines(source)).map((lines, pageIndex) => ({
+      title: `${source.dNumber} - ${source.reportName}${pageIndex > 0 ? ` (continued ${pageIndex + 1})` : ''}`,
+      lines,
+    })),
+  )
+
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    `2 0 obj\n<< /Type /Pages /Kids [${pageLineSets.map((_, index) => `${3 + index} 0 R`).join(' ')}] /Count ${pageLineSets.length} >>\nendobj\n`,
+  ]
+  const contentObjects: string[] = []
+  const fontObjectId = 3 + pageLineSets.length * 2
+
+  pageLineSets.forEach((page, index) => {
+    const pageObjectId = 3 + index
+    const contentObjectId = 3 + pageLineSets.length + index
+    const contentLines = [
+      'BT',
+      '/F1 13 Tf',
+      '54 760 Td',
+      `(${escapePdfText(sanitizePdfText(page.title))}) Tj`,
+      '/F1 9 Tf',
+      '0 -22 Td',
+      ...page.lines.flatMap((line) => [`(${escapePdfText(sanitizePdfText(line))}) Tj`, '0 -12 Td']),
+      'ET',
+    ]
+    const content = contentLines.join('\n')
+
+    objects.push(`${pageObjectId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>\nendobj\n`)
+    contentObjects.push(`${contentObjectId} 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`)
+  })
+
+  objects.push(...contentObjects)
+  objects.push(`${fontObjectId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`)
+
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+
+  objects.forEach((object) => {
+    offsets.push(pdf.length)
+    pdf += object
+  })
+
+  const xrefOffset = pdf.length
+  pdf += `xref\n0 ${objects.length + 1}\n`
+  pdf += '0000000000 65535 f \n'
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
+  })
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+
+  return new Blob([pdf], { type: 'application/pdf' })
+}
+
+const getTemplateValue = (value: string | undefined) => escapeHtml(value?.trim() || '---')
+
+const getTemplateReportCell = (label: string, value: string | undefined) => `
+  <div class="info-cell">
+    <div class="cell-label">${escapeHtml(label)}</div>
+    <div class="cell-value">${getTemplateValue(removeReportValueLabel(value ?? ''))}</div>
+  </div>
+`
+
+const getTemplateLineItemRows = (
+  lineItems: RepairLineItem[],
+  getCustomerAmount: (lineItem: RepairLineItem) => number,
+) =>
+  lineItems
+    .map((lineItem) => `
+      <tr>
+        <td>${escapeHtml(lineItem.description || '---')}</td>
+        <td class="qty">${escapeHtml(lineItem.quantity || '1')}</td>
+        <td class="money">${formatMoney(getCustomerUnitPrice(lineItem))}</td>
+        <td class="money">${formatMoney(getCustomerAmount(lineItem))}</td>
+      </tr>
+    `)
+    .join('')
+
+const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
+  const reportMarkup = sources.map((source) => {
+    const reportData = normalizeReport(source.payload.reportData)
+    const repairSections = normalizeRepairSections(source.payload.repairSections as RepairSection[])
+    const costSections = normalizeCostSections(source.payload.costSections as CostSection[])
+    const equipmentSettings = {
+      ...defaultEquipmentRentalSettings,
+      ...source.payload.equipmentRentalSettings,
+    } as EquipmentRentalSettings
+    const repairTotal = repairSections.reduce(
+      (total, section) =>
+        total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+      0,
+    )
+    const costTotal = costSections.reduce(
+      (total, section) =>
+        total + section.lineItems.reduce(
+          (sectionTotal, lineItem) =>
+            sectionTotal + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
+          0,
+        ),
+      0,
+    )
+    const repairMarkup = repairSections
+      .map((section) => `
+        <section class="quote-section repair-section">
+          <div class="section-title">
+            <span>${escapeHtml(section.title)}</span>
+            <span class="status">${escapeHtml(section.status || 'Repair')}</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Customer Price</th>
+                <th>Total Customer Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${getTemplateLineItemRows(section.lineItems, getCustomerLineAmount)}
+              <tr class="subtotal">
+                <td colspan="3">Section Subtotal</td>
+                <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      `)
+      .join('')
+
+    const costMarkup = costSections
+      .map((section) => `
+        <section class="quote-section">
+          <div class="section-title estimate-title">${escapeHtml(section.title)}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Customer Price</th>
+                <th>Total Customer Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${getTemplateLineItemRows(section.lineItems, (lineItem) =>
+                getCostCustomerLineAmount(section.id, lineItem, equipmentSettings)
+              )}
+              <tr class="subtotal">
+                <td colspan="3">Subtotal</td>
+                <td class="money">${formatMoney(section.lineItems.reduce(
+                  (total, lineItem) => total + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
+                  0,
+                ))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      `)
+      .join('')
+
+    return `
+      <article class="report-page">
+        <header class="report-header">
+          <div class="brand-block">
+            <div class="brand">${escapeHtml(reportData.logoName || 'DESHAZO')}</div>
+            <div class="tagline">${escapeHtml(reportData.logoTagline || 'CRANES / SERVICE / AUTOMATION')}</div>
+          </div>
+          <div class="branch">
+            <div>${escapeHtml(reportData.branch || '')}</div>
+            <div>${escapeHtml(reportData.phone || '')}</div>
+          </div>
+          <h1>${escapeHtml(reportData.title || 'QUOTE PROPOSAL')}</h1>
+        </header>
+
+        <div class="summary-row">
+          <div class="crane-mark" aria-hidden="true"></div>
+          <div>${escapeHtml(reportData.summary || source.dNumber)}</div>
+          <div>${escapeHtml(reportData.type || '')}</div>
+          <div>${escapeHtml(reportData.date || '')}</div>
+        </div>
+
+        <div class="details-grid">
+          ${getTemplateReportCell('Structure', reportData.structure)}
+          ${getTemplateReportCell('Description', reportData.description)}
+          ${getTemplateReportCell('Customer', reportData.customer)}
+          ${getTemplateReportCell('Purchase Order', reportData.purchaseOrder)}
+          ${getTemplateReportCell('Job #', reportData.jobNumber)}
+          ${getTemplateReportCell('Location', reportData.location)}
+          ${getTemplateReportCell('Customer Address', reportData.customerAddress)}
+        </div>
+
+        <div class="equipment-grid">
+          ${getTemplateReportCell('Manufacturer', reportData.manufacturerCrane)}
+          ${getTemplateReportCell('Serial Number', reportData.serialCrane)}
+          ${getTemplateReportCell('Capacity', reportData.capacityCrane)}
+          ${getTemplateReportCell('Model #', reportData.modelCrane)}
+          ${getTemplateReportCell('Hoist 1 Manufacturer', reportData.manufacturerHoist)}
+          ${getTemplateReportCell('Hoist 1 Serial', reportData.serialHoist)}
+          ${getTemplateReportCell('Hoist 1 Capacity', reportData.capacityHoist)}
+          ${getTemplateReportCell('Hoist 1 Model', reportData.modelHoist)}
+        </div>
+
+        <section class="contact-row">
+          <div><strong>Contact</strong></div>
+          <div>Name: ${getTemplateValue(reportData.contactName)}</div>
+          <div>Email: ${getTemplateValue(reportData.contactEmail)}</div>
+          <div>Phone: ${getTemplateValue(reportData.contactPhone)}</div>
+        </section>
+
+        <section class="scope">
+          <h2>${escapeHtml(reportData.scopeOfWorkHeader || 'Scope of Work')}</h2>
+          <p>${escapeHtml(reportData.scopeOfWork || '---')}</p>
+        </section>
+
+        <h2 class="band">Repair Items</h2>
+        ${repairMarkup}
+
+        <h2 class="band">Estimate Summary</h2>
+        ${costMarkup}
+
+        <section class="grand-total">
+          <div>
+            <span>Total</span>
+            <strong>${formatMoney(repairTotal + costTotal)}</strong>
+          </div>
+        </section>
+
+        <section class="notes">
+          <h2>${escapeHtml(reportData.notesHeader || 'Additional Notes')}</h2>
+          <p>${escapeHtml(reportData.notes || '---')}</p>
+        </section>
+      </article>
+    `
+  }).join('')
+
+  return `<!doctype html>
+    <html>
+      <head>
+        <title>Combined Editable Inspection Reports</title>
+        <style>
+          @page { size: 8.5in 11in; margin: 0.45in; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            background: #e8eaef;
+            color: #111;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+          }
+          .report-page {
+            width: 7.6in;
+            min-height: 10.1in;
+            margin: 0 auto 28px;
+            background: #fff;
+            padding: 0.08in 0.22in 0.18in;
+            page-break-after: always;
+            break-after: page;
+          }
+          .report-page:last-child { page-break-after: auto; break-after: auto; }
+          .report-header {
+            display: grid;
+            grid-template-columns: 1.25fr 1fr 1fr;
+            align-items: center;
+            gap: 12px;
+            min-height: 0.54in;
+            background: #f5bd00;
+            padding: 8px 14px;
+          }
+          .brand { color: #001a33; font-size: 24px; font-weight: 900; line-height: 0.9; }
+          .tagline { margin-top: 3px; color: #111; font-size: 7px; font-weight: 900; text-transform: uppercase; }
+          .branch { color: #111; font-size: 8px; font-weight: 900; line-height: 1.35; }
+          h1 { margin: 0; color: #111; font-size: 15px; font-weight: 900; text-align: right; text-transform: uppercase; }
+          .summary-row {
+            display: grid;
+            grid-template-columns: 34px 1fr 1fr 1fr;
+            align-items: center;
+            gap: 8px;
+            min-height: 36px;
+            border-bottom: 1px solid #d4d4d4;
+            padding: 6px 0;
+            font-size: 9px;
+            font-weight: 900;
+          }
+          .crane-mark {
+            position: relative;
+            width: 24px;
+            height: 24px;
+            border-top: 2px solid #111;
+            border-left: 2px solid #111;
+            border-right: 2px solid #111;
+          }
+          .crane-mark::before {
+            content: "";
+            position: absolute;
+            left: 10px;
+            top: 0;
+            height: 22px;
+            border-left: 2px solid #111;
+          }
+          .crane-mark::after {
+            content: "";
+            position: absolute;
+            left: 7px;
+            top: 15px;
+            width: 8px;
+            height: 8px;
+            border: 1px solid #111;
+          }
+          .details-grid, .equipment-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            border-top: 1px solid #d4d4d4;
+            border-left: 1px solid #d4d4d4;
+          }
+          .details-grid { grid-template-columns: repeat(4, 1fr); }
+          .info-cell {
+            min-height: 25px;
+            border-right: 1px solid #d4d4d4;
+            border-bottom: 1px solid #d4d4d4;
+            padding: 3px 6px;
+          }
+          .cell-label { color: #111; font-size: 7px; font-weight: 900; }
+          .cell-value { margin-top: 2px; color: #111; font-size: 8px; font-weight: 900; overflow-wrap: anywhere; }
+          .contact-row {
+            display: grid;
+            grid-template-columns: 0.8fr 1fr 1.25fr 1fr;
+            margin-top: 12px;
+            border: 1px solid #d4d4d4;
+            background: #fafafa;
+          }
+          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+          .contact-row div:last-child { border-right: 0; }
+          .scope {
+            margin-top: 12px;
+            border: 1px solid #d4d4d4;
+          }
+          .scope h2, .notes h2, .band {
+            margin: 0;
+            background: #f2f2f2;
+            border-bottom: 1px solid #d4d4d4;
+            padding: 8px 10px;
+            font-size: 14px;
+            font-weight: 900;
+          }
+          .scope p, .notes p {
+            margin: 0;
+            min-height: 0.56in;
+            padding: 9px 10px;
+            white-space: pre-wrap;
+            line-height: 1.38;
+          }
+          .band {
+            margin-top: 12px;
+            border: 1px solid #d4d4d4;
+          }
+          .quote-section {
+            border-right: 1px solid #d4d4d4;
+            border-bottom: 1px solid #d4d4d4;
+            border-left: 1px solid #d4d4d4;
+            break-inside: avoid;
+          }
+          .section-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            border-bottom: 1px solid #d8d8d8;
+            background: #f7f7f7;
+            padding: 5px 8px;
+            color: #111;
+            font-size: 10px;
+            font-weight: 900;
+          }
+          .estimate-title { color: #273f7a; text-transform: uppercase; }
+          .repair-section { background: #f4e3e3; }
+          .repair-section table { background: #fff; }
+          .status {
+            min-width: 95px;
+            background: #efc9c9;
+            color: #7d1515;
+            padding: 3px 7px;
+            font-size: 9px;
+            text-align: left;
+          }
+          .status::before { content: "!"; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; margin-right: 4px; border-radius: 50%; background: #af0f0f; color: #fff; font-size: 8px; font-weight: 900; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          th {
+            background: #fbfbfb;
+            color: #555b66;
+            border-bottom: 1px solid #d8d8d8;
+            border-right: 1px solid #d8d8d8;
+            padding: 5px 6px;
+            font-size: 7px;
+            font-weight: 900;
+            text-align: left;
+            text-transform: uppercase;
+          }
+          td {
+            border-bottom: 1px solid #e5e5e5;
+            border-right: 1px solid #e5e5e5;
+            padding: 6px;
+            font-size: 9px;
+            font-weight: 900;
+            vertical-align: top;
+            overflow-wrap: anywhere;
+          }
+          th:first-child, td:first-child { width: 56%; }
+          .money, .qty { text-align: right; white-space: nowrap; }
+          .subtotal td { background: #fbfbfb; font-weight: 900; text-transform: uppercase; }
+          .grand-total {
+            display: grid;
+            grid-template-columns: 1fr;
+            margin-top: 12px;
+            margin-left: auto;
+            width: 2.2in;
+            border: 2px solid #111;
+          }
+          .grand-total div {
+            padding: 9px;
+            color: #111;
+          }
+          .grand-total span { display: block; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+          .grand-total strong { display: block; margin-top: 4px; color: #111; font-size: 15px; font-weight: 900; }
+          .notes { margin-top: 12px; border: 1px solid #d4d4d4; break-inside: avoid; }
+          @media print {
+            body { background: #fff; }
+            .report-page { width: auto; min-height: auto; margin: 0; }
+          }
+        </style>
+      </head>
+      <body>${reportMarkup}</body>
+    </html>`
+}
+
 const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifier) =>
   createSimplePdfFile('master-service-agreement.pdf', 'Master Service Agreement', [
     'DESHAZO service pricing reference for quote proposal preparation.',
@@ -1106,6 +1684,12 @@ export default function EditableInspectionReport() {
   const [menuItemUploaderNames, setMenuItemUploaderNames] = useState<Record<string, string>>({})
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
+  const [jobReportPrintMenuOpen, setJobReportPrintMenuOpen] = useState(false)
+  const [jobReportPrintReports, setJobReportPrintReports] = useState<EditableInspectionReport[]>([])
+  const [selectedJobReportPrintIds, setSelectedJobReportPrintIds] = useState<Set<string>>(() => new Set())
+  const [jobReportPrintLoading, setJobReportPrintLoading] = useState(false)
+  const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
+  const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -1224,6 +1808,62 @@ export default function EditableInspectionReport() {
     }
   })
   const currentCraneIdentifier = useMemo(() => getCraneIdentifierFromReport(report), [report])
+  const currentJobNumber = useMemo(() => getJobNumberDisplayFromReport(report), [report])
+  const normalizedCurrentJobNumber = useMemo(
+    () => (currentJobNumber === '---' ? '' : currentJobNumber.trim()),
+    [currentJobNumber],
+  )
+  const jobReportPrintOptions = useMemo(() => {
+    const seenDNumbers = new Set<string>()
+    const currentOption = {
+      id: currentEditableReportId || 'current-report',
+      reportId: currentEditableReportId,
+      dNumber: getDNumberFromReport(report) || 'Unknown D Number',
+      reportName: currentReportName,
+      isCurrent: true,
+      payload: {
+        reportData: report,
+        repairSections,
+        costSections,
+        blockVisibility,
+        estimateNoteVisibility,
+        repairSectionVisibility,
+        textBoxes: [],
+        equipmentRentalSettings,
+      } satisfies EditableInspectionReportPayload,
+    }
+    const savedOptions = jobReportPrintReports.map((savedReport) => ({
+      id: savedReport.id,
+      reportId: savedReport.id,
+      dNumber: getDNumberFromReport(savedReport.reportData) || 'Unknown D Number',
+      reportName: savedReport.reportName,
+      isCurrent: savedReport.id === currentEditableReportId,
+      payload: getNormalizedReportPayload(savedReport),
+    }))
+
+    return [currentOption, ...savedOptions]
+      .filter((option) => {
+        const uniqueKey = option.dNumber.toUpperCase()
+        if (seenDNumbers.has(uniqueKey)) return false
+        seenDNumbers.add(uniqueKey)
+      return true
+    })
+  }, [
+    blockVisibility,
+    costSections,
+    currentEditableReportId,
+    currentReportName,
+    equipmentRentalSettings,
+    estimateNoteVisibility,
+    jobReportPrintReports,
+    repairSectionVisibility,
+    repairSections,
+    report,
+  ])
+  const selectedJobReportPrintCount = useMemo(
+    () => jobReportPrintOptions.filter((option) => selectedJobReportPrintIds.has(option.id)).length,
+    [jobReportPrintOptions, selectedJobReportPrintIds],
+  )
   const currentEditableReportPayload = useMemo<EditableInspectionReportPayload>(
     () => ({
       reportData: report,
@@ -1569,7 +2209,7 @@ export default function EditableInspectionReport() {
             return
           }
 
-          applyEditableReportPayload({
+          const editableReportPayload = {
             reportData: quoteReport,
             repairSections: buildRepairSectionsFromJobsQuotingItem(quoteItem),
             costSections: defaultCostSections,
@@ -1578,12 +2218,24 @@ export default function EditableInspectionReport() {
             repairSectionVisibility: {},
             textBoxes: [],
             equipmentRentalSettings: defaultEquipmentRentalSettings,
+          }
+          const reportName = getEditableReportDisplayName(quoteReport, quoteItem.documentName)
+          const savedReport = await saveEditableInspectionReport({
+            ...editableReportPayload,
+            id: null,
+            jobsQuotingItemId: quoteItem.id,
+            reportName,
+            sourceDocumentName: quoteItem.documentName,
           })
-          setCurrentEditableReportId('')
-          setCurrentReportName(getEditableReportDisplayName(quoteReport, quoteItem.documentName))
-          setCurrentSourceDocumentName(quoteItem.documentName)
-          setCurrentJobsQuotingItemId(quoteItem.id)
+          if (!active) return
+
+          applyEditableReportPayload(editableReportPayload)
+          setCurrentEditableReportId(savedReport.id)
+          setCurrentReportName(savedReport.reportName)
+          setCurrentSourceDocumentName(savedReport.sourceDocumentName)
+          setCurrentJobsQuotingItemId(savedReport.jobsQuotingItemId)
           setReportDatabaseStatus('saved')
+          setSearchParams({ editableReportId: savedReport.id }, { replace: true })
         } else {
           setCurrentEditableReportId('')
           setCurrentReportName('Untitled quote report')
@@ -2136,7 +2788,9 @@ export default function EditableInspectionReport() {
       })
   }
 
-  const addMenuItemToRecentlyUsed = (_item: MenuItem) => {}
+  const addMenuItemToRecentlyUsed = (item: MenuItem) => {
+    void item
+  }
 
   const createId = (prefix: string) => {
     if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`
@@ -2624,6 +3278,37 @@ export default function EditableInspectionReport() {
     })
   }
 
+  const refreshJobReportPrintReports = useCallback(async () => {
+    if (!isConfigured) {
+      setJobReportPrintReports([])
+      setJobReportPrintMessage('Supabase is not configured.')
+      return []
+    }
+
+    if (!normalizedCurrentJobNumber) {
+      setJobReportPrintReports([])
+      setJobReportPrintMessage('No job number found for this report.')
+      return []
+    }
+
+    setJobReportPrintLoading(true)
+    setJobReportPrintMessage('')
+
+    try {
+      const reportsForJob = await getEditableInspectionReportsForJobNumber(normalizedCurrentJobNumber)
+      setJobReportPrintReports(reportsForJob)
+      setJobReportPrintMessage(reportsForJob.length > 0 ? '' : 'No saved reports found for this job number.')
+      return reportsForJob
+    } catch (error) {
+      setJobReportPrintReports([])
+      setJobReportPrintMessage('Could not load reports for this job number.')
+      console.error('Editable reports for job number could not be loaded.', error)
+      return []
+    } finally {
+      setJobReportPrintLoading(false)
+    }
+  }, [normalizedCurrentJobNumber])
+
   const printEditableReport = () => {
     const previousTitle = document.title
     document.title = currentReportName || 'DESHAZO Quote Proposal'
@@ -2636,6 +3321,87 @@ export default function EditableInspectionReport() {
     window.addEventListener('afterprint', restoreTitle)
     window.print()
     window.setTimeout(restoreTitle, 1000)
+  }
+
+  const openJobReportPrintMenu = async () => {
+    setJobReportPrintMenuOpen((isOpen) => !isOpen)
+    if (!jobReportPrintMenuOpen) {
+      await refreshJobReportPrintReports()
+    }
+  }
+
+  const toggleJobReportPrintSelection = (optionId: string) => {
+    setJobReportPrintDownloadMessage('')
+    setSelectedJobReportPrintIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+      if (nextIds.has(optionId)) {
+        nextIds.delete(optionId)
+      } else {
+        nextIds.add(optionId)
+      }
+      return nextIds
+    })
+  }
+
+  const downloadCheckedJobReportsPdf = () => {
+    const selectedSources = jobReportPrintOptions
+      .filter((option) => selectedJobReportPrintIds.has(option.id))
+      .map((option) => ({
+        dNumber: option.dNumber,
+        reportName: option.reportName,
+        payload: option.payload,
+      }))
+
+    if (selectedSources.length === 0) {
+      setJobReportPrintDownloadMessage('Select at least one D number.')
+      return
+    }
+
+    const printWindow = window.open('', '_blank')
+
+    if (printWindow) {
+      printWindow.document.write(getCombinedReportTemplateHtml(selectedSources))
+      printWindow.document.close()
+      printWindow.focus()
+      printWindow.setTimeout(() => {
+        printWindow.print()
+      }, 250)
+      setJobReportPrintDownloadMessage(`Opened ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'} for PDF download.`)
+      return
+    }
+
+    const blob = createCombinedReportsPdfBlob(selectedSources)
+    const downloadUrl = URL.createObjectURL(blob)
+    const downloadLink = document.createElement('a')
+    downloadLink.href = downloadUrl
+    downloadLink.download = `editable-inspection-reports-${normalizedCurrentJobNumber || 'selected'}.pdf`
+    document.body.appendChild(downloadLink)
+    downloadLink.click()
+    downloadLink.remove()
+    URL.revokeObjectURL(downloadUrl)
+    setJobReportPrintDownloadMessage('Popup blocked. Downloaded a simplified PDF instead.')
+  }
+
+  const selectJobReportPrintOption = (option: (typeof jobReportPrintOptions)[number]) => {
+    setJobReportPrintMenuOpen(false)
+
+    if (option.isCurrent || !option.reportId) {
+      printEditableReport()
+      return
+    }
+
+    setSearchParams({ editableReportId: option.reportId })
+  }
+
+  const openJobReportInNewTab = (option: (typeof jobReportPrintOptions)[number]) => {
+    const reportUrl = new URL('/editable-inspection-report', window.location.origin)
+    if (option.reportId) {
+      reportUrl.searchParams.set('editableReportId', option.reportId)
+    } else {
+      window.open(window.location.href, '_blank', 'noopener,noreferrer')
+      return
+    }
+    window.open(reportUrl.toString(), '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -3002,13 +3768,101 @@ export default function EditableInspectionReport() {
             >
               Reset
             </button>
-            <button
-              type="button"
-              onClick={printEditableReport}
-              className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.55)] transition hover:bg-[var(--deshazo-surface)]"
-            >
-              Print PDF
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  void openJobReportPrintMenu()
+                }}
+                className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.55)] transition hover:bg-[var(--deshazo-surface)]"
+                aria-haspopup="menu"
+                aria-expanded={jobReportPrintMenuOpen}
+              >
+                Print PDF
+              </button>
+              {jobReportPrintMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-[calc(100%+8px)] z-40 w-[240px] overflow-hidden rounded-md border border-[#d8dce8] bg-white text-[#1f2430] shadow-[0_20px_50px_-28px_rgba(21,32,57,0.5)]"
+                >
+                  <div className="border-b border-[#edf0f6] px-3 py-2 text-[11px] font-black uppercase tracking-[0.08em] text-[#6f7788]">
+                    Job {normalizedCurrentJobNumber || '---'}
+                  </div>
+                  {jobReportPrintLoading ? (
+                    <div className="px-3 py-3 text-[12px] font-bold text-[#747b8a]">Loading D numbers...</div>
+                  ) : jobReportPrintOptions.length > 0 ? (
+                    <div className="max-h-[280px] overflow-y-auto py-1">
+                      {jobReportPrintOptions.map((option) => (
+                        <div
+                          key={option.id}
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 px-3 py-2 transition hover:bg-[#f5f7ff]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedJobReportPrintIds.has(option.id)}
+                            onChange={() => toggleJobReportPrintSelection(option.id)}
+                            className="h-4 w-4 shrink-0 accent-[#273f7a]"
+                            aria-label={`Select ${option.dNumber}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => selectJobReportPrintOption(option)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-[13px] font-black text-[#1f2430]">{option.dNumber}</span>
+                              {option.isCurrent ? (
+                                <span className="shrink-0 rounded-sm bg-[#e8eefc] px-1.5 py-0.5 text-[10px] font-black uppercase text-[#273f7a]">
+                                  Current
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[11px] font-semibold text-[#747b8a]">{option.reportName}</span>
+                          </button>
+                          {option.isCurrent ? null : (
+                            <button
+                              type="button"
+                              onClick={() => openJobReportInNewTab(option)}
+                              className="shrink-0 rounded-md border border-[#d6dbe9] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#273f7a] transition hover:border-[#b9c4e4] hover:bg-[#eef3ff]"
+                            >
+                              Open
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-3 text-[12px] font-bold text-[#747b8a]">
+                      {jobReportPrintMessage || 'No D numbers found.'}
+                    </div>
+                  )}
+                  <div className="border-t border-[#edf0f6] p-2">
+                    <button
+                      type="button"
+                      onClick={downloadCheckedJobReportsPdf}
+                      className="mb-2 w-full rounded-md bg-[#1f2430] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#343b4d] disabled:cursor-not-allowed disabled:bg-[#a7adba]"
+                      disabled={selectedJobReportPrintCount === 0}
+                    >
+                      Download Checked PDF{selectedJobReportPrintCount > 0 ? ` (${selectedJobReportPrintCount})` : ''}
+                    </button>
+                    {jobReportPrintDownloadMessage ? (
+                      <div className="mb-2 px-1 text-[11px] font-bold text-[#747b8a]">{jobReportPrintDownloadMessage}</div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJobReportPrintMenuOpen(false)
+                        printEditableReport()
+                      }}
+                      className="w-full rounded-md bg-[#273f7a] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#1f3261]"
+                    >
+                      Print Current Report
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </header>

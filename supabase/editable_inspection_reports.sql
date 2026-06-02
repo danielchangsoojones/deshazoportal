@@ -3,6 +3,7 @@ create table if not exists public.editable_inspection_reports (
   user_id uuid not null references auth.users (id) on delete cascade,
   jobs_quoting_item_id uuid references public.jobs_quoting_items (id) on delete set null,
   report_name text not null,
+  job_number text,
   source_document_name text,
   report_data jsonb not null default '{}'::jsonb,
   repair_sections jsonb not null default '[]'::jsonb,
@@ -18,8 +19,38 @@ create table if not exists public.editable_inspection_reports (
     check (char_length(btrim(report_name)) > 0)
 );
 
+alter table public.editable_inspection_reports
+  add column if not exists job_number text;
+
+update public.editable_inspection_reports
+set job_number = nullif(
+  btrim(
+    regexp_replace(
+      regexp_replace(coalesce(report_data ->> 'jobNumber', ''), '^job\s*#?\s*:\s*', '', 'i'),
+      '^#\s*',
+      ''
+    )
+  ),
+  ''
+)
+where job_number is null
+  and nullif(
+    btrim(
+      regexp_replace(
+        regexp_replace(coalesce(report_data ->> 'jobNumber', ''), '^job\s*#?\s*:\s*', '', 'i'),
+        '^#\s*',
+        ''
+      )
+    ),
+    ''
+  ) is not null;
+
 create index if not exists editable_inspection_reports_user_updated_idx
   on public.editable_inspection_reports (user_id, updated_at desc);
+
+create index if not exists editable_inspection_reports_user_job_number_idx
+  on public.editable_inspection_reports (user_id, job_number)
+  where job_number is not null;
 
 create index if not exists editable_inspection_reports_user_jobs_quoting_item_idx
   on public.editable_inspection_reports (user_id, jobs_quoting_item_id)
