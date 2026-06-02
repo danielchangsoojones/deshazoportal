@@ -1,8 +1,21 @@
-const defaultNotebookApiUrl = 'http://127.0.0.1:8000'
+const defaultNotebookApiUrl = '/notebook-api'
 
 const notebookApiUrl =
   (import.meta.env.VITE_EQUIPMENT_NOTEBOOK_API_URL as string | undefined)?.trim().replace(/\/$/, '') ||
   defaultNotebookApiUrl
+
+async function fetchNotebook(path: string, init?: RequestInit) {
+  try {
+    return await fetch(`${notebookApiUrl}${path}`, init)
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Notebook API is unreachable at ${notebookApiUrl}. Start the notebook API server or set VITE_EQUIPMENT_NOTEBOOK_API_URL to the running API. If the server is already running, check its CORS settings.`,
+      )
+    }
+    throw error
+  }
+}
 
 export type NotebookSource = {
   index: number
@@ -36,7 +49,7 @@ export type NotebookPdfInfo = {
 }
 
 export async function getNotebookSources(signal?: AbortSignal) {
-  const response = await fetch(`${notebookApiUrl}/sources`, { signal })
+  const response = await fetchNotebook('/sources', { signal })
   if (!response.ok) {
     throw new Error(`Notebook sources failed with status ${response.status}`)
   }
@@ -44,7 +57,7 @@ export async function getNotebookSources(signal?: AbortSignal) {
 }
 
 export async function askNotebook(message: string, sourceIndex: number | null, signal?: AbortSignal) {
-  const response = await fetch(`${notebookApiUrl}/chat`, {
+  const response = await fetchNotebook('/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -67,7 +80,7 @@ export async function uploadNotebookPdf(file: File, documentType: 'manual' | 'in
   formData.append('file', file)
   formData.append('document_type', documentType)
 
-  const response = await fetch(`${notebookApiUrl}/upload`, {
+  const response = await fetchNotebook('/upload', {
     method: 'POST',
     body: formData,
   })
@@ -80,7 +93,7 @@ export async function uploadNotebookPdf(file: File, documentType: 'manual' | 'in
 }
 
 export async function deleteNotebookSource(sourceIndex: number) {
-  const response = await fetch(`${notebookApiUrl}/sources/${sourceIndex}`, { method: 'DELETE' })
+  const response = await fetchNotebook(`/sources/${sourceIndex}`, { method: 'DELETE' })
   if (!response.ok) {
     throw new Error(`Notebook source removal failed with status ${response.status}`)
   }
@@ -88,7 +101,7 @@ export async function deleteNotebookSource(sourceIndex: number) {
 }
 
 export async function reindexNotebook() {
-  const response = await fetch(`${notebookApiUrl}/reindex`, { method: 'POST' })
+  const response = await fetchNotebook('/reindex', { method: 'POST' })
   if (!response.ok) {
     throw new Error(`Notebook reindex failed with status ${response.status}`)
   }
@@ -96,7 +109,7 @@ export async function reindexNotebook() {
 }
 
 export async function getNotebookPdfInfo(sourceIndex: number, signal?: AbortSignal) {
-  const response = await fetch(`${notebookApiUrl}/pdf-info/${sourceIndex}`, { signal })
+  const response = await fetchNotebook(`/pdf-info/${sourceIndex}`, { signal })
   if (!response.ok) {
     throw new Error(`Notebook PDF info failed with status ${response.status}`)
   }

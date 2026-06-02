@@ -10,7 +10,7 @@ import {
   getNotebookPdfInfo,
   getNotebookSources,
   notebookApiUrl,
-  notebookPdfPageImageUrl,
+  notebookPdfUrl,
   reindexNotebook,
   uploadNotebookPdf,
   type NotebookCitation,
@@ -44,10 +44,6 @@ type RankedInspection = JobsQuotingItem & {
   reasons: string[]
 }
 
-type RelevanceItem =
-  | { kind: 'source'; score: number; item: RankedSource }
-  | { kind: 'inspection'; score: number; item: RankedInspection }
-
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
   { label: 'Open Risk Items', href: '/asset-fleet-assets?view=open-risk' },
@@ -70,7 +66,7 @@ const starterSession = (): ChatSession => ({
       id: crypto.randomUUID(),
       role: 'assistant',
       content:
-        'Drop an inspection report or ask for a parts list, repair plan, or quote package. I will pick the most relevant inspection reports and manuals from the folder automatically.',
+        'Drop an inspection report or manual into the source folder, then ask for a parts list, repair plan, or quote package.',
       citations: [],
       rankedSources: [],
     },
@@ -248,24 +244,6 @@ const renderMarkdown = (markdown: string) => {
 const sourceLabel = (source: NotebookSource) =>
   `${source.document_type === 'inspection' ? 'Inspection' : 'Manual'} - ${source.manufacturer}`
 
-const getRelevantItems = (rankedSources: RankedSource[], rankedInspections: RankedInspection[]): RelevanceItem[] => {
-  const manualSources = rankedSources
-    .filter((source) => source.document_type === 'manual')
-    .slice(0, 2)
-    .map((item) => ({ kind: 'source' as const, score: item.score, item }))
-  const inspectionSources = rankedSources
-    .filter((source) => source.document_type === 'inspection')
-    .slice(0, 2)
-    .map((item) => ({ kind: 'source' as const, score: item.score + 1, item }))
-  const inspections = rankedInspections
-    .slice(0, Math.max(0, 2 - inspectionSources.length))
-    .map((item) => ({ kind: 'inspection' as const, score: item.score, item }))
-
-  return [...manualSources, ...inspectionSources, ...inspections]
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 4)
-}
-
 const normalizeMatchText = (value: string) =>
   value
     .toLowerCase()
@@ -326,7 +304,7 @@ export default function EquipmentNotebookLLM() {
   const [sessions, setSessions] = useState<ChatSession[]>(() => [starterSession()])
   const [activeSessionId, setActiveSessionId] = useState(() => sessions[0]?.id ?? '')
   const [chatView, setChatView] = useState<'overview' | 'chat'>('overview')
-  const [message, setMessage] = useState('Make a table of parts I need to purchase for the repair listed in the inspection report')
+  const [message, setMessage] = useState('')
   const [activeSourceIndex, setActiveSourceIndex] = useState<number | null>(null)
   const [activeExternalPdfUrl, setActiveExternalPdfUrl] = useState('')
   const [activeExternalPdfName, setActiveExternalPdfName] = useState('')
@@ -339,8 +317,6 @@ export default function EquipmentNotebookLLM() {
   const [panelWidths, setPanelWidths] = useState({ chats: 250, sources: 280, chat: 460 })
   const [composerHeight, setComposerHeight] = useState(96)
   const messagesRef = useRef<HTMLDivElement | null>(null)
-  const viewerScrollRef = useRef<HTMLDivElement | null>(null)
-  const scrollToActivePageRef = useRef(false)
   const launchedQuoteIdRef = useRef<string | null>(null)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -369,16 +345,13 @@ export default function EquipmentNotebookLLM() {
       : activeSession?.messages.filter((item) => item.kind !== 'overview') ?? []
   const latestCitations = latestAssistant?.citations ?? []
   const latestRankedSources = latestAssistant?.rankedSources ?? rankSources(message, sources)
-  const latestRankedInspections = rankInspections(message, supabaseInspections)
-  const relevantItems = getRelevantItems(latestRankedSources, latestRankedInspections)
-  const topSourceItem = relevantItems.find((item) => item.kind === 'source')?.item as RankedSource | undefined
+  const topSourceItem = latestRankedSources[0]
   const activeSource = sources.find((source) => source.index === activeSourceIndex) ?? topSourceItem ?? sources[0]
   const pdfTitle = activeExternalPdfName || activeSource?.name || 'Source PDF'
   const manualSourceCount = sources.filter((source) => source.document_type === 'manual').length
   const inspectionSourceCount = sources.filter((source) => source.document_type === 'inspection').length
 
   const goToPage = (page: number) => {
-    scrollToActivePageRef.current = true
     setActivePage(Math.max(1, page))
   }
 
@@ -492,13 +465,6 @@ export default function EquipmentNotebookLLM() {
     return () => controller.abort()
   }, [activeExternalPdfUrl, activeSource?.index])
 
-  useEffect(() => {
-    if (activeExternalPdfUrl) return
-    if (!scrollToActivePageRef.current) return
-    document.getElementById(`notebook-page-${activePage}`)?.scrollIntoView({ block: 'start' })
-    scrollToActivePageRef.current = false
-  }, [activeExternalPdfUrl, activePage, activeSource?.index])
-
   const updateActiveSession = (updater: (session: ChatSession) => ChatSession) => {
     setSessions((current) => current.map((session) => (session.id === activeSessionId ? updater(session) : session)))
   }
@@ -508,7 +474,7 @@ export default function EquipmentNotebookLLM() {
     setSessions([session])
     setActiveSessionId(session.id)
     setChatView('overview')
-    setMessage('Make a table of parts I need to purchase for the repair listed in the inspection report')
+    setMessage('')
   }
 
   const handleReferenceClick = (citationId: number | null, page: number | null, citations: NotebookCitation[] = latestCitations) => {
@@ -525,31 +491,6 @@ export default function EquipmentNotebookLLM() {
       goToPage(citation?.page ?? page ?? 1)
       setActiveExternalPdfUrl('')
       setActiveExternalPdfName('')
-    }
-  }
-
-  const handleViewerScroll = () => {
-    const container = viewerScrollRef.current
-    if (!container || activeExternalPdfUrl) return
-
-    const pages = Array.from(container.querySelectorAll<HTMLElement>('[data-notebook-page]'))
-    if (pages.length === 0) return
-
-    const containerTop = container.getBoundingClientRect().top
-    let closestPage = activePage
-    let closestDistance = Number.POSITIVE_INFINITY
-
-    for (const pageElement of pages) {
-      const distance = Math.abs(pageElement.getBoundingClientRect().top - containerTop - 24)
-      if (distance < closestDistance) {
-        closestDistance = distance
-        closestPage = Number(pageElement.dataset.notebookPage || activePage)
-      }
-    }
-
-    if (closestPage !== activePage) {
-      scrollToActivePageRef.current = false
-      setActivePage(closestPage)
     }
   }
 
@@ -767,7 +708,6 @@ export default function EquipmentNotebookLLM() {
         )
         await addInspectionToSourceFolder(quoteItem)
         const prompt = buildOverviewPrompt(buildQuotePrompt(quoteItem))
-        setMessage(prompt)
         setChatView('overview')
         await submitQuestion(prompt, quoteItem, { kind: 'overview', hideUserMessage: true, title: 'AI Overview' })
       } catch (error) {
@@ -789,7 +729,6 @@ export default function EquipmentNotebookLLM() {
         setContextWarning(
           'This chat is using a saved quote as the primary context. If source inspections differ from this quote, confirm which one should control repair facts before purchasing parts.',
         )
-        setMessage(prompt)
         setChatView('overview')
         await submitQuestion(prompt, undefined, { kind: 'overview', hideUserMessage: true, title: 'AI Overview' })
       } catch (error) {
@@ -953,7 +892,7 @@ export default function EquipmentNotebookLLM() {
                 <div className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.52)]">
                   {sourcesLoading
                     ? 'Loading sources...'
-                    : `${manualSourceCount} manuals, ${inspectionSourceCount} inspection files, ${supabaseInspections.length} Supabase inspections`}
+                    : `${manualSourceCount} manuals, ${inspectionSourceCount} inspection files`}
                 </div>
                 <label className="mt-3 flex cursor-pointer flex-col rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white px-3 py-3 text-sm font-bold text-[var(--deshazo-blue)]">
                   <span>{uploading ? 'Uploading...' : '+ Drop or add PDF'}</span>
@@ -984,40 +923,14 @@ export default function EquipmentNotebookLLM() {
               ) : null}
 
               <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                <div className="mb-2 text-xs font-black uppercase text-[rgba(21,24,33,0.48)]">Most relevant sources</div>
+                <div className="mb-2 text-xs font-black uppercase text-[rgba(21,24,33,0.48)]">Files in source folder</div>
                 <div className="space-y-2">
-                  {relevantItems.map((relevance, index) => {
-                    if (relevance.kind === 'inspection') {
-                      const inspection = relevance.item
-                      return (
-                        <div key={inspection.id} className="rounded-lg border border-transparent bg-white/80 px-3 py-3 text-left transition hover:border-[var(--deshazo-border)]">
-                          <button
-                            type="button"
-                            onClick={() => void addInspectionToSourceFolder(inspection)}
-                            className="w-full text-left"
-                          >
-                            <span className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-black text-[var(--deshazo-blue)]">#{index + 1} Inspection</span>
-                              <span className="rounded-full bg-[#e9f8ef] px-2 py-0.5 text-[11px] font-bold text-[#287a42]">
-                                {inspection.repairCount} repairs
-                              </span>
-                            </span>
-                            <span className="mt-1 block truncate text-sm font-bold text-[var(--deshazo-text)]">{inspection.documentName}</span>
-                            <span className="mt-2 block text-xs text-[rgba(21,24,33,0.52)]">{inspection.reasons.slice(0, 2).join(' - ')}</span>
-                          </button>
-                          <button
-                            type="button"
-                            disabled={uploading}
-                            onClick={() => void addInspectionToSourceFolder(inspection)}
-                            className="mt-3 rounded-full border border-[var(--deshazo-border)] bg-white px-2 py-1 text-[10px] font-black uppercase text-[var(--deshazo-blue)] transition hover:bg-[#eef3ff] disabled:opacity-50"
-                          >
-                            Add source
-                          </button>
-                        </div>
-                      )
-                    }
-
-                    const source = relevance.item
+                  {sources.length === 0 && !sourcesLoading ? (
+                    <div className="rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white/70 px-3 py-4 text-xs font-semibold leading-5 text-[rgba(21,24,33,0.56)]">
+                      No files in the source folder yet. Drop or add a PDF to start.
+                    </div>
+                  ) : null}
+                  {sources.map((source, index) => {
                     return (
                       <div
                         key={source.index}
@@ -1040,17 +953,18 @@ export default function EquipmentNotebookLLM() {
                           <span className="flex items-center justify-between gap-2">
                             <span className="text-xs font-black text-[var(--deshazo-blue)]">#{index + 1} {source.document_type}</span>
                             <span className="rounded-full bg-[var(--deshazo-surface)] px-2 py-0.5 text-[11px] font-bold text-[var(--deshazo-blue)]">
-                              {Math.round(source.score)}
+                              PDF
                             </span>
                           </span>
                           <span className="mt-1 block truncate text-sm font-bold text-[var(--deshazo-text)]">{source.name}</span>
                           <span className="mt-1 block text-xs font-semibold text-[rgba(21,24,33,0.5)]">{sourceLabel(source)}</span>
-                          <span className="mt-2 block text-xs text-[rgba(21,24,33,0.52)]">{source.reasons.slice(0, 2).join(' - ')}</span>
+                          <span className="mt-2 block truncate text-xs text-[rgba(21,24,33,0.52)]">{source.source}</span>
                         </button>
                         <button
                           type="button"
+                          disabled={uploading}
                           onClick={() => void removeNotebookSource(source)}
-                          className="mt-3 rounded-full border border-[#f1b7b7] bg-white px-2 py-1 text-[10px] font-black uppercase text-[#a2472f] transition hover:bg-[#fff5f5]"
+                          className="mt-3 rounded-full border border-[#f1b7b7] bg-white px-2 py-1 text-[10px] font-black uppercase text-[#a2472f] transition hover:bg-[#fff5f5] disabled:opacity-50"
                         >
                           Remove source
                         </button>
@@ -1079,32 +993,12 @@ export default function EquipmentNotebookLLM() {
                     className="h-full w-full border-0"
                   />
                 ) : activeSource ? (
-                  <div ref={viewerScrollRef} onScroll={handleViewerScroll} className="h-full overflow-y-auto px-6 py-8 pb-24">
-                    <div className="mx-auto flex max-w-[980px] flex-col gap-5">
-                      {Array.from({ length: activePageCount }, (_, pageIndex) => {
-                        const page = pageIndex + 1
-                        return (
-                          <button
-                            key={`${activeSource.index}-${page}`}
-                            id={`notebook-page-${page}`}
-                            data-notebook-page={page}
-                            type="button"
-                            onClick={() => goToPage(page)}
-                            className={`block w-full rounded-sm text-left outline-offset-4 transition ${
-                              activePage === page ? 'outline outline-4 outline-[#7aa2ff]/60' : 'outline-none'
-                            }`}
-                          >
-                            <img
-                              src={notebookPdfPageImageUrl(activeSource.index, page)}
-                              alt={`${pdfTitle} page ${page}`}
-                              loading={Math.abs(page - activePage) <= 2 ? 'eager' : 'lazy'}
-                              className="mx-auto w-full bg-white shadow-[0_12px_32px_-24px_rgba(15,23,42,0.7)]"
-                            />
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
+                  <iframe
+                    key={`${activeSource.index}-${activePage}`}
+                    src={notebookPdfUrl(activeSource.index, activePage)}
+                    title={pdfTitle}
+                    className="h-full w-full border-0"
+                  />
                 ) : null}
                 <div className="absolute bottom-5 left-1/2 z-20 flex max-w-[calc(100%-40px)] -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-semibold text-[rgba(21,24,33,0.66)] shadow-[0_12px_30px_-20px_rgba(47,86,166,0.4)]">
                   <button
