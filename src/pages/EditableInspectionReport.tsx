@@ -715,6 +715,197 @@ const createSimplePdfFile = (fileName: string, title: string, lines: string[]) =
   return new File([new Blob([pdf], { type: 'application/pdf' })], fileName, { type: 'application/pdf' })
 }
 
+type CombinedReportPdfSource = {
+  dNumber: string
+  reportName: string
+  payload: EditableInspectionReportPayload
+}
+
+const sanitizePdfText = (text: string) =>
+  text
+    .replace(/[–—]/g, '-')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[^\x20-\x7E]/g, '')
+
+const wrapPdfLine = (line: string, maxLength = 92) => {
+  const words = sanitizePdfText(line).split(/\s+/)
+  const wrappedLines: string[] = []
+  let currentLine = ''
+
+  words.forEach((word) => {
+    if (!word) return
+    if (!currentLine) {
+      currentLine = word
+      return
+    }
+    if (`${currentLine} ${word}`.length <= maxLength) {
+      currentLine = `${currentLine} ${word}`
+      return
+    }
+    wrappedLines.push(currentLine)
+    currentLine = word
+  })
+
+  if (currentLine) wrappedLines.push(currentLine)
+  return wrappedLines.length > 0 ? wrappedLines : ['']
+}
+
+const chunkPdfLines = (lines: string[], maxLinesPerPage = 48) => {
+  const pages: string[][] = []
+  let currentPage: string[] = []
+
+  lines.forEach((line) => {
+    const wrappedLines = line ? wrapPdfLine(line) : ['']
+    wrappedLines.forEach((wrappedLine) => {
+      if (currentPage.length >= maxLinesPerPage) {
+        pages.push(currentPage)
+        currentPage = []
+      }
+      currentPage.push(wrappedLine)
+    })
+  })
+
+  if (currentPage.length > 0) pages.push(currentPage)
+  return pages
+}
+
+const getPdfLineItemSummary = (lineItem: RepairLineItem, sectionId?: string, settings = defaultEquipmentRentalSettings) => {
+  const customerAmount = sectionId
+    ? getCostCustomerLineAmount(sectionId, lineItem, settings)
+    : getCustomerLineAmount(lineItem)
+  return [
+    lineItem.description,
+    `Qty ${lineItem.quantity || '1'}`,
+    `Internal ${formatMoney(getInternalLineAmount(lineItem))}`,
+    `Customer ${formatMoney(customerAmount)}`,
+  ].join(' | ')
+}
+
+const getReportPdfLines = (source: CombinedReportPdfSource) => {
+  const { payload } = source
+  const reportData = payload.reportData
+  const repairSections = normalizeRepairSections(payload.repairSections as RepairSection[])
+  const costSections = normalizeCostSections(payload.costSections as CostSection[])
+  const equipmentSettings = {
+    ...defaultEquipmentRentalSettings,
+    ...payload.equipmentRentalSettings,
+  } as EquipmentRentalSettings
+  const lines = [
+    `D Number: ${source.dNumber}`,
+    `Report: ${source.reportName}`,
+    `Job Number: ${getJobNumberDisplayFromReport(reportData)}`,
+    '',
+    reportData.customer,
+    reportData.date,
+    reportData.summary,
+    reportData.type,
+    reportData.structure,
+    reportData.description,
+    reportData.location,
+    reportData.customerAddress,
+    reportData.purchaseOrder,
+    '',
+    'Contact',
+    `Name: ${reportData.contactName || '---'}`,
+    `Email: ${reportData.contactEmail || '---'}`,
+    `Phone: ${reportData.contactPhone || '---'}`,
+    '',
+    reportData.scopeOfWorkHeader || 'Scope of Work',
+    reportData.scopeOfWork || '---',
+    '',
+    'Repair Items',
+  ]
+
+  repairSections.forEach((section) => {
+    lines.push('', `${section.title} (${section.status || 'Repair'})`)
+    section.lineItems.forEach((lineItem) => {
+      lines.push(getPdfLineItemSummary(lineItem))
+    })
+  })
+
+  lines.push('', 'Estimate Summary')
+  costSections.forEach((section) => {
+    lines.push('', section.title)
+    section.lineItems.forEach((lineItem) => {
+      lines.push(getPdfLineItemSummary(lineItem, section.id, equipmentSettings))
+    })
+  })
+
+  const repairTotal = repairSections.reduce(
+    (total, section) =>
+      total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+    0,
+  )
+  const costTotal = costSections.reduce(
+    (total, section) =>
+      total + section.lineItems.reduce(
+        (sectionTotal, lineItem) => sectionTotal + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
+        0,
+      ),
+    0,
+  )
+
+  lines.push('', `Grand Total: ${formatMoney(repairTotal + costTotal)}`, '', reportData.notesHeader || 'Additional Notes', reportData.notes || '---')
+  return lines
+}
+
+const createCombinedReportsPdfBlob = (sources: CombinedReportPdfSource[]) => {
+  const pageLineSets = sources.flatMap((source) =>
+    chunkPdfLines(getReportPdfLines(source)).map((lines, pageIndex) => ({
+      title: `${source.dNumber} - ${source.reportName}${pageIndex > 0 ? ` (continued ${pageIndex + 1})` : ''}`,
+      lines,
+    })),
+  )
+
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    `2 0 obj\n<< /Type /Pages /Kids [${pageLineSets.map((_, index) => `${3 + index} 0 R`).join(' ')}] /Count ${pageLineSets.length} >>\nendobj\n`,
+  ]
+  const contentObjects: string[] = []
+  const fontObjectId = 3 + pageLineSets.length * 2
+
+  pageLineSets.forEach((page, index) => {
+    const pageObjectId = 3 + index
+    const contentObjectId = 3 + pageLineSets.length + index
+    const contentLines = [
+      'BT',
+      '/F1 13 Tf',
+      '54 760 Td',
+      `(${escapePdfText(sanitizePdfText(page.title))}) Tj`,
+      '/F1 9 Tf',
+      '0 -22 Td',
+      ...page.lines.flatMap((line) => [`(${escapePdfText(sanitizePdfText(line))}) Tj`, '0 -12 Td']),
+      'ET',
+    ]
+    const content = contentLines.join('\n')
+
+    objects.push(`${pageObjectId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>\nendobj\n`)
+    contentObjects.push(`${contentObjectId} 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`)
+  })
+
+  objects.push(...contentObjects)
+  objects.push(`${fontObjectId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`)
+
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+
+  objects.forEach((object) => {
+    offsets.push(pdf.length)
+    pdf += object
+  })
+
+  const xrefOffset = pdf.length
+  pdf += `xref\n0 ${objects.length + 1}\n`
+  pdf += '0000000000 65535 f \n'
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
+  })
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+
+  return new Blob([pdf], { type: 'application/pdf' })
+}
+
 const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifier) =>
   createSimplePdfFile('master-service-agreement.pdf', 'Master Service Agreement', [
     'DESHAZO service pricing reference for quote proposal preparation.',
@@ -1112,6 +1303,7 @@ export default function EditableInspectionReport() {
   const [selectedJobReportPrintIds, setSelectedJobReportPrintIds] = useState<Set<string>>(() => new Set())
   const [jobReportPrintLoading, setJobReportPrintLoading] = useState(false)
   const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
+  const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -1243,6 +1435,16 @@ export default function EditableInspectionReport() {
       dNumber: getDNumberFromReport(report) || 'Unknown D Number',
       reportName: currentReportName,
       isCurrent: true,
+      payload: {
+        reportData: report,
+        repairSections,
+        costSections,
+        blockVisibility,
+        estimateNoteVisibility,
+        repairSectionVisibility,
+        textBoxes: [],
+        equipmentRentalSettings,
+      } satisfies EditableInspectionReportPayload,
     }
     const savedOptions = jobReportPrintReports.map((savedReport) => ({
       id: savedReport.id,
@@ -1250,6 +1452,7 @@ export default function EditableInspectionReport() {
       dNumber: getDNumberFromReport(savedReport.reportData) || 'Unknown D Number',
       reportName: savedReport.reportName,
       isCurrent: savedReport.id === currentEditableReportId,
+      payload: getNormalizedReportPayload(savedReport),
     }))
 
     return [currentOption, ...savedOptions]
@@ -1257,9 +1460,24 @@ export default function EditableInspectionReport() {
         const uniqueKey = option.dNumber.toUpperCase()
         if (seenDNumbers.has(uniqueKey)) return false
         seenDNumbers.add(uniqueKey)
-        return true
-      })
-  }, [currentEditableReportId, currentReportName, jobReportPrintReports, report])
+      return true
+    })
+  }, [
+    blockVisibility,
+    costSections,
+    currentEditableReportId,
+    currentReportName,
+    equipmentRentalSettings,
+    estimateNoteVisibility,
+    jobReportPrintReports,
+    repairSectionVisibility,
+    repairSections,
+    report,
+  ])
+  const selectedJobReportPrintCount = useMemo(
+    () => jobReportPrintOptions.filter((option) => selectedJobReportPrintIds.has(option.id)).length,
+    [jobReportPrintOptions, selectedJobReportPrintIds],
+  )
   const currentEditableReportPayload = useMemo<EditableInspectionReportPayload>(
     () => ({
       reportData: report,
@@ -2727,6 +2945,7 @@ export default function EditableInspectionReport() {
   }
 
   const toggleJobReportPrintSelection = (optionId: string) => {
+    setJobReportPrintDownloadMessage('')
     setSelectedJobReportPrintIds((currentIds) => {
       const nextIds = new Set(currentIds)
       if (nextIds.has(optionId)) {
@@ -2736,6 +2955,32 @@ export default function EditableInspectionReport() {
       }
       return nextIds
     })
+  }
+
+  const downloadCheckedJobReportsPdf = () => {
+    const selectedSources = jobReportPrintOptions
+      .filter((option) => selectedJobReportPrintIds.has(option.id))
+      .map((option) => ({
+        dNumber: option.dNumber,
+        reportName: option.reportName,
+        payload: option.payload,
+      }))
+
+    if (selectedSources.length === 0) {
+      setJobReportPrintDownloadMessage('Select at least one D number.')
+      return
+    }
+
+    const blob = createCombinedReportsPdfBlob(selectedSources)
+    const downloadUrl = URL.createObjectURL(blob)
+    const downloadLink = document.createElement('a')
+    downloadLink.href = downloadUrl
+    downloadLink.download = `editable-inspection-reports-${normalizedCurrentJobNumber || 'selected'}.pdf`
+    document.body.appendChild(downloadLink)
+    downloadLink.click()
+    downloadLink.remove()
+    URL.revokeObjectURL(downloadUrl)
+    setJobReportPrintDownloadMessage(`Downloaded ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'}.`)
   }
 
   const selectJobReportPrintOption = (option: (typeof jobReportPrintOptions)[number]) => {
@@ -3180,6 +3425,17 @@ export default function EditableInspectionReport() {
                     </div>
                   )}
                   <div className="border-t border-[#edf0f6] p-2">
+                    <button
+                      type="button"
+                      onClick={downloadCheckedJobReportsPdf}
+                      className="mb-2 w-full rounded-md bg-[#1f2430] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#343b4d] disabled:cursor-not-allowed disabled:bg-[#a7adba]"
+                      disabled={selectedJobReportPrintCount === 0}
+                    >
+                      Download Checked PDF{selectedJobReportPrintCount > 0 ? ` (${selectedJobReportPrintCount})` : ''}
+                    </button>
+                    {jobReportPrintDownloadMessage ? (
+                      <div className="mb-2 px-1 text-[11px] font-bold text-[#747b8a]">{jobReportPrintDownloadMessage}</div>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => {
