@@ -785,7 +785,6 @@ const getPdfLineItemSummary = (lineItem: RepairLineItem, sectionId?: string, set
   return [
     lineItem.description,
     `Qty ${lineItem.quantity || '1'}`,
-    `Internal ${formatMoney(getInternalLineAmount(lineItem))}`,
     `Customer ${formatMoney(customerAmount)}`,
   ].join(' | ')
 }
@@ -931,10 +930,8 @@ const getTemplateLineItemRows = (
     .map((lineItem) => `
       <tr>
         <td>${escapeHtml(lineItem.description || '---')}</td>
-        <td class="money">${formatMoney(getInternalUnitCost(lineItem))}</td>
         <td class="qty">${escapeHtml(lineItem.quantity || '1')}</td>
         <td class="money">${formatMoney(getCustomerUnitPrice(lineItem))}</td>
-        <td class="money">${formatMoney(getInternalLineAmount(lineItem))}</td>
         <td class="money">${formatMoney(getCustomerAmount(lineItem))}</td>
       </tr>
     `)
@@ -963,19 +960,6 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
         ),
       0,
     )
-    const internalTotal =
-      repairSections.reduce(
-        (total, section) =>
-          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
-        0,
-      )
-      + costSections.reduce(
-        (total, section) =>
-          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
-        0,
-      )
-    const totalProfit = repairTotal + costTotal - internalTotal
-
     const repairMarkup = repairSections
       .map((section) => `
         <section class="quote-section repair-section">
@@ -987,18 +971,15 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             <thead>
               <tr>
                 <th>Description</th>
-                <th>Internal Cost</th>
                 <th>Qty</th>
                 <th>Customer Price</th>
-                <th>Total Internal Cost</th>
                 <th>Total Customer Price</th>
               </tr>
             </thead>
             <tbody>
               ${getTemplateLineItemRows(section.lineItems, getCustomerLineAmount)}
               <tr class="subtotal">
-                <td colspan="4">Section Subtotal</td>
-                <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0))}</td>
+                <td colspan="3">Section Subtotal</td>
                 <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}</td>
               </tr>
             </tbody>
@@ -1015,10 +996,8 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             <thead>
               <tr>
                 <th>Description</th>
-                <th>Internal Cost</th>
                 <th>Qty</th>
                 <th>Customer Price</th>
-                <th>Total Internal Cost</th>
                 <th>Total Customer Price</th>
               </tr>
             </thead>
@@ -1027,8 +1006,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
                 getCostCustomerLineAmount(section.id, lineItem, equipmentSettings)
               )}
               <tr class="subtotal">
-                <td colspan="4">Subtotal</td>
-                <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0))}</td>
+                <td colspan="3">Subtotal</td>
                 <td class="money">${formatMoney(section.lineItems.reduce(
                   (total, lineItem) => total + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
                   0,
@@ -1043,7 +1021,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
     return `
       <article class="report-page">
         <header class="report-header">
-          <div>
+          <div class="brand-block">
             <div class="brand">${escapeHtml(reportData.logoName || 'DESHAZO')}</div>
             <div class="tagline">${escapeHtml(reportData.logoTagline || 'CRANES / SERVICE / AUTOMATION')}</div>
           </div>
@@ -1051,14 +1029,17 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             <div>${escapeHtml(reportData.branch || '')}</div>
             <div>${escapeHtml(reportData.phone || '')}</div>
           </div>
+          <h1>${escapeHtml(reportData.title || 'QUOTE PROPOSAL')}</h1>
         </header>
 
-        <h1>${escapeHtml(reportData.title || 'QUOTE PROPOSAL')}</h1>
-        <div class="summary-line">${escapeHtml(reportData.summary || source.dNumber)}</div>
+        <div class="summary-row">
+          <div class="crane-mark" aria-hidden="true"></div>
+          <div>${escapeHtml(reportData.summary || source.dNumber)}</div>
+          <div>${escapeHtml(reportData.type || '')}</div>
+          <div>${escapeHtml(reportData.date || '')}</div>
+        </div>
 
         <div class="details-grid">
-          ${getTemplateReportCell('Type', reportData.type)}
-          ${getTemplateReportCell('Date', reportData.date)}
           ${getTemplateReportCell('Structure', reportData.structure)}
           ${getTemplateReportCell('Description', reportData.description)}
           ${getTemplateReportCell('Customer', reportData.customer)}
@@ -1102,18 +1083,6 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             <span>Total</span>
             <strong>${formatMoney(repairTotal + costTotal)}</strong>
           </div>
-          <div>
-            <span>Margin</span>
-            <strong>${Math.round(getUnitMargin(internalTotal, repairTotal + costTotal))}%</strong>
-          </div>
-          <div>
-            <span>Total Internal Cost</span>
-            <strong>${formatMoney(internalTotal)}</strong>
-          </div>
-          <div>
-            <span>Total Profit</span>
-            <strong>${formatMoney(totalProfit)}</strong>
-          </div>
         </section>
 
         <section class="notes">
@@ -1143,46 +1112,83 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             min-height: 10.1in;
             margin: 0 auto 28px;
             background: #fff;
-            padding: 0;
+            padding: 0.08in 0.22in 0.18in;
             page-break-after: always;
             break-after: page;
           }
           .report-page:last-child { page-break-after: auto; break-after: auto; }
           .report-header {
-            display: flex;
-            justify-content: space-between;
-            gap: 18px;
-            border-bottom: 3px solid #273f7a;
-            padding-bottom: 12px;
+            display: grid;
+            grid-template-columns: 1.25fr 1fr 1fr;
+            align-items: center;
+            gap: 12px;
+            min-height: 0.54in;
+            background: #f5bd00;
+            padding: 8px 14px;
           }
-          .brand { color: #273f7a; font-size: 28px; font-weight: 900; letter-spacing: 1px; }
-          .tagline { margin-top: 2px; color: #4d5360; font-size: 10px; font-weight: 800; text-transform: uppercase; }
-          .branch { text-align: right; color: #273f7a; font-size: 11px; font-weight: 800; line-height: 1.35; }
-          h1 { margin: 14px 0 4px; font-size: 24px; font-weight: 900; text-align: center; text-transform: uppercase; }
-          .summary-line { margin-bottom: 12px; text-align: center; font-size: 13px; font-weight: 800; }
+          .brand { color: #001a33; font-size: 24px; font-weight: 900; line-height: 0.9; }
+          .tagline { margin-top: 3px; color: #111; font-size: 7px; font-weight: 900; text-transform: uppercase; }
+          .branch { color: #111; font-size: 8px; font-weight: 900; line-height: 1.35; }
+          h1 { margin: 0; color: #111; font-size: 15px; font-weight: 900; text-align: right; text-transform: uppercase; }
+          .summary-row {
+            display: grid;
+            grid-template-columns: 34px 1fr 1fr 1fr;
+            align-items: center;
+            gap: 8px;
+            min-height: 36px;
+            border-bottom: 1px solid #d4d4d4;
+            padding: 6px 0;
+            font-size: 9px;
+            font-weight: 900;
+          }
+          .crane-mark {
+            position: relative;
+            width: 24px;
+            height: 24px;
+            border-top: 2px solid #111;
+            border-left: 2px solid #111;
+            border-right: 2px solid #111;
+          }
+          .crane-mark::before {
+            content: "";
+            position: absolute;
+            left: 10px;
+            top: 0;
+            height: 22px;
+            border-left: 2px solid #111;
+          }
+          .crane-mark::after {
+            content: "";
+            position: absolute;
+            left: 7px;
+            top: 15px;
+            width: 8px;
+            height: 8px;
+            border: 1px solid #111;
+          }
           .details-grid, .equipment-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             border-top: 1px solid #d4d4d4;
             border-left: 1px solid #d4d4d4;
           }
-          .details-grid { grid-template-columns: repeat(3, 1fr); }
+          .details-grid { grid-template-columns: repeat(4, 1fr); }
           .info-cell {
-            min-height: 42px;
+            min-height: 25px;
             border-right: 1px solid #d4d4d4;
             border-bottom: 1px solid #d4d4d4;
-            padding: 6px 7px;
+            padding: 3px 6px;
           }
-          .cell-label { color: #555b66; font-size: 9px; font-weight: 900; text-transform: uppercase; }
-          .cell-value { margin-top: 3px; color: #111; font-size: 12px; font-weight: 800; overflow-wrap: anywhere; }
+          .cell-label { color: #111; font-size: 7px; font-weight: 900; }
+          .cell-value { margin-top: 2px; color: #111; font-size: 8px; font-weight: 900; overflow-wrap: anywhere; }
           .contact-row {
             display: grid;
             grid-template-columns: 0.8fr 1fr 1.25fr 1fr;
             margin-top: 12px;
             border: 1px solid #d4d4d4;
-            background: #f7f7f7;
+            background: #fafafa;
           }
-          .contact-row div { padding: 7px; border-right: 1px solid #d4d4d4; font-weight: 800; }
+          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; text-transform: uppercase; }
           .contact-row div:last-child { border-right: 0; }
           .scope {
             margin-top: 12px;
@@ -1193,12 +1199,12 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             background: #f2f2f2;
             border-bottom: 1px solid #d4d4d4;
             padding: 8px 10px;
-            font-size: 15px;
+            font-size: 14px;
             font-weight: 900;
-            text-transform: uppercase;
           }
           .scope p, .notes p {
             margin: 0;
+            min-height: 0.56in;
             padding: 9px 10px;
             white-space: pre-wrap;
             line-height: 1.38;
@@ -1220,21 +1226,23 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             gap: 10px;
             border-bottom: 1px solid #d8d8d8;
             background: #f7f7f7;
-            padding: 7px 10px;
-            color: #273f7a;
-            font-size: 13px;
+            padding: 5px 8px;
+            color: #111;
+            font-size: 10px;
             font-weight: 900;
-            text-transform: uppercase;
           }
+          .estimate-title { color: #273f7a; text-transform: uppercase; }
           .repair-section { background: #f4e3e3; }
           .repair-section table { background: #fff; }
           .status {
-            border-radius: 2px;
+            min-width: 95px;
             background: #efc9c9;
             color: #7d1515;
             padding: 3px 7px;
-            font-size: 10px;
+            font-size: 9px;
+            text-align: left;
           }
+          .status::before { content: "!"; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; margin-right: 4px; border-radius: 50%; background: #af0f0f; color: #fff; font-size: 8px; font-weight: 900; }
           table { width: 100%; border-collapse: collapse; table-layout: fixed; }
           th {
             background: #fbfbfb;
@@ -1242,7 +1250,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             border-bottom: 1px solid #d8d8d8;
             border-right: 1px solid #d8d8d8;
             padding: 5px 6px;
-            font-size: 8px;
+            font-size: 7px;
             font-weight: 900;
             text-align: left;
             text-transform: uppercase;
@@ -1251,26 +1259,26 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             border-bottom: 1px solid #e5e5e5;
             border-right: 1px solid #e5e5e5;
             padding: 6px;
-            font-size: 11px;
-            font-weight: 700;
+            font-size: 9px;
+            font-weight: 900;
             vertical-align: top;
             overflow-wrap: anywhere;
           }
-          th:first-child, td:first-child { width: 38%; }
+          th:first-child, td:first-child { width: 56%; }
           .money, .qty { text-align: right; white-space: nowrap; }
           .subtotal td { background: #fbfbfb; font-weight: 900; text-transform: uppercase; }
           .grand-total {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: 1fr;
             margin-top: 12px;
-            border: 2px solid #273f7a;
+            margin-left: auto;
+            width: 2.2in;
+            border: 2px solid #111;
           }
           .grand-total div {
             padding: 9px;
-            border-right: 1px solid #cfd6e5;
-            color: #273f7a;
+            color: #111;
           }
-          .grand-total div:last-child { border-right: 0; }
           .grand-total span { display: block; font-size: 9px; font-weight: 900; text-transform: uppercase; }
           .grand-total strong { display: block; margin-top: 4px; color: #111; font-size: 15px; font-weight: 900; }
           .notes { margin-top: 12px; border: 1px solid #d4d4d4; break-inside: avoid; }
