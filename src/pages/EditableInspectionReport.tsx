@@ -721,6 +721,14 @@ type CombinedReportPdfSource = {
   payload: EditableInspectionReportPayload
 }
 
+const escapeHtml = (value: string | number) =>
+  String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
 const sanitizePdfText = (text: string) =>
   text
     .replace(/[–—]/g, '-')
@@ -904,6 +912,376 @@ const createCombinedReportsPdfBlob = (sources: CombinedReportPdfSource[]) => {
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
 
   return new Blob([pdf], { type: 'application/pdf' })
+}
+
+const getTemplateValue = (value: string | undefined) => escapeHtml(value?.trim() || '---')
+
+const getTemplateReportCell = (label: string, value: string | undefined) => `
+  <div class="info-cell">
+    <div class="cell-label">${escapeHtml(label)}</div>
+    <div class="cell-value">${getTemplateValue(removeReportValueLabel(value ?? ''))}</div>
+  </div>
+`
+
+const getTemplateLineItemRows = (
+  lineItems: RepairLineItem[],
+  getCustomerAmount: (lineItem: RepairLineItem) => number,
+) =>
+  lineItems
+    .map((lineItem) => `
+      <tr>
+        <td>${escapeHtml(lineItem.description || '---')}</td>
+        <td class="money">${formatMoney(getInternalUnitCost(lineItem))}</td>
+        <td class="qty">${escapeHtml(lineItem.quantity || '1')}</td>
+        <td class="money">${formatMoney(getCustomerUnitPrice(lineItem))}</td>
+        <td class="money">${formatMoney(getInternalLineAmount(lineItem))}</td>
+        <td class="money">${formatMoney(getCustomerAmount(lineItem))}</td>
+      </tr>
+    `)
+    .join('')
+
+const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
+  const reportMarkup = sources.map((source) => {
+    const reportData = normalizeReport(source.payload.reportData)
+    const repairSections = normalizeRepairSections(source.payload.repairSections as RepairSection[])
+    const costSections = normalizeCostSections(source.payload.costSections as CostSection[])
+    const equipmentSettings = {
+      ...defaultEquipmentRentalSettings,
+      ...source.payload.equipmentRentalSettings,
+    } as EquipmentRentalSettings
+    const repairTotal = repairSections.reduce(
+      (total, section) =>
+        total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+      0,
+    )
+    const costTotal = costSections.reduce(
+      (total, section) =>
+        total + section.lineItems.reduce(
+          (sectionTotal, lineItem) =>
+            sectionTotal + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
+          0,
+        ),
+      0,
+    )
+    const internalTotal =
+      repairSections.reduce(
+        (total, section) =>
+          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
+        0,
+      )
+      + costSections.reduce(
+        (total, section) =>
+          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
+        0,
+      )
+    const totalProfit = repairTotal + costTotal - internalTotal
+
+    const repairMarkup = repairSections
+      .map((section) => `
+        <section class="quote-section repair-section">
+          <div class="section-title">
+            <span>${escapeHtml(section.title)}</span>
+            <span class="status">${escapeHtml(section.status || 'Repair')}</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Internal Cost</th>
+                <th>Qty</th>
+                <th>Customer Price</th>
+                <th>Total Internal Cost</th>
+                <th>Total Customer Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${getTemplateLineItemRows(section.lineItems, getCustomerLineAmount)}
+              <tr class="subtotal">
+                <td colspan="4">Section Subtotal</td>
+                <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0))}</td>
+                <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      `)
+      .join('')
+
+    const costMarkup = costSections
+      .map((section) => `
+        <section class="quote-section">
+          <div class="section-title estimate-title">${escapeHtml(section.title)}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Internal Cost</th>
+                <th>Qty</th>
+                <th>Customer Price</th>
+                <th>Total Internal Cost</th>
+                <th>Total Customer Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${getTemplateLineItemRows(section.lineItems, (lineItem) =>
+                getCostCustomerLineAmount(section.id, lineItem, equipmentSettings)
+              )}
+              <tr class="subtotal">
+                <td colspan="4">Subtotal</td>
+                <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0))}</td>
+                <td class="money">${formatMoney(section.lineItems.reduce(
+                  (total, lineItem) => total + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
+                  0,
+                ))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      `)
+      .join('')
+
+    return `
+      <article class="report-page">
+        <header class="report-header">
+          <div>
+            <div class="brand">${escapeHtml(reportData.logoName || 'DESHAZO')}</div>
+            <div class="tagline">${escapeHtml(reportData.logoTagline || 'CRANES / SERVICE / AUTOMATION')}</div>
+          </div>
+          <div class="branch">
+            <div>${escapeHtml(reportData.branch || '')}</div>
+            <div>${escapeHtml(reportData.phone || '')}</div>
+          </div>
+        </header>
+
+        <h1>${escapeHtml(reportData.title || 'QUOTE PROPOSAL')}</h1>
+        <div class="summary-line">${escapeHtml(reportData.summary || source.dNumber)}</div>
+
+        <div class="details-grid">
+          ${getTemplateReportCell('Type', reportData.type)}
+          ${getTemplateReportCell('Date', reportData.date)}
+          ${getTemplateReportCell('Structure', reportData.structure)}
+          ${getTemplateReportCell('Description', reportData.description)}
+          ${getTemplateReportCell('Customer', reportData.customer)}
+          ${getTemplateReportCell('Purchase Order', reportData.purchaseOrder)}
+          ${getTemplateReportCell('Job #', reportData.jobNumber)}
+          ${getTemplateReportCell('Location', reportData.location)}
+          ${getTemplateReportCell('Customer Address', reportData.customerAddress)}
+        </div>
+
+        <div class="equipment-grid">
+          ${getTemplateReportCell('Manufacturer', reportData.manufacturerCrane)}
+          ${getTemplateReportCell('Serial Number', reportData.serialCrane)}
+          ${getTemplateReportCell('Capacity', reportData.capacityCrane)}
+          ${getTemplateReportCell('Model #', reportData.modelCrane)}
+          ${getTemplateReportCell('Hoist 1 Manufacturer', reportData.manufacturerHoist)}
+          ${getTemplateReportCell('Hoist 1 Serial', reportData.serialHoist)}
+          ${getTemplateReportCell('Hoist 1 Capacity', reportData.capacityHoist)}
+          ${getTemplateReportCell('Hoist 1 Model', reportData.modelHoist)}
+        </div>
+
+        <section class="contact-row">
+          <div><strong>Contact</strong></div>
+          <div>Name: ${getTemplateValue(reportData.contactName)}</div>
+          <div>Email: ${getTemplateValue(reportData.contactEmail)}</div>
+          <div>Phone: ${getTemplateValue(reportData.contactPhone)}</div>
+        </section>
+
+        <section class="scope">
+          <h2>${escapeHtml(reportData.scopeOfWorkHeader || 'Scope of Work')}</h2>
+          <p>${escapeHtml(reportData.scopeOfWork || '---')}</p>
+        </section>
+
+        <h2 class="band">Repair Items</h2>
+        ${repairMarkup}
+
+        <h2 class="band">Estimate Summary</h2>
+        ${costMarkup}
+
+        <section class="grand-total">
+          <div>
+            <span>Total</span>
+            <strong>${formatMoney(repairTotal + costTotal)}</strong>
+          </div>
+          <div>
+            <span>Margin</span>
+            <strong>${Math.round(getUnitMargin(internalTotal, repairTotal + costTotal))}%</strong>
+          </div>
+          <div>
+            <span>Total Internal Cost</span>
+            <strong>${formatMoney(internalTotal)}</strong>
+          </div>
+          <div>
+            <span>Total Profit</span>
+            <strong>${formatMoney(totalProfit)}</strong>
+          </div>
+        </section>
+
+        <section class="notes">
+          <h2>${escapeHtml(reportData.notesHeader || 'Additional Notes')}</h2>
+          <p>${escapeHtml(reportData.notes || '---')}</p>
+        </section>
+      </article>
+    `
+  }).join('')
+
+  return `<!doctype html>
+    <html>
+      <head>
+        <title>Combined Editable Inspection Reports</title>
+        <style>
+          @page { size: 8.5in 11in; margin: 0.45in; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            background: #e8eaef;
+            color: #111;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+          }
+          .report-page {
+            width: 7.6in;
+            min-height: 10.1in;
+            margin: 0 auto 28px;
+            background: #fff;
+            padding: 0;
+            page-break-after: always;
+            break-after: page;
+          }
+          .report-page:last-child { page-break-after: auto; break-after: auto; }
+          .report-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 18px;
+            border-bottom: 3px solid #273f7a;
+            padding-bottom: 12px;
+          }
+          .brand { color: #273f7a; font-size: 28px; font-weight: 900; letter-spacing: 1px; }
+          .tagline { margin-top: 2px; color: #4d5360; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+          .branch { text-align: right; color: #273f7a; font-size: 11px; font-weight: 800; line-height: 1.35; }
+          h1 { margin: 14px 0 4px; font-size: 24px; font-weight: 900; text-align: center; text-transform: uppercase; }
+          .summary-line { margin-bottom: 12px; text-align: center; font-size: 13px; font-weight: 800; }
+          .details-grid, .equipment-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            border-top: 1px solid #d4d4d4;
+            border-left: 1px solid #d4d4d4;
+          }
+          .details-grid { grid-template-columns: repeat(3, 1fr); }
+          .info-cell {
+            min-height: 42px;
+            border-right: 1px solid #d4d4d4;
+            border-bottom: 1px solid #d4d4d4;
+            padding: 6px 7px;
+          }
+          .cell-label { color: #555b66; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+          .cell-value { margin-top: 3px; color: #111; font-size: 12px; font-weight: 800; overflow-wrap: anywhere; }
+          .contact-row {
+            display: grid;
+            grid-template-columns: 0.8fr 1fr 1.25fr 1fr;
+            margin-top: 12px;
+            border: 1px solid #d4d4d4;
+            background: #f7f7f7;
+          }
+          .contact-row div { padding: 7px; border-right: 1px solid #d4d4d4; font-weight: 800; }
+          .contact-row div:last-child { border-right: 0; }
+          .scope {
+            margin-top: 12px;
+            border: 1px solid #d4d4d4;
+          }
+          .scope h2, .notes h2, .band {
+            margin: 0;
+            background: #f2f2f2;
+            border-bottom: 1px solid #d4d4d4;
+            padding: 8px 10px;
+            font-size: 15px;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+          .scope p, .notes p {
+            margin: 0;
+            padding: 9px 10px;
+            white-space: pre-wrap;
+            line-height: 1.38;
+          }
+          .band {
+            margin-top: 12px;
+            border: 1px solid #d4d4d4;
+          }
+          .quote-section {
+            border-right: 1px solid #d4d4d4;
+            border-bottom: 1px solid #d4d4d4;
+            border-left: 1px solid #d4d4d4;
+            break-inside: avoid;
+          }
+          .section-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            border-bottom: 1px solid #d8d8d8;
+            background: #f7f7f7;
+            padding: 7px 10px;
+            color: #273f7a;
+            font-size: 13px;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+          .repair-section { background: #f4e3e3; }
+          .repair-section table { background: #fff; }
+          .status {
+            border-radius: 2px;
+            background: #efc9c9;
+            color: #7d1515;
+            padding: 3px 7px;
+            font-size: 10px;
+          }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          th {
+            background: #fbfbfb;
+            color: #555b66;
+            border-bottom: 1px solid #d8d8d8;
+            border-right: 1px solid #d8d8d8;
+            padding: 5px 6px;
+            font-size: 8px;
+            font-weight: 900;
+            text-align: left;
+            text-transform: uppercase;
+          }
+          td {
+            border-bottom: 1px solid #e5e5e5;
+            border-right: 1px solid #e5e5e5;
+            padding: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            vertical-align: top;
+            overflow-wrap: anywhere;
+          }
+          th:first-child, td:first-child { width: 38%; }
+          .money, .qty { text-align: right; white-space: nowrap; }
+          .subtotal td { background: #fbfbfb; font-weight: 900; text-transform: uppercase; }
+          .grand-total {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            margin-top: 12px;
+            border: 2px solid #273f7a;
+          }
+          .grand-total div {
+            padding: 9px;
+            border-right: 1px solid #cfd6e5;
+            color: #273f7a;
+          }
+          .grand-total div:last-child { border-right: 0; }
+          .grand-total span { display: block; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+          .grand-total strong { display: block; margin-top: 4px; color: #111; font-size: 15px; font-weight: 900; }
+          .notes { margin-top: 12px; border: 1px solid #d4d4d4; break-inside: avoid; }
+          @media print {
+            body { background: #fff; }
+            .report-page { width: auto; min-height: auto; margin: 0; }
+          }
+        </style>
+      </head>
+      <body>${reportMarkup}</body>
+    </html>`
 }
 
 const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifier) =>
@@ -2971,6 +3349,19 @@ export default function EditableInspectionReport() {
       return
     }
 
+    const printWindow = window.open('', '_blank')
+
+    if (printWindow) {
+      printWindow.document.write(getCombinedReportTemplateHtml(selectedSources))
+      printWindow.document.close()
+      printWindow.focus()
+      printWindow.setTimeout(() => {
+        printWindow.print()
+      }, 250)
+      setJobReportPrintDownloadMessage(`Opened ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'} for PDF download.`)
+      return
+    }
+
     const blob = createCombinedReportsPdfBlob(selectedSources)
     const downloadUrl = URL.createObjectURL(blob)
     const downloadLink = document.createElement('a')
@@ -2980,7 +3371,7 @@ export default function EditableInspectionReport() {
     downloadLink.click()
     downloadLink.remove()
     URL.revokeObjectURL(downloadUrl)
-    setJobReportPrintDownloadMessage(`Downloaded ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'}.`)
+    setJobReportPrintDownloadMessage('Popup blocked. Downloaded a simplified PDF instead.')
   }
 
   const selectJobReportPrintOption = (option: (typeof jobReportPrintOptions)[number]) => {
