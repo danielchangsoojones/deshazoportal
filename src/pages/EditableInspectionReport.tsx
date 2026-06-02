@@ -1109,6 +1109,7 @@ export default function EditableInspectionReport() {
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
   const [jobReportPrintMenuOpen, setJobReportPrintMenuOpen] = useState(false)
   const [jobReportPrintReports, setJobReportPrintReports] = useState<EditableInspectionReport[]>([])
+  const [selectedJobReportPrintIds, setSelectedJobReportPrintIds] = useState<Set<string>>(() => new Set())
   const [jobReportPrintLoading, setJobReportPrintLoading] = useState(false)
   const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
@@ -1236,21 +1237,29 @@ export default function EditableInspectionReport() {
   )
   const jobReportPrintOptions = useMemo(() => {
     const seenDNumbers = new Set<string>()
+    const currentOption = {
+      id: currentEditableReportId || 'current-report',
+      reportId: currentEditableReportId,
+      dNumber: getDNumberFromReport(report) || 'Unknown D Number',
+      reportName: currentReportName,
+      isCurrent: true,
+    }
+    const savedOptions = jobReportPrintReports.map((savedReport) => ({
+      id: savedReport.id,
+      reportId: savedReport.id,
+      dNumber: getDNumberFromReport(savedReport.reportData) || 'Unknown D Number',
+      reportName: savedReport.reportName,
+      isCurrent: savedReport.id === currentEditableReportId,
+    }))
 
-    return jobReportPrintReports
-      .map((savedReport) => ({
-        id: savedReport.id,
-        dNumber: getDNumberFromReport(savedReport.reportData) || 'Unknown D Number',
-        reportName: savedReport.reportName,
-        isCurrent: savedReport.id === currentEditableReportId,
-      }))
+    return [currentOption, ...savedOptions]
       .filter((option) => {
         const uniqueKey = option.dNumber.toUpperCase()
         if (seenDNumbers.has(uniqueKey)) return false
         seenDNumbers.add(uniqueKey)
         return true
       })
-  }, [currentEditableReportId, jobReportPrintReports])
+  }, [currentEditableReportId, currentReportName, jobReportPrintReports, report])
   const currentEditableReportPayload = useMemo<EditableInspectionReportPayload>(
     () => ({
       reportData: report,
@@ -2717,15 +2726,38 @@ export default function EditableInspectionReport() {
     }
   }
 
-  const selectJobReportPrintOption = (reportId: string) => {
+  const toggleJobReportPrintSelection = (optionId: string) => {
+    setSelectedJobReportPrintIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+      if (nextIds.has(optionId)) {
+        nextIds.delete(optionId)
+      } else {
+        nextIds.add(optionId)
+      }
+      return nextIds
+    })
+  }
+
+  const selectJobReportPrintOption = (option: (typeof jobReportPrintOptions)[number]) => {
     setJobReportPrintMenuOpen(false)
 
-    if (reportId === currentEditableReportId) {
+    if (option.isCurrent || !option.reportId) {
       printEditableReport()
       return
     }
 
-    setSearchParams({ editableReportId: reportId })
+    setSearchParams({ editableReportId: option.reportId })
+  }
+
+  const openJobReportInNewTab = (option: (typeof jobReportPrintOptions)[number]) => {
+    const reportUrl = new URL('/editable-inspection-report', window.location.origin)
+    if (option.reportId) {
+      reportUrl.searchParams.set('editableReportId', option.reportId)
+    } else {
+      window.open(window.location.href, '_blank', 'noopener,noreferrer')
+      return
+    }
+    window.open(reportUrl.toString(), '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -3103,23 +3135,43 @@ export default function EditableInspectionReport() {
                   ) : jobReportPrintOptions.length > 0 ? (
                     <div className="max-h-[280px] overflow-y-auto py-1">
                       {jobReportPrintOptions.map((option) => (
-                        <button
+                        <div
                           key={option.id}
-                          type="button"
                           role="menuitem"
-                          onClick={() => selectJobReportPrintOption(option.id)}
-                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-[#f5f7ff]"
+                          className="flex w-full items-center gap-2 px-3 py-2 transition hover:bg-[#f5f7ff]"
                         >
-                          <span className="min-w-0">
-                            <span className="block truncate text-[13px] font-black text-[#1f2430]">{option.dNumber}</span>
-                            <span className="mt-0.5 block truncate text-[11px] font-semibold text-[#747b8a]">{option.reportName}</span>
-                          </span>
-                          {option.isCurrent ? (
-                            <span className="shrink-0 rounded-sm bg-[#e8eefc] px-1.5 py-0.5 text-[10px] font-black uppercase text-[#273f7a]">
-                              Current
+                          <input
+                            type="checkbox"
+                            checked={selectedJobReportPrintIds.has(option.id)}
+                            onChange={() => toggleJobReportPrintSelection(option.id)}
+                            className="h-4 w-4 shrink-0 accent-[#273f7a]"
+                            aria-label={`Select ${option.dNumber}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => selectJobReportPrintOption(option)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-[13px] font-black text-[#1f2430]">{option.dNumber}</span>
+                              {option.isCurrent ? (
+                                <span className="shrink-0 rounded-sm bg-[#e8eefc] px-1.5 py-0.5 text-[10px] font-black uppercase text-[#273f7a]">
+                                  Current
+                                </span>
+                              ) : null}
                             </span>
-                          ) : null}
-                        </button>
+                            <span className="mt-0.5 block truncate text-[11px] font-semibold text-[#747b8a]">{option.reportName}</span>
+                          </button>
+                          {option.isCurrent ? null : (
+                            <button
+                              type="button"
+                              onClick={() => openJobReportInNewTab(option)}
+                              className="shrink-0 rounded-md border border-[#d6dbe9] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#273f7a] transition hover:border-[#b9c4e4] hover:bg-[#eef3ff]"
+                            >
+                              Open
+                            </button>
+                          )}
+                        </div>
                       ))}
                     </div>
                   ) : (
