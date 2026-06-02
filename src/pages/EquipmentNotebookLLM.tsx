@@ -315,6 +315,7 @@ export default function EquipmentNotebookLLM() {
   const [thinking, setThinking] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [panelWidths, setPanelWidths] = useState({ chats: 250, sources: 280, chat: 460 })
+  const [openPanels, setOpenPanels] = useState({ chats: true, sources: true })
   const [composerHeight, setComposerHeight] = useState(96)
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const launchedQuoteIdRef = useRef<string | null>(null)
@@ -350,6 +351,13 @@ export default function EquipmentNotebookLLM() {
   const pdfTitle = activeExternalPdfName || activeSource?.name || 'Source PDF'
   const manualSourceCount = sources.filter((source) => source.document_type === 'manual').length
   const inspectionSourceCount = sources.filter((source) => source.document_type === 'inspection').length
+  const notebookGridColumns = [
+    openPanels.chats ? `${panelWidths.chats}px 6px` : '',
+    openPanels.sources ? `${panelWidths.sources}px 6px` : '',
+    `minmax(420px,1fr) 6px ${panelWidths.chat}px`,
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   const goToPage = (page: number) => {
     setActivePage(Math.max(1, page))
@@ -828,161 +836,213 @@ export default function EquipmentNotebookLLM() {
         <section
           className="grid min-h-0 flex-1 overflow-hidden"
           style={{
-            gridTemplateColumns: `${panelWidths.chats}px 6px ${panelWidths.sources}px 6px minmax(420px,1fr) 6px ${panelWidths.chat}px`,
+            gridTemplateColumns: notebookGridColumns,
           }}
         >
-          <aside className="min-h-0 bg-white">
-            <div className="flex h-full min-h-0 flex-col">
-              <div className="border-b border-[var(--deshazo-border)] p-3">
-                <button
-                  type="button"
-                  onClick={startNewChat}
-                  className="inline-flex w-full items-center justify-center rounded-lg bg-[var(--deshazo-blue)] px-3 py-2 text-sm font-bold text-white transition hover:bg-[var(--deshazo-blue-deep)]"
+          {openPanels.chats ? (
+            <>
+              <aside className="min-h-0 bg-white">
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="border-b border-[var(--deshazo-border)] p-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={startNewChat}
+                        className="inline-flex flex-1 items-center justify-center rounded-lg bg-[var(--deshazo-blue)] px-3 py-2 text-sm font-bold text-white transition hover:bg-[var(--deshazo-blue-deep)]"
+                      >
+                        + New chat
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Close chat history"
+                        onClick={() => setOpenPanels((current) => ({ ...current, chats: false }))}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--deshazo-border)] bg-white text-lg font-black leading-none text-[rgba(21,24,33,0.58)] transition hover:bg-[var(--deshazo-surface)] hover:text-[var(--deshazo-blue)]"
+                      >
+                        x
+                      </button>
+                    </div>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                    <div className="mb-2 text-xs font-black uppercase text-[rgba(21,24,33,0.48)]">Chat history</div>
+                    <div className="space-y-2">
+                      {sessions.map((session) => (
+                        <button
+                          key={session.id}
+                          type="button"
+                          onClick={() => setActiveSessionId(session.id)}
+                          className={`w-full rounded-lg px-3 py-3 text-left transition ${
+                            session.id === activeSession.id
+                              ? 'bg-[#e9edf8] text-[var(--deshazo-text)]'
+                              : 'text-[rgba(21,24,33,0.72)] hover:bg-[var(--deshazo-surface)]'
+                          }`}
+                        >
+                          <span className="block truncate text-sm font-bold">{session.title}</span>
+                          <span className="mt-1 block text-xs text-[rgba(21,24,33,0.48)]">
+                            {new Date(session.createdAt).toLocaleDateString()}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </aside>
+              <button
+                type="button"
+                aria-label="Resize chat history"
+                onPointerDown={(event) => startColumnResize('chats', event)}
+                className="h-full cursor-col-resize border-x border-[var(--deshazo-border)] bg-[#eef2f8] transition hover:bg-[#dbe5ff]"
+              />
+            </>
+          ) : null}
+
+          {openPanels.sources ? (
+            <>
+              <aside className="min-h-0 bg-[#fafbfe]">
+                <div
+                  className={`flex h-full min-h-0 flex-col ${dragging ? 'bg-[#eef3ff]' : ''}`}
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    setDragging(true)
+                  }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    setDragging(false)
+                    openUploadTypeDialog(event.dataTransfer.files)
+                  }}
                 >
-                  + New chat
-                </button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                <div className="mb-2 text-xs font-black uppercase text-[rgba(21,24,33,0.48)]">Chat history</div>
-                <div className="space-y-2">
-                  {sessions.map((session) => (
-                    <button
-                      key={session.id}
-                      type="button"
-                      onClick={() => setActiveSessionId(session.id)}
-                      className={`w-full rounded-lg px-3 py-3 text-left transition ${
-                        session.id === activeSession.id
-                          ? 'bg-[#e9edf8] text-[var(--deshazo-text)]'
-                          : 'text-[rgba(21,24,33,0.72)] hover:bg-[var(--deshazo-surface)]'
-                      }`}
-                    >
-                      <span className="block truncate text-sm font-bold">{session.title}</span>
-                      <span className="mt-1 block text-xs text-[rgba(21,24,33,0.48)]">
-                        {new Date(session.createdAt).toLocaleDateString()}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </aside>
-          <button
-            type="button"
-            aria-label="Resize chat history"
-            onPointerDown={(event) => startColumnResize('chats', event)}
-            className="h-full cursor-col-resize border-x border-[var(--deshazo-border)] bg-[#eef2f8] transition hover:bg-[#dbe5ff]"
-          />
+                  <div className="border-b border-[var(--deshazo-border)] p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-black text-[var(--deshazo-text)]">Source folder</div>
+                        <div className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.52)]">
+                          {sourcesLoading
+                            ? 'Loading sources...'
+                            : `${manualSourceCount} manuals, ${inspectionSourceCount} inspection files`}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Close source folder"
+                        onClick={() => setOpenPanels((current) => ({ ...current, sources: false }))}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--deshazo-border)] bg-white text-lg font-black leading-none text-[rgba(21,24,33,0.58)] transition hover:bg-[var(--deshazo-surface)] hover:text-[var(--deshazo-blue)]"
+                      >
+                        x
+                      </button>
+                    </div>
+                    <label className="mt-3 flex cursor-pointer flex-col rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white px-3 py-3 text-sm font-bold text-[var(--deshazo-blue)]">
+                      <span>{uploading ? 'Uploading...' : '+ Drop or add PDF'}</span>
+                      <span className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.48)]">choose manual or inspection next</span>
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        multiple
+                        className="hidden"
+                        onChange={(event) => {
+                          if (event.target.files) openUploadTypeDialog(event.target.files)
+                          event.currentTarget.value = ''
+                        }}
+                      />
+                    </label>
+                  </div>
 
-          <aside className="min-h-0 bg-[#fafbfe]">
-            <div
-              className={`flex h-full min-h-0 flex-col ${dragging ? 'bg-[#eef3ff]' : ''}`}
-              onDragOver={(event) => {
-                event.preventDefault()
-                setDragging(true)
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(event) => {
-                event.preventDefault()
-                setDragging(false)
-                openUploadTypeDialog(event.dataTransfer.files)
-              }}
-            >
-              <div className="border-b border-[var(--deshazo-border)] p-3">
-                <div className="text-sm font-black text-[var(--deshazo-text)]">Source folder</div>
-                <div className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.52)]">
-                  {sourcesLoading
-                    ? 'Loading sources...'
-                    : `${manualSourceCount} manuals, ${inspectionSourceCount} inspection files`}
-                </div>
-                <label className="mt-3 flex cursor-pointer flex-col rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white px-3 py-3 text-sm font-bold text-[var(--deshazo-blue)]">
-                  <span>{uploading ? 'Uploading...' : '+ Drop or add PDF'}</span>
-                  <span className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.48)]">choose manual or inspection next</span>
-                  <input
-                    type="file"
-                    accept="application/pdf"
-                    multiple
-                    className="hidden"
-                    onChange={(event) => {
-                      if (event.target.files) openUploadTypeDialog(event.target.files)
-                      event.currentTarget.value = ''
-                    }}
-                  />
-                </label>
-              </div>
-
-              {sourcesError ? (
-                <div className="m-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-700">
-                  {sourcesError}
-                  <div className="mt-2 text-[11px]">API: {notebookApiUrl}</div>
-                </div>
-              ) : null}
-              {contextWarning ? (
-                <div className="m-3 rounded-lg border border-[#f0d58b] bg-[#fff9e7] p-3 text-xs font-semibold leading-5 text-[#7a560f]">
-                  {contextWarning}
-                </div>
-              ) : null}
-
-              <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                <div className="mb-2 text-xs font-black uppercase text-[rgba(21,24,33,0.48)]">Files in source folder</div>
-                <div className="space-y-2">
-                  {sources.length === 0 && !sourcesLoading ? (
-                    <div className="rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white/70 px-3 py-4 text-xs font-semibold leading-5 text-[rgba(21,24,33,0.56)]">
-                      No files in the source folder yet. Drop or add a PDF to start.
+                  {sourcesError ? (
+                    <div className="m-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-700">
+                      {sourcesError}
+                      <div className="mt-2 text-[11px]">API: {notebookApiUrl}</div>
                     </div>
                   ) : null}
-                  {sources.map((source, index) => {
-                    return (
-                      <div
-                        key={source.index}
-                        className={`rounded-lg border px-3 py-3 text-left transition ${
-                          activeSource?.index === source.index && !activeExternalPdfUrl
-                            ? 'border-[var(--deshazo-blue)] bg-white'
-                            : 'border-transparent bg-white/70 hover:border-[var(--deshazo-border)]'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveSourceIndex(source.index)
-                            setActiveExternalPdfUrl('')
-                            setActiveExternalPdfName('')
-                            goToPage(1)
-                          }}
-                          className="w-full text-left"
-                        >
-                          <span className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-black text-[var(--deshazo-blue)]">#{index + 1} {source.document_type}</span>
-                            <span className="rounded-full bg-[var(--deshazo-surface)] px-2 py-0.5 text-[11px] font-bold text-[var(--deshazo-blue)]">
-                              PDF
-                            </span>
-                          </span>
-                          <span className="mt-1 block truncate text-sm font-bold text-[var(--deshazo-text)]">{source.name}</span>
-                          <span className="mt-1 block text-xs font-semibold text-[rgba(21,24,33,0.5)]">{sourceLabel(source)}</span>
-                          <span className="mt-2 block truncate text-xs text-[rgba(21,24,33,0.52)]">{source.source}</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={uploading}
-                          onClick={() => void removeNotebookSource(source)}
-                          className="mt-3 rounded-full border border-[#f1b7b7] bg-white px-2 py-1 text-[10px] font-black uppercase text-[#a2472f] transition hover:bg-[#fff5f5] disabled:opacity-50"
-                        >
-                          Remove source
-                        </button>
-                      </div>
-                    )
-                  })}
+                  {contextWarning ? (
+                    <div className="m-3 rounded-lg border border-[#f0d58b] bg-[#fff9e7] p-3 text-xs font-semibold leading-5 text-[#7a560f]">
+                      {contextWarning}
+                    </div>
+                  ) : null}
+
+                  <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                    <div className="mb-2 text-xs font-black uppercase text-[rgba(21,24,33,0.48)]">Files in source folder</div>
+                    <div className="space-y-2">
+                      {sources.length === 0 && !sourcesLoading ? (
+                        <div className="rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white/70 px-3 py-4 text-xs font-semibold leading-5 text-[rgba(21,24,33,0.56)]">
+                          No files in the source folder yet. Drop or add a PDF to start.
+                        </div>
+                      ) : null}
+                      {sources.map((source, index) => {
+                        return (
+                          <div
+                            key={source.index}
+                            className={`rounded-lg border px-3 py-3 text-left transition ${
+                              activeSource?.index === source.index && !activeExternalPdfUrl
+                                ? 'border-[var(--deshazo-blue)] bg-white'
+                                : 'border-transparent bg-white/70 hover:border-[var(--deshazo-border)]'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveSourceIndex(source.index)
+                                setActiveExternalPdfUrl('')
+                                setActiveExternalPdfName('')
+                                goToPage(1)
+                              }}
+                              className="w-full text-left"
+                            >
+                              <span className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-black text-[var(--deshazo-blue)]">#{index + 1} {source.document_type}</span>
+                                <span className="rounded-full bg-[var(--deshazo-surface)] px-2 py-0.5 text-[11px] font-bold text-[var(--deshazo-blue)]">
+                                  PDF
+                                </span>
+                              </span>
+                              <span className="mt-1 block truncate text-sm font-bold text-[var(--deshazo-text)]">{source.name}</span>
+                              <span className="mt-1 block text-xs font-semibold text-[rgba(21,24,33,0.5)]">{sourceLabel(source)}</span>
+                              <span className="mt-2 block truncate text-xs text-[rgba(21,24,33,0.52)]">{source.source}</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={uploading}
+                              onClick={() => void removeNotebookSource(source)}
+                              className="mt-3 rounded-full border border-[#f1b7b7] bg-white px-2 py-1 text-[10px] font-black uppercase text-[#a2472f] transition hover:bg-[#fff5f5] disabled:opacity-50"
+                            >
+                              Remove source
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          </aside>
-          <button
-            type="button"
-            aria-label="Resize sources"
-            onPointerDown={(event) => startColumnResize('sources', event)}
-            className="h-full cursor-col-resize border-x border-[var(--deshazo-border)] bg-[#eef2f8] transition hover:bg-[#dbe5ff]"
-          />
+              </aside>
+              <button
+                type="button"
+                aria-label="Resize sources"
+                onPointerDown={(event) => startColumnResize('sources', event)}
+                className="h-full cursor-col-resize border-x border-[var(--deshazo-border)] bg-[#eef2f8] transition hover:bg-[#dbe5ff]"
+              />
+            </>
+          ) : null}
 
           <section className="relative min-h-0 overflow-hidden bg-[#f1f2f5]">
+            {!openPanels.chats || !openPanels.sources ? (
+              <div className="absolute left-4 top-4 z-20 flex flex-wrap gap-2">
+                {!openPanels.chats ? (
+                  <button
+                    type="button"
+                    onClick={() => setOpenPanels((current) => ({ ...current, chats: true }))}
+                    className="rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-black text-[var(--deshazo-blue)] shadow-[0_12px_30px_-20px_rgba(47,86,166,0.4)] transition hover:bg-[var(--deshazo-surface)]"
+                  >
+                    Open chats
+                  </button>
+                ) : null}
+                {!openPanels.sources ? (
+                  <button
+                    type="button"
+                    onClick={() => setOpenPanels((current) => ({ ...current, sources: true }))}
+                    className="rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-black text-[var(--deshazo-blue)] shadow-[0_12px_30px_-20px_rgba(47,86,166,0.4)] transition hover:bg-[var(--deshazo-surface)]"
+                  >
+                    Open sources
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {activeExternalPdfUrl || activeSource ? (
               <>
                 {activeExternalPdfUrl ? (
