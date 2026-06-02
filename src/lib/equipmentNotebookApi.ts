@@ -1,4 +1,9 @@
-const defaultNotebookApiUrl = '/notebook-api'
+const productionNotebookApiUrl = 'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com/api/notebook'
+const isLocalNotebookHost =
+  typeof window === 'undefined' ||
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1'
+const defaultNotebookApiUrl = isLocalNotebookHost ? '/notebook-api' : productionNotebookApiUrl
 
 const notebookApiUrl =
   (import.meta.env.VITE_EQUIPMENT_NOTEBOOK_API_URL as string | undefined)?.trim().replace(/\/$/, '') ||
