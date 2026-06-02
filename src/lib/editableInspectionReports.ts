@@ -205,6 +205,28 @@ export async function getEditableInspectionReportForJobsQuotingItem(jobsQuotingI
   return row ? mapEditableInspectionReportRow(row) : null
 }
 
+export async function getEditableInspectionReportsForJobNumber(jobNumber: string) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const normalizedJobNumber = jobNumber.trim()
+  if (!normalizedJobNumber) return []
+
+  await getCurrentUserId()
+  const { data, error } = await supabase
+    .from('editable_inspection_reports')
+    .select(editableInspectionReportsSelect)
+    .eq('job_number', normalizedJobNumber)
+    .order('updated_at', { ascending: false })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return ((data ?? []) as EditableInspectionReportRow[]).map(mapEditableInspectionReportRow)
+}
+
 export async function saveEditableInspectionReport(input: SaveEditableInspectionReportInput) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')

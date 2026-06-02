@@ -24,6 +24,7 @@ import {
 import {
   getEditableInspectionReport,
   getEditableInspectionReportForJobsQuotingItem,
+  getEditableInspectionReportsForJobNumber,
   getEditableInspectionReports,
   saveEditableInspectionReport,
   type EditableInspectionReport,
@@ -1106,6 +1107,10 @@ export default function EditableInspectionReport() {
   const [menuItemUploaderNames, setMenuItemUploaderNames] = useState<Record<string, string>>({})
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
+  const [jobReportPrintMenuOpen, setJobReportPrintMenuOpen] = useState(false)
+  const [jobReportPrintReports, setJobReportPrintReports] = useState<EditableInspectionReport[]>([])
+  const [jobReportPrintLoading, setJobReportPrintLoading] = useState(false)
+  const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -1224,6 +1229,28 @@ export default function EditableInspectionReport() {
     }
   })
   const currentCraneIdentifier = useMemo(() => getCraneIdentifierFromReport(report), [report])
+  const currentJobNumber = useMemo(() => getJobNumberDisplayFromReport(report), [report])
+  const normalizedCurrentJobNumber = useMemo(
+    () => (currentJobNumber === '---' ? '' : currentJobNumber.trim()),
+    [currentJobNumber],
+  )
+  const jobReportPrintOptions = useMemo(() => {
+    const seenDNumbers = new Set<string>()
+
+    return jobReportPrintReports
+      .map((savedReport) => ({
+        id: savedReport.id,
+        dNumber: getDNumberFromReport(savedReport.reportData) || 'Unknown D Number',
+        reportName: savedReport.reportName,
+        isCurrent: savedReport.id === currentEditableReportId,
+      }))
+      .filter((option) => {
+        const uniqueKey = option.dNumber.toUpperCase()
+        if (seenDNumbers.has(uniqueKey)) return false
+        seenDNumbers.add(uniqueKey)
+        return true
+      })
+  }, [currentEditableReportId, jobReportPrintReports])
   const currentEditableReportPayload = useMemo<EditableInspectionReportPayload>(
     () => ({
       reportData: report,
@@ -2148,7 +2175,9 @@ export default function EditableInspectionReport() {
       })
   }
 
-  const addMenuItemToRecentlyUsed = (_item: MenuItem) => {}
+  const addMenuItemToRecentlyUsed = (item: MenuItem) => {
+    void item
+  }
 
   const createId = (prefix: string) => {
     if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`
@@ -2636,6 +2665,37 @@ export default function EditableInspectionReport() {
     })
   }
 
+  const refreshJobReportPrintReports = useCallback(async () => {
+    if (!isConfigured) {
+      setJobReportPrintReports([])
+      setJobReportPrintMessage('Supabase is not configured.')
+      return []
+    }
+
+    if (!normalizedCurrentJobNumber) {
+      setJobReportPrintReports([])
+      setJobReportPrintMessage('No job number found for this report.')
+      return []
+    }
+
+    setJobReportPrintLoading(true)
+    setJobReportPrintMessage('')
+
+    try {
+      const reportsForJob = await getEditableInspectionReportsForJobNumber(normalizedCurrentJobNumber)
+      setJobReportPrintReports(reportsForJob)
+      setJobReportPrintMessage(reportsForJob.length > 0 ? '' : 'No saved reports found for this job number.')
+      return reportsForJob
+    } catch (error) {
+      setJobReportPrintReports([])
+      setJobReportPrintMessage('Could not load reports for this job number.')
+      console.error('Editable reports for job number could not be loaded.', error)
+      return []
+    } finally {
+      setJobReportPrintLoading(false)
+    }
+  }, [normalizedCurrentJobNumber])
+
   const printEditableReport = () => {
     const previousTitle = document.title
     document.title = currentReportName || 'DESHAZO Quote Proposal'
@@ -2648,6 +2708,24 @@ export default function EditableInspectionReport() {
     window.addEventListener('afterprint', restoreTitle)
     window.print()
     window.setTimeout(restoreTitle, 1000)
+  }
+
+  const openJobReportPrintMenu = async () => {
+    setJobReportPrintMenuOpen((isOpen) => !isOpen)
+    if (!jobReportPrintMenuOpen) {
+      await refreshJobReportPrintReports()
+    }
+  }
+
+  const selectJobReportPrintOption = (reportId: string) => {
+    setJobReportPrintMenuOpen(false)
+
+    if (reportId === currentEditableReportId) {
+      printEditableReport()
+      return
+    }
+
+    setSearchParams({ editableReportId: reportId })
   }
 
   return (
@@ -3000,13 +3078,70 @@ export default function EditableInspectionReport() {
             >
               Reset
             </button>
-            <button
-              type="button"
-              onClick={printEditableReport}
-              className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.55)] transition hover:bg-[var(--deshazo-surface)]"
-            >
-              Print PDF
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  void openJobReportPrintMenu()
+                }}
+                className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.55)] transition hover:bg-[var(--deshazo-surface)]"
+                aria-haspopup="menu"
+                aria-expanded={jobReportPrintMenuOpen}
+              >
+                Print PDF
+              </button>
+              {jobReportPrintMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-[calc(100%+8px)] z-40 w-[240px] overflow-hidden rounded-md border border-[#d8dce8] bg-white text-[#1f2430] shadow-[0_20px_50px_-28px_rgba(21,32,57,0.5)]"
+                >
+                  <div className="border-b border-[#edf0f6] px-3 py-2 text-[11px] font-black uppercase tracking-[0.08em] text-[#6f7788]">
+                    Job {normalizedCurrentJobNumber || '---'}
+                  </div>
+                  {jobReportPrintLoading ? (
+                    <div className="px-3 py-3 text-[12px] font-bold text-[#747b8a]">Loading D numbers...</div>
+                  ) : jobReportPrintOptions.length > 0 ? (
+                    <div className="max-h-[280px] overflow-y-auto py-1">
+                      {jobReportPrintOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => selectJobReportPrintOption(option.id)}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-[#f5f7ff]"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-[13px] font-black text-[#1f2430]">{option.dNumber}</span>
+                            <span className="mt-0.5 block truncate text-[11px] font-semibold text-[#747b8a]">{option.reportName}</span>
+                          </span>
+                          {option.isCurrent ? (
+                            <span className="shrink-0 rounded-sm bg-[#e8eefc] px-1.5 py-0.5 text-[10px] font-black uppercase text-[#273f7a]">
+                              Current
+                            </span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-3 text-[12px] font-bold text-[#747b8a]">
+                      {jobReportPrintMessage || 'No D numbers found.'}
+                    </div>
+                  )}
+                  <div className="border-t border-[#edf0f6] p-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJobReportPrintMenuOpen(false)
+                        printEditableReport()
+                      }}
+                      className="w-full rounded-md bg-[#273f7a] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#1f3261]"
+                    >
+                      Print Current Report
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </header>
