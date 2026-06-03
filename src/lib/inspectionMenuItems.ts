@@ -9,6 +9,7 @@ export type InspectionMenuItem = {
   rate: string
   internalCost?: string
   customerPrice?: string
+  createdAt?: string
   updatedAt?: string
   sourceDocumentId?: string | null
   sourceDocumentName?: string | null
@@ -43,6 +44,7 @@ type EditableInspectionMenuItemsRow = {
   branches: string[] | null
   display_order: number
   sync_token: string
+  created_at: string
   updated_at: string
 }
 
@@ -78,6 +80,7 @@ const inspectionMenuItemsSelect = `
   branches,
   display_order,
   sync_token,
+  created_at,
   updated_at
 `
 
@@ -103,6 +106,7 @@ function mapMenuItemsRows(userId: string, rows: EditableInspectionMenuItemsRow[]
       rate: internalCost,
       internalCost,
       customerPrice,
+      createdAt: row.created_at,
       updatedAt: row.updated_at,
       sourceDocumentId: row.source_document_id,
       sourceDocumentName: row.source_document_name,

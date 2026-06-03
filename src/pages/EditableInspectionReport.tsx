@@ -84,6 +84,8 @@ type PendingAddMenuLineItem = {
 
 type RelatedDocument = EditableInspectionDocument
 
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ')
+
 type QuoteBlockVisibility = {
   contact: boolean
   scopeOfWork: boolean
@@ -480,6 +482,34 @@ const formatInspectionDate = (value: string) => {
     day: 'numeric',
     year: 'numeric',
   }).format(parsedDate)
+}
+
+const formatMenuItemCreatedDate = (value?: string) => {
+  if (!value?.trim()) return ''
+  const parsedDate = new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) return ''
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(parsedDate)
+}
+
+const getMenuItemCreatedDateLabel = (item: MenuItem) =>
+  formatMenuItemCreatedDate(item.createdAt ?? item.updatedAt)
+
+const isMenuItemDecayed = (item: MenuItem) => {
+  const dateValue = item.createdAt ?? item.updatedAt
+  if (!dateValue?.trim()) return false
+
+  const createdDate = new Date(dateValue)
+  if (Number.isNaN(createdDate.getTime())) return false
+
+  const sixMonthsAgo = new Date()
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+
+  return createdDate < sixMonthsAgo
 }
 
 const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
@@ -1708,6 +1738,7 @@ export default function EditableInspectionReport() {
   const [newMenuCustomerPrice, setNewMenuCustomerPrice] = useState('0.00')
   const [editingMenuItem, setEditingMenuItem] = useState<EditingMenuItem | null>(null)
   const [pendingAddMenuLineItem, setPendingAddMenuLineItem] = useState<PendingAddMenuLineItem | null>(null)
+  const [decayedMenuItemWarning, setDecayedMenuItemWarning] = useState<MenuItem | null>(null)
   const [menuDatabaseStatus, setMenuDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -2076,11 +2107,8 @@ export default function EditableInspectionReport() {
       ? 'report-runtime-page-break'
       : ''
 
-  const getRuntimePageBreakStyle = (blockId: string) => {
-    if (isReportEditing || shouldSuppressRuntimePageBreak(blockId)) return undefined
-
-    const spacer = runtimePageBreaks[blockId]
-    return spacer ? { marginTop: `${spacer}px` } : undefined
+  const getRuntimePageBreakStyle = (_blockId: string) => {
+    return undefined
   }
 
   const applyEditableReportPayload = useCallback((payload: EditableInspectionReportPayload) => {
@@ -2625,6 +2653,7 @@ export default function EditableInspectionReport() {
       rate: internalCost,
       internalCost,
       customerPrice,
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
 
@@ -2669,6 +2698,7 @@ export default function EditableInspectionReport() {
           items: section.items.map((item) =>
             item.id === editingMenuItem.itemId
               ? {
+                  ...item,
                   id: editingMenuItem.itemId,
                   userId: editingMenuItem.userId,
                   label,
@@ -2954,8 +2984,13 @@ export default function EditableInspectionReport() {
     )
   }
 
+  const warnIfDecayedMenuItem = (item: MenuItem) => {
+    if (isMenuItemDecayed(item)) setDecayedMenuItemWarning(item)
+  }
+
   const addMenuItemToRepairSection = (sectionId: string, item: MenuItem) => {
     addMenuItemToRecentlyUsed(item)
+    warnIfDecayedMenuItem(item)
     setRepairSections((currentSections) =>
       saveRepairSections(
         currentSections.map((section) =>
@@ -3086,6 +3121,7 @@ export default function EditableInspectionReport() {
 
   const addMenuItemToCostSection = (sectionId: string, item: MenuItem) => {
     addMenuItemToRecentlyUsed(item)
+    warnIfDecayedMenuItem(item)
     setCostSections((currentSections) =>
       saveCostSections(
         currentSections.map((section) =>
@@ -3762,7 +3798,11 @@ export default function EditableInspectionReport() {
                     </div>
                   ) : visibleMenuItemSections[0]?.items.length ? (
                       <div className="space-y-2">
-                        {visibleMenuItemSections[0].items.map((item) => (
+                        {visibleMenuItemSections[0].items.map((item) => {
+                          const createdDateLabel = getMenuItemCreatedDateLabel(item)
+                          const decayed = isMenuItemDecayed(item)
+
+                          return (
                           <div
                             key={item.id ?? item.label}
                             draggable
@@ -3771,7 +3811,18 @@ export default function EditableInspectionReport() {
                               event.dataTransfer.setData('text/plain', item.description)
                               event.dataTransfer.effectAllowed = 'copy'
                             }}
-                            className="w-full cursor-grab rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff] active:cursor-grabbing"
+                            className={cx(
+                              'w-full cursor-grab rounded-md border px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition active:cursor-grabbing',
+                              decayed
+                                ? 'border-[#9f7430] bg-[#f2dda1] shadow-[inset_0_0_0_1px_rgba(93,61,20,0.16),inset_0_0_26px_rgba(112,72,22,0.22),0_8px_20px_-18px_rgba(31,36,48,0.45)] hover:border-[#7f5722] hover:bg-[#efd48b]'
+                                : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]',
+                            )}
+                            style={decayed
+                              ? {
+                                  backgroundImage:
+                                    'linear-gradient(135deg, rgba(255,255,238,0.34) 0%, rgba(255,255,238,0) 36%, rgba(102,63,17,0.13) 100%), repeating-linear-gradient(0deg, rgba(120,82,31,0.08) 0, rgba(120,82,31,0.08) 1px, transparent 1px, transparent 8px), repeating-linear-gradient(90deg, rgba(90,58,20,0.05) 0, rgba(90,58,20,0.05) 1px, transparent 1px, transparent 13px)',
+                                }
+                              : undefined}
                           >
                             <span className="flex items-start justify-between gap-2">
                               <span className="min-w-0 text-[13px] font-black leading-tight text-[#273f7a]">{item.label}</span>
@@ -3795,6 +3846,11 @@ export default function EditableInspectionReport() {
                               <span>Internal {formatMoney(parseMoney(item.internalCost ?? item.rate))}</span>
                               <span>Customer {formatMoney(parseMoney(item.customerPrice ?? item.rate))}</span>
                             </span>
+                            {createdDateLabel ? (
+                              <span className={cx('mt-1 block text-[10px] font-black uppercase', decayed ? 'text-[#9a6a12]' : 'text-[#8a92a3]')}>
+                                Created at {createdDateLabel}
+                              </span>
+                            ) : null}
                             {item.sourceDocumentName ? (
                               <button
                                 type="button"
@@ -3811,7 +3867,8 @@ export default function EditableInspectionReport() {
                               </button>
                             ) : null}
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                   ) : (
                     <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
@@ -5016,6 +5073,39 @@ export default function EditableInspectionReport() {
                 Save Item
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    {decayedMenuItemWarning ? (
+      <div className="report-toolbar fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/45 px-4">
+        <div className="w-full max-w-[460px] overflow-hidden rounded-md border border-[#9f7430] bg-[#fff8df] shadow-[0_28px_80px_-36px_rgba(91,57,14,0.72)]">
+          <div
+            className="border-b border-[#d7b56e] px-5 py-4"
+            style={{
+              backgroundImage:
+                'linear-gradient(135deg, rgba(255,255,238,0.48) 0%, rgba(255,255,238,0) 42%, rgba(102,63,17,0.14) 100%), repeating-linear-gradient(0deg, rgba(120,82,31,0.08) 0, rgba(120,82,31,0.08) 1px, transparent 1px, transparent 8px)',
+            }}
+          >
+            <p className="text-[11px] font-black uppercase text-[#9a6a12]">Pricing check recommended</p>
+            <h2 className="mt-1 text-[20px] font-black leading-tight text-[#3d2a10]">{decayedMenuItemWarning.label}</h2>
+          </div>
+          <div className="px-5 py-5">
+            <p className="text-[14px] font-bold leading-relaxed text-[#4b3619]">
+              Hey, this is an over-six-month-old menu item. You should check the pricing again because it could be outdated, and you want to make sure you have the correct pricing.
+            </p>
+            <p className="mt-3 text-[12px] font-black uppercase text-[#8f6822]">
+              Created at {getMenuItemCreatedDateLabel(decayedMenuItemWarning) || 'an older date'}
+            </p>
+          </div>
+          <div className="flex justify-end border-t border-[#e1c681] bg-[#f3dfaa] px-5 py-4">
+            <button
+              type="button"
+              onClick={() => setDecayedMenuItemWarning(null)}
+              className="rounded-md bg-[#273f7a] px-5 py-2.5 text-[13px] font-black text-white shadow-[0_12px_26px_-20px_rgba(39,63,122,0.7)] transition hover:bg-[#1f3262]"
+            >
+              Got it
+            </button>
           </div>
         </div>
       </div>
