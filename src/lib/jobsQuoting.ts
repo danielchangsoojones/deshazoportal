@@ -14,7 +14,7 @@ export const jobsQuotingPdfBucket = 'jobs-quoting-pdfs'
 
 export type JobsQuotingRun = {
   id: string
-  userId: string
+  userId: string | null
   sourceFileName: string
   status: string
   extendWorkflowRunId: string | null
@@ -59,7 +59,7 @@ export type JobsQuotingItem = {
 
 type JobsQuotingRunRow = {
   id: string
-  user_id: string
+  user_id: string | null
   source_file_name: string
   status: string
   extend_workflow_run_id: string | null

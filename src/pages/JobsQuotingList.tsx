@@ -295,7 +295,7 @@ export default function JobsQuotingList() {
   const selectedRunGroup = runGroups.find((group) => group.id === selectedRunId)
   const canUseExtendControls = userTag === 'developer'
   const getRunUploaderName = useCallback(
-    (run: JobsQuotingRun | undefined) => (run ? userDisplayNames[run.userId] || '' : ''),
+    (run: JobsQuotingRun | undefined) => (run?.userId ? userDisplayNames[run.userId] || '' : 'Shared'),
     [userDisplayNames],
   )
   const visibleItems = useMemo(() => {
@@ -398,7 +398,7 @@ export default function JobsQuotingList() {
     }
 
     let cancelled = false
-    getUserDisplayNames(runs.map((run) => run.userId))
+    getUserDisplayNames(runs.map((run) => run.userId).filter((userId): userId is string => Boolean(userId)))
       .then((displayNames) => {
         if (!cancelled) setUserDisplayNames(displayNames)
       })

@@ -6,7 +6,7 @@ set public = excluded.public,
 
 create table if not exists public.jobs_quoting_runs (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid references auth.users (id) on delete cascade,
   source_file_name text not null,
   source_file_size bigint not null default 0,
   status text not null default 'queued',
@@ -22,7 +22,7 @@ create table if not exists public.jobs_quoting_runs (
 create table if not exists public.jobs_quoting_items (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references public.jobs_quoting_runs (id) on delete cascade,
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid references auth.users (id) on delete cascade,
   editable_document_id uuid references public.editable_inspection_documents (id) on delete set null,
   document_name text not null,
   job_number text,
@@ -77,6 +77,12 @@ alter table public.jobs_quoting_items
   add column if not exists repair_section_visibility jsonb not null default '{}'::jsonb,
   add column if not exists text_boxes jsonb not null default '[]'::jsonb,
   add column if not exists equipment_rental_settings jsonb not null default '{}'::jsonb;
+
+alter table public.jobs_quoting_runs
+  alter column user_id drop not null;
+
+alter table public.jobs_quoting_items
+  alter column user_id drop not null;
 
 update public.jobs_quoting_items
 set job_number = nullif(btrim(coalesce(extraction_data #>> '{job_number,value}', extraction_data ->> 'job_number')), '')
@@ -168,19 +174,17 @@ begin
       with check ((select auth.uid()) = user_id);
   end if;
 
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'jobs_quoting_runs'
-      and policyname = 'Authenticated users can update their quote runs'
-  ) then
-    create policy "Authenticated users can update their quote runs"
-      on public.jobs_quoting_runs
-      for update
-      to authenticated
-      using ((select auth.uid()) = user_id)
-      with check ((select auth.uid()) = user_id);
-  end if;
+  drop policy if exists "Authenticated users can update their quote runs"
+    on public.jobs_quoting_runs;
+  drop policy if exists "Authenticated users can update owned or shared quote runs"
+    on public.jobs_quoting_runs;
+
+  create policy "Authenticated users can update owned or shared quote runs"
+    on public.jobs_quoting_runs
+    for update
+    to authenticated
+    using (user_id is null or (select auth.uid()) = user_id)
+    with check (user_id is null or (select auth.uid()) = user_id);
 
   drop policy if exists "Authenticated users can read their quote items"
     on public.jobs_quoting_items;
@@ -206,19 +210,17 @@ begin
       with check ((select auth.uid()) = user_id);
   end if;
 
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'jobs_quoting_items'
-      and policyname = 'Authenticated users can update their quote items'
-  ) then
-    create policy "Authenticated users can update their quote items"
-      on public.jobs_quoting_items
-      for update
-      to authenticated
-      using ((select auth.uid()) = user_id)
-      with check ((select auth.uid()) = user_id);
-  end if;
+  drop policy if exists "Authenticated users can update their quote items"
+    on public.jobs_quoting_items;
+  drop policy if exists "Authenticated users can update owned or shared quote items"
+    on public.jobs_quoting_items;
+
+  create policy "Authenticated users can update owned or shared quote items"
+    on public.jobs_quoting_items
+    for update
+    to authenticated
+    using (user_id is null or (select auth.uid()) = user_id)
+    with check (user_id is null or (select auth.uid()) = user_id);
 end
 $$;
 
