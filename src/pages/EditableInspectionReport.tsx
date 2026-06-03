@@ -87,6 +87,8 @@ type PendingAddMenuLineItem = {
 
 type RelatedDocument = EditableInspectionDocument
 
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ')
+
 type QuoteBlockVisibility = {
   contact: boolean
   scopeOfWork: boolean
@@ -511,6 +513,34 @@ const formatInspectionDate = (value: string) => {
     day: 'numeric',
     year: 'numeric',
   }).format(parsedDate)
+}
+
+const formatMenuItemCreatedDate = (value?: string) => {
+  if (!value?.trim()) return ''
+  const parsedDate = new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) return ''
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(parsedDate)
+}
+
+const getMenuItemCreatedDateLabel = (item: MenuItem) =>
+  formatMenuItemCreatedDate(item.createdAt ?? item.updatedAt)
+
+const isMenuItemDecayed = (item: MenuItem) => {
+  const dateValue = item.createdAt ?? item.updatedAt
+  if (!dateValue?.trim()) return false
+
+  const createdDate = new Date(dateValue)
+  if (Number.isNaN(createdDate.getTime())) return false
+
+  const sixMonthsAgo = new Date()
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+
+  return createdDate < sixMonthsAgo
 }
 
 const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
@@ -2685,6 +2715,7 @@ export default function EditableInspectionReport() {
       rate: internalCost,
       internalCost,
       customerPrice,
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
 
@@ -2729,6 +2760,7 @@ export default function EditableInspectionReport() {
           items: section.items.map((item) =>
             item.id === editingMenuItem.itemId
               ? {
+                  ...item,
                   id: editingMenuItem.itemId,
                   userId: editingMenuItem.userId,
                   label,
@@ -3917,7 +3949,11 @@ export default function EditableInspectionReport() {
                     </div>
                   ) : visibleMenuItemSections[0]?.items.length ? (
                       <div className="space-y-2">
-                        {visibleMenuItemSections[0].items.map((item) => (
+                        {visibleMenuItemSections[0].items.map((item) => {
+                          const createdDateLabel = getMenuItemCreatedDateLabel(item)
+                          const decayed = isMenuItemDecayed(item)
+
+                          return (
                           <div
                             key={item.id ?? item.label}
                             draggable
@@ -3926,7 +3962,12 @@ export default function EditableInspectionReport() {
                               event.dataTransfer.setData('text/plain', item.description)
                               event.dataTransfer.effectAllowed = 'copy'
                             }}
-                            className="w-full cursor-grab rounded-md border border-[#dde3ef] bg-white px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition hover:border-[#9bb0dc] hover:bg-[#f5f7ff] active:cursor-grabbing"
+                            className={cx(
+                              'w-full cursor-grab rounded-md border px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition active:cursor-grabbing',
+                              decayed
+                                ? 'border-[#d8b65a] bg-[#fff6cf] shadow-[inset_0_0_0_1px_rgba(129,91,23,0.08),0_8px_20px_-18px_rgba(31,36,48,0.45)] hover:border-[#bf8f2e] hover:bg-[#ffefad]'
+                                : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]',
+                            )}
                           >
                             <span className="flex items-start justify-between gap-2">
                               <span className="min-w-0 text-[13px] font-black leading-tight text-[#273f7a]">{item.label}</span>
@@ -3950,6 +3991,11 @@ export default function EditableInspectionReport() {
                               <span>Internal {formatMoney(parseMoney(item.internalCost ?? item.rate))}</span>
                               <span>Customer {formatMoney(parseMoney(item.customerPrice ?? item.rate))}</span>
                             </span>
+                            {createdDateLabel ? (
+                              <span className={cx('mt-1 block text-[10px] font-black uppercase', decayed ? 'text-[#9a6a12]' : 'text-[#8a92a3]')}>
+                                Created at {createdDateLabel}
+                              </span>
+                            ) : null}
                             {item.sourceDocumentName ? (
                               <button
                                 type="button"
@@ -3966,7 +4012,8 @@ export default function EditableInspectionReport() {
                               </button>
                             ) : null}
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                   ) : (
                     <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
