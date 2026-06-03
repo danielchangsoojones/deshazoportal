@@ -209,6 +209,12 @@ export default function DeshazoWorkOrders() {
     setSubmittedSearch(search)
   }
 
+  const clearSearch = () => {
+    setSearch('')
+    setSubmittedSearch('')
+    setCurrentPage(1)
+  }
+
   const getNextSyncPage = (pageSize: number) => Math.max(1, Math.floor(totalCount / pageSize) + 1)
 
   const handleSync = async (label: string, pageSize: number, maxPages?: number, page = 1) => {
@@ -362,13 +368,26 @@ export default function DeshazoWorkOrders() {
                     Fetch All
                   </button>
                 </div>
-                <form onSubmit={handleSearchSubmit} className="flex w-full max-w-[360px] items-stretch">
-                  <input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="wabash"
-                    className="min-w-0 flex-1 border border-[#bfc7d8] px-3 py-2 text-sm font-semibold outline-none focus:border-[var(--deshazo-blue)]"
-                  />
+                <form onSubmit={handleSearchSubmit} className="flex w-full max-w-[440px] items-stretch">
+                  <div className="relative min-w-0 flex-1">
+                    <input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Enter D-number, work order #, job #, customer, location, or comment"
+                      className="h-full w-full min-w-0 border border-[#bfc7d8] px-3 py-2 pr-9 text-sm font-semibold outline-none focus:border-[var(--deshazo-blue)]"
+                    />
+                    {search || submittedSearch ? (
+                      <button
+                        type="button"
+                        onClick={clearSearch}
+                        className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-[#bfc7d8] bg-[#eef2f8] text-[16px] font-black leading-none text-[#273f7a] shadow-sm transition hover:border-[var(--deshazo-blue)] hover:bg-[#dbe5ff]"
+                        aria-label="Clear search"
+                        title="Clear search"
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </div>
                   <button type="submit" className="bg-[#f4b331] px-4 text-lg font-black text-white">
                     ⌕
                   </button>

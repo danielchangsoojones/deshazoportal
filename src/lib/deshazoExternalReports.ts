@@ -275,6 +275,10 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
     throw new Error('Supabase is not configured.')
   }
 
+  const trimmedSearch = search.trim()
+  const escapedSearch = trimmedSearch.replaceAll('%', '\\%').replaceAll('_', '\\_')
+  const matchingDNumberWorkOrderIds = trimmedSearch ? await getWorkOrderIdsMatchingDNumberSearch(escapedSearch) : []
+
   let query = supabase
     .from('deshazo_external_work_orders')
     .select(
@@ -285,18 +289,25 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
     .order('work_order_id', { ascending: false })
     .range(offset, offset + limit - 1)
 
-  const trimmedSearch = search.trim()
   if (trimmedSearch) {
-    const escapedSearch = trimmedSearch.replaceAll('%', '\\%').replaceAll('_', '\\_')
+    const searchFilters = [
+      `job_no.ilike.%${escapedSearch}%`,
+      `sales_order_no.ilike.%${escapedSearch}%`,
+      `bill_to_name.ilike.%${escapedSearch}%`,
+      `customer_location_name.ilike.%${escapedSearch}%`,
+      `service_location_name.ilike.%${escapedSearch}%`,
+      `comment.ilike.%${escapedSearch}%`,
+    ]
+    const numericSearch = Number.parseInt(trimmedSearch, 10)
+    if (Number.isFinite(numericSearch)) {
+      searchFilters.push(`work_order_id.eq.${numericSearch}`)
+    }
+    if (matchingDNumberWorkOrderIds.length > 0) {
+      searchFilters.push(`work_order_id.in.(${matchingDNumberWorkOrderIds.join(',')})`)
+    }
+
     query = query.or(
-      [
-        `job_no.ilike.%${escapedSearch}%`,
-        `sales_order_no.ilike.%${escapedSearch}%`,
-        `bill_to_name.ilike.%${escapedSearch}%`,
-        `customer_location_name.ilike.%${escapedSearch}%`,
-        `service_location_name.ilike.%${escapedSearch}%`,
-        `comment.ilike.%${escapedSearch}%`,
-      ].join(','),
+      searchFilters.join(','),
     )
   }
 
@@ -330,6 +341,28 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
       syncedAt: row.synced_at ?? '',
     })),
   }
+}
+
+async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string) {
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('deshazo_external_report_cranes')
+    .select('work_order_id')
+    .or(`contact_code.ilike.%${escapedSearch}%,description.ilike.%${escapedSearch}%`)
+    .limit(500)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return Array.from(
+    new Set(
+      ((data ?? []) as Array<{ work_order_id: number | null }>)
+        .map((row) => row.work_order_id)
+        .filter((workOrderId): workOrderId is number => typeof workOrderId === 'number'),
+    ),
+  )
 }
 
 export async function getDeshazoExternalWorkOrdersLastSync() {
