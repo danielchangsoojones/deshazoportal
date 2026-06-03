@@ -24,6 +24,7 @@ import {
 import {
   getEditableInspectionReport,
   getEditableInspectionReportForJobsQuotingItem,
+  getEditableInspectionReportsForJobNumber,
   getEditableInspectionReports,
   saveEditableInspectionReport,
   type EditableInspectionReport,
@@ -36,7 +37,9 @@ type ReportData = Record<string, string>
 type RepairLineItem = {
   id: string
   description: string
+  internalCost?: string
   quantity: string
+  customerPrice?: string
   rate: string
   margin: string
   source?: 'manual' | 'menu'
@@ -68,13 +71,12 @@ type MenuItem = InspectionMenuItem
 type MenuItemSection = InspectionMenuItemSection
 
 type EditingMenuItem = {
-  originalSectionTitle: string
-  sectionTitle: string
   itemId: string
   userId?: string
   label: string
   description: string
-  rate: string
+  internalCost: string
+  customerPrice: string
 }
 
 type PendingAddMenuLineItem = {
@@ -83,16 +85,10 @@ type PendingAddMenuLineItem = {
   lineItemId: string
 }
 
-type CanvasTextBox = {
-  id: string
-  text: string
-  x: number
-  y: number
-}
-
 type RelatedDocument = EditableInspectionDocument
 
 type QuoteBlockVisibility = {
+  contact: boolean
   scopeOfWork: boolean
   repairItems: boolean
   estimateSummary: boolean
@@ -110,12 +106,10 @@ const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
 const costStorageKey = 'deshazo-editable-inspection-report-costs'
 const menuStorageKey = 'deshazo-editable-inspection-report-menu-items'
 const blockVisibilityStorageKey = 'deshazo-editable-inspection-report-block-visibility'
-const textBoxStorageKey = 'deshazo-editable-inspection-report-text-boxes'
 const menuCollapsedStorageKey = 'deshazo-editable-inspection-report-menu-collapsed'
 const estimateNoteVisibilityStorageKey = 'deshazo-editable-inspection-report-estimate-note-visibility'
 const repairSectionVisibilityStorageKey = 'deshazo-editable-inspection-report-repair-section-visibility'
 const equipmentRentalSettingsStorageKey = 'deshazo-editable-inspection-report-equipment-rental-settings'
-const maxRecentlyUsedItems = 2
 const equipmentRentalSectionId = 'equipment-rental'
 const equipmentRentalDefaultMargin = 15
 const printedPageWidthIn = 8.5
@@ -127,7 +121,6 @@ const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
 const menuSearchDebounceMs = 300
 const defaultCraneIdentifier = 'D200235'
-const originalInspectionStableKey = 'built-in:original-inspection'
 const masterServiceAgreementStableKey = 'built-in:master-service-agreement'
 const estimateSummaryRuntimePageBreakIds = new Set([
   'estimate-summary-header',
@@ -155,6 +148,7 @@ const defaultEquipmentRentalSettings: EquipmentRentalSettings = {
 }
 
 const defaultBlockVisibility: QuoteBlockVisibility = {
+  contact: true,
   scopeOfWork: true,
   repairItems: true,
   estimateSummary: true,
@@ -224,6 +218,9 @@ const defaultReport: ReportData = {
   modelHoist4: 'Hoist 4: ---',
   scopeOfWorkHeader: 'Scope of Work',
   scopeOfWork: '',
+  contactName: '',
+  contactEmail: '',
+  contactPhone: '',
   sectionHeader: 'Repair Items',
   estimateTopNote: 'Top note: Add estimate context here.',
   estimateBottomNote: 'Bottom note: Add estimate terms here.',
@@ -329,94 +326,45 @@ const shouldShowReportTableRow = (row: string[], rowIndex: number, report: Repor
   return row.some((fieldId) => hasReportCellValue(report[fieldId]))
 }
 
-const defaultMenuItemSections: MenuItemSection[] = [
-  {
-    title: 'Past history',
-    items: [
-      { label: 'Previous wheel repair', description: 'Repeat repair from prior wheel inspection history.', rate: '185.00' },
-      { label: 'Known festoon issue', description: 'Address recurring festoon wear noted on past reports.', rate: '95.00' },
-    ],
-  },
-  {
-    title: 'Customer specific',
-    items: [
-      { label: 'Labor', description: 'Customer-specific labor rate for Wabash service work.', rate: '145.00' },
-      { label: 'Freight', description: 'Customer-specific freight and delivery charge.', rate: '85.00' },
-    ],
-  },
-  {
-    title: defaultCraneIdentifier,
-    items: [
-      { label: 'Wheel inspection', description: 'Inspect wheel tread wear and flange condition.', rate: '185.00' },
-      { label: 'Cable alignment', description: 'Verify conductor alignment through full bridge travel.', rate: '125.00' },
-      { label: 'Festoon repair', description: 'Replace damaged festoon cable carrier hardware.', rate: '95.00' },
-    ],
-  },
-  {
-    title: 'Shared',
-    items: [
-      { label: 'Technician labor', description: 'Technician labor.', rate: '145.00' },
-      { label: 'Lift rental', description: 'Scissor lift rental.', rate: '275.00' },
-      { label: 'Freight', description: 'Freight and delivery.', rate: '85.00' },
-    ],
-  },
-]
-
-const recentlyUsedMenuSectionTitle = 'Past history'
-const globalMenuSectionTitles = new Set([recentlyUsedMenuSectionTitle, 'Customer specific', 'Shared'])
-
-const getDefaultAddableMenuSection = (sections: MenuItemSection[]) =>
-  sections.find((section) => section.title !== recentlyUsedMenuSectionTitle)?.title ?? 'Shared'
+const menuItemsSectionTitle = 'Menu Items'
+const defaultMenuItemSections: MenuItemSection[] = [{ title: menuItemsSectionTitle, items: [] }]
 
 const createManualLineItem = (id: string, description: string): RepairLineItem => ({
   id,
   description,
+  internalCost: '0.00',
   quantity: '1',
+  customerPrice: '0.00',
   rate: '0.00',
   margin: '0',
   source: 'manual',
 })
 
-const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => ({
-  id,
-  description: item.description,
-  quantity: '1',
-  rate: item.rate,
-  margin: '0',
-  source: 'menu',
-})
+const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => {
+  const internalCost = item.internalCost ?? item.rate
+  const customerPrice = item.customerPrice ?? item.rate
+
+  return {
+    id,
+    description: item.description,
+    internalCost,
+    quantity: '1',
+    customerPrice,
+    rate: internalCost,
+    margin: getUnitMargin(parseMoney(internalCost), parseMoney(customerPrice)).toFixed(2),
+    source: 'menu',
+  }
+}
 
 const shouldShowAddMenuItemTag = (lineItem: RepairLineItem) =>
-  lineItem.source === 'manual' && Boolean(lineItem.description.trim()) && parseMoney(lineItem.rate) > 0
+  lineItem.source === 'manual'
+  && Boolean(lineItem.description.trim())
+  && parseMoney(lineItem.customerPrice ?? lineItem.rate) > 0
 
-const getMenuSectionDisplayTitle = (title: string) => {
-  if (title === recentlyUsedMenuSectionTitle) return 'Recently used'
-  if (title === 'Customer specific') return 'Customer specific (Wabash)'
-  return title
-}
+const shouldClearPlaceholderDescription = (description: string) =>
+  ['Add repair detail here.', 'Add line item here.'].includes(description.trim())
 
 const createMenuItemId = () => globalThis.crypto?.randomUUID?.() ?? `menu-${Date.now()}-${Math.random()}`
-
-const getNormalizedMenuSectionTitle = (title: string, craneIdentifier: string) => {
-  if (title === 'This crane') return craneIdentifier
-  if (globalMenuSectionTitles.has(title)) return title
-  return craneIdentifier
-}
-
-const getMenuItemModifiedTime = (item: MenuItem) => {
-  if (!item.updatedAt) return 0
-  const modifiedTime = Date.parse(item.updatedAt)
-  return Number.isFinite(modifiedTime) ? modifiedTime : 0
-}
-
-const sortMenuItemsByModifiedDate = (items: MenuItem[]) =>
-  items
-    .map((item, index) => ({ item, index }))
-    .sort((first, second) => {
-      const modifiedDateDifference = getMenuItemModifiedTime(second.item) - getMenuItemModifiedTime(first.item)
-      return modifiedDateDifference || first.index - second.index
-    })
-    .map(({ item }) => item)
 
 const getCraneIdentifierFromReport = (report: ReportData) => {
   const reportText = [
@@ -767,6 +715,583 @@ const createSimplePdfFile = (fileName: string, title: string, lines: string[]) =
   return new File([new Blob([pdf], { type: 'application/pdf' })], fileName, { type: 'application/pdf' })
 }
 
+type CombinedReportPdfSource = {
+  dNumber: string
+  reportName: string
+  payload: EditableInspectionReportPayload
+}
+
+const escapeHtml = (value: string | number) =>
+  String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const sanitizePdfText = (text: string) =>
+  text
+    .replace(/[–—]/g, '-')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[^\x20-\x7E]/g, '')
+
+const wrapPdfLine = (line: string, maxLength = 92) => {
+  const words = sanitizePdfText(line).split(/\s+/)
+  const wrappedLines: string[] = []
+  let currentLine = ''
+
+  words.forEach((word) => {
+    if (!word) return
+    if (!currentLine) {
+      currentLine = word
+      return
+    }
+    if (`${currentLine} ${word}`.length <= maxLength) {
+      currentLine = `${currentLine} ${word}`
+      return
+    }
+    wrappedLines.push(currentLine)
+    currentLine = word
+  })
+
+  if (currentLine) wrappedLines.push(currentLine)
+  return wrappedLines.length > 0 ? wrappedLines : ['']
+}
+
+const chunkPdfLines = (lines: string[], maxLinesPerPage = 48) => {
+  const pages: string[][] = []
+  let currentPage: string[] = []
+
+  lines.forEach((line) => {
+    const wrappedLines = line ? wrapPdfLine(line) : ['']
+    wrappedLines.forEach((wrappedLine) => {
+      if (currentPage.length >= maxLinesPerPage) {
+        pages.push(currentPage)
+        currentPage = []
+      }
+      currentPage.push(wrappedLine)
+    })
+  })
+
+  if (currentPage.length > 0) pages.push(currentPage)
+  return pages
+}
+
+const getPdfLineItemSummary = (lineItem: RepairLineItem, sectionId?: string, settings = defaultEquipmentRentalSettings) => {
+  const customerAmount = sectionId
+    ? getCostCustomerLineAmount(sectionId, lineItem, settings)
+    : getCustomerLineAmount(lineItem)
+  return [
+    lineItem.description,
+    `Qty ${lineItem.quantity || '1'}`,
+    `Customer ${formatMoney(customerAmount)}`,
+  ].join(' | ')
+}
+
+const getReportPdfLines = (source: CombinedReportPdfSource) => {
+  const { payload } = source
+  const reportData = payload.reportData
+  const repairSections = normalizeRepairSections(payload.repairSections as RepairSection[])
+  const costSections = normalizeCostSections(payload.costSections as CostSection[])
+  const equipmentSettings = {
+    ...defaultEquipmentRentalSettings,
+    ...payload.equipmentRentalSettings,
+  } as EquipmentRentalSettings
+  const lines = [
+    `D Number: ${source.dNumber}`,
+    `Report: ${source.reportName}`,
+    `Job Number: ${getJobNumberDisplayFromReport(reportData)}`,
+    '',
+    reportData.customer,
+    reportData.date,
+    reportData.summary,
+    reportData.type,
+    reportData.structure,
+    reportData.description,
+    reportData.location,
+    reportData.customerAddress,
+    reportData.purchaseOrder,
+    '',
+    'Contact',
+    `Name: ${reportData.contactName || '---'}`,
+    `Email: ${reportData.contactEmail || '---'}`,
+    `Phone: ${reportData.contactPhone || '---'}`,
+    '',
+    reportData.scopeOfWorkHeader || 'Scope of Work',
+    reportData.scopeOfWork || '---',
+    '',
+    'Repair Items',
+  ]
+
+  repairSections.forEach((section) => {
+    lines.push('', `${section.title} (${section.status || 'Repair'})`)
+    section.lineItems.forEach((lineItem) => {
+      lines.push(getPdfLineItemSummary(lineItem))
+    })
+  })
+
+  lines.push('', 'Estimate Summary')
+  costSections.forEach((section) => {
+    lines.push('', section.title)
+    section.lineItems.forEach((lineItem) => {
+      lines.push(getPdfLineItemSummary(lineItem, section.id, equipmentSettings))
+    })
+  })
+
+  const repairTotal = repairSections.reduce(
+    (total, section) =>
+      total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+    0,
+  )
+  const costTotal = costSections.reduce(
+    (total, section) =>
+      total + section.lineItems.reduce(
+        (sectionTotal, lineItem) => sectionTotal + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
+        0,
+      ),
+    0,
+  )
+
+  lines.push('', `Grand Total: ${formatMoney(repairTotal + costTotal)}`, '', reportData.notesHeader || 'Additional Notes', reportData.notes || '---')
+  return lines
+}
+
+const createCombinedReportsPdfBlob = (sources: CombinedReportPdfSource[]) => {
+  const pageLineSets = sources.flatMap((source) =>
+    chunkPdfLines(getReportPdfLines(source)).map((lines, pageIndex) => ({
+      title: `${source.dNumber} - ${source.reportName}${pageIndex > 0 ? ` (continued ${pageIndex + 1})` : ''}`,
+      lines,
+    })),
+  )
+
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    `2 0 obj\n<< /Type /Pages /Kids [${pageLineSets.map((_, index) => `${3 + index} 0 R`).join(' ')}] /Count ${pageLineSets.length} >>\nendobj\n`,
+  ]
+  const contentObjects: string[] = []
+  const fontObjectId = 3 + pageLineSets.length * 2
+
+  pageLineSets.forEach((page, index) => {
+    const pageObjectId = 3 + index
+    const contentObjectId = 3 + pageLineSets.length + index
+    const contentLines = [
+      'BT',
+      '/F1 13 Tf',
+      '54 760 Td',
+      `(${escapePdfText(sanitizePdfText(page.title))}) Tj`,
+      '/F1 9 Tf',
+      '0 -22 Td',
+      ...page.lines.flatMap((line) => [`(${escapePdfText(sanitizePdfText(line))}) Tj`, '0 -12 Td']),
+      'ET',
+    ]
+    const content = contentLines.join('\n')
+
+    objects.push(`${pageObjectId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>\nendobj\n`)
+    contentObjects.push(`${contentObjectId} 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`)
+  })
+
+  objects.push(...contentObjects)
+  objects.push(`${fontObjectId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`)
+
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+
+  objects.forEach((object) => {
+    offsets.push(pdf.length)
+    pdf += object
+  })
+
+  const xrefOffset = pdf.length
+  pdf += `xref\n0 ${objects.length + 1}\n`
+  pdf += '0000000000 65535 f \n'
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
+  })
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+
+  return new Blob([pdf], { type: 'application/pdf' })
+}
+
+const getTemplateValue = (value: string | undefined) => escapeHtml(value?.trim() || '---')
+
+const getTemplateReportCell = (label: string, value: string | undefined) => `
+  <div class="info-cell">
+    <div class="cell-label">${escapeHtml(label)}</div>
+    <div class="cell-value">${getTemplateValue(removeReportValueLabel(value ?? ''))}</div>
+  </div>
+`
+
+const getTemplateLineItemRows = (
+  lineItems: RepairLineItem[],
+  getCustomerAmount: (lineItem: RepairLineItem) => number,
+) =>
+  lineItems
+    .map((lineItem) => `
+      <tr>
+        <td>${escapeHtml(lineItem.description || '---')}</td>
+        <td class="qty">${escapeHtml(lineItem.quantity || '1')}</td>
+        <td class="money">${formatMoney(getCustomerUnitPrice(lineItem))}</td>
+        <td class="money">${formatMoney(getCustomerAmount(lineItem))}</td>
+      </tr>
+    `)
+    .join('')
+
+const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
+  const reportMarkup = sources.map((source) => {
+    const reportData = normalizeReport(source.payload.reportData)
+    const repairSections = normalizeRepairSections(source.payload.repairSections as RepairSection[])
+    const costSections = normalizeCostSections(source.payload.costSections as CostSection[])
+    const equipmentSettings = {
+      ...defaultEquipmentRentalSettings,
+      ...source.payload.equipmentRentalSettings,
+    } as EquipmentRentalSettings
+    const repairTotal = repairSections.reduce(
+      (total, section) =>
+        total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+      0,
+    )
+    const costTotal = costSections.reduce(
+      (total, section) =>
+        total + section.lineItems.reduce(
+          (sectionTotal, lineItem) =>
+            sectionTotal + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
+          0,
+        ),
+      0,
+    )
+    const repairMarkup = repairSections
+      .map((section) => `
+        <section class="quote-section repair-section">
+          <div class="section-title">
+            <span>${escapeHtml(section.title)}</span>
+            <span class="status">${escapeHtml(section.status || 'Repair')}</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Customer Price</th>
+                <th>Total Customer Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${getTemplateLineItemRows(section.lineItems, getCustomerLineAmount)}
+              <tr class="subtotal">
+                <td colspan="3">Section Subtotal</td>
+                <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      `)
+      .join('')
+
+    const costMarkup = costSections
+      .map((section) => `
+        <section class="quote-section">
+          <div class="section-title estimate-title">${escapeHtml(section.title)}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Customer Price</th>
+                <th>Total Customer Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${getTemplateLineItemRows(section.lineItems, (lineItem) =>
+                getCostCustomerLineAmount(section.id, lineItem, equipmentSettings)
+              )}
+              <tr class="subtotal">
+                <td colspan="3">Subtotal</td>
+                <td class="money">${formatMoney(section.lineItems.reduce(
+                  (total, lineItem) => total + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
+                  0,
+                ))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      `)
+      .join('')
+
+    return `
+      <article class="report-page">
+        <header class="report-header">
+          <div class="brand-block">
+            <div class="brand">${escapeHtml(reportData.logoName || 'DESHAZO')}</div>
+            <div class="tagline">${escapeHtml(reportData.logoTagline || 'CRANES / SERVICE / AUTOMATION')}</div>
+          </div>
+          <div class="branch">
+            <div>${escapeHtml(reportData.branch || '')}</div>
+            <div>${escapeHtml(reportData.phone || '')}</div>
+          </div>
+          <h1>${escapeHtml(reportData.title || 'QUOTE PROPOSAL')}</h1>
+        </header>
+
+        <div class="summary-row">
+          <div class="crane-mark" aria-hidden="true"></div>
+          <div>${escapeHtml(reportData.summary || source.dNumber)}</div>
+          <div>${escapeHtml(reportData.type || '')}</div>
+          <div>${escapeHtml(reportData.date || '')}</div>
+        </div>
+
+        <div class="details-grid">
+          ${getTemplateReportCell('Structure', reportData.structure)}
+          ${getTemplateReportCell('Description', reportData.description)}
+          ${getTemplateReportCell('Customer', reportData.customer)}
+          ${getTemplateReportCell('Purchase Order', reportData.purchaseOrder)}
+          ${getTemplateReportCell('Job #', reportData.jobNumber)}
+          ${getTemplateReportCell('Location', reportData.location)}
+          ${getTemplateReportCell('Customer Address', reportData.customerAddress)}
+        </div>
+
+        <div class="equipment-grid">
+          ${getTemplateReportCell('Manufacturer', reportData.manufacturerCrane)}
+          ${getTemplateReportCell('Serial Number', reportData.serialCrane)}
+          ${getTemplateReportCell('Capacity', reportData.capacityCrane)}
+          ${getTemplateReportCell('Model #', reportData.modelCrane)}
+          ${getTemplateReportCell('Hoist 1 Manufacturer', reportData.manufacturerHoist)}
+          ${getTemplateReportCell('Hoist 1 Serial', reportData.serialHoist)}
+          ${getTemplateReportCell('Hoist 1 Capacity', reportData.capacityHoist)}
+          ${getTemplateReportCell('Hoist 1 Model', reportData.modelHoist)}
+        </div>
+
+        <section class="contact-row">
+          <div><strong>Contact</strong></div>
+          <div>Name: ${getTemplateValue(reportData.contactName)}</div>
+          <div>Email: ${getTemplateValue(reportData.contactEmail)}</div>
+          <div>Phone: ${getTemplateValue(reportData.contactPhone)}</div>
+        </section>
+
+        <section class="scope">
+          <h2>${escapeHtml(reportData.scopeOfWorkHeader || 'Scope of Work')}</h2>
+          <p>${escapeHtml(reportData.scopeOfWork || '---')}</p>
+        </section>
+
+        <h2 class="band">Repair Items</h2>
+        ${repairMarkup}
+
+        <h2 class="band">Estimate Summary</h2>
+        ${costMarkup}
+
+        <section class="grand-total">
+          <div>
+            <span>Total</span>
+            <strong>${formatMoney(repairTotal + costTotal)}</strong>
+          </div>
+        </section>
+
+        <section class="notes">
+          <h2>${escapeHtml(reportData.notesHeader || 'Additional Notes')}</h2>
+          <p>${escapeHtml(reportData.notes || '---')}</p>
+        </section>
+      </article>
+    `
+  }).join('')
+
+  return `<!doctype html>
+    <html>
+      <head>
+        <title>Combined Editable Inspection Reports</title>
+        <style>
+          @page { size: 8.5in 11in; margin: 0.45in; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            background: #e8eaef;
+            color: #111;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+          }
+          .report-page {
+            width: 7.6in;
+            min-height: 10.1in;
+            margin: 0 auto 28px;
+            background: #fff;
+            padding: 0.08in 0.22in 0.18in;
+            page-break-after: always;
+            break-after: page;
+          }
+          .report-page:last-child { page-break-after: auto; break-after: auto; }
+          .report-header {
+            display: grid;
+            grid-template-columns: 1.25fr 1fr 1fr;
+            align-items: center;
+            gap: 12px;
+            min-height: 0.54in;
+            background: #f5bd00;
+            padding: 8px 14px;
+          }
+          .brand { color: #001a33; font-size: 24px; font-weight: 900; line-height: 0.9; }
+          .tagline { margin-top: 3px; color: #111; font-size: 7px; font-weight: 900; text-transform: uppercase; }
+          .branch { color: #111; font-size: 8px; font-weight: 900; line-height: 1.35; }
+          h1 { margin: 0; color: #111; font-size: 15px; font-weight: 900; text-align: right; text-transform: uppercase; }
+          .summary-row {
+            display: grid;
+            grid-template-columns: 34px 1fr 1fr 1fr;
+            align-items: center;
+            gap: 8px;
+            min-height: 36px;
+            border-bottom: 1px solid #d4d4d4;
+            padding: 6px 0;
+            font-size: 9px;
+            font-weight: 900;
+          }
+          .crane-mark {
+            position: relative;
+            width: 24px;
+            height: 24px;
+            border-top: 2px solid #111;
+            border-left: 2px solid #111;
+            border-right: 2px solid #111;
+          }
+          .crane-mark::before {
+            content: "";
+            position: absolute;
+            left: 10px;
+            top: 0;
+            height: 22px;
+            border-left: 2px solid #111;
+          }
+          .crane-mark::after {
+            content: "";
+            position: absolute;
+            left: 7px;
+            top: 15px;
+            width: 8px;
+            height: 8px;
+            border: 1px solid #111;
+          }
+          .details-grid, .equipment-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            border-top: 1px solid #d4d4d4;
+            border-left: 1px solid #d4d4d4;
+          }
+          .details-grid { grid-template-columns: repeat(4, 1fr); }
+          .info-cell {
+            min-height: 25px;
+            border-right: 1px solid #d4d4d4;
+            border-bottom: 1px solid #d4d4d4;
+            padding: 3px 6px;
+          }
+          .cell-label { color: #111; font-size: 7px; font-weight: 900; }
+          .cell-value { margin-top: 2px; color: #111; font-size: 8px; font-weight: 900; overflow-wrap: anywhere; }
+          .contact-row {
+            display: grid;
+            grid-template-columns: 0.8fr 1fr 1.25fr 1fr;
+            margin-top: 12px;
+            border: 1px solid #d4d4d4;
+            background: #fafafa;
+          }
+          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+          .contact-row div:last-child { border-right: 0; }
+          .scope {
+            margin-top: 12px;
+            border: 1px solid #d4d4d4;
+          }
+          .scope h2, .notes h2, .band {
+            margin: 0;
+            background: #f2f2f2;
+            border-bottom: 1px solid #d4d4d4;
+            padding: 8px 10px;
+            font-size: 14px;
+            font-weight: 900;
+          }
+          .scope p, .notes p {
+            margin: 0;
+            min-height: 0.56in;
+            padding: 9px 10px;
+            white-space: pre-wrap;
+            line-height: 1.38;
+          }
+          .band {
+            margin-top: 12px;
+            border: 1px solid #d4d4d4;
+          }
+          .quote-section {
+            border-right: 1px solid #d4d4d4;
+            border-bottom: 1px solid #d4d4d4;
+            border-left: 1px solid #d4d4d4;
+            break-inside: avoid;
+          }
+          .section-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            border-bottom: 1px solid #d8d8d8;
+            background: #f7f7f7;
+            padding: 5px 8px;
+            color: #111;
+            font-size: 10px;
+            font-weight: 900;
+          }
+          .estimate-title { color: #273f7a; text-transform: uppercase; }
+          .repair-section { background: #f4e3e3; }
+          .repair-section table { background: #fff; }
+          .status {
+            min-width: 95px;
+            background: #efc9c9;
+            color: #7d1515;
+            padding: 3px 7px;
+            font-size: 9px;
+            text-align: left;
+          }
+          .status::before { content: "!"; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; margin-right: 4px; border-radius: 50%; background: #af0f0f; color: #fff; font-size: 8px; font-weight: 900; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          th {
+            background: #fbfbfb;
+            color: #555b66;
+            border-bottom: 1px solid #d8d8d8;
+            border-right: 1px solid #d8d8d8;
+            padding: 5px 6px;
+            font-size: 7px;
+            font-weight: 900;
+            text-align: left;
+            text-transform: uppercase;
+          }
+          td {
+            border-bottom: 1px solid #e5e5e5;
+            border-right: 1px solid #e5e5e5;
+            padding: 6px;
+            font-size: 9px;
+            font-weight: 900;
+            vertical-align: top;
+            overflow-wrap: anywhere;
+          }
+          th:first-child, td:first-child { width: 56%; }
+          .money, .qty { text-align: right; white-space: nowrap; }
+          .subtotal td { background: #fbfbfb; font-weight: 900; text-transform: uppercase; }
+          .grand-total {
+            display: grid;
+            grid-template-columns: 1fr;
+            margin-top: 12px;
+            margin-left: auto;
+            width: 2.2in;
+            border: 2px solid #111;
+          }
+          .grand-total div {
+            padding: 9px;
+            color: #111;
+          }
+          .grand-total span { display: block; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+          .grand-total strong { display: block; margin-top: 4px; color: #111; font-size: 15px; font-weight: 900; }
+          .notes { margin-top: 12px; border: 1px solid #d4d4d4; break-inside: avoid; }
+          @media print {
+            body { background: #fff; }
+            .report-page { width: auto; min-height: auto; margin: 0; }
+          }
+        </style>
+      </head>
+      <body>${reportMarkup}</body>
+    </html>`
+}
+
 const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifier) =>
   createSimplePdfFile('master-service-agreement.pdf', 'Master Service Agreement', [
     'DESHAZO service pricing reference for quote proposal preparation.',
@@ -782,15 +1307,11 @@ const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifi
     'Freight: $85.00 standard delivery charge',
   ])
 
-const normalizeMenuItemSections = (sections: MenuItemSection[], craneIdentifier = defaultCraneIdentifier) => {
+const normalizeMenuItemSections = (sections: MenuItemSection[]) => {
   const usedItemIds = new Set<string>()
-  const sectionMap = new Map<string, MenuItemSection>()
 
-  sections.forEach((section) => {
-    const sectionTitle = getNormalizedMenuSectionTitle(section.title, craneIdentifier)
-    const cappedItems =
-      sectionTitle === recentlyUsedMenuSectionTitle ? section.items.slice(0, maxRecentlyUsedItems) : section.items
-    const normalizedItems = cappedItems.map((item) => {
+  const items = sections.flatMap((section) =>
+    section.items.map((item) => {
       const itemId = item.id && !usedItemIds.has(item.id) ? item.id : createMenuItemId()
       usedItemIds.add(itemId)
 
@@ -798,34 +1319,10 @@ const normalizeMenuItemSections = (sections: MenuItemSection[], craneIdentifier 
         ...item,
         id: itemId,
       }
-    })
+    }),
+  )
 
-    const existingSection = sectionMap.get(sectionTitle)
-    sectionMap.set(sectionTitle, {
-      ...section,
-      title: sectionTitle,
-      items: existingSection ? [...existingSection.items, ...normalizedItems] : normalizedItems,
-    })
-  })
-
-  return [
-    recentlyUsedMenuSectionTitle,
-    craneIdentifier,
-    'Customer specific',
-    'Shared',
-    ...Array.from(sectionMap.keys()).filter(
-      (sectionTitle) =>
-        ![recentlyUsedMenuSectionTitle, craneIdentifier, 'Customer specific', 'Shared'].includes(sectionTitle),
-    ),
-  ]
-    .map((sectionTitle) => {
-      const section = sectionMap.get(sectionTitle)
-      if (!section) return undefined
-      return section.title === craneIdentifier
-        ? { ...section, items: sortMenuItemsByModifiedDate(section.items) }
-        : section
-    })
-    .filter((section): section is MenuItemSection => Boolean(section))
+  return [{ title: menuItemsSectionTitle, items }]
 }
 
 const parseMoney = (value: string) => {
@@ -839,37 +1336,53 @@ const formatMoney = (value: number) =>
     currency: 'USD',
   }).format(value)
 
-const getBaseLineAmount = (lineItem: RepairLineItem) =>
-  parseMoney(lineItem.quantity) * parseMoney(lineItem.rate)
+const getLegacyCustomerUnitPrice = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.rate) * (1 + parseMoney(lineItem.margin) / 100)
 
-const getMarginAmount = (lineItem: RepairLineItem) =>
-  getBaseLineAmount(lineItem) * (parseMoney(lineItem.margin) / 100)
+const getInternalUnitCost = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.internalCost ?? lineItem.rate)
 
-const getLineAmount = (lineItem: RepairLineItem) =>
-  getBaseLineAmount(lineItem) + getMarginAmount(lineItem)
+const getCustomerUnitPrice = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.customerPrice ?? String(getLegacyCustomerUnitPrice(lineItem)))
 
-const getCostBaseLineAmount = (_sectionId: string, lineItem: RepairLineItem) => {
-  const rate = parseMoney(lineItem.rate)
-  return parseMoney(lineItem.quantity) * rate
-}
+const getInternalLineAmount = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.quantity) * getInternalUnitCost(lineItem)
 
-const getCostMarginAmount = (
+const getCustomerLineAmount = (lineItem: RepairLineItem) =>
+  parseMoney(lineItem.quantity) * getCustomerUnitPrice(lineItem)
+
+const getLineProfit = (internalLineAmount: number, customerLineAmount: number) =>
+  customerLineAmount - internalLineAmount
+
+const getUnitProfit = (internalUnitCost: number, customerUnitPrice: number) =>
+  customerUnitPrice - internalUnitCost
+
+const getUnitMargin = (internalUnitCost: number, customerUnitPrice: number) =>
+  internalUnitCost > 0 ? ((customerUnitPrice - internalUnitCost) / internalUnitCost) * 100 : 0
+
+const getMarginCellClassName = (margin: string) =>
+  parseMoney(margin) < 30
+    ? 'bg-[#fbe3e3] text-[#8a1a1a] hover:bg-[#f7d4d4]'
+    : 'bg-[#e2f5e7] text-[#17652b] hover:bg-[#d0edda]'
+
+const getCostCustomerUnitPrice = (
   sectionId: string,
   lineItem: RepairLineItem,
   settings: EquipmentRentalSettings,
 ) => {
+  const customerPrice = getCustomerUnitPrice(lineItem)
   const lineMargin = parseMoney(lineItem.margin)
   const sectionMargin =
     sectionId === equipmentRentalSectionId && settings.applyMarginToAll ? parseMoney(settings.margin) : 0
-  return getCostBaseLineAmount(sectionId, lineItem) * ((lineMargin + sectionMargin) / 100)
+  return customerPrice * (1 + (lineMargin + sectionMargin) / 100)
 }
 
-const getCostLineAmount = (
+const getCostCustomerLineAmount = (
   sectionId: string,
   lineItem: RepairLineItem,
   settings: EquipmentRentalSettings,
 ) =>
-  getCostBaseLineAmount(sectionId, lineItem) + getCostMarginAmount(sectionId, lineItem, settings)
+  parseMoney(lineItem.quantity) * getCostCustomerUnitPrice(sectionId, lineItem, settings)
 
 const normalizeRepairSections = (sections: RepairSection[]) =>
   sections.map((section) => ({
@@ -880,9 +1393,11 @@ const normalizeRepairSections = (sections: RepairSection[]) =>
       return {
         id: savedLineItem.id,
         description: savedLineItem.description ?? savedLineItem.text ?? 'Add repair detail here.',
+        internalCost: savedLineItem.internalCost ?? savedLineItem.rate ?? '0.00',
         quantity: savedLineItem.quantity ?? '1',
+        customerPrice: savedLineItem.customerPrice ?? getLegacyCustomerUnitPrice(savedLineItem).toFixed(2),
         rate: savedLineItem.rate ?? '0.00',
-        margin: savedLineItem.margin ?? '0',
+        margin: savedLineItem.customerPrice ? savedLineItem.margin ?? '0' : '0',
         source: savedLineItem.source,
       }
     }),
@@ -897,9 +1412,11 @@ const normalizeCostSections = (sections: CostSection[]) =>
       return {
         id: savedLineItem.id,
         description: savedLineItem.description ?? savedLineItem.text ?? 'Add line item here.',
+        internalCost: savedLineItem.internalCost ?? savedLineItem.rate ?? '0.00',
         quantity: savedLineItem.quantity ?? '1',
+        customerPrice: savedLineItem.customerPrice ?? getLegacyCustomerUnitPrice(savedLineItem).toFixed(2),
         rate: savedLineItem.rate ?? '0.00',
-        margin: savedLineItem.margin ?? '0',
+        margin: savedLineItem.customerPrice ? savedLineItem.margin ?? '0' : '0',
         source: savedLineItem.source,
       }
     }),
@@ -911,6 +1428,9 @@ const normalizeReport = (report: ReportData) => {
   if (nextReport.title === 'INSPECTION REPORT') nextReport.title = defaultReport.title
   if (!nextReport.scopeOfWorkHeader?.trim()) nextReport.scopeOfWorkHeader = defaultReport.scopeOfWorkHeader
   if (nextReport.scopeOfWork === legacyScopeOfWorkSample) nextReport.scopeOfWork = ''
+  if (nextReport.contactName === 'Name: ---') nextReport.contactName = ''
+  if (nextReport.contactEmail === 'Email: ---') nextReport.contactEmail = ''
+  if (nextReport.contactPhone === 'Phone: ---') nextReport.contactPhone = ''
   if (nextReport.notesHeader === 'Notes') nextReport.notesHeader = defaultReport.notesHeader
   if (!nextReport.notes?.trim()) nextReport.notes = defaultAdditionalNotes
 
@@ -924,7 +1444,7 @@ const getNormalizedReportPayload = (report: EditableInspectionReport): EditableI
   blockVisibility: { ...defaultBlockVisibility, ...report.blockVisibility },
   estimateNoteVisibility: { ...defaultEstimateNoteVisibility, ...report.estimateNoteVisibility },
   repairSectionVisibility: report.repairSectionVisibility,
-  textBoxes: report.textBoxes as CanvasTextBox[],
+  textBoxes: [],
   equipmentRentalSettings: {
     ...defaultEquipmentRentalSettings,
     ...report.equipmentRentalSettings,
@@ -938,7 +1458,6 @@ const saveEditableReportPayloadLocally = (payload: EditableInspectionReportPaylo
   window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(payload.blockVisibility))
   window.localStorage.setItem(estimateNoteVisibilityStorageKey, JSON.stringify(payload.estimateNoteVisibility))
   window.localStorage.setItem(repairSectionVisibilityStorageKey, JSON.stringify(payload.repairSectionVisibility))
-  window.localStorage.setItem(textBoxStorageKey, JSON.stringify(payload.textBoxes))
   window.localStorage.setItem(equipmentRentalSettingsStorageKey, JSON.stringify(payload.equipmentRentalSettings))
 }
 
@@ -976,6 +1495,8 @@ type EditableValueProps = {
   className?: string
   linkify?: boolean
   multiline?: boolean
+  clearOnFocus?: boolean
+  onEditFocus?: () => void
   onChange: (value: string) => void
   onDropMenuItem?: (item: MenuItem) => void
 }
@@ -993,7 +1514,7 @@ function getDroppedMenuItem(event: DragEvent<HTMLElement>) {
   try {
     return JSON.parse(payload) as MenuItem
   } catch {
-    return { label: 'Menu item', description: payload, rate: '0.00' }
+    return { label: 'Menu item', description: payload, rate: '0.00', internalCost: '0.00', customerPrice: '0.00' }
   }
 }
 
@@ -1022,9 +1543,29 @@ function renderLinkifiedText(value: string) {
   })
 }
 
-function EditableValue({ label, value, className = '', linkify = false, onChange, onDropMenuItem }: EditableValueProps) {
+function EditableValue({
+  label,
+  value,
+  className = '',
+  linkify = false,
+  clearOnFocus = false,
+  onEditFocus,
+  onChange,
+  onDropMenuItem,
+}: EditableValueProps) {
   const elementRef = useRef<HTMLDivElement>(null)
   const [isEditing, setIsEditing] = useState(false)
+
+  const clearValueIfPlaceholder = () => {
+    if (clearOnFocus && elementRef.current?.innerText === value) {
+      elementRef.current.innerText = ''
+    }
+  }
+
+  const startEditing = () => {
+    onEditFocus?.()
+    clearValueIfPlaceholder()
+  }
 
   useEffect(() => {
     if (linkify && !isEditing) return
@@ -1043,7 +1584,9 @@ function EditableValue({ label, value, className = '', linkify = false, onChange
       spellCheck
       tabIndex={linkify && !isEditing ? 0 : undefined}
       className={`editable-report-field ${className}`}
+      onMouseDown={startEditing}
       onClick={(event) => {
+        startEditing()
         if (!linkify || isEditing || event.target instanceof HTMLAnchorElement) return
         setIsEditing(true)
         window.setTimeout(() => {
@@ -1053,6 +1596,7 @@ function EditableValue({ label, value, className = '', linkify = false, onChange
         })
       }}
       onFocus={() => {
+        startEditing()
         if (!linkify) return
         setIsEditing(true)
         window.setTimeout(() => {
@@ -1120,13 +1664,12 @@ export default function EditableInspectionReport() {
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
   const menuItemsRefreshRequestId = useRef(0)
-  const textBoxDragStart = useRef<Record<string, { clientX: number; clientY: number; x: number; y: number }>>({})
   const reportContentRef = useRef<HTMLElement>(null)
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
   const relatedPdfInputRef = useRef<HTMLInputElement>(null)
   const [activeLineMenu, setActiveLineMenu] = useState('')
-  const [unlocked, setUnlocked] = useState(false)
-  const [textMenuOpen, setTextMenuOpen] = useState(false)
+  const [activeMarginMenu, setActiveMarginMenu] = useState('')
+  const [activeDoneLineItem, setActiveDoneLineItem] = useState('')
   const [equipmentRentalSettingsOpen, setEquipmentRentalSettingsOpen] = useState(false)
   const [pageLayoutMenuOpen, setPageLayoutMenuOpen] = useState(false)
   const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
@@ -1141,6 +1684,12 @@ export default function EditableInspectionReport() {
   const [menuItemUploaderNames, setMenuItemUploaderNames] = useState<Record<string, string>>({})
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
+  const [jobReportPrintMenuOpen, setJobReportPrintMenuOpen] = useState(false)
+  const [jobReportPrintReports, setJobReportPrintReports] = useState<EditableInspectionReport[]>([])
+  const [selectedJobReportPrintIds, setSelectedJobReportPrintIds] = useState<Set<string>>(() => new Set())
+  const [jobReportPrintLoading, setJobReportPrintLoading] = useState(false)
+  const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
+  const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -1155,10 +1704,10 @@ export default function EditableInspectionReport() {
     active: false,
     percent: 0,
   })
-  const [newMenuSection, setNewMenuSection] = useState(getDefaultAddableMenuSection(defaultMenuItemSections))
   const [newMenuLabel, setNewMenuLabel] = useState('')
   const [newMenuDescription, setNewMenuDescription] = useState('')
-  const [newMenuRate, setNewMenuRate] = useState('0.00')
+  const [newMenuInternalCost, setNewMenuInternalCost] = useState('0.00')
+  const [newMenuCustomerPrice, setNewMenuCustomerPrice] = useState('0.00')
   const [editingMenuItem, setEditingMenuItem] = useState<EditingMenuItem | null>(null)
   const [pendingAddMenuLineItem, setPendingAddMenuLineItem] = useState<PendingAddMenuLineItem | null>(null)
   const [menuDatabaseStatus, setMenuDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
@@ -1201,6 +1750,8 @@ export default function EditableInspectionReport() {
     }
   })
   const [menuItemSections, setMenuItemSections] = useState<MenuItemSection[]>(() => {
+    if (isConfigured) return normalizeMenuItemSections(defaultMenuItemSections)
+
     const savedSections = window.localStorage.getItem(menuStorageKey)
 
     if (!savedSections) return normalizeMenuItemSections(defaultMenuItemSections)
@@ -1245,17 +1796,6 @@ export default function EditableInspectionReport() {
       return {}
     }
   })
-  const [canvasTextBoxes, setCanvasTextBoxes] = useState<CanvasTextBox[]>(() => {
-    const savedTextBoxes = window.localStorage.getItem(textBoxStorageKey)
-
-    if (!savedTextBoxes) return []
-
-    try {
-      return JSON.parse(savedTextBoxes) as CanvasTextBox[]
-    } catch {
-      return []
-    }
-  })
   const [equipmentRentalSettings, setEquipmentRentalSettings] = useState<EquipmentRentalSettings>(() => {
     const savedSettings = window.localStorage.getItem(equipmentRentalSettingsStorageKey)
 
@@ -1268,6 +1808,62 @@ export default function EditableInspectionReport() {
     }
   })
   const currentCraneIdentifier = useMemo(() => getCraneIdentifierFromReport(report), [report])
+  const currentJobNumber = useMemo(() => getJobNumberDisplayFromReport(report), [report])
+  const normalizedCurrentJobNumber = useMemo(
+    () => (currentJobNumber === '---' ? '' : currentJobNumber.trim()),
+    [currentJobNumber],
+  )
+  const jobReportPrintOptions = useMemo(() => {
+    const seenDNumbers = new Set<string>()
+    const currentOption = {
+      id: currentEditableReportId || 'current-report',
+      reportId: currentEditableReportId,
+      dNumber: getDNumberFromReport(report) || 'Unknown D Number',
+      reportName: currentReportName,
+      isCurrent: true,
+      payload: {
+        reportData: report,
+        repairSections,
+        costSections,
+        blockVisibility,
+        estimateNoteVisibility,
+        repairSectionVisibility,
+        textBoxes: [],
+        equipmentRentalSettings,
+      } satisfies EditableInspectionReportPayload,
+    }
+    const savedOptions = jobReportPrintReports.map((savedReport) => ({
+      id: savedReport.id,
+      reportId: savedReport.id,
+      dNumber: getDNumberFromReport(savedReport.reportData) || 'Unknown D Number',
+      reportName: savedReport.reportName,
+      isCurrent: savedReport.id === currentEditableReportId,
+      payload: getNormalizedReportPayload(savedReport),
+    }))
+
+    return [currentOption, ...savedOptions]
+      .filter((option) => {
+        const uniqueKey = option.dNumber.toUpperCase()
+        if (seenDNumbers.has(uniqueKey)) return false
+        seenDNumbers.add(uniqueKey)
+      return true
+    })
+  }, [
+    blockVisibility,
+    costSections,
+    currentEditableReportId,
+    currentReportName,
+    equipmentRentalSettings,
+    estimateNoteVisibility,
+    jobReportPrintReports,
+    repairSectionVisibility,
+    repairSections,
+    report,
+  ])
+  const selectedJobReportPrintCount = useMemo(
+    () => jobReportPrintOptions.filter((option) => selectedJobReportPrintIds.has(option.id)).length,
+    [jobReportPrintOptions, selectedJobReportPrintIds],
+  )
   const currentEditableReportPayload = useMemo<EditableInspectionReportPayload>(
     () => ({
       reportData: report,
@@ -1276,12 +1872,11 @@ export default function EditableInspectionReport() {
       blockVisibility,
       estimateNoteVisibility,
       repairSectionVisibility,
-      textBoxes: canvasTextBoxes,
+      textBoxes: [],
       equipmentRentalSettings,
     }),
     [
       blockVisibility,
-      canvasTextBoxes,
       costSections,
       equipmentRentalSettings,
       estimateNoteVisibility,
@@ -1295,7 +1890,7 @@ export default function EditableInspectionReport() {
     () =>
       repairSections.reduce(
         (total, section) =>
-          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getLineAmount(lineItem), 0),
+          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
         0,
       ),
     [repairSections],
@@ -1305,7 +1900,8 @@ export default function EditableInspectionReport() {
       costSections.reduce(
         (total, section) =>
           total + section.lineItems.reduce(
-            (sectionTotal, lineItem) => sectionTotal + getCostLineAmount(section.id, lineItem, equipmentRentalSettings),
+            (sectionTotal, lineItem) =>
+              sectionTotal + getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings),
             0,
           ),
         0,
@@ -1313,6 +1909,22 @@ export default function EditableInspectionReport() {
     [costSections, equipmentRentalSettings],
   )
   const invoiceTotal = repairTotal + costTotal
+  const grandTotalInternalCost = useMemo(
+    () =>
+      repairSections.reduce(
+        (total, section) =>
+          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
+        0,
+      )
+      + costSections.reduce(
+        (total, section) =>
+          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
+        0,
+      ),
+    [costSections, repairSections],
+  )
+  const grandTotalProfit = invoiceTotal - grandTotalInternalCost
+  const grandTotalMargin = getUnitMargin(grandTotalInternalCost, invoiceTotal)
   const visibleRepairSections = useMemo(
     () => repairSections.filter((section) => repairSectionVisibility[section.id] !== false),
     [repairSections, repairSectionVisibility],
@@ -1335,22 +1947,11 @@ export default function EditableInspectionReport() {
   const visibleMenuItemSections = useMemo(() => {
     const searchValue = menuSearch.trim().toLowerCase()
     const sourceSections = searchValue && menuSearchSections ? menuSearchSections : menuItemSections
-    const cappedSections = normalizeMenuItemSections(sourceSections, currentCraneIdentifier)
+    const cappedSections = normalizeMenuItemSections(sourceSections)
     if (!searchValue) return cappedSections
 
     return cappedSections
-  }, [currentCraneIdentifier, menuItemSections, menuSearch, menuSearchSections])
-  const addableMenuItemSections = useMemo(
-    () => menuItemSections.filter((section) => section.title !== recentlyUsedMenuSectionTitle),
-    [menuItemSections],
-  )
-  const editableMenuItemSections = useMemo(() => {
-    if (!editingMenuItem) return addableMenuItemSections
-
-    return menuItemSections.filter(
-      (section) => section.title !== recentlyUsedMenuSectionTitle || section.title === editingMenuItem.originalSectionTitle,
-    )
-  }, [addableMenuItemSections, editingMenuItem, menuItemSections])
+  }, [menuItemSections, menuSearch, menuSearchSections])
 
   useEffect(() => {
     const searchValue = menuSearch.trim()
@@ -1378,9 +1979,9 @@ export default function EditableInspectionReport() {
         .then((savedMenu) => {
           if (!active) return
 
-          const nextSections = normalizeMenuItemSections(savedMenu?.menuSections ?? [], currentCraneIdentifier)
+          const nextSections = normalizeMenuItemSections(savedMenu?.menuSections ?? [])
           setMenuSearchSections(nextSections)
-          setMenuSearchMessage(nextSections.length > 0 ? '' : 'No database menu items found.')
+          setMenuSearchMessage(nextSections[0]?.items.length ? '' : 'No database menu items found.')
         })
         .catch((error) => {
           if (!active) return
@@ -1423,10 +2024,6 @@ export default function EditableInspectionReport() {
     }
   }, [menuItemSections, menuSearchSections])
 
-  const selectedAddableMenuSection = addableMenuItemSections.some((section) => section.title === newMenuSection)
-    ? newMenuSection
-    : getDefaultAddableMenuSection(addableMenuItemSections)
-
   const markPendingLineItemAddedToMenu = () => {
     if (!pendingAddMenuLineItem) return
 
@@ -1467,10 +2064,10 @@ export default function EditableInspectionReport() {
 
   const openMenuSettingsFromLineItem = (lineItem: RepairLineItem, pendingLineItem: PendingAddMenuLineItem) => {
     const itemName = lineItem.description.trim() || 'New line item'
-    setNewMenuSection(selectedAddableMenuSection)
     setNewMenuLabel(itemName)
     setNewMenuDescription(itemName)
-    setNewMenuRate(parseMoney(lineItem.rate).toFixed(2))
+    setNewMenuInternalCost(getInternalUnitCost(lineItem).toFixed(2))
+    setNewMenuCustomerPrice(getCustomerUnitPrice(lineItem).toFixed(2))
     setPendingAddMenuLineItem(pendingLineItem)
     setActiveLineMenu('')
     setMenuSettingsOpen(true)
@@ -1495,7 +2092,6 @@ export default function EditableInspectionReport() {
     const nextBlockVisibility = { ...defaultBlockVisibility, ...payload.blockVisibility }
     const nextEstimateNoteVisibility = { ...defaultEstimateNoteVisibility, ...payload.estimateNoteVisibility }
     const nextRepairSectionVisibility = payload.repairSectionVisibility
-    const nextTextBoxes = payload.textBoxes as CanvasTextBox[]
     const nextEquipmentRentalSettings = {
       ...defaultEquipmentRentalSettings,
       ...payload.equipmentRentalSettings,
@@ -1508,7 +2104,7 @@ export default function EditableInspectionReport() {
       blockVisibility: nextBlockVisibility,
       estimateNoteVisibility: nextEstimateNoteVisibility,
       repairSectionVisibility: nextRepairSectionVisibility,
-      textBoxes: nextTextBoxes,
+      textBoxes: [],
       equipmentRentalSettings: nextEquipmentRentalSettings,
     })
     setReport(nextReport)
@@ -1517,7 +2113,6 @@ export default function EditableInspectionReport() {
     setBlockVisibility(nextBlockVisibility)
     setEstimateNoteVisibility(nextEstimateNoteVisibility)
     setRepairSectionVisibility(nextRepairSectionVisibility)
-    setCanvasTextBoxes(nextTextBoxes)
     setEquipmentRentalSettings(nextEquipmentRentalSettings)
   }, [])
 
@@ -1614,7 +2209,7 @@ export default function EditableInspectionReport() {
             return
           }
 
-          applyEditableReportPayload({
+          const editableReportPayload = {
             reportData: quoteReport,
             repairSections: buildRepairSectionsFromJobsQuotingItem(quoteItem),
             costSections: defaultCostSections,
@@ -1623,12 +2218,24 @@ export default function EditableInspectionReport() {
             repairSectionVisibility: {},
             textBoxes: [],
             equipmentRentalSettings: defaultEquipmentRentalSettings,
+          }
+          const reportName = getEditableReportDisplayName(quoteReport, quoteItem.documentName)
+          const savedReport = await saveEditableInspectionReport({
+            ...editableReportPayload,
+            id: null,
+            jobsQuotingItemId: quoteItem.id,
+            reportName,
+            sourceDocumentName: quoteItem.documentName,
           })
-          setCurrentEditableReportId('')
-          setCurrentReportName(getEditableReportDisplayName(quoteReport, quoteItem.documentName))
-          setCurrentSourceDocumentName(quoteItem.documentName)
-          setCurrentJobsQuotingItemId(quoteItem.id)
+          if (!active) return
+
+          applyEditableReportPayload(editableReportPayload)
+          setCurrentEditableReportId(savedReport.id)
+          setCurrentReportName(savedReport.reportName)
+          setCurrentSourceDocumentName(savedReport.sourceDocumentName)
+          setCurrentJobsQuotingItemId(savedReport.jobsQuotingItemId)
           setReportDatabaseStatus('saved')
+          setSearchParams({ editableReportId: savedReport.id }, { replace: true })
         } else {
           setCurrentEditableReportId('')
           setCurrentReportName('Untitled quote report')
@@ -1754,7 +2361,6 @@ export default function EditableInspectionReport() {
     setRuntimePageCount((currentPageCount) => (currentPageCount === nextPageCount ? currentPageCount : nextPageCount))
   }, [
     blockVisibility,
-    canvasTextBoxes,
     costSections,
     estimateNoteVisibility,
     equipmentRentalSettings,
@@ -1762,18 +2368,6 @@ export default function EditableInspectionReport() {
     repairSectionVisibility,
     repairSections,
   ])
-
-  useEffect(() => {
-    setMenuItemSections((currentSections) => {
-      if (!currentSections.some((section) => getNormalizedMenuSectionTitle(section.title, currentCraneIdentifier) !== section.title)) {
-        return currentSections
-      }
-      const normalizedSections = normalizeMenuItemSections(currentSections, currentCraneIdentifier)
-      window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
-      skipNextMenuDatabaseSave.current = true
-      return normalizedSections
-    })
-  }, [currentCraneIdentifier])
 
   const refreshMenuItemsFromDatabase = useCallback(
     async ({
@@ -1808,13 +2402,16 @@ export default function EditableInspectionReport() {
         if (savedMenu) {
           const normalizedSections = normalizeMenuItemSections(
             savedMenu.menuSections.length > 0 ? savedMenu.menuSections : defaultMenuItemSections,
-            currentCraneIdentifier,
           )
           window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
           skipNextMenuDatabaseSave.current = true
           setMenuItemSections(normalizedSections)
           setMenuDatabaseMessage(loadedMessage)
         } else {
+          const emptySections = normalizeMenuItemSections(defaultMenuItemSections)
+          window.localStorage.setItem(menuStorageKey, JSON.stringify(emptySections))
+          skipNextMenuDatabaseSave.current = true
+          setMenuItemSections(emptySections)
           setMenuDatabaseMessage(emptyMessage)
         }
 
@@ -1829,7 +2426,7 @@ export default function EditableInspectionReport() {
         return false
       }
     },
-    [currentCraneIdentifier],
+    [],
   )
 
   const clearMenuItemsUploadRefreshTimers = useCallback(() => {
@@ -1917,7 +2514,7 @@ export default function EditableInspectionReport() {
       return
     }
 
-    const nextSections = normalizeMenuItemSections(menuItemSections, currentCraneIdentifier)
+    const nextSections = normalizeMenuItemSections(menuItemSections)
     const saveTimer = window.setTimeout(() => {
       setMenuDatabaseStatus('saving')
       setMenuDatabaseMessage('Saving menu items to the server.')
@@ -1934,7 +2531,7 @@ export default function EditableInspectionReport() {
     }, databaseSyncIdleDelayMs)
 
     return () => window.clearTimeout(saveTimer)
-  }, [currentCraneIdentifier, menuItemSections])
+  }, [menuItemSections])
 
   useEffect(() => {
     if (!isConfigured) {
@@ -1969,24 +2566,6 @@ export default function EditableInspectionReport() {
             url: quotePdfUrl,
             createdAt: quoteItem.createdAt,
           }
-        } else {
-          const originalInspectionResponse = await fetch('/testassessment.pdf')
-          if (!originalInspectionResponse.ok) {
-            throw new Error('Original inspection PDF could not be loaded.')
-          }
-
-          const originalInspectionBlob = await originalInspectionResponse.blob()
-          const originalInspectionFile = new File([originalInspectionBlob], 'original-inspection.pdf', {
-            type: 'application/pdf',
-          })
-
-          await uploadEditableInspectionDocument({
-            file: originalInspectionFile,
-            name: 'Original Inspection',
-            description: 'Source inspection PDF used for this editable quote proposal.',
-            source: 'Built-in document',
-            stableKey: originalInspectionStableKey,
-          })
         }
 
         await uploadEditableInspectionDocument({
@@ -2052,14 +2631,9 @@ export default function EditableInspectionReport() {
   }
 
   const saveMenuItemSections = (nextSections: MenuItemSection[]) => {
-    const normalizedSections = normalizeMenuItemSections(nextSections, currentCraneIdentifier)
+    const normalizedSections = normalizeMenuItemSections(nextSections)
     window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
     return normalizedSections
-  }
-
-  const saveCanvasTextBoxes = (nextTextBoxes: CanvasTextBox[]) => {
-    window.localStorage.setItem(textBoxStorageKey, JSON.stringify(nextTextBoxes))
-    return nextTextBoxes
   }
 
   const saveEquipmentRentalSettings = (nextSettings: EquipmentRentalSettings) => {
@@ -2074,14 +2648,6 @@ export default function EditableInspectionReport() {
     setEquipmentRentalSettings((currentSettings) =>
       saveEquipmentRentalSettings({ ...currentSettings, [field]: value }),
     )
-  }
-
-  const deleteQuoteBlock = (block: keyof QuoteBlockVisibility) => {
-    setBlockVisibility((currentVisibility) => {
-      const nextVisibility = { ...currentVisibility, [block]: false }
-      window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(nextVisibility))
-      return nextVisibility
-    })
   }
 
   const setQuoteBlockVisibility = (block: keyof QuoteBlockVisibility, visible: boolean) => {
@@ -2109,42 +2675,42 @@ export default function EditableInspectionReport() {
   }
 
   const addMenuItemFromSettings = () => {
-    if (selectedAddableMenuSection === recentlyUsedMenuSectionTitle) return
-
     const label = newMenuLabel.trim()
     const description = newMenuDescription.trim()
     if (!label || !description) return
 
+    const internalCost = parseMoney(newMenuInternalCost).toFixed(2)
+    const customerPrice = parseMoney(newMenuCustomerPrice).toFixed(2)
     const nextItem: MenuItem = {
       id: createMenuItemId(),
       label,
       description,
-      rate: parseMoney(newMenuRate).toFixed(2),
+      rate: internalCost,
+      internalCost,
+      customerPrice,
       updatedAt: new Date().toISOString(),
     }
 
     setMenuItemSections((currentSections) =>
       saveMenuItemSections(
-        currentSections.map((section) =>
-          section.title === selectedAddableMenuSection ? { ...section, items: [...section.items, nextItem] } : section,
-        ),
+        [{ title: menuItemsSectionTitle, items: [...normalizeMenuItemSections(currentSections)[0].items, nextItem] }],
       ),
     )
     setNewMenuLabel('')
     setNewMenuDescription('')
-    setNewMenuRate('0.00')
+    setNewMenuInternalCost('0.00')
+    setNewMenuCustomerPrice('0.00')
     markPendingLineItemAddedToMenu()
   }
 
-  const openMenuItemEditor = (sectionTitle: string, item: MenuItem) => {
+  const openMenuItemEditor = (item: MenuItem) => {
     setEditingMenuItem({
-      originalSectionTitle: sectionTitle,
-      sectionTitle,
       itemId: item.id ?? createMenuItemId(),
       userId: item.userId,
       label: item.label,
       description: item.description,
-      rate: item.rate,
+      internalCost: item.internalCost ?? item.rate,
+      customerPrice: item.customerPrice ?? item.rate,
     })
   }
 
@@ -2155,46 +2721,29 @@ export default function EditableInspectionReport() {
     const description = editingMenuItem.description.trim()
     if (!label || !description) return
 
-    const nextRate = parseMoney(editingMenuItem.rate).toFixed(2)
+    const nextInternalCost = parseMoney(editingMenuItem.internalCost).toFixed(2)
+    const nextCustomerPrice = parseMoney(editingMenuItem.customerPrice).toFixed(2)
     const updatedAt = new Date().toISOString()
 
     setMenuItemSections((currentSections) =>
       saveMenuItemSections(
-        currentSections.map((section) => {
-          if (section.title === editingMenuItem.sectionTitle) {
-            const updatedItem = {
-              id: editingMenuItem.itemId,
-              userId: editingMenuItem.userId,
-              label,
-              description,
-              rate: nextRate,
-              updatedAt,
-            }
-
-            if (section.title === editingMenuItem.originalSectionTitle) {
-              return {
-                ...section,
-                items: section.items.map((item) =>
-                  item.id === editingMenuItem.itemId ? updatedItem : item,
-                ),
-              }
-            }
-
-            return {
-              ...section,
-              items: [...section.items, updatedItem],
-            }
-          }
-
-          if (section.title === editingMenuItem.originalSectionTitle) {
-            return {
-              ...section,
-              items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
-            }
-          }
-
-          return section
-        }),
+        normalizeMenuItemSections(currentSections).map((section) => ({
+          ...section,
+          items: section.items.map((item) =>
+            item.id === editingMenuItem.itemId
+              ? {
+                  id: editingMenuItem.itemId,
+                  userId: editingMenuItem.userId,
+                  label,
+                  description,
+                  rate: nextInternalCost,
+                  internalCost: nextInternalCost,
+                  customerPrice: nextCustomerPrice,
+                  updatedAt,
+                }
+              : item,
+          ),
+        })),
       ),
     )
     setEditingMenuItem(null)
@@ -2217,14 +2766,10 @@ export default function EditableInspectionReport() {
 
         const removeDeletedItem = (sections: MenuItemSection[]) =>
           saveMenuItemSections(
-            sections.map((section) =>
-              section.title === editingMenuItem.originalSectionTitle
-                ? {
-                    ...section,
-                    items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
-                  }
-                : section,
-            ),
+            normalizeMenuItemSections(sections).map((section) => ({
+              ...section,
+              items: section.items.filter((item) => item.id !== editingMenuItem.itemId),
+            })),
           )
 
         skipNextMenuDatabaseSave.current = true
@@ -2244,46 +2789,13 @@ export default function EditableInspectionReport() {
   }
 
   const addMenuItemToRecentlyUsed = (item: MenuItem) => {
-    setMenuItemSections((currentSections) =>
-      saveMenuItemSections(
-        currentSections.map((section) => {
-          if (section.title !== recentlyUsedMenuSectionTitle) return section
-
-          const matchingItem = (sectionItem: MenuItem) =>
-            sectionItem.label === item.label
-            || (sectionItem.description === item.description && sectionItem.rate === item.rate)
-
-          return {
-            ...section,
-            items: [
-              { ...item, id: createMenuItemId() },
-              ...section.items.filter((sectionItem) => !matchingItem(sectionItem)),
-            ].slice(0, maxRecentlyUsedItems),
-          }
-        }),
-      ),
-    )
+    void item
   }
 
   const createId = (prefix: string) => {
     if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`
     generatedId.current += 1
     return `${prefix}-${generatedId.current}`
-  }
-
-  const addCanvasTextBox = () => {
-    setCanvasTextBoxes((currentTextBoxes) =>
-      saveCanvasTextBoxes([
-        ...currentTextBoxes,
-        {
-          id: createId('text-box'),
-          text: 'Add text',
-          x: 360,
-          y: 255 + currentTextBoxes.length * 22,
-        },
-      ]),
-    )
-    setTextMenuOpen(false)
   }
 
   const addRelatedDocuments = async (files: Array<File & { webkitRelativePath?: string }>, source: string) => {
@@ -2410,38 +2922,6 @@ export default function EditableInspectionReport() {
     }
   }
 
-  const updateCanvasTextBox = (textBoxId: string, value: string) => {
-    setCanvasTextBoxes((currentTextBoxes) =>
-      saveCanvasTextBoxes(
-        currentTextBoxes.map((textBox) =>
-          textBox.id === textBoxId ? { ...textBox, text: value } : textBox,
-        ),
-      ),
-    )
-  }
-
-  const moveCanvasTextBox = (textBoxId: string, x: number, y: number) => {
-    setCanvasTextBoxes((currentTextBoxes) =>
-      saveCanvasTextBoxes(
-        currentTextBoxes.map((textBox) =>
-          textBox.id === textBoxId
-            ? {
-                ...textBox,
-                x: Math.max(12, Math.min(960, x)),
-                y: Math.max(12, Math.min(790, y)),
-              }
-            : textBox,
-        ),
-      ),
-    )
-  }
-
-  const deleteCanvasTextBox = (textBoxId: string) => {
-    setCanvasTextBoxes((currentTextBoxes) =>
-      saveCanvasTextBoxes(currentTextBoxes.filter((textBox) => textBox.id !== textBoxId)),
-    )
-  }
-
   const addRepairSection = () => {
     const nextSectionId = createId('repair')
     setRepairSections((currentSections) =>
@@ -2495,7 +2975,7 @@ export default function EditableInspectionReport() {
   const updateRepairLineItem = (
     sectionId: string,
     lineItemId: string,
-    field: 'description' | 'quantity' | 'rate' | 'margin',
+    field: 'description' | 'internalCost' | 'quantity' | 'customerPrice' | 'rate' | 'margin',
     value: string,
   ) => {
     setRepairSections((currentSections) =>
@@ -2504,9 +2984,32 @@ export default function EditableInspectionReport() {
           section.id === sectionId
             ? {
                 ...section,
-                lineItems: section.lineItems.map((lineItem) =>
-                  lineItem.id === lineItemId ? { ...lineItem, [field]: value } : lineItem,
-                ),
+                lineItems: section.lineItems.map((lineItem) => {
+                  if (lineItem.id !== lineItemId) return lineItem
+                  if (field === 'internalCost') {
+                    return {
+                      ...lineItem,
+                      internalCost: value,
+                      rate: value,
+                      margin: getUnitMargin(parseMoney(value), getCustomerUnitPrice(lineItem)).toFixed(2),
+                    }
+                  }
+                  if (field === 'customerPrice') {
+                    return {
+                      ...lineItem,
+                      customerPrice: value,
+                      margin: getUnitMargin(getInternalUnitCost(lineItem), parseMoney(value)).toFixed(2),
+                    }
+                  }
+                  if (field === 'margin') {
+                    return {
+                      ...lineItem,
+                      margin: value,
+                      customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                    }
+                  }
+                  return { ...lineItem, [field]: value }
+                }),
               }
             : section,
         ),
@@ -2602,7 +3105,7 @@ export default function EditableInspectionReport() {
   const updateCostLineItem = (
     sectionId: string,
     lineItemId: string,
-    field: 'description' | 'quantity' | 'rate' | 'margin',
+    field: 'description' | 'internalCost' | 'quantity' | 'customerPrice' | 'rate' | 'margin',
     value: string,
   ) => {
     setCostSections((currentSections) =>
@@ -2611,9 +3114,32 @@ export default function EditableInspectionReport() {
           section.id === sectionId
             ? {
                 ...section,
-                lineItems: section.lineItems.map((lineItem) =>
-                  lineItem.id === lineItemId ? { ...lineItem, [field]: value } : lineItem,
-                ),
+                lineItems: section.lineItems.map((lineItem) => {
+                  if (lineItem.id !== lineItemId) return lineItem
+                  if (field === 'internalCost') {
+                    return {
+                      ...lineItem,
+                      internalCost: value,
+                      rate: value,
+                      margin: getUnitMargin(parseMoney(value), getCustomerUnitPrice(lineItem)).toFixed(2),
+                    }
+                  }
+                  if (field === 'customerPrice') {
+                    return {
+                      ...lineItem,
+                      customerPrice: value,
+                      margin: getUnitMargin(getInternalUnitCost(lineItem), parseMoney(value)).toFixed(2),
+                    }
+                  }
+                  if (field === 'margin') {
+                    return {
+                      ...lineItem,
+                      margin: value,
+                      customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                    }
+                  }
+                  return { ...lineItem, [field]: value }
+                }),
               }
             : section,
         ),
@@ -2723,8 +3249,6 @@ export default function EditableInspectionReport() {
       console.error('Editable report could not be reset.', error)
     }
 
-    setUnlocked(false)
-    setTextMenuOpen(false)
     setPageLayoutMenuOpen(false)
     setRelatedDocumentsOpen(false)
     setMenuSettingsOpen(false)
@@ -2754,6 +3278,37 @@ export default function EditableInspectionReport() {
     })
   }
 
+  const refreshJobReportPrintReports = useCallback(async () => {
+    if (!isConfigured) {
+      setJobReportPrintReports([])
+      setJobReportPrintMessage('Supabase is not configured.')
+      return []
+    }
+
+    if (!normalizedCurrentJobNumber) {
+      setJobReportPrintReports([])
+      setJobReportPrintMessage('No job number found for this report.')
+      return []
+    }
+
+    setJobReportPrintLoading(true)
+    setJobReportPrintMessage('')
+
+    try {
+      const reportsForJob = await getEditableInspectionReportsForJobNumber(normalizedCurrentJobNumber)
+      setJobReportPrintReports(reportsForJob)
+      setJobReportPrintMessage(reportsForJob.length > 0 ? '' : 'No saved reports found for this job number.')
+      return reportsForJob
+    } catch (error) {
+      setJobReportPrintReports([])
+      setJobReportPrintMessage('Could not load reports for this job number.')
+      console.error('Editable reports for job number could not be loaded.', error)
+      return []
+    } finally {
+      setJobReportPrintLoading(false)
+    }
+  }, [normalizedCurrentJobNumber])
+
   const printEditableReport = () => {
     const previousTitle = document.title
     document.title = currentReportName || 'DESHAZO Quote Proposal'
@@ -2766,6 +3321,87 @@ export default function EditableInspectionReport() {
     window.addEventListener('afterprint', restoreTitle)
     window.print()
     window.setTimeout(restoreTitle, 1000)
+  }
+
+  const openJobReportPrintMenu = async () => {
+    setJobReportPrintMenuOpen((isOpen) => !isOpen)
+    if (!jobReportPrintMenuOpen) {
+      await refreshJobReportPrintReports()
+    }
+  }
+
+  const toggleJobReportPrintSelection = (optionId: string) => {
+    setJobReportPrintDownloadMessage('')
+    setSelectedJobReportPrintIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+      if (nextIds.has(optionId)) {
+        nextIds.delete(optionId)
+      } else {
+        nextIds.add(optionId)
+      }
+      return nextIds
+    })
+  }
+
+  const downloadCheckedJobReportsPdf = () => {
+    const selectedSources = jobReportPrintOptions
+      .filter((option) => selectedJobReportPrintIds.has(option.id))
+      .map((option) => ({
+        dNumber: option.dNumber,
+        reportName: option.reportName,
+        payload: option.payload,
+      }))
+
+    if (selectedSources.length === 0) {
+      setJobReportPrintDownloadMessage('Select at least one D number.')
+      return
+    }
+
+    const printWindow = window.open('', '_blank')
+
+    if (printWindow) {
+      printWindow.document.write(getCombinedReportTemplateHtml(selectedSources))
+      printWindow.document.close()
+      printWindow.focus()
+      printWindow.setTimeout(() => {
+        printWindow.print()
+      }, 250)
+      setJobReportPrintDownloadMessage(`Opened ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'} for PDF download.`)
+      return
+    }
+
+    const blob = createCombinedReportsPdfBlob(selectedSources)
+    const downloadUrl = URL.createObjectURL(blob)
+    const downloadLink = document.createElement('a')
+    downloadLink.href = downloadUrl
+    downloadLink.download = `editable-inspection-reports-${normalizedCurrentJobNumber || 'selected'}.pdf`
+    document.body.appendChild(downloadLink)
+    downloadLink.click()
+    downloadLink.remove()
+    URL.revokeObjectURL(downloadUrl)
+    setJobReportPrintDownloadMessage('Popup blocked. Downloaded a simplified PDF instead.')
+  }
+
+  const selectJobReportPrintOption = (option: (typeof jobReportPrintOptions)[number]) => {
+    setJobReportPrintMenuOpen(false)
+
+    if (option.isCurrent || !option.reportId) {
+      printEditableReport()
+      return
+    }
+
+    setSearchParams({ editableReportId: option.reportId })
+  }
+
+  const openJobReportInNewTab = (option: (typeof jobReportPrintOptions)[number]) => {
+    const reportUrl = new URL('/editable-inspection-report', window.location.origin)
+    if (option.reportId) {
+      reportUrl.searchParams.set('editableReportId', option.reportId)
+    } else {
+      window.open(window.location.href, '_blank', 'noopener,noreferrer')
+      return
+    }
+    window.open(reportUrl.toString(), '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -2808,6 +3444,25 @@ export default function EditableInspectionReport() {
             box-sizing: border-box;
             width: ${printedPageWidthIn}in;
             padding: ${printedPageMarginIn}in;
+          }
+
+          .original-inspection-attachment-page {
+            box-sizing: border-box;
+            width: ${printedPageWidthIn}in;
+            min-height: ${printedPageHeightIn}in;
+            padding: ${printedPageMarginIn}in;
+            margin-top: ${runtimePageGapPx}px;
+            border: 1px solid #111;
+            background: #fff;
+            box-shadow: 0 24px 70px -40px rgba(17, 24, 39, 0.62);
+            break-before: page;
+            page-break-before: always;
+          }
+
+          .original-inspection-attachment-page canvas {
+            display: block;
+            max-width: 100%;
+            height: auto !important;
           }
 
           .report-runtime-page-break {
@@ -2890,6 +3545,15 @@ export default function EditableInspectionReport() {
               border: 0 !important;
             }
 
+            .original-inspection-attachment-page {
+              width: auto !important;
+              min-height: auto !important;
+              padding: 0 !important;
+              border: 0 !important;
+              box-shadow: none !important;
+              margin-top: 0 !important;
+            }
+
             .report-page-sheet {
               display: none !important;
             }
@@ -2924,37 +3588,6 @@ export default function EditableInspectionReport() {
           >
             ⌂
           </button>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setTextMenuOpen((currentOpen) => !currentOpen)}
-              className="rounded-md px-3 py-2 text-sm font-black transition hover:bg-white/10"
-              aria-expanded={textMenuOpen}
-            >
-              Text
-            </button>
-            {textMenuOpen ? (
-              <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[360px] rounded-[22px] border border-[var(--deshazo-border)] bg-white p-4 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(47,86,166,0.45)]">
-                <label className="relative block">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[28px] leading-none text-[#111]">
-                    ⌕
-                  </span>
-                  <input
-                    placeholder="Search fonts and combinations"
-                    className="w-full rounded-[18px] border-2 border-[var(--deshazo-border)] bg-white py-4 pl-14 pr-4 text-[18px] font-semibold text-[var(--deshazo-text)] outline-none placeholder:text-[var(--deshazo-muted)] focus:border-[var(--deshazo-blue)]"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={addCanvasTextBox}
-                  className="mt-4 flex w-full items-center justify-center gap-4 rounded-xl bg-[var(--deshazo-blue)] px-4 py-4 text-[18px] font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)]"
-                >
-                  <span className="text-[31px] leading-none">T</span>
-                  <span>Add a text box</span>
-                </button>
-              </div>
-            ) : null}
-          </div>
           <div className="relative">
             <button
               type="button"
@@ -3024,16 +3657,18 @@ export default function EditableInspectionReport() {
                     </div>
                   ) : null}
                 </div>
-                <a
-                  href={originalInspectionDocument?.url ?? '/testassessment.pdf'}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => setRelatedDocumentsOpen(false)}
-                  className="w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f4f6fb]"
-                >
-                  <span className="block text-[14px] font-black text-[#1f2430]">Original Inspection</span>
-                  <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open the source inspection PDF in a new tab.</span>
-                </a>
+                {originalInspectionDocument ? (
+                  <a
+                    href={originalInspectionDocument.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setRelatedDocumentsOpen(false)}
+                    className="w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f4f6fb]"
+                  >
+                    <span className="block text-[14px] font-black text-[#1f2430]">Original Inspection</span>
+                    <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open the source inspection PDF in a new tab.</span>
+                  </a>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => {
@@ -3086,18 +3721,6 @@ export default function EditableInspectionReport() {
               </div>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() => setUnlocked((currentUnlocked) => !currentUnlocked)}
-            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-black transition ${
-              unlocked
-                ? 'border-white bg-white text-[var(--deshazo-blue)]'
-                : 'border-white/25 bg-white/10 text-white hover:bg-white/20'
-            }`}
-          >
-            <span className="text-base">{unlocked ? '🔓' : '🔒'}</span>
-            <span>{unlocked ? 'Unlocked' : 'Locked'}</span>
-          </button>
         </div>
 
         <div className="rounded-md bg-white/10 px-4 py-2 text-sm font-black tracking-wide shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)]">
@@ -3131,13 +3754,101 @@ export default function EditableInspectionReport() {
             >
               Reset
             </button>
-            <button
-              type="button"
-              onClick={printEditableReport}
-              className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.55)] transition hover:bg-[var(--deshazo-surface)]"
-            >
-              Print PDF
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  void openJobReportPrintMenu()
+                }}
+                className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.55)] transition hover:bg-[var(--deshazo-surface)]"
+                aria-haspopup="menu"
+                aria-expanded={jobReportPrintMenuOpen}
+              >
+                Print PDF
+              </button>
+              {jobReportPrintMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-[calc(100%+8px)] z-40 w-[240px] overflow-hidden rounded-md border border-[#d8dce8] bg-white text-[#1f2430] shadow-[0_20px_50px_-28px_rgba(21,32,57,0.5)]"
+                >
+                  <div className="border-b border-[#edf0f6] px-3 py-2 text-[11px] font-black uppercase tracking-[0.08em] text-[#6f7788]">
+                    Job {normalizedCurrentJobNumber || '---'}
+                  </div>
+                  {jobReportPrintLoading ? (
+                    <div className="px-3 py-3 text-[12px] font-bold text-[#747b8a]">Loading D numbers...</div>
+                  ) : jobReportPrintOptions.length > 0 ? (
+                    <div className="max-h-[280px] overflow-y-auto py-1">
+                      {jobReportPrintOptions.map((option) => (
+                        <div
+                          key={option.id}
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 px-3 py-2 transition hover:bg-[#f5f7ff]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedJobReportPrintIds.has(option.id)}
+                            onChange={() => toggleJobReportPrintSelection(option.id)}
+                            className="h-4 w-4 shrink-0 accent-[#273f7a]"
+                            aria-label={`Select ${option.dNumber}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => selectJobReportPrintOption(option)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-[13px] font-black text-[#1f2430]">{option.dNumber}</span>
+                              {option.isCurrent ? (
+                                <span className="shrink-0 rounded-sm bg-[#e8eefc] px-1.5 py-0.5 text-[10px] font-black uppercase text-[#273f7a]">
+                                  Current
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[11px] font-semibold text-[#747b8a]">{option.reportName}</span>
+                          </button>
+                          {option.isCurrent ? null : (
+                            <button
+                              type="button"
+                              onClick={() => openJobReportInNewTab(option)}
+                              className="shrink-0 rounded-md border border-[#d6dbe9] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#273f7a] transition hover:border-[#b9c4e4] hover:bg-[#eef3ff]"
+                            >
+                              Open
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-3 text-[12px] font-bold text-[#747b8a]">
+                      {jobReportPrintMessage || 'No D numbers found.'}
+                    </div>
+                  )}
+                  <div className="border-t border-[#edf0f6] p-2">
+                    <button
+                      type="button"
+                      onClick={downloadCheckedJobReportsPdf}
+                      className="mb-2 w-full rounded-md bg-[#1f2430] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#343b4d] disabled:cursor-not-allowed disabled:bg-[#a7adba]"
+                      disabled={selectedJobReportPrintCount === 0}
+                    >
+                      Download Checked PDF{selectedJobReportPrintCount > 0 ? ` (${selectedJobReportPrintCount})` : ''}
+                    </button>
+                    {jobReportPrintDownloadMessage ? (
+                      <div className="mb-2 px-1 text-[11px] font-bold text-[#747b8a]">{jobReportPrintDownloadMessage}</div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJobReportPrintMenuOpen(false)
+                        printEditableReport()
+                      }}
+                      className="w-full rounded-md bg-[#273f7a] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#1f3261]"
+                    >
+                      Print Current Report
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </header>
@@ -3193,15 +3904,11 @@ export default function EditableInspectionReport() {
                     <div className="rounded-md border border-[#dfe4ef] bg-white px-3 py-4 text-center text-[12px] font-bold text-[#747b8a]">
                       Searching database...
                     </div>
-                  ) : visibleMenuItemSections.length > 0 ? visibleMenuItemSections.map((section) => (
-                    <section key={section.title}>
-                      <h3 className="mb-2 border-b border-[#dfe4ef] pb-1 text-[12px] font-black uppercase tracking-[0.02em] text-[#273f7a]">
-                        {getMenuSectionDisplayTitle(section.title)}
-                      </h3>
+                  ) : visibleMenuItemSections[0]?.items.length ? (
                       <div className="space-y-2">
-                        {section.items.map((item) => (
+                        {visibleMenuItemSections[0].items.map((item) => (
                           <div
-                            key={`${section.title}-${item.id ?? item.label}`}
+                            key={item.id ?? item.label}
                             draggable
                             onDragStart={(event) => {
                               event.dataTransfer.setData(menuItemDataTransferType, JSON.stringify(item))
@@ -3217,7 +3924,7 @@ export default function EditableInspectionReport() {
                                 draggable={false}
                                 onClick={(event) => {
                                   event.stopPropagation()
-                                  openMenuItemEditor(section.title, item)
+                                  openMenuItemEditor(item)
                                 }}
                                 onDragStart={(event) => event.preventDefault()}
                                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[#4d5360] transition hover:border-[#9bb0dc] hover:bg-[#eef3ff] hover:text-[#273f7a]"
@@ -3228,24 +3935,10 @@ export default function EditableInspectionReport() {
                               </button>
                             </span>
                             <span className="mt-1 block text-[12px] font-semibold leading-tight text-[#4d5360]">{item.description}</span>
-                            <span className="mt-2 block text-[12px] font-black text-[#111]">{formatMoney(parseMoney(item.rate))}</span>
-                            {section.title === 'Customer specific' && ['Labor', 'Freight'].includes(item.label) ? (
-                              <button
-                                type="button"
-                                draggable={false}
-                                onClick={() => {
-                                  if (masterServiceAgreementDocument?.url) {
-                                    window.open(masterServiceAgreementDocument.url, '_blank', 'noopener,noreferrer')
-                                  } else {
-                                    setMasterServiceAgreementOpen(true)
-                                  }
-                                }}
-                                onDragStart={(event) => event.preventDefault()}
-                                className="mt-2 rounded-md border border-[#f5b400] bg-[#fff2bf] px-2 py-1 text-[10px] font-black uppercase leading-tight text-[#6c4a00] shadow-sm transition hover:bg-[#ffe68a]"
-                              >
-                                Master Service Agreement
-                              </button>
-                            ) : null}
+                            <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px] font-black text-[#111]">
+                              <span>Internal {formatMoney(parseMoney(item.internalCost ?? item.rate))}</span>
+                              <span>Customer {formatMoney(parseMoney(item.customerPrice ?? item.rate))}</span>
+                            </span>
                             {item.sourceDocumentName ? (
                               <button
                                 type="button"
@@ -3264,8 +3957,7 @@ export default function EditableInspectionReport() {
                           </div>
                         ))}
                       </div>
-                    </section>
-                  )) : (
+                  ) : (
                     <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-5 text-center text-[12px] font-bold text-[#747b8a]">
                       No menu items found.
                     </div>
@@ -3345,6 +4037,23 @@ export default function EditableInspectionReport() {
                     </div>
 
                     <div className="space-y-3">
+                      <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
+                        <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
+                          <span>Contact</span>
+                          <input
+                            type="checkbox"
+                            checked={blockVisibility.contact}
+                            onChange={(event) => setQuoteBlockVisibility('contact', event.currentTarget.checked)}
+                            className="h-4 w-4 accent-[#273f7a]"
+                          />
+                        </label>
+                        <div className="mt-2 space-y-1 border-l border-[#d8deea] pl-3 text-[12px] font-bold text-[#4d5360]">
+                          <div className="rounded-sm px-2 py-1">Name</div>
+                          <div className="rounded-sm px-2 py-1">Email</div>
+                          <div className="rounded-sm px-2 py-1">Phone Number</div>
+                        </div>
+                      </section>
+
                       <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
                         <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
                           <span>Scope of Work</span>
@@ -3509,22 +4218,33 @@ export default function EditableInspectionReport() {
               )}
             </div>
 
+            {blockVisibility.contact ? (
+            <section
+              data-report-block-id="contact"
+              style={getRuntimePageBreakStyle('contact')}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('contact')}`}
+            >
+              <div className="grid grid-cols-[130px_1fr_1fr_1fr] border-b border-[#d4d4d4] bg-[#f7f7f7] text-[11px] font-black uppercase text-[#555b66]">
+                <div className="px-2 py-1">Contact</div>
+                <div className="border-l border-[#d4d4d4] px-2 py-1">Name</div>
+                <div className="border-l border-[#d4d4d4] px-2 py-1">Email</div>
+                <div className="border-l border-[#d4d4d4] px-2 py-1">Phone Number</div>
+              </div>
+              <div className="grid grid-cols-[130px_1fr_1fr_1fr] text-[12px] font-semibold leading-tight">
+                <div className="px-2 py-1.5" />
+                <EditableText id="contactName" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-1.5" />
+                <EditableText id="contactEmail" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-1.5" />
+                <EditableText id="contactPhone" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-1.5" />
+              </div>
+            </section>
+            ) : null}
+
             {blockVisibility.scopeOfWork ? (
             <section
               data-report-block-id="scope-of-work"
               style={getRuntimePageBreakStyle('scope-of-work')}
-              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('scope-of-work')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('scope-of-work')}`}
             >
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('scopeOfWork')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete scope of work block"
-                >
-                  🗑
-                </button>
-              ) : null}
               <EditableText
                 id="scopeOfWorkHeader"
                 data={report}
@@ -3542,17 +4262,7 @@ export default function EditableInspectionReport() {
             ) : null}
 
             {blockVisibility.repairItems ? (
-            <section className={`relative mt-3 border border-[#d4d4d4] ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('repairItems')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete repair items block"
-                >
-                  🗑
-                </button>
-              ) : null}
+            <section className="relative mt-3 border border-[#d4d4d4]">
               <div className="flex items-center justify-between gap-3 bg-[#f2f2f2]">
                 <EditableText
                   id="sectionHeader"
@@ -3626,26 +4336,39 @@ export default function EditableInspectionReport() {
                       </div>
 
                       <div className="bg-white">
-                      <div className="grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
+                      <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[9px] font-black uppercase text-[#555b66]">
                         <div className="px-2 py-1">Description</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Rate</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Amount</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Customer Price</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
+                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                          <div className="px-3 py-2">Margin</div>
+                          <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
+                          <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
+                        </div>
                       </div>
                       <div>
                         {section.lineItems.map((lineItem, lineIndex) => (
                           <div
                             key={lineItem.id}
-                            className="relative grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                            className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                           >
-                            {parseMoney(lineItem.margin) > 0 ? (
-                              <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
-                                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1f9d45] text-[12px] leading-none text-white">
-                                  +
-                                </span>
-                                <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
-                              </span>
+                            {activeDoneLineItem === `repair-${section.id}-${lineItem.id}` ? (
+                              <button
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+                                  setActiveDoneLineItem('')
+                                }}
+                                className="report-inline-action absolute right-[-84px] top-1/2 z-20 -translate-y-1/2 rounded-r-md border border-l-0 border-[#2f9e44] bg-[#e7f8ec] px-2.5 py-1 text-[10px] font-black uppercase leading-none text-[#17652b] shadow-sm transition hover:bg-[#d3f3dc]"
+                                aria-label={`Finish editing ${section.title} line item ${lineIndex + 1}`}
+                              >
+                                Done
+                              </button>
                             ) : null}
                             {shouldShowAddMenuItemTag(lineItem) ? (
                               <button
@@ -3673,35 +4396,106 @@ export default function EditableInspectionReport() {
                                 value={lineItem.description}
                                 onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'description', value)}
                                 onDropMenuItem={(item) => addMenuItemToRepairSection(section.id, item)}
+                                clearOnFocus={shouldClearPlaceholderDescription(lineItem.description)}
+                                onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
                                 className="min-w-0 flex-1 leading-tight"
                                 multiline
                               />
                             </div>
                             <EditableValue
-                              label={`${section.title} quantity ${lineIndex + 1}`}
-                              value={lineItem.quantity}
-                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'quantity', value)}
+                              label={`${section.title} internal cost ${lineIndex + 1}`}
+                              value={formatMoney(getInternalUnitCost(lineItem))}
+                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
+                              clearOnFocus={getInternalUnitCost(lineItem) === 0}
+                              onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
                             <EditableValue
-                              label={`${section.title} rate ${lineIndex + 1}`}
-                              value={lineItem.rate}
-                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'rate', value)}
+                              label={`${section.title} quantity ${lineIndex + 1}`}
+                              value={lineItem.quantity}
+                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'quantity', value)}
+                              onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
+                              className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                            />
+                            <EditableValue
+                              label={`${section.title} customer price ${lineIndex + 1}`}
+                              value={formatMoney(getCustomerUnitPrice(lineItem))}
+                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
+                              clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
+                              onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
                               className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                             />
                             <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
-                              {formatMoney(getLineAmount(lineItem))}
+                              {formatMoney(getInternalLineAmount(lineItem))}
+                            </div>
+                            <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
+                              {formatMoney(getCustomerLineAmount(lineItem))}
+                            </div>
+                            <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                              <div className="relative flex items-stretch">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveLineMenu('')
+                                    setActiveMarginMenu((currentMenu) =>
+                                      currentMenu === `repair-${section.id}-${lineItem.id}`
+                                        ? ''
+                                        : `repair-${section.id}-${lineItem.id}`,
+                                    )
+                                  }}
+                                  className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
+                                  aria-label={`Open margin settings for ${section.title} line item ${lineIndex + 1}`}
+                                >
+                                  {Math.round(parseMoney(lineItem.margin))}%
+                                </button>
+                                {activeMarginMenu === `repair-${section.id}-${lineItem.id}` ? (
+                                  <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                      <span className="text-[11px] font-black uppercase text-[#555b66]">Margin</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setActiveMarginMenu('')}
+                                        className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                        aria-label="Close margin settings"
+                                      >
+                                        x
+                                      </button>
+                                    </div>
+                                    <label className="block text-[11px] font-black uppercase text-[#555b66]">
+                                      Margin: {Math.round(parseMoney(lineItem.margin))}%
+                                    </label>
+                                    <input
+                                      type="range"
+                                      min="-100"
+                                      max="100"
+                                      step="1"
+                                      value={parseMoney(lineItem.margin)}
+                                      onChange={(event) =>
+                                        updateRepairLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
+                                      }
+                                      className="mt-2 w-full accent-[#273f7a]"
+                                    />
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
+                                {formatMoney(getUnitProfit(getInternalUnitCost(lineItem), getCustomerUnitPrice(lineItem)))}
+                              </div>
+                              <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
+                                {formatMoney(getLineProfit(getInternalLineAmount(lineItem), getCustomerLineAmount(lineItem)))}
+                              </div>
                             </div>
                             <div className="report-inline-action relative border-l border-[#e5e5e5]">
                               <button
                                 type="button"
-                                onClick={() =>
+                                onClick={() => {
+                                  setActiveMarginMenu('')
                                   setActiveLineMenu((currentMenu) =>
                                     currentMenu === `repair-${section.id}-${lineItem.id}`
                                       ? ''
                                       : `repair-${section.id}-${lineItem.id}`,
                                   )
-                                }
+                                }}
                                 className="flex min-h-[25px] w-full items-center justify-center bg-white text-[19px] font-black leading-none text-[#4d5360] transition hover:bg-[#f4f6fb]"
                                 aria-label={`Open settings for line item ${lineIndex + 1}`}
                               >
@@ -3730,35 +4524,13 @@ export default function EditableInspectionReport() {
                                   >
                                     Delete item
                                   </button>
-                                  <label className="block text-[11px] font-black uppercase text-[#555b66]">
-                                    Add margin: {Math.round(parseMoney(lineItem.margin))}%
-                                  </label>
-                                  <input
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    step="1"
-                                    value={parseMoney(lineItem.margin)}
-                                    onChange={(event) =>
-                                      updateRepairLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
-                                    }
-                                    className="mt-2 w-full accent-[#273f7a]"
-                                  />
-                                  <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
-                                    <span>Base</span>
-                                    <span className="text-right">{formatMoney(getBaseLineAmount(lineItem))}</span>
-                                    <span>Increase</span>
-                                    <span className="text-right text-[#7d1515]">{formatMoney(getMarginAmount(lineItem))}</span>
-                                    <span className="font-black text-[#111]">New price</span>
-                                    <span className="text-right font-black text-[#111]">{formatMoney(getLineAmount(lineItem))}</span>
-                                  </div>
                                 </div>
                               ) : null}
                             </div>
                           </div>
                         ))}
                       </div>
-                      <div className="grid grid-cols-[1fr_150px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
+                      <div className="grid grid-cols-[1fr_150px_108px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
                         <div className="px-2 py-1.5">
                           <button
                             type="button"
@@ -3772,7 +4544,10 @@ export default function EditableInspectionReport() {
                           Section Subtotal
                         </div>
                         <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
-                          {formatMoney(section.lineItems.reduce((total, lineItem) => total + getLineAmount(lineItem), 0))}
+                          {formatMoney(section.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0))}
+                        </div>
+                        <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
+                          {formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}
                         </div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
                       </div>
@@ -3784,17 +4559,7 @@ export default function EditableInspectionReport() {
             </section>
             ) : null}
             {blockVisibility.estimateSummary ? (
-            <section className={`relative mt-3 ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}>
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('estimateSummary')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete estimate summary block"
-                >
-                  🗑
-                </button>
-              ) : null}
+            <section className="relative mt-3">
               <div
                 data-report-block-id="estimate-summary-header"
                 data-report-keep-with-next="true"
@@ -3903,26 +4668,39 @@ export default function EditableInspectionReport() {
                       ) : null}
                     </div>
 
-                    <div className="grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[10px] font-black uppercase text-[#555b66]">
+                    <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
                       <div className="px-2 py-1">Description</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
-                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Rate</div>
-                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Amount</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Customer Price</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
+                      <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                        <div className="px-3 py-2">Margin</div>
+                        <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
+                        <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
+                      </div>
                     </div>
 
                     {section.lineItems.map((lineItem, lineIndex) => (
                       <div
                         key={lineItem.id}
-                        className="relative grid grid-cols-[1fr_70px_96px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                        className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                       >
-                        {parseMoney(lineItem.margin) > 0 ? (
-                          <span className="absolute right-[-106px] top-1 z-10 inline-flex items-center gap-1.5 rounded-r-md border border-l-0 border-[#42a65a] bg-[#e9f8ed] px-2 py-1 text-[10px] font-black leading-none text-[#17652b] shadow-sm">
-                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1f9d45] text-[12px] leading-none text-white">
-                              +
-                            </span>
-                            <span>{Math.round(parseMoney(lineItem.margin))}% margin</span>
-                          </span>
+                        {activeDoneLineItem === `cost-${section.id}-${lineItem.id}` ? (
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+                              setActiveDoneLineItem('')
+                            }}
+                            className="report-inline-action absolute right-[-84px] top-1/2 z-20 -translate-y-1/2 rounded-r-md border border-l-0 border-[#2f9e44] bg-[#e7f8ec] px-2.5 py-1 text-[10px] font-black uppercase leading-none text-[#17652b] shadow-sm transition hover:bg-[#d3f3dc]"
+                            aria-label={`Finish editing ${section.title} line item ${lineIndex + 1}`}
+                          >
+                            Done
+                          </button>
                         ) : null}
                         {shouldShowAddMenuItemTag(lineItem) ? (
                           <button
@@ -3950,21 +4728,34 @@ export default function EditableInspectionReport() {
                             value={lineItem.description}
                             onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'description', value)}
                             onDropMenuItem={(item) => addMenuItemToCostSection(section.id, item)}
+                            clearOnFocus={shouldClearPlaceholderDescription(lineItem.description)}
+                            onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                             className="min-w-0 flex-1 leading-tight"
                           />
                         </div>
                         <EditableValue
+                          label={`${section.title} internal cost ${lineIndex + 1}`}
+                          value={formatMoney(getInternalUnitCost(lineItem))}
+                          onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
+                          clearOnFocus={getInternalUnitCost(lineItem) === 0}
+                          onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
+                          className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                        />
+                        <EditableValue
                           label={`${section.title} quantity ${lineIndex + 1}`}
                           value={lineItem.quantity}
                           onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'quantity', value)}
+                          onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                           className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                         />
                         {section.id === equipmentRentalSectionId && equipmentRentalSettings.applyMarginToAll ? (
                           <div className="flex min-h-[25px] items-center justify-end gap-1 border-l border-[#e5e5e5] px-2 py-1.5 text-right">
                             <EditableValue
-                              label={`${section.title} rate ${lineIndex + 1}`}
-                              value={lineItem.rate}
-                              onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', value)}
+                              label={`${section.title} customer price ${lineIndex + 1}`}
+                              value={formatMoney(getCustomerUnitPrice(lineItem))}
+                              onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
+                              clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
+                              onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                               className="min-w-0"
                             />
                             <span className="whitespace-nowrap font-black text-[#17652b]">
@@ -3973,25 +4764,85 @@ export default function EditableInspectionReport() {
                           </div>
                         ) : (
                           <EditableValue
-                            label={`${section.title} rate ${lineIndex + 1}`}
-                            value={lineItem.rate}
-                            onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'rate', value)}
+                            label={`${section.title} customer price ${lineIndex + 1}`}
+                            value={formatMoney(getCustomerUnitPrice(lineItem))}
+                            onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
+                            clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
+                            onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                             className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                           />
                         )}
                         <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
-                          {formatMoney(getCostLineAmount(section.id, lineItem, equipmentRentalSettings))}
+                          {formatMoney(getInternalLineAmount(lineItem))}
+                        </div>
+                        <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
+                          {formatMoney(getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings))}
+                        </div>
+                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                          <div className="relative flex items-stretch">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveLineMenu('')
+                                setActiveMarginMenu((currentMenu) =>
+                                  currentMenu === `cost-${section.id}-${lineItem.id}`
+                                    ? ''
+                                    : `cost-${section.id}-${lineItem.id}`,
+                                )
+                              }}
+                              className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
+                              aria-label={`Open margin settings for ${section.title} line item ${lineIndex + 1}`}
+                            >
+                              {Math.round(parseMoney(lineItem.margin))}%
+                            </button>
+                            {activeMarginMenu === `cost-${section.id}-${lineItem.id}` ? (
+                              <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-black uppercase text-[#555b66]">Margin</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveMarginMenu('')}
+                                    className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                    aria-label="Close margin settings"
+                                  >
+                                    x
+                                  </button>
+                                </div>
+                                <label className="block text-[11px] font-black uppercase text-[#555b66]">
+                                  Margin: {Math.round(parseMoney(lineItem.margin))}%
+                                </label>
+                                <input
+                                  type="range"
+                                  min="-100"
+                                  max="100"
+                                  step="1"
+                                  value={parseMoney(lineItem.margin)}
+                                  onChange={(event) =>
+                                    updateCostLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
+                                  }
+                                  className="mt-2 w-full accent-[#273f7a]"
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
+                            {formatMoney(getUnitProfit(getInternalUnitCost(lineItem), getCostCustomerUnitPrice(section.id, lineItem, equipmentRentalSettings)))}
+                          </div>
+                          <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
+                            {formatMoney(getLineProfit(getInternalLineAmount(lineItem), getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings)))}
+                          </div>
                         </div>
                         <div className="report-inline-action relative border-l border-[#e5e5e5]">
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={() => {
+                              setActiveMarginMenu('')
                               setActiveLineMenu((currentMenu) =>
                                 currentMenu === `cost-${section.id}-${lineItem.id}`
                                   ? ''
                                   : `cost-${section.id}-${lineItem.id}`,
                               )
-                            }
+                            }}
                             className="flex min-h-[25px] w-full items-center justify-center bg-white text-[19px] font-black leading-none text-[#4d5360] transition hover:bg-[#f4f6fb]"
                             aria-label={`Open settings for ${section.title} line item ${lineIndex + 1}`}
                           >
@@ -4020,35 +4871,13 @@ export default function EditableInspectionReport() {
                               >
                                 Delete item
                               </button>
-                              <label className="block text-[11px] font-black uppercase text-[#555b66]">
-                                Add margin: {Math.round(parseMoney(lineItem.margin))}%
-                              </label>
-                              <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="1"
-                                value={parseMoney(lineItem.margin)}
-                                onChange={(event) =>
-                                  updateCostLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
-                                }
-                                className="mt-2 w-full accent-[#273f7a]"
-                              />
-                              <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#4d5360]">
-                                <span>Base</span>
-                                <span className="text-right">{formatMoney(getCostBaseLineAmount(section.id, lineItem))}</span>
-                                <span>Increase</span>
-                                <span className="text-right text-[#7d1515]">{formatMoney(getCostMarginAmount(section.id, lineItem, equipmentRentalSettings))}</span>
-                                <span className="font-black text-[#111]">New price</span>
-                                <span className="text-right font-black text-[#111]">{formatMoney(getCostLineAmount(section.id, lineItem, equipmentRentalSettings))}</span>
-                              </div>
                             </div>
                           ) : null}
                         </div>
                       </div>
                     ))}
 
-                    <div className="grid grid-cols-[1fr_150px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
+                    <div className="grid grid-cols-[1fr_150px_108px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
                       <div className="px-2 py-1.5">
                         <button
                           type="button"
@@ -4063,7 +4892,14 @@ export default function EditableInspectionReport() {
                       </div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
                         {formatMoney(section.lineItems.reduce(
-                          (total, lineItem) => total + getCostLineAmount(section.id, lineItem, equipmentRentalSettings),
+                          (total, lineItem) => total + getInternalLineAmount(lineItem),
+                          0,
+                        ))}
+                      </div>
+                      <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
+                        {formatMoney(section.lineItems.reduce(
+                          (total, lineItem) =>
+                            total + getCostCustomerLineAmount(section.id, lineItem, equipmentRentalSettings),
                           0,
                         ))}
                       </div>
@@ -4094,23 +4930,27 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="grand-total"
               style={getRuntimePageBreakStyle('grand-total')}
-              className={`relative mt-3 border-2 border-[#111] ${getRuntimePageBreakClassName('grand-total')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border-2 border-[#111] ${getRuntimePageBreakClassName('grand-total')}`}
             >
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('grandTotal')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete grand total block"
-                >
-                  🗑
-                </button>
-              ) : null}
               <div className="grid grid-cols-[1fr_180px_160px] bg-[#f2f2f2] text-[16px] font-black">
                 <div className="px-4 py-3 uppercase text-[#555b66]">Grand Total</div>
                 <div className="border-l border-[#cfcfcf] px-4 py-3 text-right uppercase text-[#555b66]">Total</div>
                 <div className="border-l border-[#111] bg-[#f5b400] px-4 py-3 text-right text-[#111]">
                   {formatMoney(invoiceTotal)}
+                </div>
+              </div>
+              <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid min-h-[70px] w-[252px] grid-cols-3 overflow-hidden border border-[#111] bg-white text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
+                <div className={`flex flex-col justify-center px-3 py-2.5 ${getMarginCellClassName(String(grandTotalMargin))}`}>
+                  <span className="text-[9px] font-black uppercase leading-tight">Margin</span>
+                  <span className="mt-0.5 text-[13px] font-black">{Math.round(grandTotalMargin)}%</span>
+                </div>
+                <div className="flex flex-col justify-center border-l border-[#cfcfcf] px-3 py-2.5 text-right">
+                  <span className="text-[9px] font-black uppercase leading-tight text-[#555b66]">Total Internal Cost</span>
+                  <span className="mt-0.5 text-[13px] font-black">{formatMoney(grandTotalInternalCost)}</span>
+                </div>
+                <div className="flex flex-col justify-center border-l border-[#cfcfcf] px-3 py-2.5 text-right">
+                  <span className="text-[9px] font-black uppercase leading-tight text-[#555b66]">Total Profit</span>
+                  <span className="mt-0.5 text-[13px] font-black">{formatMoney(grandTotalProfit)}</span>
                 </div>
               </div>
             </section>
@@ -4120,18 +4960,8 @@ export default function EditableInspectionReport() {
             <section
               data-report-block-id="notes"
               style={getRuntimePageBreakStyle('notes')}
-              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')} ${unlocked ? 'ring-2 ring-red-500/45' : ''}`}
+              className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('notes')}`}
             >
-              {unlocked ? (
-                <button
-                  type="button"
-                  onClick={() => deleteQuoteBlock('notes')}
-                  className="report-toolbar absolute right-[-14px] top-[-14px] z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[15px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                  aria-label="Delete notes block"
-                >
-                  🗑
-                </button>
-              ) : null}
               <EditableText
                 id="notesHeader"
                 data={report}
@@ -4142,49 +4972,6 @@ export default function EditableInspectionReport() {
             </section>
             ) : null}
           </section>
-          {canvasTextBoxes.map((textBox) => (
-            <div
-              key={textBox.id}
-              draggable
-              onDragStart={(event) => {
-                textBoxDragStart.current[textBox.id] = {
-                  clientX: event.clientX,
-                  clientY: event.clientY,
-                  x: textBox.x,
-                  y: textBox.y,
-                }
-                event.dataTransfer.effectAllowed = 'move'
-              }}
-              onDragEnd={(event) => {
-                const start = textBoxDragStart.current[textBox.id]
-                if (!start || event.clientX === 0 || event.clientY === 0) return
-                moveCanvasTextBox(
-                  textBox.id,
-                  start.x + event.clientX - start.clientX,
-                  start.y + event.clientY - start.clientY,
-                )
-                delete textBoxDragStart.current[textBox.id]
-              }}
-              className="absolute z-20 min-w-[170px] max-w-[360px] cursor-move rounded-md ring-2 ring-[#8b3dff]/35"
-              style={{ left: textBox.x, top: textBox.y }}
-            >
-              <button
-                type="button"
-                onClick={() => deleteCanvasTextBox(textBox.id)}
-                className="report-toolbar absolute right-[-12px] top-[-12px] z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-red-600 bg-white text-[13px] font-black text-red-700 shadow-sm transition hover:bg-red-50"
-                aria-label="Delete text box"
-              >
-                🗑
-              </button>
-              <EditableValue
-                label="Canvas text box"
-                value={textBox.text}
-                onChange={(value) => updateCanvasTextBox(textBox.id, value)}
-                className="min-h-[34px] rounded-md border border-dashed border-[#8b3dff]/55 bg-white/90 px-2.5 py-1.5 font-['Times_New_Roman',Times,serif] text-[18px] font-normal leading-tight shadow-[0_8px_22px_-20px_rgba(15,23,42,0.55)]"
-                multiline
-              />
-            </div>
-          ))}
         </article>
             </div>
           </div>
@@ -4196,7 +4983,7 @@ export default function EditableInspectionReport() {
           <div className="flex items-center justify-between border-b border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,var(--deshazo-surface)_100%)] px-5 py-4">
             <div>
               <h2 className="text-[20px] font-black text-[var(--deshazo-text)]">Menu Settings</h2>
-              <p className="mt-1 text-[13px] font-semibold text-[rgba(21,24,33,0.58)]">Add a draggable item to one of the menu sections.</p>
+              <p className="mt-1 text-[13px] font-semibold text-[rgba(21,24,33,0.58)]">Add a draggable menu item.</p>
             </div>
             <button
               type="button"
@@ -4212,21 +4999,6 @@ export default function EditableInspectionReport() {
           </div>
 
           <div className="grid gap-4 px-5 py-5">
-            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
-              Section
-              <select
-                value={selectedAddableMenuSection}
-                onChange={(event) => setNewMenuSection(event.currentTarget.value)}
-                className="rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
-              >
-                {addableMenuItemSections.map((section) => (
-                  <option key={section.title} value={section.title}>
-                    {getMenuSectionDisplayTitle(section.title)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
             <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
               Item name
               <input
@@ -4247,15 +5019,27 @@ export default function EditableInspectionReport() {
               />
             </label>
 
-            <label className="grid max-w-[220px] gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
-              Rate
-              <input
-                value={newMenuRate}
-                onChange={(event) => setNewMenuRate(event.currentTarget.value)}
-                inputMode="decimal"
-                className="rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
+                Internal Cost
+                <input
+                  value={newMenuInternalCost}
+                  onChange={(event) => setNewMenuInternalCost(event.currentTarget.value)}
+                  inputMode="decimal"
+                  className="rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.62)]">
+                Customer Price
+                <input
+                  value={newMenuCustomerPrice}
+                  onChange={(event) => setNewMenuCustomerPrice(event.currentTarget.value)}
+                  inputMode="decimal"
+                  className="rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-[14px] font-bold normal-case text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
+                />
+              </label>
+            </div>
           </div>
 
           <div className="flex items-center justify-between border-t border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/55 px-5 py-4">
@@ -4278,9 +5062,6 @@ export default function EditableInspectionReport() {
           <div className="flex items-center justify-between border-b border-[#dfe4ef] px-5 py-4">
             <div>
               <h2 className="text-[20px] font-black text-[#1f2430]">Edit Menu Item</h2>
-              <p className="mt-1 text-[13px] font-semibold text-[#747b8a]">
-                {getMenuSectionDisplayTitle(editingMenuItem.sectionTitle)}
-              </p>
             </div>
             <button
               type="button"
@@ -4293,26 +5074,6 @@ export default function EditableInspectionReport() {
           </div>
 
           <div className="grid gap-4 px-5 py-5">
-            <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
-              Section
-              <select
-                value={editingMenuItem.sectionTitle}
-                onChange={(event) => {
-                  const nextSectionTitle = event.currentTarget.value
-                  setEditingMenuItem((currentItem) =>
-                    currentItem ? { ...currentItem, sectionTitle: nextSectionTitle } : currentItem,
-                  )
-                }}
-                className="rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
-              >
-                {editableMenuItemSections.map((section) => (
-                  <option key={section.title} value={section.title}>
-                    {getMenuSectionDisplayTitle(section.title)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
             <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
               Item name
               <input
@@ -4341,20 +5102,37 @@ export default function EditableInspectionReport() {
               />
             </label>
 
-            <label className="grid max-w-[220px] gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
-              Rate
-              <input
-                value={editingMenuItem.rate}
-                onChange={(event) => {
-                  const nextRate = event.currentTarget.value
-                  setEditingMenuItem((currentItem) =>
-                    currentItem ? { ...currentItem, rate: nextRate } : currentItem,
-                  )
-                }}
-                inputMode="decimal"
-                className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+                Internal Cost
+                <input
+                  value={editingMenuItem.internalCost}
+                  onChange={(event) => {
+                    const nextInternalCost = event.currentTarget.value
+                    setEditingMenuItem((currentItem) =>
+                      currentItem ? { ...currentItem, internalCost: nextInternalCost } : currentItem,
+                    )
+                  }}
+                  inputMode="decimal"
+                  className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-[12px] font-black uppercase tracking-[0.02em] text-[#555b66]">
+                Customer Price
+                <input
+                  value={editingMenuItem.customerPrice}
+                  onChange={(event) => {
+                    const nextCustomerPrice = event.currentTarget.value
+                    setEditingMenuItem((currentItem) =>
+                      currentItem ? { ...currentItem, customerPrice: nextCustomerPrice } : currentItem,
+                    )
+                  }}
+                  inputMode="decimal"
+                  className="rounded-md border border-[#cfd6e5] px-3 py-2 text-[14px] font-bold normal-case text-[#1f2430] outline-none focus:border-[#273f7a]"
+                />
+              </label>
+            </div>
           </div>
 
           <div className="flex items-center justify-between border-t border-[#dfe4ef] bg-[#fbfcff] px-5 py-4">

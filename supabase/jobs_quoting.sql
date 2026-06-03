@@ -25,6 +25,7 @@ create table if not exists public.jobs_quoting_items (
   user_id uuid not null references auth.users (id) on delete cascade,
   editable_document_id uuid references public.editable_inspection_documents (id) on delete set null,
   document_name text not null,
+  job_number text,
   split_type text,
   split_identifier text,
   repair_count integer not null default 0,
@@ -50,11 +51,17 @@ create table if not exists public.jobs_quoting_items (
 );
 
 alter table public.jobs_quoting_items
+  add column if not exists job_number text,
   add column if not exists pdf_bucket text not null default 'jobs-quoting-pdfs',
   add column if not exists pdf_storage_path text,
   add column if not exists pdf_file_name text,
   add column if not exists pdf_file_size bigint,
   add column if not exists pdf_content_type text not null default 'application/pdf';
+
+update public.jobs_quoting_items
+set job_number = nullif(btrim(coalesce(extraction_data #>> '{job_number,value}', extraction_data ->> 'job_number')), '')
+where job_number is null
+  and nullif(btrim(coalesce(extraction_data #>> '{job_number,value}', extraction_data ->> 'job_number')), '') is not null;
 
 create unique index if not exists jobs_quoting_items_run_extend_file_key
   on public.jobs_quoting_items (run_id, extend_file_id)

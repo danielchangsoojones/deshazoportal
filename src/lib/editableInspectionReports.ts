@@ -16,6 +16,7 @@ export type EditableInspectionReport = EditableInspectionReportPayload & {
   reportName: string
   sourceDocumentName: string
   jobsQuotingItemId: string | null
+  jobNumber: string
   createdAt: string
   updatedAt: string
 }
@@ -37,6 +38,7 @@ type EditableInspectionReportRow = {
   report_name: string
   source_document_name: string | null
   jobs_quoting_item_id: string | null
+  job_number: string | null
   report_data: Record<string, string>
   repair_sections: unknown[]
   cost_sections: unknown[]
@@ -59,6 +61,7 @@ const editableInspectionReportsSelect = `
   report_name,
   source_document_name,
   jobs_quoting_item_id,
+  job_number,
   report_data,
   repair_sections,
   cost_sections,
@@ -70,6 +73,11 @@ const editableInspectionReportsSelect = `
   created_at,
   updated_at
 `
+
+function getReportJobNumber(reportData: Record<string, string>) {
+  const value = reportData.jobNumber ?? ''
+  return value.replace(/^job\s*#?\s*:\s*/i, '').replace(/^#\s*/, '').trim()
+}
 
 async function getCurrentUserId() {
   if (!supabase) {
@@ -95,6 +103,7 @@ function mapEditableInspectionReportRow(row: EditableInspectionReportRow): Edita
     reportName: row.report_name,
     sourceDocumentName: row.source_document_name ?? row.report_name,
     jobsQuotingItemId: row.jobs_quoting_item_id,
+    jobNumber: row.job_number ?? getReportJobNumber(row.report_data ?? {}),
     reportData: row.report_data ?? {},
     repairSections: row.repair_sections ?? [],
     costSections: row.cost_sections ?? [],
@@ -196,6 +205,28 @@ export async function getEditableInspectionReportForJobsQuotingItem(jobsQuotingI
   return row ? mapEditableInspectionReportRow(row) : null
 }
 
+export async function getEditableInspectionReportsForJobNumber(jobNumber: string) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const normalizedJobNumber = jobNumber.trim()
+  if (!normalizedJobNumber) return []
+
+  await getCurrentUserId()
+  const { data, error } = await supabase
+    .from('editable_inspection_reports')
+    .select(editableInspectionReportsSelect)
+    .eq('job_number', normalizedJobNumber)
+    .order('updated_at', { ascending: false })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return ((data ?? []) as EditableInspectionReportRow[]).map(mapEditableInspectionReportRow)
+}
+
 export async function saveEditableInspectionReport(input: SaveEditableInspectionReportInput) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
@@ -208,6 +239,7 @@ export async function saveEditableInspectionReport(input: SaveEditableInspection
     jobs_quoting_item_id: input.jobsQuotingItemId ?? null,
     report_name: input.reportName.trim(),
     source_document_name: input.sourceDocumentName?.trim() || input.reportName.trim(),
+    job_number: getReportJobNumber(input.reportData) || null,
     report_data: input.reportData,
     repair_sections: input.repairSections,
     cost_sections: input.costSections,
