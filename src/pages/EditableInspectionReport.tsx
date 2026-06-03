@@ -2078,11 +2078,8 @@ export default function EditableInspectionReport() {
       ? 'report-runtime-page-break'
       : ''
 
-  const getRuntimePageBreakStyle = (blockId: string) => {
-    if (isReportEditing || shouldSuppressRuntimePageBreak(blockId)) return undefined
-
-    const spacer = runtimePageBreaks[blockId]
-    return spacer ? { marginTop: `${spacer}px` } : undefined
+  const getRuntimePageBreakStyle = (_blockId: string) => {
+    return undefined
   }
 
   const applyEditableReportPayload = useCallback((payload: EditableInspectionReportPayload) => {
