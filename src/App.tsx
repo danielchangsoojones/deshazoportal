@@ -12,6 +12,7 @@ const AddNewUser = lazy(() => import('./pages/AddNewUser'))
 const LocationComparison = lazy(() => import('./pages/LocationComparison'))
 const Spend = lazy(() => import('./pages/Spend'))
 const DocumentsReports = lazy(() => import('./pages/DocumentsReports'))
+const EquipmentNotebookLLM = lazy(() => import('./pages/EquipmentNotebookLLM'))
 const CustomReports = lazy(() => import('./pages/CustomReports'))
 const DeshazoExternalReports = lazy(() => import('./pages/DeshazoExternalReports'))
 const DeshazoWorkOrders = lazy(() => import('./pages/DeshazoWorkOrders'))
@@ -47,6 +48,7 @@ function App() {
           <Route path="/location-comparison" element={<LocationComparison />} />
           <Route path="/spend" element={<Spend />} />
           <Route path="/documents-reports" element={<DocumentsReports />} />
+          <Route path="/equipment-notebook-llm" element={<EquipmentNotebookLLM />} />
           <Route path="/custom-reports" element={<CustomReports />} />
           <Route path="/deshazo-work-orders" element={<DeshazoWorkOrders />} />
           <Route path="/deshazo-external-reports" element={<DeshazoExternalReports />} />
