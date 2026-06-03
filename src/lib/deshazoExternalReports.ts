@@ -337,6 +337,18 @@ export async function getDeshazoExternalWorkOrdersLastSync() {
     throw new Error('Supabase is not configured.')
   }
 
+  const { data: checkpointData, error: checkpointError } = await supabase
+    .from('deshazo_external_sync_checkpoints')
+    .select('last_successful_sync_at')
+    .in('sync_name', ['external_work_orders_incremental_strict', 'external_work_orders_incremental', 'external_work_orders'])
+    .order('last_successful_sync_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!checkpointError && typeof checkpointData?.last_successful_sync_at === 'string') {
+    return checkpointData.last_successful_sync_at
+  }
+
   const { data, error } = await supabase
     .from('deshazo_external_work_orders')
     .select('synced_at')
@@ -344,9 +356,7 @@ export async function getDeshazoExternalWorkOrdersLastSync() {
     .limit(1)
     .maybeSingle()
 
-  if (error) {
-    throw new Error(error.message)
-  }
+  if (error) throw new Error(error.message)
 
   return typeof data?.synced_at === 'string' ? data.synced_at : ''
 }
