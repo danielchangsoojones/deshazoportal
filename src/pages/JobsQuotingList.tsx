@@ -12,7 +12,6 @@ import {
   type JobsQuotingItem,
   type JobsQuotingRun,
 } from '../lib/jobsQuoting'
-import { getEditableInspectionReportModifiedTimes } from '../lib/editableInspectionReports'
 import { getCurrentUserTag, getUserDisplayNames, type UserTag } from '../lib/userTags'
 
 const activeStatuses = new Set(['uploading', 'pending', 'processing', 'needs_review'])
@@ -215,18 +214,6 @@ function sortItemsByNewest(items: JobsQuotingItem[]) {
   return [...items].sort((firstItem, secondItem) => new Date(secondItem.updatedAt).getTime() - new Date(firstItem.updatedAt).getTime())
 }
 
-function getItemModifiedAt(item: JobsQuotingItem, savedReportModifiedTimesByItemId: Map<string, string>) {
-  return savedReportModifiedTimesByItemId.get(item.id) ?? item.updatedAt
-}
-
-function sortItemsByModifiedNewest(items: JobsQuotingItem[], savedReportModifiedTimesByItemId: Map<string, string>) {
-  return [...items].sort(
-    (firstItem, secondItem) =>
-      new Date(getItemModifiedAt(secondItem, savedReportModifiedTimesByItemId)).getTime() -
-      new Date(getItemModifiedAt(firstItem, savedReportModifiedTimesByItemId)).getTime(),
-  )
-}
-
 function sortItemsByPriority(items: JobsQuotingItem[]) {
   return [...items].sort((firstItem, secondItem) => {
     if (secondItem.priorityCount !== firstItem.priorityCount) return secondItem.priorityCount - firstItem.priorityCount
@@ -236,12 +223,12 @@ function sortItemsByPriority(items: JobsQuotingItem[]) {
   })
 }
 
-function buildJobGroups(items: JobsQuotingItem[], savedReportModifiedTimesByItemId: Map<string, string>) {
+function buildJobGroups(items: JobsQuotingItem[]) {
   const groupsByKey = new Map<string, JobsQuotingJobGroup>()
 
   items.forEach((item) => {
     const groupKey = getItemJobGroupKey(item)
-    const itemModifiedAt = getItemModifiedAt(item, savedReportModifiedTimesByItemId)
+    const itemModifiedAt = item.updatedAt
     const existingGroup = groupsByKey.get(groupKey)
 
     if (existingGroup) {
@@ -275,7 +262,7 @@ function buildJobGroups(items: JobsQuotingItem[], savedReportModifiedTimesByItem
 
   return Array.from(groupsByKey.values()).map((group) => ({
     ...group,
-    items: sortItemsByModifiedNewest(group.items, savedReportModifiedTimesByItemId),
+    items: sortItemsByNewest(group.items),
   }))
 }
 
@@ -285,7 +272,6 @@ export default function JobsQuotingList() {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [runs, setRuns] = useState<JobsQuotingRun[]>([])
   const [items, setItems] = useState<JobsQuotingItem[]>([])
-  const [savedReportModifiedTimesByItemId, setSavedReportModifiedTimesByItemId] = useState<Map<string, string>>(new Map())
   const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
   const [itemsLoading, setItemsLoading] = useState(false)
   const [selectedRunId, setSelectedRunId] = useState<string>(allReportsRunId)
@@ -313,20 +299,17 @@ export default function JobsQuotingList() {
     [userDisplayNames],
   )
   const visibleItems = useMemo(() => {
-    if (selectedRunId === allReportsRunId || !selectedRunGroup) return sortItemsByModifiedNewest(items, savedReportModifiedTimesByItemId)
+    if (selectedRunId === allReportsRunId || !selectedRunGroup) return sortItemsByNewest(items)
 
     const selectedRunIds = new Set(selectedRunGroup.runIds)
     return sortItemsByPriority(items.filter((item) => selectedRunIds.has(item.runId)))
-  }, [items, savedReportModifiedTimesByItemId, selectedRunGroup, selectedRunId])
+  }, [items, selectedRunGroup, selectedRunId])
   const filteredItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
     if (!normalizedQuery) return visibleItems
     return visibleItems.filter((item) => getItemSearchText(item).includes(normalizedQuery))
   }, [searchQuery, visibleItems])
-  const jobGroups = useMemo(
-    () => buildJobGroups(filteredItems, savedReportModifiedTimesByItemId),
-    [filteredItems, savedReportModifiedTimesByItemId],
-  )
+  const jobGroups = useMemo(() => buildJobGroups(filteredItems), [filteredItems])
   const sortedJobGroups = useMemo(() => {
     if (selectedRunId === allReportsRunId) {
       return [...jobGroups].sort(
@@ -386,17 +369,11 @@ export default function JobsQuotingList() {
           ? runId
           : allReportsRunId
       const nextRunIds = nextRunGroups.flatMap((group) => group.runIds)
-      const [nextItems, nextSavedReportModifiedTimes] = await Promise.all([
-        nextRunIds.length > 0 ? getJobsQuotingItemsForRuns(nextRunIds) : Promise.resolve([]),
-        getEditableInspectionReportModifiedTimes(),
-      ])
+      const nextItems = nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : []
 
       setRuns(nextRuns)
       setSelectedRunId(nextSelectedRunId)
       setItems(nextItems)
-      setSavedReportModifiedTimesByItemId(
-        new Map(nextSavedReportModifiedTimes.map((modifiedTime) => [modifiedTime.jobsQuotingItemId, modifiedTime.updatedAt])),
-      )
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
@@ -1098,7 +1075,7 @@ export default function JobsQuotingList() {
                               </div>
                             </td>
                             <td className="px-2 py-4 text-center align-top text-xs font-bold leading-snug text-[#4d5360]">
-                              {formatDate(getItemModifiedAt(item, savedReportModifiedTimesByItemId))}
+                              {formatDate(item.updatedAt)}
                             </td>
                             <td className="px-2 py-4 text-center align-top text-sm font-bold text-[#4d5360]">
                               <span className="block truncate" title={getRunUploaderName(runsById.get(item.runId))}>

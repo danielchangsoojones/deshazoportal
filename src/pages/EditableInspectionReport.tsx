@@ -22,10 +22,7 @@ import {
   type JobsQuotingItem,
 } from '../lib/jobsQuoting'
 import {
-  getEditableInspectionReport,
-  getEditableInspectionReportForJobsQuotingItem,
   getEditableInspectionReportsForJobNumber,
-  getEditableInspectionReports,
   saveEditableInspectionReport,
   type EditableInspectionReport,
   type EditableInspectionReportPayload,
@@ -455,36 +452,8 @@ const getDNumberFromReport = (reportData: ReportData | Record<string, string>) =
   return match ? match[0].replace(/[\s-]+/g, '').toUpperCase() : ''
 }
 
-const normalizeReportIdentityValue = (value: string) => value.replace(/[^a-z0-9]/gi, '').toUpperCase()
-
-const getJobNumberFromReport = (reportData: ReportData | Record<string, string>) =>
-  normalizeReportIdentityValue(removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, ''))
-
 const getJobNumberDisplayFromReport = (reportData: ReportData | Record<string, string>) =>
   removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, '').trim() || '---'
-
-const getReportIdentity = (reportData: ReportData | Record<string, string>) => ({
-  dNumber: normalizeReportIdentityValue(getDNumberFromReport(reportData)),
-  jobNumber: getJobNumberFromReport(reportData),
-})
-
-const hasCompleteReportIdentity = (identity: ReturnType<typeof getReportIdentity>) =>
-  Boolean(identity.dNumber && identity.jobNumber)
-
-const reportIdentitiesMatch = (
-  firstReportData: ReportData | Record<string, string>,
-  secondReportData: ReportData | Record<string, string>,
-) => {
-  const firstIdentity = getReportIdentity(firstReportData)
-  const secondIdentity = getReportIdentity(secondReportData)
-
-  return (
-    hasCompleteReportIdentity(firstIdentity) &&
-    hasCompleteReportIdentity(secondIdentity) &&
-    firstIdentity.dNumber === secondIdentity.dNumber &&
-    firstIdentity.jobNumber === secondIdentity.jobNumber
-  )
-}
 
 const getEditableReportDisplayName = (
   reportData: ReportData | Record<string, string>,
@@ -1451,6 +1420,35 @@ const getNormalizedReportPayload = (report: EditableInspectionReport): EditableI
   },
 })
 
+const hasSavedEditableReportPayload = (item: JobsQuotingItem) =>
+  Boolean(item.reportName || Object.keys(item.reportData).length > 0 || item.repairSections.length > 0)
+
+const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableInspectionReportPayload => {
+  if (hasSavedEditableReportPayload(item)) {
+    return {
+      reportData: item.reportData,
+      repairSections: item.repairSections,
+      costSections: item.costSections.length > 0 ? item.costSections : defaultCostSections,
+      blockVisibility: item.blockVisibility,
+      estimateNoteVisibility: item.estimateNoteVisibility,
+      repairSectionVisibility: item.repairSectionVisibility,
+      textBoxes: item.textBoxes,
+      equipmentRentalSettings: item.equipmentRentalSettings,
+    }
+  }
+
+  return {
+    reportData: buildReportFromJobsQuotingItem(item),
+    repairSections: buildRepairSectionsFromJobsQuotingItem(item),
+    costSections: defaultCostSections,
+    blockVisibility: defaultBlockVisibility,
+    estimateNoteVisibility: defaultEstimateNoteVisibility,
+    repairSectionVisibility: {},
+    textBoxes: [],
+    equipmentRentalSettings: defaultEquipmentRentalSettings,
+  }
+}
+
 const saveEditableReportPayloadLocally = (payload: EditableInspectionReportPayload) => {
   window.localStorage.setItem(storageKey, JSON.stringify(payload.reportData))
   window.localStorage.setItem(repairStorageKey, JSON.stringify(payload.repairSections))
@@ -2116,29 +2114,14 @@ export default function EditableInspectionReport() {
     setEquipmentRentalSettings(nextEquipmentRentalSettings)
   }, [])
 
-  const findExistingEditableReportForQuoteItem = useCallback(async (jobsQuotingItemIdToMatch: string, quoteReport: ReportData) => {
-    const existingReportForItem = await getEditableInspectionReportForJobsQuotingItem(jobsQuotingItemIdToMatch)
-    if (existingReportForItem) return existingReportForItem
-
-    const quoteIdentity = getReportIdentity(quoteReport)
-    if (!hasCompleteReportIdentity(quoteIdentity)) return null
-
-    const reports = await getEditableInspectionReports()
-    return reports.find((savedReport) => reportIdentitiesMatch(savedReport.reportData, quoteReport)) ?? null
-  }, [])
-
   const saveCurrentEditableReportNow = useCallback(async () => {
     if (!isConfigured || !reportHydrationReady.current) return null
 
     setReportDatabaseStatus('saving')
     const reportName = getEditableReportDisplayName(currentEditableReportPayload.reportData, currentReportName)
-    const existingReport =
-      !currentEditableReportId && currentJobsQuotingItemId
-        ? await findExistingEditableReportForQuoteItem(currentJobsQuotingItemId, currentEditableReportPayload.reportData)
-        : null
     const savedReport = await saveEditableInspectionReport({
       ...currentEditableReportPayload,
-      id: currentEditableReportId || existingReport?.id || null,
+      id: currentEditableReportId || currentJobsQuotingItemId,
       jobsQuotingItemId: currentJobsQuotingItemId,
       reportName,
       sourceDocumentName: currentSourceDocumentName,
@@ -2146,9 +2129,6 @@ export default function EditableInspectionReport() {
 
     pendingReportChanges.current = false
     skipNextReportDatabaseSave.current = true
-    if (!currentEditableReportId) {
-      setSearchParams({ editableReportId: savedReport.id }, { replace: true })
-    }
     setCurrentEditableReportId(savedReport.id)
     setCurrentReportName(savedReport.reportName)
     setCurrentSourceDocumentName(savedReport.sourceDocumentName)
@@ -2161,8 +2141,6 @@ export default function EditableInspectionReport() {
     currentJobsQuotingItemId,
     currentReportName,
     currentSourceDocumentName,
-    findExistingEditableReportForQuoteItem,
-    setSearchParams,
   ])
 
   useEffect(() => {
@@ -2178,64 +2156,23 @@ export default function EditableInspectionReport() {
 
     async function hydrateEditableReport() {
       try {
-        if (editableReportIdParam) {
-          const savedReport = await getEditableInspectionReport(editableReportIdParam)
+        const quoteItemId = jobsQuotingItemId || editableReportIdParam
+
+        if (quoteItemId) {
+          const quoteItem = await getJobsQuotingItem(quoteItemId)
           if (!active) return
 
-          applyEditableReportPayload(getNormalizedReportPayload(savedReport))
-          setCurrentEditableReportId(savedReport.id)
-          setCurrentReportName(savedReport.reportName)
-          setCurrentSourceDocumentName(savedReport.sourceDocumentName)
-          setCurrentJobsQuotingItemId(savedReport.jobsQuotingItemId)
-          setReportDatabaseStatus('saved')
-        } else if (jobsQuotingItemId) {
-          const quoteItem = await getJobsQuotingItem(jobsQuotingItemId)
-          if (!active) return
-          const quoteReport = buildReportFromJobsQuotingItem(quoteItem)
-          const existingReport = await findExistingEditableReportForQuoteItem(jobsQuotingItemId, quoteReport)
-          if (!active) return
-
-          if (existingReport) {
-            applyEditableReportPayload(getNormalizedReportPayload(existingReport))
-            setCurrentEditableReportId(existingReport.id)
-            setCurrentReportName(existingReport.reportName)
-            setCurrentSourceDocumentName(existingReport.sourceDocumentName)
-            setCurrentJobsQuotingItemId(existingReport.jobsQuotingItemId)
-            setReportDatabaseStatus('saved')
-            skipNextReportDatabaseSave.current = true
-            pendingReportChanges.current = false
-            reportHydrationReady.current = true
-            setSearchParams({ editableReportId: existingReport.id }, { replace: true })
-            return
-          }
-
-          const editableReportPayload = {
-            reportData: quoteReport,
-            repairSections: buildRepairSectionsFromJobsQuotingItem(quoteItem),
-            costSections: defaultCostSections,
-            blockVisibility: defaultBlockVisibility,
-            estimateNoteVisibility: defaultEstimateNoteVisibility,
-            repairSectionVisibility: {},
-            textBoxes: [],
-            equipmentRentalSettings: defaultEquipmentRentalSettings,
-          }
-          const reportName = getEditableReportDisplayName(quoteReport, quoteItem.documentName)
-          const savedReport = await saveEditableInspectionReport({
-            ...editableReportPayload,
-            id: null,
-            jobsQuotingItemId: quoteItem.id,
-            reportName,
-            sourceDocumentName: quoteItem.documentName,
-          })
-          if (!active) return
+          const editableReportPayload = getEditableReportPayloadFromQuoteItem(quoteItem)
+          const reportName =
+            quoteItem.reportName ||
+            getEditableReportDisplayName(editableReportPayload.reportData, quoteItem.documentName)
 
           applyEditableReportPayload(editableReportPayload)
-          setCurrentEditableReportId(savedReport.id)
-          setCurrentReportName(savedReport.reportName)
-          setCurrentSourceDocumentName(savedReport.sourceDocumentName)
-          setCurrentJobsQuotingItemId(savedReport.jobsQuotingItemId)
+          setCurrentEditableReportId(quoteItem.id)
+          setCurrentReportName(reportName)
+          setCurrentSourceDocumentName(quoteItem.sourceDocumentName || quoteItem.documentName)
+          setCurrentJobsQuotingItemId(quoteItem.id)
           setReportDatabaseStatus('saved')
-          setSearchParams({ editableReportId: savedReport.id }, { replace: true })
         } else {
           setCurrentEditableReportId('')
           setCurrentReportName('Untitled quote report')
@@ -2259,7 +2196,7 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [applyEditableReportPayload, editableReportIdParam, findExistingEditableReportForQuoteItem, jobsQuotingItemId, setSearchParams])
+  }, [applyEditableReportPayload, editableReportIdParam, jobsQuotingItemId])
 
   useEffect(() => {
     if (!isConfigured || !reportHydrationReady.current) return
@@ -3181,93 +3118,7 @@ export default function EditableInspectionReport() {
     )
   }
 
-  const resetTemplate = async () => {
-    if (!isConfigured) {
-      setReportDatabaseStatus('local')
-      return
-    }
-
-    setReportDatabaseStatus('loading')
-
-    try {
-      let savedReport: EditableInspectionReport | null = null
-
-      if (currentEditableReportId) {
-        savedReport = await getEditableInspectionReport(currentEditableReportId)
-      } else if (currentJobsQuotingItemId) {
-        savedReport = await getEditableInspectionReportForJobsQuotingItem(currentJobsQuotingItemId)
-      }
-
-      if (savedReport) {
-        applyEditableReportPayload(getNormalizedReportPayload(savedReport))
-        setCurrentEditableReportId(savedReport.id)
-        setCurrentReportName(savedReport.reportName)
-        setCurrentSourceDocumentName(savedReport.sourceDocumentName)
-        setCurrentJobsQuotingItemId(savedReport.jobsQuotingItemId)
-        setSearchParams({ editableReportId: savedReport.id }, { replace: true })
-      } else if (currentJobsQuotingItemId) {
-        const quoteItem = await getJobsQuotingItem(currentJobsQuotingItemId)
-        const quoteReport = buildReportFromJobsQuotingItem(quoteItem)
-
-        applyEditableReportPayload({
-          reportData: quoteReport,
-          repairSections: buildRepairSectionsFromJobsQuotingItem(quoteItem),
-          costSections: defaultCostSections,
-          blockVisibility: defaultBlockVisibility,
-          estimateNoteVisibility: defaultEstimateNoteVisibility,
-          repairSectionVisibility: {},
-          textBoxes: [],
-          equipmentRentalSettings: defaultEquipmentRentalSettings,
-        })
-        setCurrentEditableReportId('')
-        setCurrentReportName(getEditableReportDisplayName(quoteReport, quoteItem.documentName))
-        setCurrentSourceDocumentName(quoteItem.documentName)
-        setCurrentJobsQuotingItemId(quoteItem.id)
-        setSearchParams({ jobsQuotingItemId: quoteItem.id }, { replace: true })
-      } else {
-        applyEditableReportPayload({
-          reportData: defaultReport,
-          repairSections: defaultRepairSections,
-          costSections: defaultCostSections,
-          blockVisibility: defaultBlockVisibility,
-          estimateNoteVisibility: defaultEstimateNoteVisibility,
-          repairSectionVisibility: {},
-          textBoxes: [],
-          equipmentRentalSettings: defaultEquipmentRentalSettings,
-        })
-        setCurrentEditableReportId('')
-        setCurrentReportName('Untitled quote report')
-        setCurrentSourceDocumentName('Untitled quote report')
-        setCurrentJobsQuotingItemId(null)
-      }
-
-      skipNextReportDatabaseSave.current = true
-      pendingReportChanges.current = false
-      setReportDatabaseStatus('saved')
-    } catch (error) {
-      setReportDatabaseStatus('error')
-      console.error('Editable report could not be reset.', error)
-    }
-
-    setPageLayoutMenuOpen(false)
-    setRelatedDocumentsOpen(false)
-    setMenuSettingsOpen(false)
-    setPendingAddMenuLineItem(null)
-  }
-
   const goBackToJobsQuotingList = async () => {
-    if (pendingReportChanges.current) {
-      const shouldSave = window.confirm('Save changes before going back to Jobs Quoting List? Press OK to save, or Cancel to discard changes.')
-      if (shouldSave) {
-        try {
-          await saveCurrentEditableReportNow()
-        } catch {
-          setReportDatabaseStatus('error')
-          return
-        }
-      }
-    }
-
     navigate('/jobsquotinglist')
   }
 
@@ -3744,15 +3595,6 @@ export default function EditableInspectionReport() {
               className="rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
             >
               Save
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void resetTemplate()
-              }}
-              className="rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
-            >
-              Reset
             </button>
             <div className="relative">
               <button

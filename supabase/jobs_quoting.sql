@@ -38,6 +38,16 @@ create table if not exists public.jobs_quoting_items (
   pdf_file_size bigint,
   pdf_content_type text not null default 'application/pdf',
   extraction_data jsonb not null default '{}'::jsonb,
+  report_name text,
+  source_document_name text,
+  report_data jsonb not null default '{}'::jsonb,
+  repair_sections jsonb not null default '[]'::jsonb,
+  cost_sections jsonb not null default '[]'::jsonb,
+  block_visibility jsonb not null default '{}'::jsonb,
+  estimate_note_visibility jsonb not null default '{}'::jsonb,
+  repair_section_visibility jsonb not null default '{}'::jsonb,
+  text_boxes jsonb not null default '[]'::jsonb,
+  equipment_rental_settings jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   constraint jobs_quoting_items_document_name_not_blank
@@ -56,7 +66,17 @@ alter table public.jobs_quoting_items
   add column if not exists pdf_storage_path text,
   add column if not exists pdf_file_name text,
   add column if not exists pdf_file_size bigint,
-  add column if not exists pdf_content_type text not null default 'application/pdf';
+  add column if not exists pdf_content_type text not null default 'application/pdf',
+  add column if not exists report_name text,
+  add column if not exists source_document_name text,
+  add column if not exists report_data jsonb not null default '{}'::jsonb,
+  add column if not exists repair_sections jsonb not null default '[]'::jsonb,
+  add column if not exists cost_sections jsonb not null default '[]'::jsonb,
+  add column if not exists block_visibility jsonb not null default '{}'::jsonb,
+  add column if not exists estimate_note_visibility jsonb not null default '{}'::jsonb,
+  add column if not exists repair_section_visibility jsonb not null default '{}'::jsonb,
+  add column if not exists text_boxes jsonb not null default '[]'::jsonb,
+  add column if not exists equipment_rental_settings jsonb not null default '{}'::jsonb;
 
 update public.jobs_quoting_items
 set job_number = nullif(btrim(coalesce(extraction_data #>> '{job_number,value}', extraction_data ->> 'job_number')), '')
@@ -72,6 +92,10 @@ create index if not exists jobs_quoting_runs_user_created_idx
 
 create index if not exists jobs_quoting_items_user_priority_idx
   on public.jobs_quoting_items (user_id, repair_count desc, safety_count desc, created_at desc);
+
+create index if not exists jobs_quoting_items_user_job_number_idx
+  on public.jobs_quoting_items (user_id, job_number)
+  where job_number is not null;
 
 create or replace function public.set_jobs_quoting_updated_at()
 returns trigger

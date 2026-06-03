@@ -43,6 +43,16 @@ export type JobsQuotingItem = {
   pdfFileSize: number | null
   pdfContentType: string
   extractionData: Record<string, unknown>
+  reportName: string | null
+  sourceDocumentName: string | null
+  reportData: Record<string, string>
+  repairSections: unknown[]
+  costSections: unknown[]
+  blockVisibility: Record<string, boolean>
+  estimateNoteVisibility: Record<string, boolean>
+  repairSectionVisibility: Record<string, boolean>
+  textBoxes: unknown[]
+  equipmentRentalSettings: Record<string, unknown>
   createdAt: string
   updatedAt: string
 }
@@ -59,7 +69,7 @@ type JobsQuotingRunRow = {
   updated_at: string
 }
 
-type JobsQuotingItemRow = {
+export type JobsQuotingItemRow = {
   id: string
   run_id: string
   editable_document_id: string | null
@@ -77,6 +87,16 @@ type JobsQuotingItemRow = {
   pdf_file_size: number | null
   pdf_content_type: string | null
   extraction_data: Record<string, unknown> | null
+  report_name: string | null
+  source_document_name: string | null
+  report_data: Record<string, string> | null
+  repair_sections: unknown[] | null
+  cost_sections: unknown[] | null
+  block_visibility: Record<string, boolean> | null
+  estimate_note_visibility: Record<string, boolean> | null
+  repair_section_visibility: Record<string, boolean> | null
+  text_boxes: unknown[] | null
+  equipment_rental_settings: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
@@ -107,7 +127,7 @@ function mapRun(row: JobsQuotingRunRow): JobsQuotingRun {
   }
 }
 
-function mapItem(row: JobsQuotingItemRow): JobsQuotingItem {
+export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
   const repairCount = row.repair_count ?? 0
   const safetyCount = row.safety_count ?? 0
 
@@ -130,10 +150,52 @@ function mapItem(row: JobsQuotingItemRow): JobsQuotingItem {
     pdfFileSize: row.pdf_file_size,
     pdfContentType: row.pdf_content_type ?? 'application/pdf',
     extractionData: row.extraction_data ?? {},
+    reportName: row.report_name,
+    sourceDocumentName: row.source_document_name,
+    reportData: row.report_data ?? {},
+    repairSections: row.repair_sections ?? [],
+    costSections: row.cost_sections ?? [],
+    blockVisibility: row.block_visibility ?? {},
+    estimateNoteVisibility: row.estimate_note_visibility ?? {},
+    repairSectionVisibility: row.repair_section_visibility ?? {},
+    textBoxes: row.text_boxes ?? [],
+    equipmentRentalSettings: row.equipment_rental_settings ?? {},
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
 }
+
+export const jobsQuotingItemSelect = `
+  id,
+  run_id,
+  editable_document_id,
+  document_name,
+  job_number,
+  split_type,
+  split_identifier,
+  repair_count,
+  safety_count,
+  extend_file_id,
+  pdf_url,
+  pdf_bucket,
+  pdf_storage_path,
+  pdf_file_name,
+  pdf_file_size,
+  pdf_content_type,
+  extraction_data,
+  report_name,
+  source_document_name,
+  report_data,
+  repair_sections,
+  cost_sections,
+  block_visibility,
+  estimate_note_visibility,
+  repair_section_visibility,
+  text_boxes,
+  equipment_rental_settings,
+  created_at,
+  updated_at
+`
 
 function requireSupabase() {
   if (!supabase) {
@@ -230,9 +292,7 @@ export async function getJobsQuotingItems(runId?: string): Promise<JobsQuotingIt
   const rows = await fetchAllPages<JobsQuotingItemRow>((from, to) => {
     let query = client
       .from('jobs_quoting_items')
-      .select(
-        'id, run_id, editable_document_id, document_name, job_number, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
-      )
+      .select(jobsQuotingItemSelect)
       .order('repair_count', { ascending: false })
       .order('safety_count', { ascending: false })
       .order('updated_at', { ascending: false })
@@ -246,7 +306,7 @@ export async function getJobsQuotingItems(runId?: string): Promise<JobsQuotingIt
     return query
   })
 
-  return rows.map(mapItem)
+  return rows.map(mapJobsQuotingItem)
 }
 
 export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<JobsQuotingItem[]> {
@@ -262,9 +322,7 @@ export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<Jobs
     const chunkRows = await fetchAllPages<JobsQuotingItemRow>((from, to) =>
       client
         .from('jobs_quoting_items')
-        .select(
-          'id, run_id, editable_document_id, document_name, job_number, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
-        )
+        .select(jobsQuotingItemSelect)
         .in('run_id', runIdChunk)
         .order('repair_count', { ascending: false })
         .order('safety_count', { ascending: false })
@@ -276,7 +334,7 @@ export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<Jobs
     rows.push(...chunkRows)
   }
 
-  return rows.map(mapItem)
+  return rows.map(mapJobsQuotingItem)
 }
 
 export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingItem> {
@@ -284,9 +342,7 @@ export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingIte
   await getCurrentUserId()
   const { data, error } = await client
     .from('jobs_quoting_items')
-    .select(
-      'id, run_id, editable_document_id, document_name, job_number, split_type, split_identifier, repair_count, safety_count, extend_file_id, pdf_url, pdf_bucket, pdf_storage_path, pdf_file_name, pdf_file_size, pdf_content_type, extraction_data, created_at, updated_at',
-    )
+    .select(jobsQuotingItemSelect)
     .eq('id', itemId)
     .single()
 
@@ -294,7 +350,7 @@ export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingIte
     throw new Error(error.message)
   }
 
-  return mapItem(data as JobsQuotingItemRow)
+  return mapJobsQuotingItem(data as JobsQuotingItemRow)
 }
 
 export async function getJobsQuotingItemPdfUrl(item: JobsQuotingItem): Promise<string | null> {
