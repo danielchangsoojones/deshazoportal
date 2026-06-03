@@ -1740,6 +1740,7 @@ export default function EditableInspectionReport() {
   const [newMenuCustomerPrice, setNewMenuCustomerPrice] = useState('0.00')
   const [editingMenuItem, setEditingMenuItem] = useState<EditingMenuItem | null>(null)
   const [pendingAddMenuLineItem, setPendingAddMenuLineItem] = useState<PendingAddMenuLineItem | null>(null)
+  const [decayedMenuItemWarning, setDecayedMenuItemWarning] = useState<MenuItem | null>(null)
   const [menuDatabaseStatus, setMenuDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -3046,8 +3047,13 @@ export default function EditableInspectionReport() {
     )
   }
 
+  const warnIfDecayedMenuItem = (item: MenuItem) => {
+    if (isMenuItemDecayed(item)) setDecayedMenuItemWarning(item)
+  }
+
   const addMenuItemToRepairSection = (sectionId: string, item: MenuItem) => {
     addMenuItemToRecentlyUsed(item)
+    warnIfDecayedMenuItem(item)
     setRepairSections((currentSections) =>
       saveRepairSections(
         currentSections.map((section) =>
@@ -3178,6 +3184,7 @@ export default function EditableInspectionReport() {
 
   const addMenuItemToCostSection = (sectionId: string, item: MenuItem) => {
     addMenuItemToRecentlyUsed(item)
+    warnIfDecayedMenuItem(item)
     setCostSections((currentSections) =>
       saveCostSections(
         currentSections.map((section) =>
@@ -5224,6 +5231,39 @@ export default function EditableInspectionReport() {
                 Save Item
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    {decayedMenuItemWarning ? (
+      <div className="report-toolbar fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/45 px-4">
+        <div className="w-full max-w-[460px] overflow-hidden rounded-md border border-[#9f7430] bg-[#fff8df] shadow-[0_28px_80px_-36px_rgba(91,57,14,0.72)]">
+          <div
+            className="border-b border-[#d7b56e] px-5 py-4"
+            style={{
+              backgroundImage:
+                'linear-gradient(135deg, rgba(255,255,238,0.48) 0%, rgba(255,255,238,0) 42%, rgba(102,63,17,0.14) 100%), repeating-linear-gradient(0deg, rgba(120,82,31,0.08) 0, rgba(120,82,31,0.08) 1px, transparent 1px, transparent 8px)',
+            }}
+          >
+            <p className="text-[11px] font-black uppercase text-[#9a6a12]">Pricing check recommended</p>
+            <h2 className="mt-1 text-[20px] font-black leading-tight text-[#3d2a10]">{decayedMenuItemWarning.label}</h2>
+          </div>
+          <div className="px-5 py-5">
+            <p className="text-[14px] font-bold leading-relaxed text-[#4b3619]">
+              Hey, this is an over-six-month-old menu item. You should check the pricing again because it could be outdated, and you want to make sure you have the correct pricing.
+            </p>
+            <p className="mt-3 text-[12px] font-black uppercase text-[#8f6822]">
+              Created at {getMenuItemCreatedDateLabel(decayedMenuItemWarning) || 'an older date'}
+            </p>
+          </div>
+          <div className="flex justify-end border-t border-[#e1c681] bg-[#f3dfaa] px-5 py-4">
+            <button
+              type="button"
+              onClick={() => setDecayedMenuItemWarning(null)}
+              className="rounded-md bg-[#273f7a] px-5 py-2.5 text-[13px] font-black text-white shadow-[0_12px_26px_-20px_rgba(39,63,122,0.7)] transition hover:bg-[#1f3262]"
+            >
+              Got it
+            </button>
           </div>
         </div>
       </div>
