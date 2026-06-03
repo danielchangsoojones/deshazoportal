@@ -337,6 +337,22 @@ export async function getDeshazoExternalWorkOrdersLastSync() {
     throw new Error('Supabase is not configured.')
   }
 
+  const { data: syncRunData, error: syncRunError } = await supabase
+    .from('deshazo_external_sync_runs')
+    .select('finished_at, started_at')
+    .in('sync_type', ['external_work_orders_incremental_strict', 'external_work_orders_incremental', 'external_work_orders'])
+    .order('finished_at', { ascending: false, nullsFirst: false })
+    .order('started_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!syncRunError) {
+    const syncRunTime = syncRunData?.finished_at || syncRunData?.started_at
+    if (typeof syncRunTime === 'string') {
+      return syncRunTime
+    }
+  }
+
   const { data: checkpointData, error: checkpointError } = await supabase
     .from('deshazo_external_sync_checkpoints')
     .select('last_successful_sync_at')

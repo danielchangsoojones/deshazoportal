@@ -326,7 +326,7 @@ export default function DeshazoWorkOrders() {
                   Work Orders <span className="text-[15px] font-bold text-[#7a808e]">({totalCount})</span>
                 </h1>
                 <div className="mt-2 inline-flex rounded-sm bg-[#f4b331] px-3 py-1 text-sm font-bold text-white">
-                  Last API Call: {lastSyncAt ? formatDateTime(lastSyncAt) : 'Never'}
+                  Last Sync: {lastSyncAt ? formatDateTime(lastSyncAt) : 'Never'}
                 </div>
               </div>
               <div className="flex w-full flex-col gap-3 lg:max-w-[760px] lg:items-end">

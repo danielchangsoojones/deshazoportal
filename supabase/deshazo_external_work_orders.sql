@@ -277,6 +277,7 @@ grant select on table public.deshazo_external_report_points to authenticated;
 grant select on table public.deshazo_external_report_media to authenticated;
 grant select on table public.deshazo_external_report_notes to authenticated;
 grant select on table public.deshazo_external_report_materials to authenticated;
+grant select on table public.deshazo_external_sync_runs to authenticated;
 grant select on table public.deshazo_external_sync_checkpoints to authenticated;
 
 grant select, insert, update, delete on table public.deshazo_external_work_orders to service_role;
@@ -409,6 +410,15 @@ drop policy if exists "Authenticated users can read Deshazo external sync checkp
 
 create policy "Authenticated users can read Deshazo external sync checkpoints"
   on public.deshazo_external_sync_checkpoints
+  for select
+  to authenticated
+  using (true);
+
+drop policy if exists "Authenticated users can read Deshazo external sync runs"
+  on public.deshazo_external_sync_runs;
+
+create policy "Authenticated users can read Deshazo external sync runs"
+  on public.deshazo_external_sync_runs
   for select
   to authenticated
   using (true);
