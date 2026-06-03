@@ -286,6 +286,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
       { count: 'exact' },
     )
     .order('start_date', { ascending: false, nullsFirst: false })
+    .order('end_date', { ascending: false, nullsFirst: false })
     .order('work_order_id', { ascending: false })
     .range(offset, offset + limit - 1)
 

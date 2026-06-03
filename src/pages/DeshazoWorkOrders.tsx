@@ -29,7 +29,11 @@ const WORK_ORDERS_PAGE_SIZE = 15
 
 function formatDate(value: string) {
   if (!value) return ''
-  return new Intl.DateTimeFormat(undefined, { month: '2-digit', day: '2-digit', year: 'numeric' }).format(new Date(value))
+  const dateOnlyMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  const date = dateOnlyMatch
+    ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+    : new Date(value)
+  return new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).format(date)
 }
 
 function formatDateRange(workOrder: DeshazoSavedWorkOrderListItem) {
@@ -215,8 +219,6 @@ export default function DeshazoWorkOrders() {
     setCurrentPage(1)
   }
 
-  const getNextSyncPage = (pageSize: number) => Math.max(1, Math.floor(totalCount / pageSize) + 1)
-
   const handleSync = async (label: string, pageSize: number, maxPages?: number, page = 1) => {
     const scopeText = maxPages
       ? `${pageSize} work orders from source page ${page}`
@@ -339,10 +341,7 @@ export default function DeshazoWorkOrders() {
                 <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
                   <button
                     type="button"
-                    onClick={() => {
-                      const nextPage = getNextSyncPage(10)
-                      handleSync(`next 10 work orders from page ${nextPage}`, 10, 1, nextPage)
-                    }}
+                    onClick={() => handleSync('latest 10 work orders', 10, 1, 1)}
                     disabled={syncing}
                     className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
                   >
@@ -350,10 +349,7 @@ export default function DeshazoWorkOrders() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      const nextPage = getNextSyncPage(50)
-                      handleSync(`next 50 work orders from page ${nextPage}`, 50, 1, nextPage)
-                    }}
+                    onClick={() => handleSync('latest 50 work orders', 50, 1, 1)}
                     disabled={syncing}
                     className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
                   >
