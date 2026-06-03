@@ -5,6 +5,7 @@ import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import {
   type DeshazoSavedWorkOrderListItem,
+  getDeshazoExternalWorkOrdersLastSync,
   getSavedDeshazoWorkOrders,
   syncDeshazoExternalWorkOrders,
 } from '../lib/deshazoExternalReports'
@@ -24,6 +25,8 @@ const menuItems = [
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
+const WORK_ORDERS_PAGE_SIZE = 15
+
 function formatDate(value: string) {
   if (!value) return ''
   return new Intl.DateTimeFormat(undefined, { month: '2-digit', day: '2-digit', year: 'numeric' }).format(new Date(value))
@@ -34,6 +37,17 @@ function formatDateRange(workOrder: DeshazoSavedWorkOrderListItem) {
   const endDate = formatDate(workOrder.endDate)
   if (startDate && endDate) return `${startDate} - ${endDate}`
   return startDate || endDate || '-'
+}
+
+function formatDateTime(value: string) {
+  if (!value) return ''
+  return new Intl.DateTimeFormat(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value))
 }
 
 function getWorkOrderNumber(workOrder: DeshazoSavedWorkOrderListItem) {
@@ -83,6 +97,8 @@ export default function DeshazoWorkOrders() {
   const [user, setUser] = useState<User | null>(null)
   const [workOrders, setWorkOrders] = useState<DeshazoSavedWorkOrderListItem[]>([])
   const [totalCount, setTotalCount] = useState(0)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [lastSyncAt, setLastSyncAt] = useState('')
   const [search, setSearch] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -123,15 +139,29 @@ export default function DeshazoWorkOrders() {
         return
       }
 
-      const result = await getSavedDeshazoWorkOrders(100, submittedSearch)
+      const offset = (currentPage - 1) * WORK_ORDERS_PAGE_SIZE
+      const [result, latestSyncAt] = await Promise.all([
+        getSavedDeshazoWorkOrders(WORK_ORDERS_PAGE_SIZE, submittedSearch, offset),
+        getDeshazoExternalWorkOrdersLastSync(),
+      ])
       if (cancelledRef?.cancelled) return
+
+      const totalPages = Math.max(1, Math.ceil(result.totalCount / WORK_ORDERS_PAGE_SIZE))
+      if (currentPage > totalPages) {
+        setCurrentPage(totalPages)
+        return
+      }
+
+      const firstVisibleRow = result.totalCount > 0 ? offset + 1 : 0
+      const lastVisibleRow = Math.min(offset + result.workOrders.length, result.totalCount)
 
       setUser(nextUser)
       setWorkOrders(result.workOrders)
       setTotalCount(result.totalCount)
+      setLastSyncAt(latestSyncAt)
       setMessage(
         result.totalCount > 0
-          ? `Showing ${result.workOrders.length} of ${result.totalCount} saved work orders from Supabase.`
+          ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved work orders from Supabase.`
           : 'No saved work orders found yet.',
       )
     } catch (error) {
@@ -140,7 +170,7 @@ export default function DeshazoWorkOrders() {
     } finally {
       if (!cancelledRef?.cancelled) setLoading(false)
     }
-  }, [navigate, submittedSearch])
+  }, [currentPage, navigate, submittedSearch])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -175,6 +205,7 @@ export default function DeshazoWorkOrders() {
 
   const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setCurrentPage(1)
     setSubmittedSearch(search)
   }
 
@@ -216,6 +247,10 @@ export default function DeshazoWorkOrders() {
   }
 
   if (!user) return null
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / WORK_ORDERS_PAGE_SIZE))
+  const firstRow = totalCount > 0 ? (currentPage - 1) * WORK_ORDERS_PAGE_SIZE + 1 : 0
+  const lastRow = Math.min(currentPage * WORK_ORDERS_PAGE_SIZE, totalCount)
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -291,7 +326,7 @@ export default function DeshazoWorkOrders() {
                   Work Orders <span className="text-[15px] font-bold text-[#7a808e]">({totalCount})</span>
                 </h1>
                 <div className="mt-2 inline-flex rounded-sm bg-[#f4b331] px-3 py-1 text-sm font-bold text-white">
-                  Synced
+                  Last Sync: {lastSyncAt ? formatDateTime(lastSyncAt) : 'Never'}
                 </div>
               </div>
               <div className="flex w-full flex-col gap-3 lg:max-w-[760px] lg:items-end">
@@ -346,6 +381,33 @@ export default function DeshazoWorkOrders() {
                 {message}
               </div>
             ) : null}
+
+            <div className="mb-3 flex flex-col gap-2 border border-[var(--deshazo-border)] bg-[#f8f9fb] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm font-bold text-[#5f6675]">
+                Rows {firstRow}-{lastRow} of {totalCount}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage <= 1 || loading}
+                  className="rounded-sm bg-[#f4b331] px-3 py-1.5 text-sm font-black text-white transition hover:bg-[#dfa123] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  ‹ Prev
+                </button>
+                <span className="min-w-[110px] text-center text-sm font-black text-[var(--deshazo-text)]">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPage >= totalPages || loading}
+                  className="rounded-sm bg-[#f4b331] px-3 py-1.5 text-sm font-black text-white transition hover:bg-[#dfa123] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Next ›
+                </button>
+              </div>
+            </div>
 
             <div className="overflow-auto">
               <table className="min-w-[1320px] w-full border-collapse text-left text-[14px]">

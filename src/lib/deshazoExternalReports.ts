@@ -270,7 +270,7 @@ export async function getSavedDeshazoInspectionReports(limit = 20) {
   return reportRows.map((row) => normalizeSavedReport(row, summariesById.get(row.work_order_id)))
 }
 
-export async function getSavedDeshazoWorkOrders(limit = 100, search = '') {
+export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset = 0) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
@@ -283,7 +283,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '') {
     )
     .order('start_date', { ascending: false, nullsFirst: false })
     .order('work_order_id', { ascending: false })
-    .limit(limit)
+    .range(offset, offset + limit - 1)
 
   const trimmedSearch = search.trim()
   if (trimmedSearch) {
@@ -330,6 +330,25 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '') {
       syncedAt: row.synced_at ?? '',
     })),
   }
+}
+
+export async function getDeshazoExternalWorkOrdersLastSync() {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const { data, error } = await supabase
+    .from('deshazo_external_work_orders')
+    .select('synced_at')
+    .order('synced_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return typeof data?.synced_at === 'string' ? data.synced_at : ''
 }
 
 export async function syncDeshazoExternalWorkOrders(options: { pageSize: number; maxPages?: number; page?: number }) {
