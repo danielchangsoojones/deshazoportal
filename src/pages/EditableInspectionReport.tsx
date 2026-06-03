@@ -3965,9 +3965,15 @@ export default function EditableInspectionReport() {
                             className={cx(
                               'w-full cursor-grab rounded-md border px-3 py-2 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition active:cursor-grabbing',
                               decayed
-                                ? 'border-[#d8b65a] bg-[#fff6cf] shadow-[inset_0_0_0_1px_rgba(129,91,23,0.08),0_8px_20px_-18px_rgba(31,36,48,0.45)] hover:border-[#bf8f2e] hover:bg-[#ffefad]'
+                                ? 'border-[#9f7430] bg-[#f2dda1] shadow-[inset_0_0_0_1px_rgba(93,61,20,0.16),inset_0_0_26px_rgba(112,72,22,0.22),0_8px_20px_-18px_rgba(31,36,48,0.45)] hover:border-[#7f5722] hover:bg-[#efd48b]'
                                 : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]',
                             )}
+                            style={decayed
+                              ? {
+                                  backgroundImage:
+                                    'linear-gradient(135deg, rgba(255,255,238,0.34) 0%, rgba(255,255,238,0) 36%, rgba(102,63,17,0.13) 100%), repeating-linear-gradient(0deg, rgba(120,82,31,0.08) 0, rgba(120,82,31,0.08) 1px, transparent 1px, transparent 8px), repeating-linear-gradient(90deg, rgba(90,58,20,0.05) 0, rgba(90,58,20,0.05) 1px, transparent 1px, transparent 13px)',
+                                }
+                              : undefined}
                           >
                             <span className="flex items-start justify-between gap-2">
                               <span className="min-w-0 text-[13px] font-black leading-tight text-[#273f7a]">{item.label}</span>
