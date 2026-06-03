@@ -178,8 +178,12 @@ export default function DeshazoWorkOrders() {
     setSubmittedSearch(search)
   }
 
-  const handleSync = async (label: string, pageSize: number, maxPages?: number) => {
-    const scopeText = maxPages ? `${pageSize} work orders` : `all work orders using page size ${pageSize}`
+  const getNextSyncPage = (pageSize: number) => Math.max(1, Math.floor(totalCount / pageSize) + 1)
+
+  const handleSync = async (label: string, pageSize: number, maxPages?: number, page = 1) => {
+    const scopeText = maxPages
+      ? `${pageSize} work orders from source page ${page}`
+      : `all work orders using page size ${pageSize}`
     const confirmed = window.confirm(
       `This will call the production DeShazo sync API and save/update ${scopeText} in Supabase. Continue?`,
     )
@@ -188,7 +192,7 @@ export default function DeshazoWorkOrders() {
     try {
       setSyncing(true)
       setMessage(`Syncing ${label} from production API...`)
-      const result = await syncDeshazoExternalWorkOrders({ pageSize, maxPages })
+      const result = await syncDeshazoExternalWorkOrders({ pageSize, maxPages, page })
       const failureText = result.failures?.length ? ` ${result.failures.length} failures returned.` : ''
       await loadWorkOrders()
       setMessage(
@@ -294,7 +298,10 @@ export default function DeshazoWorkOrders() {
                 <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
                   <button
                     type="button"
-                    onClick={() => handleSync('latest 10 work orders', 10, 1)}
+                    onClick={() => {
+                      const nextPage = getNextSyncPage(10)
+                      handleSync(`next 10 work orders from page ${nextPage}`, 10, 1, nextPage)
+                    }}
                     disabled={syncing}
                     className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
                   >
@@ -302,7 +309,10 @@ export default function DeshazoWorkOrders() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSync('latest 50 work orders', 50, 1)}
+                    onClick={() => {
+                      const nextPage = getNextSyncPage(50)
+                      handleSync(`next 50 work orders from page ${nextPage}`, 50, 1, nextPage)
+                    }}
                     disabled={syncing}
                     className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
                   >

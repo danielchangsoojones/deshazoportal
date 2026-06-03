@@ -1,8 +1,10 @@
 import { supabase } from './supabase'
 
+const portalParseBaseUrl = (import.meta.env.VITE_PORTAL_PARSE_BASE_URL as string | undefined)?.trim() || ''
 const deshazoExternalApiBaseUrl =
-  (import.meta.env.VITE_DESHAZO_EXTERNAL_API_BASE_URL as string | undefined)?.trim() ||
-  'https://deshazo-api.belovedrobot.com/api'
+  (import.meta.env.VITE_DESHAZO_SYNC_API_BASE_URL as string | undefined)?.trim() ||
+  (portalParseBaseUrl ? new URL(portalParseBaseUrl).origin : '') ||
+  'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com'
 const deshazoExternalApiKey = (import.meta.env.VITE_DESHAZO_EXTERNAL_API_KEY as string | undefined)?.trim() || ''
 
 export type DeshazoInspectionPhoto = {
@@ -330,13 +332,13 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '') {
   }
 }
 
-export async function syncDeshazoExternalWorkOrders(options: { pageSize: number; maxPages?: number }) {
+export async function syncDeshazoExternalWorkOrders(options: { pageSize: number; maxPages?: number; page?: number }) {
   if (!deshazoExternalApiKey) {
     throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
   }
 
   const url = new URL('/api/external/work-orders/sync', deshazoExternalApiBaseUrl)
-  url.searchParams.set('page', '1')
+  url.searchParams.set('page', String(options.page ?? 1))
   url.searchParams.set('pageSize', String(options.pageSize))
   if (options.maxPages) url.searchParams.set('maxPages', String(options.maxPages))
 
