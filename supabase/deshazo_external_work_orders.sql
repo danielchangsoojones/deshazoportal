@@ -196,6 +196,26 @@ create table if not exists public.deshazo_external_sync_runs (
   raw_summary jsonb not null default '{}'::jsonb
 );
 
+create table if not exists public.deshazo_external_sync_run_items (
+  id uuid primary key default gen_random_uuid(),
+  sync_run_id uuid references public.deshazo_external_sync_runs (id) on delete cascade,
+  sync_type text not null,
+  status text not null default 'running',
+  work_order_id bigint,
+  job_no text,
+  d_number text,
+  source_updated_at timestamptz,
+  work_order_saved boolean not null default false,
+  inspection_report_saved boolean not null default false,
+  quote_item_id uuid,
+  quote_item_action text,
+  quote_item_saved boolean not null default false,
+  quote_item_skipped boolean not null default false,
+  error_message text,
+  raw_summary jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
 create table if not exists public.deshazo_external_sync_checkpoints (
   sync_name text primary key,
   last_successful_sync_at timestamptz,
@@ -222,6 +242,12 @@ create index if not exists deshazo_external_report_points_condition_idx
 
 create index if not exists deshazo_external_report_media_work_order_idx
   on public.deshazo_external_report_media (work_order_id, parent_table);
+
+create index if not exists deshazo_external_sync_run_items_run_idx
+  on public.deshazo_external_sync_run_items (sync_run_id, created_at desc);
+
+create index if not exists deshazo_external_sync_run_items_work_order_idx
+  on public.deshazo_external_sync_run_items (work_order_id, created_at desc);
 
 create or replace function public.touch_deshazo_external_updated_at()
 returns trigger
@@ -262,6 +288,7 @@ alter table public.deshazo_external_report_media enable row level security;
 alter table public.deshazo_external_report_notes enable row level security;
 alter table public.deshazo_external_report_materials enable row level security;
 alter table public.deshazo_external_sync_runs enable row level security;
+alter table public.deshazo_external_sync_run_items enable row level security;
 alter table public.deshazo_external_sync_checkpoints enable row level security;
 
 grant usage on schema public to authenticated, service_role;
@@ -278,6 +305,7 @@ grant select on table public.deshazo_external_report_media to authenticated;
 grant select on table public.deshazo_external_report_notes to authenticated;
 grant select on table public.deshazo_external_report_materials to authenticated;
 grant select on table public.deshazo_external_sync_runs to authenticated;
+grant select on table public.deshazo_external_sync_run_items to authenticated;
 grant select on table public.deshazo_external_sync_checkpoints to authenticated;
 
 grant select, insert, update, delete on table public.deshazo_external_work_orders to service_role;
@@ -292,6 +320,7 @@ grant select, insert, update, delete on table public.deshazo_external_report_med
 grant select, insert, update, delete on table public.deshazo_external_report_notes to service_role;
 grant select, insert, update, delete on table public.deshazo_external_report_materials to service_role;
 grant select, insert, update, delete on table public.deshazo_external_sync_runs to service_role;
+grant select, insert, update, delete on table public.deshazo_external_sync_run_items to service_role;
 grant select, insert, update, delete on table public.deshazo_external_sync_checkpoints to service_role;
 
 do $$
@@ -419,6 +448,15 @@ drop policy if exists "Authenticated users can read Deshazo external sync runs"
 
 create policy "Authenticated users can read Deshazo external sync runs"
   on public.deshazo_external_sync_runs
+  for select
+  to authenticated
+  using (true);
+
+drop policy if exists "Authenticated users can read Deshazo external sync run items"
+  on public.deshazo_external_sync_run_items;
+
+create policy "Authenticated users can read Deshazo external sync run items"
+  on public.deshazo_external_sync_run_items
   for select
   to authenticated
   using (true);

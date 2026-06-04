@@ -58,6 +58,13 @@ function getWorkOrderNumber(workOrder: DeshazoSavedWorkOrderListItem) {
   return workOrder.jobNo || workOrder.salesOrderNo || String(workOrder.workOrderId)
 }
 
+function isRecentlySynced(workOrder: DeshazoSavedWorkOrderListItem) {
+  if (!workOrder.createdAt) return false
+  const createdAt = new Date(workOrder.createdAt).getTime()
+  if (!Number.isFinite(createdAt)) return false
+  return Date.now() - createdAt < 18 * 60 * 60 * 1000
+}
+
 function getCustomerLocation(workOrder: DeshazoSavedWorkOrderListItem) {
   return workOrder.customerLocationAddress || workOrder.customerLocationName || '-'
 }
@@ -448,7 +455,16 @@ export default function DeshazoWorkOrders() {
                         onClick={() => navigate(targetHref)}
                         className="cursor-pointer border-b border-[var(--deshazo-border)] odd:bg-[#f8f9fb] even:bg-white hover:bg-[#eef3ff]"
                       >
-                        <td className="px-3 py-3 font-black">{getWorkOrderNumber(workOrder)}</td>
+                        <td className="px-3 py-3 font-black">
+                          <div className="flex items-center gap-2">
+                            <span>{getWorkOrderNumber(workOrder)}</span>
+                            {isRecentlySynced(workOrder) ? (
+                              <span className="rounded-sm bg-[#4f7fd6] px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.02em] text-white">
+                                New
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
                         <td className="px-3 py-3">
                           <span className={`rounded-sm px-2 py-1 text-sm font-black ${getTypeBadgeClass(workOrder.jobType)}`}>
                             {workOrder.jobType || 'Inspection'}

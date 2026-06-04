@@ -128,6 +128,7 @@ type DeshazoExternalWorkOrderRow = {
   end_date: string | null
   completed_at: string | null
   raw_payload: Record<string, unknown> | null
+  created_at?: string | null
 }
 
 export type DeshazoSavedWorkOrderSummary = {
@@ -161,6 +162,7 @@ export type DeshazoSavedInspectionReport = {
 export type DeshazoSavedWorkOrderListItem = DeshazoSavedWorkOrderSummary & {
   hasInspectionReport: boolean
   syncedAt: string
+  createdAt: string
 }
 
 export type DeshazoExternalSyncResult = {
@@ -282,7 +284,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
   let query = supabase
     .from('deshazo_external_work_orders')
     .select(
-      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload, synced_at',
+      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload, synced_at, created_at',
       { count: 'exact' },
     )
     .order('start_date', { ascending: false, nullsFirst: false })
@@ -340,6 +342,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
       ...normalizeSavedWorkOrderSummary(row),
       hasInspectionReport: reportIds.has(row.work_order_id),
       syncedAt: row.synced_at ?? '',
+      createdAt: row.created_at ?? '',
     })),
   }
 }
