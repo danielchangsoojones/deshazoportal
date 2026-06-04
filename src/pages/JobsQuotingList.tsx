@@ -182,10 +182,7 @@ function getExtractionValue(data: Record<string, unknown>, key: string) {
 
 function getItemSearchText(item: JobsQuotingItem) {
   return [
-    item.documentName,
-    item.splitIdentifier,
-    item.pdfFileName,
-    getExtractionValue(item.extractionData, 'd_number'),
+    getItemDNumber(item),
     getItemJobNumber(item),
   ]
     .join(' ')
@@ -198,6 +195,10 @@ function getItemJobNumber(item: JobsQuotingItem) {
 
 function getItemDNumber(item: JobsQuotingItem) {
   return (item.dNumber || getExtractionValue(item.extractionData, 'd_number')).trim()
+}
+
+function getItemFileName(item: JobsQuotingItem) {
+  return (item.pdfFileName || item.sourceDocumentName || item.documentName).trim()
 }
 
 function getItemJobGroupKey(item: JobsQuotingItem) {
@@ -976,7 +977,7 @@ export default function JobsQuotingList() {
                     type="search"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.currentTarget.value)}
-                    placeholder="Search D-number, job number, or file name..."
+                    placeholder="Search D-number or job number..."
                     className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none transition placeholder:text-[#8b91a1] focus:border-[#273f7a] focus:ring-2 focus:ring-[#dbe5ff]"
                   />
                   {selectedRunGroup && canUseExtendControls ? (
@@ -1008,19 +1009,20 @@ export default function JobsQuotingList() {
                 <table className="w-full table-fixed border-collapse text-left">
                   <thead>
                     <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
-                      <th className="w-[32%] px-3 py-3">Job / Inspection PDF</th>
-                      <th className="w-[12%] px-2 py-3 text-center">Date Modified</th>
-                      <th className="w-[12%] px-2 py-3 text-center">Uploaded By</th>
+                      <th className="w-[12%] px-3 py-3">D-number</th>
+                      <th className="w-[24%] px-3 py-3">File Name</th>
+                      <th className="w-[11%] px-2 py-3 text-center">Date Modified</th>
+                      <th className="w-[10%] px-2 py-3 text-center">Uploaded By</th>
                       <th className="w-[7%] px-1 py-3 text-center">Repairs</th>
                       <th className="w-[7%] px-1 py-3 text-center">Safety</th>
                       <th className="w-[7%] px-1 py-3 text-center">Total</th>
-                      <th className="w-[23%] px-3 py-3 text-center">PDF</th>
+                      <th className="w-[22%] px-3 py-3 text-center">PDF</th>
                     </tr>
                   </thead>
                   <tbody>
                     {jobsListLoading ? (
                       <tr>
-                        <td colSpan={7} className="px-5 py-16">
+                        <td colSpan={8} className="px-5 py-16">
                           <div className="mx-auto flex max-w-xs flex-col items-center justify-center text-center">
                             <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#dfe4ef] border-t-[#273f7a]" />
                             <p className="mt-4 text-sm font-black text-[#1f2430]">Loading quote jobs...</p>
@@ -1033,7 +1035,7 @@ export default function JobsQuotingList() {
                     ) : paginatedJobGroups.map((jobGroup) => (
                       <Fragment key={jobGroup.id}>
                         <tr className="border-y border-[#d7deeb] bg-[#f7f9fd]">
-                          <td className="px-3 py-3 align-middle" colSpan={3}>
+                          <td className="px-3 py-3 align-middle" colSpan={4}>
                             <div className="min-w-0">
                               <p className="text-[15px] font-black leading-tight text-[#1f2430]">
                                 {jobGroup.jobNumber ? `Job ${jobGroup.jobNumber}` : 'Job number not found'}
@@ -1063,9 +1065,14 @@ export default function JobsQuotingList() {
                             className="border-b border-[#e4e8f1] transition hover:bg-[#fbfcff] last:border-b-0"
                           >
                             <td className="px-3 py-4 align-top">
+                              <span className="block whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
+                                {getItemDNumber(item) || '-'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-4 align-top">
                               <div className="border-l-4 border-[#dfe6f5] pl-3">
                                 <p className="whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
-                                  {item.documentName}
+                                  {getItemFileName(item) || '-'}
                                 </p>
                                 {item.splitIdentifier ? (
                                   <p className="mt-1 whitespace-normal break-words text-xs font-semibold leading-snug text-[#747b8a]">
@@ -1126,7 +1133,7 @@ export default function JobsQuotingList() {
                     <p className="text-base font-black text-[#1f2430]">{searchQuery.trim() ? 'No matching quote reports.' : 'No repair jobs yet.'}</p>
                     <p className="mt-2 text-sm font-semibold text-[#747b8a]">
                       {searchQuery.trim()
-                        ? 'Try searching another D-number, job number, or file name.'
+                        ? 'Try searching another D-number or job number.'
                         : 'Upload a report, then check Extend once splitting and extraction are complete.'}
                     </p>
                   </div>
