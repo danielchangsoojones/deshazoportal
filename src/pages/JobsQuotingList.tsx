@@ -197,7 +197,7 @@ function getItemJobNumber(item: JobsQuotingItem) {
 }
 
 function getItemDNumber(item: JobsQuotingItem) {
-  return getExtractionValue(item.extractionData, 'd_number').trim()
+  return (item.dNumber || getExtractionValue(item.extractionData, 'd_number')).trim()
 }
 
 function getItemJobGroupKey(item: JobsQuotingItem) {

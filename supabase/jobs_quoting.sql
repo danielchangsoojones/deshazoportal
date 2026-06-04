@@ -26,6 +26,7 @@ create table if not exists public.jobs_quoting_items (
   editable_document_id uuid references public.editable_inspection_documents (id) on delete set null,
   document_name text not null,
   job_number text,
+  d_number text,
   split_type text,
   split_identifier text,
   repair_count integer not null default 0,
@@ -62,6 +63,7 @@ create table if not exists public.jobs_quoting_items (
 
 alter table public.jobs_quoting_items
   add column if not exists job_number text,
+  add column if not exists d_number text,
   add column if not exists pdf_bucket text not null default 'jobs-quoting-pdfs',
   add column if not exists pdf_storage_path text,
   add column if not exists pdf_file_name text,
@@ -89,6 +91,11 @@ set job_number = nullif(btrim(coalesce(extraction_data #>> '{job_number,value}',
 where job_number is null
   and nullif(btrim(coalesce(extraction_data #>> '{job_number,value}', extraction_data ->> 'job_number')), '') is not null;
 
+update public.jobs_quoting_items
+set d_number = nullif(btrim(coalesce(extraction_data #>> '{d_number,value}', extraction_data ->> 'd_number')), '')
+where d_number is null
+  and nullif(btrim(coalesce(extraction_data #>> '{d_number,value}', extraction_data ->> 'd_number')), '') is not null;
+
 create unique index if not exists jobs_quoting_items_run_extend_file_key
   on public.jobs_quoting_items (run_id, extend_file_id)
   where extend_file_id is not null;
@@ -103,6 +110,10 @@ create index if not exists jobs_quoting_items_user_job_number_idx
   on public.jobs_quoting_items (user_id, job_number)
   where job_number is not null;
 
+create index if not exists jobs_quoting_items_user_d_number_idx
+  on public.jobs_quoting_items (user_id, d_number)
+  where d_number is not null;
+
 create or replace function public.set_jobs_quoting_updated_at()
 returns trigger
 language plpgsql
@@ -110,6 +121,27 @@ set search_path = public
 as $$
 begin
   new.updated_at := timezone('utc', now());
+  return new;
+end;
+$$;
+
+create or replace function public.set_jobs_quoting_item_defaults()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  extracted_d_number text;
+begin
+  new.updated_at := timezone('utc', now());
+  extracted_d_number := nullif(btrim(coalesce(new.extraction_data #>> '{d_number,value}', new.extraction_data ->> 'd_number')), '');
+
+  if extracted_d_number is not null then
+    new.d_number := extracted_d_number;
+  else
+    new.d_number := nullif(btrim(new.d_number), '');
+  end if;
+
   return new;
 end;
 $$;
@@ -128,7 +160,7 @@ drop trigger if exists jobs_quoting_items_updated_at_trigger
 create trigger jobs_quoting_items_updated_at_trigger
 before insert or update on public.jobs_quoting_items
 for each row
-execute function public.set_jobs_quoting_updated_at();
+execute function public.set_jobs_quoting_item_defaults();
 
 alter table public.jobs_quoting_runs enable row level security;
 alter table public.jobs_quoting_items enable row level security;

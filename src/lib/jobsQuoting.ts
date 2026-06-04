@@ -30,6 +30,7 @@ export type JobsQuotingItem = {
   editableDocumentId: string | null
   documentName: string
   jobNumber: string
+  dNumber: string
   splitType: string
   splitIdentifier: string
   repairCount: number
@@ -75,6 +76,7 @@ export type JobsQuotingItemRow = {
   editable_document_id: string | null
   document_name: string
   job_number: string | null
+  d_number: string | null
   split_type: string | null
   split_identifier: string | null
   repair_count: number | null
@@ -137,6 +139,7 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
     editableDocumentId: row.editable_document_id,
     documentName: row.document_name,
     jobNumber: row.job_number ?? '',
+    dNumber: row.d_number ?? '',
     splitType: row.split_type ?? '',
     splitIdentifier: row.split_identifier ?? '',
     repairCount,
@@ -171,6 +174,7 @@ export const jobsQuotingItemSelect = `
   editable_document_id,
   document_name,
   job_number,
+  d_number,
   split_type,
   split_identifier,
   repair_count,
