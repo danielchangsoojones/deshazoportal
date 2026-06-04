@@ -62,7 +62,7 @@ function isRecentlySynced(workOrder: DeshazoSavedWorkOrderListItem) {
   if (!workOrder.createdAt) return false
   const createdAt = new Date(workOrder.createdAt).getTime()
   if (!Number.isFinite(createdAt)) return false
-  return Date.now() - createdAt < 18 * 60 * 60 * 1000
+  return Date.now() - createdAt < 24 * 60 * 60 * 1000
 }
 
 function getCustomerLocation(workOrder: DeshazoSavedWorkOrderListItem) {
@@ -226,10 +226,19 @@ export default function DeshazoWorkOrders() {
     setCurrentPage(1)
   }
 
-  const handleSync = async (label: string, pageSize: number, maxPages?: number, page = 1) => {
-    const scopeText = maxPages
-      ? `${pageSize} work orders from source page ${page}`
-      : `all work orders using page size ${pageSize}`
+  const handleSync = async (
+    label: string,
+    pageSize: number,
+    maxPages?: number,
+    page = 1,
+    latestByDate = false,
+    nextMissingByDate = false,
+  ) => {
+    const scopeText = nextMissingByDate
+      ? `the next ${pageSize} newest work orders that are not already saved`
+      : maxPages
+        ? `${pageSize} work orders from source page ${page}`
+        : `all work orders using page size ${pageSize}`
     const confirmed = window.confirm(
       `This will call the production DeShazo sync API and save/update ${scopeText} in Supabase. Continue?`,
     )
@@ -238,7 +247,7 @@ export default function DeshazoWorkOrders() {
     try {
       setSyncing(true)
       setMessage(`Syncing ${label} from production API...`)
-      const result = await syncDeshazoExternalWorkOrders({ pageSize, maxPages, page })
+      const result = await syncDeshazoExternalWorkOrders({ pageSize, maxPages, page, latestByDate, nextMissingByDate })
       const failureText = result.failures?.length ? ` ${result.failures.length} failures returned.` : ''
       await loadWorkOrders()
       setMessage(
@@ -348,7 +357,7 @@ export default function DeshazoWorkOrders() {
                 <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
                   <button
                     type="button"
-                    onClick={() => handleSync('latest 10 work orders', 10, 1, 1)}
+                    onClick={() => handleSync('next 10 missing work orders', 10, 1, 1, false, true)}
                     disabled={syncing}
                     className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
                   >
@@ -356,7 +365,7 @@ export default function DeshazoWorkOrders() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSync('latest 50 work orders', 50, 1, 1)}
+                    onClick={() => handleSync('next 50 missing work orders', 50, 1, 1, false, true)}
                     disabled={syncing}
                     className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
                   >
@@ -376,7 +385,7 @@ export default function DeshazoWorkOrders() {
                     <input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Enter D-number, work order #, job #, customer, location, or comment"
+                      placeholder="Search D-Number, Job Number or file name"
                       className="h-full w-full min-w-0 border border-[#bfc7d8] px-3 py-2 pr-9 text-sm font-semibold outline-none focus:border-[var(--deshazo-blue)]"
                     />
                     {search || submittedSearch ? (

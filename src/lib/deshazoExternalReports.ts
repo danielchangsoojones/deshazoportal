@@ -280,6 +280,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
   const trimmedSearch = search.trim()
   const escapedSearch = trimmedSearch.replaceAll('%', '\\%').replaceAll('_', '\\_')
   const matchingDNumberWorkOrderIds = trimmedSearch ? await getWorkOrderIdsMatchingDNumberSearch(escapedSearch) : []
+  const matchingFileNameWorkOrderIds = trimmedSearch ? await getWorkOrderIdsMatchingFileNameSearch(escapedSearch) : []
 
   let query = supabase
     .from('deshazo_external_work_orders')
@@ -296,17 +297,10 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
     const searchFilters = [
       `job_no.ilike.%${escapedSearch}%`,
       `sales_order_no.ilike.%${escapedSearch}%`,
-      `bill_to_name.ilike.%${escapedSearch}%`,
-      `customer_location_name.ilike.%${escapedSearch}%`,
-      `service_location_name.ilike.%${escapedSearch}%`,
-      `comment.ilike.%${escapedSearch}%`,
     ]
-    const numericSearch = Number.parseInt(trimmedSearch, 10)
-    if (Number.isFinite(numericSearch)) {
-      searchFilters.push(`work_order_id.eq.${numericSearch}`)
-    }
-    if (matchingDNumberWorkOrderIds.length > 0) {
-      searchFilters.push(`work_order_id.in.(${matchingDNumberWorkOrderIds.join(',')})`)
+    const matchingWorkOrderIds = Array.from(new Set([...matchingDNumberWorkOrderIds, ...matchingFileNameWorkOrderIds]))
+    if (matchingWorkOrderIds.length > 0) {
+      searchFilters.push(`work_order_id.in.(${matchingWorkOrderIds.join(',')})`)
     }
 
     query = query.or(
@@ -353,7 +347,7 @@ async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string) {
   const { data, error } = await supabase
     .from('deshazo_external_report_cranes')
     .select('work_order_id')
-    .or(`contact_code.ilike.%${escapedSearch}%,description.ilike.%${escapedSearch}%`)
+    .ilike('contact_code', `%${escapedSearch}%`)
     .limit(500)
 
   if (error) {
@@ -365,6 +359,35 @@ async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string) {
       ((data ?? []) as Array<{ work_order_id: number | null }>)
         .map((row) => row.work_order_id)
         .filter((workOrderId): workOrderId is number => typeof workOrderId === 'number'),
+    ),
+  )
+}
+
+async function getWorkOrderIdsMatchingFileNameSearch(escapedSearch: string) {
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('jobs_quoting_items')
+    .select('split_identifier')
+    .eq('split_type', 'external_work_order')
+    .or(
+      [
+        `document_name.ilike.%${escapedSearch}%`,
+        `report_name.ilike.%${escapedSearch}%`,
+        `source_document_name.ilike.%${escapedSearch}%`,
+      ].join(','),
+    )
+    .limit(500)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return Array.from(
+    new Set(
+      ((data ?? []) as Array<{ split_identifier: string | null }>)
+        .map((row) => Number.parseInt(row.split_identifier ?? '', 10))
+        .filter((workOrderId) => Number.isFinite(workOrderId)),
     ),
   )
 }
@@ -414,7 +437,13 @@ export async function getDeshazoExternalWorkOrdersLastSync() {
   return typeof data?.synced_at === 'string' ? data.synced_at : ''
 }
 
-export async function syncDeshazoExternalWorkOrders(options: { pageSize: number; maxPages?: number; page?: number }) {
+export async function syncDeshazoExternalWorkOrders(options: {
+  pageSize: number
+  maxPages?: number
+  page?: number
+  latestByDate?: boolean
+  nextMissingByDate?: boolean
+}) {
   if (!deshazoExternalApiKey) {
     throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
   }
@@ -423,6 +452,8 @@ export async function syncDeshazoExternalWorkOrders(options: { pageSize: number;
   url.searchParams.set('page', String(options.page ?? 1))
   url.searchParams.set('pageSize', String(options.pageSize))
   if (options.maxPages) url.searchParams.set('maxPages', String(options.maxPages))
+  if (options.latestByDate) url.searchParams.set('latestByDate', 'true')
+  if (options.nextMissingByDate) url.searchParams.set('nextMissingByDate', 'true')
 
   const response = await fetch(url.toString(), {
     method: 'POST',
