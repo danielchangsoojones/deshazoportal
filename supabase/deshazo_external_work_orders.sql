@@ -204,6 +204,13 @@ create table if not exists public.deshazo_external_sync_run_items (
   work_order_id bigint,
   job_no text,
   d_number text,
+  job_type text,
+  customer_name text,
+  customer_location_name text,
+  service_location_name text,
+  start_date date,
+  end_date date,
+  comment text,
   source_updated_at timestamptz,
   work_order_saved boolean not null default false,
   inspection_report_saved boolean not null default false,
@@ -215,6 +222,15 @@ create table if not exists public.deshazo_external_sync_run_items (
   raw_summary jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.deshazo_external_sync_run_items
+  add column if not exists job_type text,
+  add column if not exists customer_name text,
+  add column if not exists customer_location_name text,
+  add column if not exists service_location_name text,
+  add column if not exists start_date date,
+  add column if not exists end_date date,
+  add column if not exists comment text;
 
 create table if not exists public.deshazo_external_sync_checkpoints (
   sync_name text primary key,
