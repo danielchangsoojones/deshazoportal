@@ -385,7 +385,7 @@ export default function DeshazoWorkOrders() {
                     <input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Search D-Number, Job Number or file name"
+                      placeholder="Search D-number or job number..."
                       className="h-full w-full min-w-0 border border-[#bfc7d8] px-3 py-2 pr-9 text-sm font-semibold outline-none focus:border-[var(--deshazo-blue)]"
                     />
                     {search || submittedSearch ? (

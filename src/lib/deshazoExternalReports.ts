@@ -280,7 +280,6 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
   const trimmedSearch = search.trim()
   const escapedSearch = trimmedSearch.replaceAll('%', '\\%').replaceAll('_', '\\_')
   const matchingDNumberWorkOrderIds = trimmedSearch ? await getWorkOrderIdsMatchingDNumberSearch(escapedSearch) : []
-  const matchingFileNameWorkOrderIds = trimmedSearch ? await getWorkOrderIdsMatchingFileNameSearch(escapedSearch) : []
 
   let query = supabase
     .from('deshazo_external_work_orders')
@@ -296,9 +295,8 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
   if (trimmedSearch) {
     const searchFilters = [
       `job_no.ilike.%${escapedSearch}%`,
-      `sales_order_no.ilike.%${escapedSearch}%`,
     ]
-    const matchingWorkOrderIds = Array.from(new Set([...matchingDNumberWorkOrderIds, ...matchingFileNameWorkOrderIds]))
+    const matchingWorkOrderIds = Array.from(new Set(matchingDNumberWorkOrderIds))
     if (matchingWorkOrderIds.length > 0) {
       searchFilters.push(`work_order_id.in.(${matchingWorkOrderIds.join(',')})`)
     }
@@ -359,35 +357,6 @@ async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string) {
       ((data ?? []) as Array<{ work_order_id: number | null }>)
         .map((row) => row.work_order_id)
         .filter((workOrderId): workOrderId is number => typeof workOrderId === 'number'),
-    ),
-  )
-}
-
-async function getWorkOrderIdsMatchingFileNameSearch(escapedSearch: string) {
-  if (!supabase) return []
-
-  const { data, error } = await supabase
-    .from('jobs_quoting_items')
-    .select('split_identifier')
-    .eq('split_type', 'external_work_order')
-    .or(
-      [
-        `document_name.ilike.%${escapedSearch}%`,
-        `report_name.ilike.%${escapedSearch}%`,
-        `source_document_name.ilike.%${escapedSearch}%`,
-      ].join(','),
-    )
-    .limit(500)
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return Array.from(
-    new Set(
-      ((data ?? []) as Array<{ split_identifier: string | null }>)
-        .map((row) => Number.parseInt(row.split_identifier ?? '', 10))
-        .filter((workOrderId) => Number.isFinite(workOrderId)),
     ),
   )
 }
