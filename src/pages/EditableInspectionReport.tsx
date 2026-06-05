@@ -1479,6 +1479,30 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
   }
 }
 
+const getExternalInspectionReportWorkOrderId = (item: JobsQuotingItem) => {
+  if (item.deshazoExternalInspectionReportWorkOrderId) return item.deshazoExternalInspectionReportWorkOrderId
+
+  const workOrderId = item.extractionData.work_order_id
+  if (typeof workOrderId === 'number' && Number.isFinite(workOrderId)) return workOrderId
+  if (typeof workOrderId === 'string') {
+    const parsedWorkOrderId = Number(workOrderId)
+    return Number.isFinite(parsedWorkOrderId) ? parsedWorkOrderId : null
+  }
+
+  return null
+}
+
+const getOriginalInspectionReportUrl = (item: JobsQuotingItem) => {
+  const workOrderId = getExternalInspectionReportWorkOrderId(item)
+  if (!workOrderId) return ''
+
+  const params = new URLSearchParams({ workOrderId: String(workOrderId) })
+  const dNumber = item.dNumber || getTopLevelExtractedText(item.extractionData, ['d_number', 'dNumber'])
+  if (dNumber) params.set('d', dNumber)
+
+  return `/deshazo-external-reports?${params.toString()}`
+}
+
 const saveEditableReportPayloadLocally = (payload: EditableInspectionReportPayload) => {
   window.localStorage.setItem(storageKey, JSON.stringify(payload.reportData))
   window.localStorage.setItem(repairStorageKey, JSON.stringify(payload.repairSections))
@@ -1959,7 +1983,7 @@ export default function EditableInspectionReport() {
     [repairSections, repairSectionVisibility],
   )
   const originalInspectionDocument = useMemo(
-    () => relatedDocuments.find((document) => document.name === 'Original Inspection'),
+    () => relatedDocuments.find((document) => ['Original Inspection Report', 'Original Inspection'].includes(document.name)),
     [relatedDocuments],
   )
   const masterServiceAgreementDocument = useMemo(
@@ -1969,7 +1993,7 @@ export default function EditableInspectionReport() {
   const uploadedRelatedDocuments = useMemo(
     () =>
       relatedDocuments.filter(
-        (document) => !['Original Inspection', 'Master Service Agreement'].includes(document.name),
+        (document) => !['Original Inspection Report', 'Original Inspection', 'Master Service Agreement'].includes(document.name),
       ),
     [relatedDocuments],
   )
@@ -2514,22 +2538,23 @@ export default function EditableInspectionReport() {
 
         if (jobsQuotingItemId) {
           const quoteItem = await getJobsQuotingItem(jobsQuotingItemId)
-          const quotePdfUrl = await getJobsQuotingItemPdfUrl(quoteItem)
+          const originalInspectionReportUrl = getOriginalInspectionReportUrl(quoteItem)
+          const quotePdfUrl = originalInspectionReportUrl ? '' : await getJobsQuotingItemPdfUrl(quoteItem)
 
-          if (!quotePdfUrl) {
-            throw new Error('The selected quote job does not have a saved split PDF yet.')
-          }
-
-          quoteInspectionDocument = {
-            id: quoteItem.id,
-            name: 'Original Inspection',
-            description: 'Split inspection PDF selected from Jobs Quoting.',
-            filePath: quoteItem.pdfStoragePath ?? '',
-            fileName: quoteItem.pdfFileName ?? `${quoteItem.documentName}.pdf`,
-            fileSize: quoteItem.pdfFileSize ?? 0,
-            source: 'Jobs Quoting',
-            url: quotePdfUrl,
-            createdAt: quoteItem.createdAt,
+          if (originalInspectionReportUrl || quotePdfUrl) {
+            quoteInspectionDocument = {
+              id: quoteItem.id,
+              name: 'Original Inspection Report',
+              description: originalInspectionReportUrl
+                ? 'Open the synced Deshazo inspection report.'
+                : 'Split inspection PDF selected from Jobs Quoting.',
+              filePath: quoteItem.pdfStoragePath ?? '',
+              fileName: quoteItem.pdfFileName ?? `${quoteItem.documentName}.pdf`,
+              fileSize: quoteItem.pdfFileSize ?? 0,
+              source: originalInspectionReportUrl ? 'Deshazo External Reports' : 'Jobs Quoting',
+              url: originalInspectionReportUrl || quotePdfUrl || '',
+              createdAt: quoteItem.createdAt,
+            }
           }
         }
 
@@ -2547,7 +2572,7 @@ export default function EditableInspectionReport() {
         const nextDocuments = quoteInspectionDocument
           ? [
               quoteInspectionDocument,
-              ...savedDocuments.filter((document) => document.name !== 'Original Inspection'),
+              ...savedDocuments.filter((document) => !['Original Inspection', 'Original Inspection Report'].includes(document.name)),
             ]
           : savedDocuments
 
@@ -3552,8 +3577,8 @@ export default function EditableInspectionReport() {
                     onClick={() => setRelatedDocumentsOpen(false)}
                     className="w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f4f6fb]"
                   >
-                    <span className="block text-[14px] font-black text-[#1f2430]">Original Inspection</span>
-                    <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">Open the source inspection PDF in a new tab.</span>
+                    <span className="block text-[14px] font-black text-[#1f2430]">Original Inspection Report</span>
+                    <span className="mt-0.5 block text-[12px] font-semibold text-[#747b8a]">{originalInspectionDocument.description}</span>
                   </a>
                 ) : null}
                 <button
