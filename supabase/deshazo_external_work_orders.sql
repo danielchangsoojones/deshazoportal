@@ -37,11 +37,15 @@ create table if not exists public.deshazo_external_inspection_reports (
   work_order_id bigint primary key references public.deshazo_external_work_orders (work_order_id) on delete cascade,
   job_no text,
   job_type text,
+  "hasCreatedJobQuotingItem" boolean not null default false,
   raw_payload jsonb not null default '{}'::jsonb,
   synced_at timestamptz not null default timezone('utc', now()),
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.deshazo_external_inspection_reports
+  add column if not exists "hasCreatedJobQuotingItem" boolean not null default false;
 
 create table if not exists public.deshazo_external_general_work (
   id uuid primary key default gen_random_uuid(),
