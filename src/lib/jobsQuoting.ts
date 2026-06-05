@@ -483,6 +483,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   }
 
   const url = new URL('/api/external/jobs-quoting/from-inspection-reports', deshazoExternalApiBaseUrl)
+  url.searchParams.set('jobNumbers', normalizedJobNumbers.join(','))
   const response = await fetch(url.toString(), {
     method: 'POST',
     headers: {
