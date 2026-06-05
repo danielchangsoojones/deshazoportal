@@ -616,7 +616,7 @@ export default function JobsQuotingList() {
       setMessage(
         createdCount > 0
           ? `Imported ${createdCount} quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}.`
-          : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have more than one repair or safety issue.`,
+          : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have at least one repair or safety issue.`,
       )
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
