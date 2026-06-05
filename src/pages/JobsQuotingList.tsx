@@ -4,7 +4,6 @@ import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import {
   getJobsQuotingItemsForRuns,
-  getJobsQuotingItemPdfUrl,
   getJobsQuotingRuns,
   syncJobsQuotingRun,
   uploadExtractOnlyInspectionForQuoting,
@@ -281,7 +280,6 @@ export default function JobsQuotingList() {
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [openingItemId, setOpeningItemId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [inspectionRunsCollapsed, setInspectionRunsCollapsed] = useState(
     () => window.localStorage.getItem(inspectionRunsCollapsedStorageKey) !== 'false',
@@ -604,56 +602,6 @@ export default function JobsQuotingList() {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
       setBusy(false)
-    }
-  }
-
-
-  const getItemPdfUrl = async (item: JobsQuotingItem) => {
-    return getJobsQuotingItemPdfUrl(item)
-  }
-
-  const openItemPdf = async (item: JobsQuotingItem) => {
-    const pdfWindow = window.open('about:blank', '_blank')
-    if (!pdfWindow) {
-      setMessage('Allow pop-ups for this site, then try opening the PDF again.')
-      return
-    }
-
-    pdfWindow.opener = null
-    setOpeningItemId(item.id)
-    setMessage('Getting the saved split PDF.')
-
-    try {
-      let nextItem = item
-
-      if (item.runId) {
-        const result = await syncJobsQuotingRun(item.runId)
-        setRuns((currentRuns) =>
-          currentRuns.map((run) => (run.id === result.run.id ? result.run : run)),
-        )
-        if (selectedRunGroup) {
-          const nextRunIds = runGroups.flatMap((group) => group.runIds)
-          setItems(nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : [])
-        } else {
-          setItems((currentItems) => sortItemsByNewest([...result.items, ...currentItems.filter((currentItem) => !result.items.some((nextItem) => nextItem.id === currentItem.id))]))
-        }
-        nextItem = result.items.find((currentItem) => currentItem.id === item.id) ?? item
-      }
-
-      const pdfUrl = await getItemPdfUrl(nextItem)
-      if (!pdfUrl) {
-        pdfWindow.close()
-        setMessage('This report is saved, but the split PDF file is not available yet. Refresh jobs and try again.')
-        return
-      }
-
-      pdfWindow.location.href = pdfUrl
-      setMessage('')
-    } catch (error) {
-      pdfWindow.close()
-      setMessage(getFriendlyErrorMessage(error))
-    } finally {
-      setOpeningItemId(null)
     }
   }
 
@@ -1099,27 +1047,13 @@ export default function JobsQuotingList() {
                               {item.priorityCount}
                             </td>
                             <td className="px-3 py-4 text-center align-top">
-                              {item.pdfStoragePath || item.pdfUrl ? (
-                                <div className="flex flex-nowrap justify-center gap-2">
-                                  <button
-                                    type="button"
-                                    disabled={openingItemId === item.id}
-                                    onClick={() => openItemPdf(item)}
-                                    className="inline-flex whitespace-nowrap rounded-md border border-[#bdc4d3] bg-white px-2 py-2 text-[11px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    {openingItemId === item.id ? 'Opening...' : 'Open PDF'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
-                                    className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
-                                  >
-                                    Edit Quote
-                                  </button>
-                                </div>
-                              ) : (
-                                <span className="text-xs font-bold text-[#747b8a]">Saved</span>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
+                                className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
+                              >
+                                Edit Quote
+                              </button>
                             </td>
                           </tr>
                         ))}
