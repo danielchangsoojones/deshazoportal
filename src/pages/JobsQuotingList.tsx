@@ -608,13 +608,18 @@ export default function JobsQuotingList() {
     try {
       const result = await createJobQuotingItemsFromExternalInspectionReports(jobNumbers)
       const createdCount = result.results.reduce((total, item) => total + (item.createdOrUpdated ?? 0), 0)
+      const importErrors = result.results
+        .filter((item) => item.error)
+        .map((item) => `${item.jobNumber || item.workOrderId || 'Report'}: ${item.error}`)
       setMessage(`Created or updated ${createdCount} quote item${createdCount === 1 ? '' : 's'}. Refreshing jobs...`)
       await new Promise((resolve) => window.setTimeout(resolve, 3000))
       setSelectedRunId(allReportsRunId)
       await loadQuotingData(allReportsRunId)
       setExternalJobNumberInput('')
       setMessage(
-        createdCount > 0
+        importErrors.length > 0
+          ? importErrors.join(' ')
+          : createdCount > 0
           ? `Imported ${createdCount} quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}.`
           : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have at least one repair or safety issue.`,
       )

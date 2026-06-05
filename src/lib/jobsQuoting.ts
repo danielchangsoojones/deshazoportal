@@ -124,8 +124,15 @@ export type ExternalInspectionReportQuoteImportResult = {
   processedReports: number
   results: Array<{
     workOrderId?: number | string
+    jobNumber?: string | null
+    hasCreatedJobQuotingItem?: boolean
     createdOrUpdated?: number
     dNumbers?: string[]
+    existingQuoteItems?: Array<{
+      id?: string
+      dNumber?: string | null
+      jobNumber?: string | null
+    }>
     markedCreated?: boolean
     error?: string
   }>
