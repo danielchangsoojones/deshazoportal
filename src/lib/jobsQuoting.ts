@@ -128,12 +128,14 @@ export type ExternalInspectionReportQuoteImportResult = {
     hasCreatedJobQuotingItem?: boolean
     createdOrUpdated?: number
     dNumbers?: string[]
+    purchaseOrders?: string[]
     existingQuoteItems?: Array<{
       id?: string
       dNumber?: string | null
       jobNumber?: string | null
     }>
     markedCreated?: boolean
+    warning?: string
     error?: string
   }>
 }
