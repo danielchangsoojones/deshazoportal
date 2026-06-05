@@ -57,6 +57,44 @@ function getReportIdentifier(craneReport: DeshazoCraneReport, fallbackWorkOrderI
   return craneReport.crane?.contactCode || craneReport.crane?.description || `WO ${fallbackWorkOrderId}`
 }
 
+function normalizeDNumber(value?: string | number | null) {
+  return String(value ?? '').replace(/[^a-z0-9]/gi, '').toUpperCase()
+}
+
+function getRequestedDNumber(searchParams: URLSearchParams) {
+  return (
+    searchParams.get('dNumber') ||
+    searchParams.get('d_number') ||
+    searchParams.get('d') ||
+    ''
+  ).trim()
+}
+
+function getCraneDNumberCandidates(craneReport: DeshazoCraneReport, fallbackWorkOrderId: number) {
+  const crane = craneReport.crane
+  return [
+    crane?.contactCode,
+    crane?.description,
+    crane?.id,
+    getReportIdentifier(craneReport, fallbackWorkOrderId),
+  ]
+}
+
+function findCraneTicketIndexByDNumber(
+  craneTickets: CraneTicketEntry[],
+  dNumber: string,
+  fallbackWorkOrderId: number,
+) {
+  const normalizedDNumber = normalizeDNumber(dNumber)
+  if (!normalizedDNumber) return -1
+
+  return craneTickets.findIndex(({ craneReport }) =>
+    getCraneDNumberCandidates(craneReport, fallbackWorkOrderId)
+      .map(normalizeDNumber)
+      .some((candidate) => candidate === normalizedDNumber),
+  )
+}
+
 function hasMeaningfulCraneIdentifier(craneReport: DeshazoCraneReport) {
   const value = craneReport.crane?.contactCode || craneReport.crane?.description || ''
   const normalized = value.trim().toUpperCase()
@@ -189,6 +227,7 @@ export default function DeshazoExternalReports() {
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const requestedDNumber = useMemo(() => getRequestedDNumber(searchParams), [searchParams])
 
   const activeMenuItems = useMemo(
     () =>
@@ -235,7 +274,6 @@ export default function DeshazoExternalReports() {
         setUser(nextUser)
         setReports(nextReports)
         setSelectedWorkOrderId(nextSelectedWorkOrderId)
-        setSelectedCraneIndex(0)
         setMessage(nextReports.length > 0 ? `Showing ${nextReports.length} recent synced work orders from Supabase.` : 'No saved reports found yet.')
       } catch (error) {
         if (cancelled) return
@@ -252,15 +290,25 @@ export default function DeshazoExternalReports() {
   }, [navigate, searchParams])
 
   const selectedReport = reports.find((report) => report.workOrderId === selectedWorkOrderId) ?? reports[0] ?? null
-  const craneTickets: CraneTicketEntry[] = (selectedReport?.rawPayload.cranes ?? [])
-    .map((craneReport, sourceIndex) => ({ craneReport, sourceIndex }))
-    .filter((entry) => hasVisibleInspectionTicket(entry.craneReport))
+  const craneTickets: CraneTicketEntry[] = useMemo(
+    () =>
+      (selectedReport?.rawPayload.cranes ?? [])
+        .map((craneReport, sourceIndex) => ({ craneReport, sourceIndex }))
+        .filter((entry) => hasVisibleInspectionTicket(entry.craneReport)),
+    [selectedReport],
+  )
   const selectedCraneEntry = craneTickets[selectedCraneIndex] ?? craneTickets[0] ?? null
   const selectedCrane = selectedCraneEntry?.craneReport ?? null
 
   useEffect(() => {
-    setSelectedCraneIndex(0)
-  }, [selectedWorkOrderId])
+    if (!selectedReport) {
+      setSelectedCraneIndex(0)
+      return
+    }
+
+    const requestedCraneIndex = findCraneTicketIndexByDNumber(craneTickets, requestedDNumber, selectedReport.workOrderId)
+    setSelectedCraneIndex(requestedCraneIndex >= 0 ? requestedCraneIndex : 0)
+  }, [craneTickets, selectedReport, requestedDNumber, selectedWorkOrderId])
 
   const fullName =
     user?.user_metadata?.full_name ||
