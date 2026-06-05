@@ -4,7 +4,6 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import type { User } from '@supabase/supabase-js'
-import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const portalCards = [
   {
@@ -63,8 +62,8 @@ const portalCards = [
   },
 ]
 
-const developerPortalCard = {
-  eyebrow: 'Developer',
+const workOrdersPortalCard = {
+  eyebrow: 'Operations',
   title: 'Work Orders',
   description: 'Open synced DeShazo work orders from Supabase and drill into inspection ticket PDFs.',
   href: '/deshazo-work-orders',
@@ -72,13 +71,12 @@ const developerPortalCard = {
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
-  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
   const visiblePortalCards = useMemo(
-    () => (userTag === 'developer' ? [...portalCards, developerPortalCard] : portalCards),
-    [userTag],
+    () => [...portalCards, workOrdersPortalCard],
+    [],
   )
 
   const menuItems = useMemo(
@@ -103,9 +101,6 @@ export default function Dashboard() {
         navigate('/login')
       } else {
         setUser(data.user)
-        getCurrentUserTag(data.user.id)
-          .then((tag) => setUserTag(tag))
-          .catch(() => setUserTag(null))
       }
     })
   }, [navigate])

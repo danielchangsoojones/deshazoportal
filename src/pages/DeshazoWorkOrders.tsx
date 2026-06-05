@@ -9,7 +9,6 @@ import {
   getSavedDeshazoWorkOrders,
   syncDeshazoExternalWorkOrders,
 } from '../lib/deshazoExternalReports'
-import { getCurrentUserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -141,12 +140,6 @@ export default function DeshazoWorkOrders() {
       const nextUser = data.user
       if (!nextUser) {
         navigate('/login')
-        return
-      }
-
-      const userTag = await getCurrentUserTag(nextUser.id)
-      if (userTag !== 'developer') {
-        navigate('/dashboard')
         return
       }
 
