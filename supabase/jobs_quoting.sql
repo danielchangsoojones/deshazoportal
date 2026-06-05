@@ -47,7 +47,6 @@ create table if not exists public.jobs_quoting_items (
   block_visibility jsonb not null default '{}'::jsonb,
   estimate_note_visibility jsonb not null default '{}'::jsonb,
   repair_section_visibility jsonb not null default '{}'::jsonb,
-  text_boxes jsonb not null default '[]'::jsonb,
   equipment_rental_settings jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
@@ -77,7 +76,6 @@ alter table public.jobs_quoting_items
   add column if not exists block_visibility jsonb not null default '{}'::jsonb,
   add column if not exists estimate_note_visibility jsonb not null default '{}'::jsonb,
   add column if not exists repair_section_visibility jsonb not null default '{}'::jsonb,
-  add column if not exists text_boxes jsonb not null default '[]'::jsonb,
   add column if not exists equipment_rental_settings jsonb not null default '{}'::jsonb;
 
 alter table public.jobs_quoting_runs

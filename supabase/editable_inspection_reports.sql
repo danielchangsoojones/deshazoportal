@@ -7,7 +7,6 @@ alter table public.jobs_quoting_items
   add column if not exists block_visibility jsonb not null default '{}'::jsonb,
   add column if not exists estimate_note_visibility jsonb not null default '{}'::jsonb,
   add column if not exists repair_section_visibility jsonb not null default '{}'::jsonb,
-  add column if not exists text_boxes jsonb not null default '[]'::jsonb,
   add column if not exists equipment_rental_settings jsonb not null default '{}'::jsonb;
 
 do $$
@@ -24,7 +23,6 @@ begin
           block_visibility = editable_report.block_visibility,
           estimate_note_visibility = editable_report.estimate_note_visibility,
           repair_section_visibility = editable_report.repair_section_visibility,
-          text_boxes = editable_report.text_boxes,
           equipment_rental_settings = editable_report.equipment_rental_settings
       from public.editable_inspection_reports editable_report
       where editable_report.jobs_quoting_item_id = quote_item.id

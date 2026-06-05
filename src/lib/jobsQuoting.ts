@@ -97,7 +97,6 @@ export type JobsQuotingItemRow = {
   block_visibility: Record<string, boolean> | null
   estimate_note_visibility: Record<string, boolean> | null
   repair_section_visibility: Record<string, boolean> | null
-  text_boxes: unknown[] | null
   equipment_rental_settings: Record<string, unknown> | null
   created_at: string
   updated_at: string
@@ -161,7 +160,7 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
     blockVisibility: row.block_visibility ?? {},
     estimateNoteVisibility: row.estimate_note_visibility ?? {},
     repairSectionVisibility: row.repair_section_visibility ?? {},
-    textBoxes: row.text_boxes ?? [],
+    textBoxes: [],
     equipmentRentalSettings: row.equipment_rental_settings ?? {},
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -195,7 +194,6 @@ export const jobsQuotingItemSelect = `
   block_visibility,
   estimate_note_visibility,
   repair_section_visibility,
-  text_boxes,
   equipment_rental_settings,
   created_at,
   updated_at

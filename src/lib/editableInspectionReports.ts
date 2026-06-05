@@ -207,7 +207,6 @@ export async function saveEditableInspectionReport(input: SaveEditableInspection
     block_visibility: input.blockVisibility,
     estimate_note_visibility: input.estimateNoteVisibility,
     repair_section_visibility: input.repairSectionVisibility,
-    text_boxes: input.textBoxes,
     equipment_rental_settings: input.equipmentRentalSettings,
     repair_count: repairCount,
     safety_count: safetyCount,
@@ -244,7 +243,6 @@ export async function deleteEditableInspectionReport(reportId: string) {
       block_visibility: {},
       estimate_note_visibility: {},
       repair_section_visibility: {},
-      text_boxes: [],
       equipment_rental_settings: {},
     })
     .eq('id', reportId)
