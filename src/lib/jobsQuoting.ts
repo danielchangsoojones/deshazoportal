@@ -31,6 +31,7 @@ export type JobsQuotingItem = {
   documentName: string
   jobNumber: string
   dNumber: string
+  deshazoExternalInspectionReportWorkOrderId: number | null
   splitType: string
   splitIdentifier: string
   repairCount: number
@@ -77,6 +78,7 @@ export type JobsQuotingItemRow = {
   document_name: string
   job_number: string | null
   d_number: string | null
+  deshazo_external_inspection_report_work_order_id: number | null
   split_type: string | null
   split_identifier: string | null
   repair_count: number | null
@@ -139,6 +141,7 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
     documentName: row.document_name,
     jobNumber: row.job_number ?? '',
     dNumber: row.d_number ?? '',
+    deshazoExternalInspectionReportWorkOrderId: row.deshazo_external_inspection_report_work_order_id,
     splitType: row.split_type ?? '',
     splitIdentifier: row.split_identifier ?? '',
     repairCount,
@@ -174,6 +177,7 @@ export const jobsQuotingItemSelect = `
   document_name,
   job_number,
   d_number,
+  deshazo_external_inspection_report_work_order_id,
   split_type,
   split_identifier,
   repair_count,

@@ -27,6 +27,7 @@ create table if not exists public.jobs_quoting_items (
   document_name text not null,
   job_number text,
   d_number text,
+  deshazo_external_inspection_report_work_order_id bigint references public.deshazo_external_inspection_reports (work_order_id) on delete set null,
   split_type text,
   split_identifier text,
   repair_count integer not null default 0,
@@ -63,6 +64,7 @@ create table if not exists public.jobs_quoting_items (
 alter table public.jobs_quoting_items
   add column if not exists job_number text,
   add column if not exists d_number text,
+  add column if not exists deshazo_external_inspection_report_work_order_id bigint references public.deshazo_external_inspection_reports (work_order_id) on delete set null,
   add column if not exists pdf_bucket text not null default 'jobs-quoting-pdfs',
   add column if not exists pdf_storage_path text,
   add column if not exists pdf_file_name text,
