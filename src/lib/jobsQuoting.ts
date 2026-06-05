@@ -10,6 +10,12 @@ const inspectionSplitBackendUrl =
 const inspectionExtractOnlyBackendUrl =
   (import.meta.env.VITE_EXTEND_INSPECTION_EXTRACTONLY_UPLOAD_URL as string | undefined)?.trim() ||
   defaultInspectionExtractOnlyBackendUrl
+const portalParseBaseUrl = (import.meta.env.VITE_PORTAL_PARSE_BASE_URL as string | undefined)?.trim() || ''
+const deshazoExternalApiBaseUrl =
+  (import.meta.env.VITE_DESHAZO_SYNC_API_BASE_URL as string | undefined)?.trim() ||
+  (portalParseBaseUrl ? new URL(portalParseBaseUrl).origin : '') ||
+  'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com'
+const deshazoExternalApiKey = (import.meta.env.VITE_DESHAZO_EXTERNAL_API_KEY as string | undefined)?.trim() || ''
 export const jobsQuotingPdfBucket = 'jobs-quoting-pdfs'
 
 export type JobsQuotingRun = {
@@ -112,6 +118,18 @@ export type JobsQuotingUploadResult = {
 }
 
 export type JobsQuotingRunDetails = JobsQuotingUploadResult
+
+export type ExternalInspectionReportQuoteImportResult = {
+  requestedJobNumbers: string[]
+  processedReports: number
+  results: Array<{
+    workOrderId?: number | string
+    createdOrUpdated?: number
+    dNumbers?: string[]
+    markedCreated?: boolean
+    error?: string
+  }>
+}
 
 const supabasePageSize = 1000
 const runIdFilterChunkSize = 100
@@ -450,4 +468,46 @@ export async function uploadExtractOnlyInspectionForQuoting(files: File[], sourc
 
 export async function syncJobsQuotingRun(runId: string): Promise<JobsQuotingRunDetails> {
   return sendToJobsQuotingBackend(inspectionSplitBackendUrl, { action: 'sync', runId })
+}
+
+export async function createJobQuotingItemsFromExternalInspectionReports(
+  jobNumbers: string[],
+): Promise<ExternalInspectionReportQuoteImportResult> {
+  const normalizedJobNumbers = jobNumbers.map((jobNumber) => jobNumber.trim()).filter(Boolean)
+  if (normalizedJobNumbers.length === 0) {
+    throw new Error('Enter at least one job number.')
+  }
+
+  if (!deshazoExternalApiKey) {
+    throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
+  }
+
+  const url = new URL('/api/external/jobs-quoting/from-inspection-reports', deshazoExternalApiBaseUrl)
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-API-Key': deshazoExternalApiKey,
+    },
+    body: JSON.stringify({ jobNumbers: normalizedJobNumbers }),
+  })
+
+  const responseText = await response.text()
+  let body: unknown = responseText
+  try {
+    body = JSON.parse(responseText)
+  } catch {
+    // Keep non-JSON backend errors readable.
+  }
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `External report import failed with status ${response.status}.`
+    throw new Error(message)
+  }
+
+  return body as ExternalInspectionReportQuoteImportResult
 }

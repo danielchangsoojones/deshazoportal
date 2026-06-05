@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import {
+  createJobQuotingItemsFromExternalInspectionReports,
   getJobsQuotingItemsForRuns,
   getJobsQuotingRuns,
   syncJobsQuotingRun,
@@ -278,6 +279,8 @@ export default function JobsQuotingList() {
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
+  const [externalJobNumberInput, setExternalJobNumberInput] = useState('')
+  const [externalJobImporting, setExternalJobImporting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -586,6 +589,43 @@ export default function JobsQuotingList() {
     }
   }
 
+  const importExternalInspectionReportsForJob = async () => {
+    const jobNumbers = externalJobNumberInput
+      .split(/[\s,]+/)
+      .map((jobNumber) => jobNumber.trim())
+      .filter(Boolean)
+
+    if (jobNumbers.length === 0) {
+      setMessage('Enter a job number to import from synced Deshazo inspection reports.')
+      return
+    }
+
+    setBusy(true)
+    setExternalJobImporting(true)
+    setUploadMenuOpen(false)
+    setMessage(`Importing quote items for ${jobNumbers.join(', ')} from synced inspection reports.`)
+
+    try {
+      const result = await createJobQuotingItemsFromExternalInspectionReports(jobNumbers)
+      const createdCount = result.results.reduce((total, item) => total + (item.createdOrUpdated ?? 0), 0)
+      setMessage(`Created or updated ${createdCount} quote item${createdCount === 1 ? '' : 's'}. Refreshing jobs...`)
+      await new Promise((resolve) => window.setTimeout(resolve, 3000))
+      setSelectedRunId(allReportsRunId)
+      await loadQuotingData(allReportsRunId)
+      setExternalJobNumberInput('')
+      setMessage(
+        createdCount > 0
+          ? `Imported ${createdCount} quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}.`
+          : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have more than one repair or safety issue.`,
+      )
+    } catch (error) {
+      setMessage(getFriendlyErrorMessage(error))
+    } finally {
+      setExternalJobImporting(false)
+      setBusy(false)
+    }
+  }
+
   const syncRunGroup = async (group: JobsQuotingRunGroup) => {
     setBusy(true)
     setMessage('Checking Extend for extracted repair items.')
@@ -664,6 +704,36 @@ export default function JobsQuotingList() {
           >
             Sign out: {user.email}
           </button>
+          <form
+            className="hidden items-center gap-2 md:flex"
+            onSubmit={(event) => {
+              event.preventDefault()
+              importExternalInspectionReportsForJob()
+            }}
+          >
+            <label className="sr-only" htmlFor="external-job-number-import">
+              Job number
+            </label>
+            <input
+              id="external-job-number-import"
+              type="text"
+              value={externalJobNumberInput}
+              onChange={(event) => setExternalJobNumberInput(event.currentTarget.value)}
+              disabled={busy}
+              placeholder="Job #"
+              className="h-9 w-[132px] rounded-md border border-white/30 bg-white/95 px-3 text-xs font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-white focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            <button
+              type="submit"
+              disabled={busy || !externalJobNumberInput.trim()}
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-white/30 bg-white px-3 text-xs font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {externalJobImporting ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#d6cbed] border-t-[#35245f]" />
+              ) : null}
+              <span>{externalJobImporting ? 'Importing' : 'Import Job'}</span>
+            </button>
+          </form>
           <input
             ref={extractPdfInputRef}
             type="file"
@@ -707,6 +777,39 @@ export default function JobsQuotingList() {
           </button>
           {uploadMenuOpen ? (
             <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+              <form
+                className="mb-2 rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2 md:hidden"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  importExternalInspectionReportsForJob()
+                }}
+              >
+                <div className="text-[12px] font-black uppercase text-[#273f7a]">Import Synced Job</div>
+                <div className="mt-2 flex gap-2">
+                  <label className="sr-only" htmlFor="external-job-number-import-mobile">
+                    Job number
+                  </label>
+                  <input
+                    id="external-job-number-import-mobile"
+                    type="text"
+                    value={externalJobNumberInput}
+                    onChange={(event) => setExternalJobNumberInput(event.currentTarget.value)}
+                    disabled={busy}
+                    placeholder="Job number"
+                    className="min-w-0 flex-1 rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[12px] font-bold text-[#1f2430] outline-none focus:border-[#273f7a]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={busy || !externalJobNumberInput.trim()}
+                    className="inline-flex items-center gap-2 rounded-md bg-[#273f7a] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {externalJobImporting ? (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    ) : null}
+                    Import
+                  </button>
+                </div>
+              </form>
               <div className="rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
                 <div className="text-[12px] font-black uppercase text-[#273f7a]">Upload Inspection Reports</div>
                 <div className={`mt-2 grid gap-2 ${canUseExtendControls ? 'grid-cols-3' : 'grid-cols-2'}`}>
