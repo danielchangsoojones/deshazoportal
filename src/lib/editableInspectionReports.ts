@@ -18,6 +18,7 @@ export type EditableInspectionReport = EditableInspectionReportPayload & {
   sourceDocumentName: string
   jobsQuotingItemId: string | null
   jobNumber: string
+  dNumber: string
   createdAt: string
   updatedAt: string
 }
@@ -83,6 +84,7 @@ function mapQuoteItemToEditableInspectionReport(item: JobsQuotingItem): Editable
     sourceDocumentName: item.sourceDocumentName ?? item.documentName,
     jobsQuotingItemId: item.id,
     jobNumber: item.jobNumber || getReportJobNumber(item.reportData ?? {}),
+    dNumber: item.dNumber,
     reportData: item.reportData ?? {},
     repairSections: item.repairSections ?? [],
     costSections: item.costSections ?? [],

@@ -1885,18 +1885,22 @@ export default function EditableInspectionReport() {
         equipmentRentalSettings,
       } satisfies EditableInspectionReportPayload,
     }
-    const savedOptions = jobReportPrintReports.map((savedReport) => ({
-      id: savedReport.id,
-      reportId: savedReport.id,
-      dNumber: getDNumberFromReport(savedReport.reportData) || 'Unknown D Number',
-      reportName: savedReport.reportName,
-      isCurrent: savedReport.id === currentEditableReportId,
-      payload: getNormalizedReportPayload(savedReport),
-    }))
+    const savedOptions = jobReportPrintReports.map((savedReport) => {
+      const dNumber = savedReport.dNumber || getDNumberFromReport(savedReport.reportData)
+
+      return {
+        id: savedReport.id,
+        reportId: savedReport.id,
+        dNumber: dNumber || 'Unknown D Number',
+        reportName: savedReport.reportName,
+        isCurrent: savedReport.id === currentEditableReportId,
+        payload: getNormalizedReportPayload(savedReport),
+      }
+    })
 
     return [currentOption, ...savedOptions]
       .filter((option) => {
-        const uniqueKey = option.dNumber.toUpperCase()
+        const uniqueKey = option.dNumber === 'Unknown D Number' ? option.id : option.dNumber.toUpperCase()
         if (seenDNumbers.has(uniqueKey)) return false
         seenDNumbers.add(uniqueKey)
       return true
