@@ -3732,8 +3732,18 @@ export default function EditableInspectionReport() {
                   role="menu"
                   className="absolute right-0 top-[calc(100%+8px)] z-40 w-[240px] overflow-hidden rounded-md border border-[#d8dce8] bg-white text-[#1f2430] shadow-[0_20px_50px_-28px_rgba(21,32,57,0.5)]"
                 >
-                  <div className="border-b border-[#edf0f6] px-3 py-2 text-[11px] font-black uppercase tracking-[0.08em] text-[#6f7788]">
-                    Job {normalizedCurrentJobNumber || '---'}
+                  <div className="flex items-center justify-between gap-2 border-b border-[#edf0f6] px-3 py-2">
+                    <span className="min-w-0 truncate text-[11px] font-black uppercase tracking-[0.08em] text-[#6f7788]">
+                      Job {normalizedCurrentJobNumber || '---'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={selectAllJobReportPrintOptions}
+                      className="shrink-0 rounded-sm px-1.5 py-1 text-[10px] font-black uppercase text-[#273f7a] transition hover:bg-[#eef3ff] disabled:cursor-not-allowed disabled:text-[#a7adba]"
+                      disabled={jobReportPrintOptionIds.length === 0 || allJobReportPrintOptionsSelected}
+                    >
+                      Select All
+                    </button>
                   </div>
                   {jobReportPrintLoading ? (
                     <div className="px-3 py-3 text-[12px] font-bold text-[#747b8a]">Loading D numbers...</div>
@@ -3785,14 +3795,6 @@ export default function EditableInspectionReport() {
                     </div>
                   )}
                   <div className="border-t border-[#edf0f6] p-2">
-                    <button
-                      type="button"
-                      onClick={selectAllJobReportPrintOptions}
-                      className="mb-2 w-full rounded-md border border-[#d6dbe9] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:border-[#b9c4e4] hover:bg-[#eef3ff] disabled:cursor-not-allowed disabled:bg-[#f3f5f9] disabled:text-[#9aa2b2]"
-                      disabled={jobReportPrintOptionIds.length === 0 || allJobReportPrintOptionsSelected}
-                    >
-                      Select All
-                    </button>
                     <button
                       type="button"
                       onClick={downloadCheckedJobReportsPdf}
