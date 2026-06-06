@@ -1921,6 +1921,40 @@ export default function EditableInspectionReport() {
     () => jobReportPrintOptions.filter((option) => selectedJobReportPrintIds.has(option.id)).length,
     [jobReportPrintOptions, selectedJobReportPrintIds],
   )
+  const jobReportPrintOptionIds = useMemo(
+    () => jobReportPrintOptions.map((option) => option.id),
+    [jobReportPrintOptions],
+  )
+  const allJobReportPrintOptionsSelected = useMemo(
+    () =>
+      jobReportPrintOptionIds.length > 0
+      && jobReportPrintOptionIds.every((optionId) => selectedJobReportPrintIds.has(optionId)),
+    [jobReportPrintOptionIds, selectedJobReportPrintIds],
+  )
+  const getJobReportPrintOptionIds = useCallback(
+    (savedReports: EditableInspectionReport[]) => {
+      const seenDNumbers = new Set<string>()
+      const currentId = currentEditableReportId || 'current-report'
+      const currentDNumber = getDNumberFromReport(report) || 'Unknown D Number'
+      const optionIds: string[] = []
+
+      const addOptionId = (id: string, dNumber: string) => {
+        const uniqueKey = dNumber === 'Unknown D Number' ? id : dNumber.toUpperCase()
+        if (seenDNumbers.has(uniqueKey)) return
+        seenDNumbers.add(uniqueKey)
+        optionIds.push(id)
+      }
+
+      addOptionId(currentId, currentDNumber)
+      savedReports.forEach((savedReport) => {
+        const dNumber = savedReport.dNumber || getDNumberFromReport(savedReport.reportData) || 'Unknown D Number'
+        addOptionId(savedReport.id, dNumber)
+      })
+
+      return optionIds
+    },
+    [currentEditableReportId, report],
+  )
   const currentEditableReportPayload = useMemo<EditableInspectionReportPayload>(
     () => ({
       reportData: report,
@@ -3242,7 +3276,8 @@ export default function EditableInspectionReport() {
   const openJobReportPrintMenu = async () => {
     setJobReportPrintMenuOpen((isOpen) => !isOpen)
     if (!jobReportPrintMenuOpen) {
-      await refreshJobReportPrintReports()
+      const reportsForJob = await refreshJobReportPrintReports()
+      setSelectedJobReportPrintIds(new Set(getJobReportPrintOptionIds(reportsForJob)))
     }
   }
 
@@ -3257,6 +3292,11 @@ export default function EditableInspectionReport() {
       }
       return nextIds
     })
+  }
+
+  const selectAllJobReportPrintOptions = () => {
+    setJobReportPrintDownloadMessage('')
+    setSelectedJobReportPrintIds(new Set(jobReportPrintOptionIds))
   }
 
   const downloadCheckedJobReportsPdf = () => {
@@ -3745,6 +3785,14 @@ export default function EditableInspectionReport() {
                     </div>
                   )}
                   <div className="border-t border-[#edf0f6] p-2">
+                    <button
+                      type="button"
+                      onClick={selectAllJobReportPrintOptions}
+                      className="mb-2 w-full rounded-md border border-[#d6dbe9] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:border-[#b9c4e4] hover:bg-[#eef3ff] disabled:cursor-not-allowed disabled:bg-[#f3f5f9] disabled:text-[#9aa2b2]"
+                      disabled={jobReportPrintOptionIds.length === 0 || allJobReportPrintOptionsSelected}
+                    >
+                      Select All
+                    </button>
                     <button
                       type="button"
                       onClick={downloadCheckedJobReportsPdf}
