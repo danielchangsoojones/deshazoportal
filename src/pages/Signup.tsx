@@ -40,7 +40,7 @@ export default function Signup() {
     } else if (data.session) {
       navigate('/dashboard')
     } else {
-      setMessage('Check your email to confirm your account.')
+      setMessage('Check your email to confirm your account. Please double check your spam folder. It will be from Blockstamp: noreply@portalupdates.blockstampsf.com.')
     }
 
     setLoading(false)
