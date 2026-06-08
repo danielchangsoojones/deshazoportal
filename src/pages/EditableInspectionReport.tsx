@@ -711,6 +711,28 @@ type CombinedReportPdfSource = {
   payload: EditableInspectionReportPayload
 }
 
+const getRepairCostSectionVisibilityKey = (repairSectionId: string, costSectionId: string) =>
+  `repair-cost-section:${repairSectionId}:${costSectionId}`
+
+const isRepairCostSectionVisible = (
+  repairSectionVisibility: Record<string, boolean>,
+  repairSectionId: string,
+  costSectionId: string,
+) => repairSectionVisibility[getRepairCostSectionVisibilityKey(repairSectionId, costSectionId)] !== false
+
+const getVisibleRepairSections = (
+  repairSections: RepairSection[],
+  repairSectionVisibility: Record<string, boolean>,
+) =>
+  repairSections
+    .filter((section) => repairSectionVisibility[section.id] !== false)
+    .map((section) => ({
+      ...section,
+      costSections: section.costSections.filter((costSection) =>
+        isRepairCostSectionVisible(repairSectionVisibility, section.id, costSection.id),
+      ),
+    }))
+
 const escapeHtml = (value: string | number) =>
   String(value)
     .replace(/&/g, '&amp;')
@@ -782,7 +804,10 @@ const getPdfLineItemSummary = (lineItem: RepairLineItem, sectionId?: string, set
 const getReportPdfLines = (source: CombinedReportPdfSource) => {
   const { payload } = source
   const reportData = payload.reportData
-  const repairSections = normalizeRepairSections(payload.repairSections as RepairSection[])
+  const repairSections = getVisibleRepairSections(
+    normalizeRepairSections(payload.repairSections as RepairSection[]),
+    payload.repairSectionVisibility,
+  )
   const costSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
   const equipmentSettings = {
     ...defaultEquipmentRentalSettings,
@@ -933,7 +958,10 @@ const getTemplateLineItemRows = (
 const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
   const reportMarkup = sources.map((source) => {
     const reportData = normalizeReport(source.payload.reportData)
-    const repairSections = normalizeRepairSections(source.payload.repairSections as RepairSection[])
+    const repairSections = getVisibleRepairSections(
+      normalizeRepairSections(source.payload.repairSections as RepairSection[]),
+      source.payload.repairSectionVisibility,
+    )
     const costSections = normalizeEstimateCostSections(source.payload.costSections as CostSection[])
     const equipmentSettings = {
       ...defaultEquipmentRentalSettings,
@@ -2039,13 +2067,17 @@ export default function EditableInspectionReport() {
     ],
   )
 
+  const visibleRepairSections = useMemo(
+    () => getVisibleRepairSections(repairSections, repairSectionVisibility),
+    [repairSections, repairSectionVisibility],
+  )
   const repairTotal = useMemo(
     () =>
-      repairSections.reduce(
+      visibleRepairSections.reduce(
         (total, section) => total + getRepairSectionCustomerTotal(section),
         0,
       ),
-    [repairSections],
+    [visibleRepairSections],
   )
   const costTotal = useMemo(
     () =>
@@ -2063,7 +2095,7 @@ export default function EditableInspectionReport() {
   const invoiceTotal = repairTotal + costTotal
   const grandTotalInternalCost = useMemo(
     () =>
-      repairSections.reduce(
+      visibleRepairSections.reduce(
         (total, section) => total + getRepairSectionInternalTotal(section),
         0,
       )
@@ -2072,14 +2104,10 @@ export default function EditableInspectionReport() {
           total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
         0,
       ),
-    [costSections, repairSections],
+    [costSections, visibleRepairSections],
   )
   const grandTotalProfit = invoiceTotal - grandTotalInternalCost
   const grandTotalMargin = getUnitMargin(grandTotalInternalCost, invoiceTotal)
-  const visibleRepairSections = useMemo(
-    () => repairSections.filter((section) => repairSectionVisibility[section.id] !== false),
-    [repairSections, repairSectionVisibility],
-  )
   const originalInspectionDocument = useMemo(
     () => relatedDocuments.find((document) => ['Original Inspection Report', 'Original Inspection'].includes(document.name)),
     [relatedDocuments],
@@ -2749,6 +2777,17 @@ export default function EditableInspectionReport() {
   const toggleRepairSectionVisibility = (sectionId: string, visible: boolean) => {
     setRepairSectionVisibility((currentVisibility) => {
       const nextVisibility = { ...currentVisibility, [sectionId]: visible }
+      window.localStorage.setItem(repairSectionVisibilityStorageKey, JSON.stringify(nextVisibility))
+      return nextVisibility
+    })
+  }
+
+  const toggleRepairCostSectionVisibility = (sectionId: string, costSectionId: string, visible: boolean) => {
+    setRepairSectionVisibility((currentVisibility) => {
+      const nextVisibility = {
+        ...currentVisibility,
+        [getRepairCostSectionVisibilityKey(sectionId, costSectionId)]: visible,
+      }
       window.localStorage.setItem(repairSectionVisibilityStorageKey, JSON.stringify(nextVisibility))
       return nextVisibility
     })
@@ -4112,10 +4151,10 @@ export default function EditableInspectionReport() {
                       <button
                         type="button"
                         onClick={() => setPageLayoutMenuOpen(false)}
-                        className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                        aria-label="Close page layout menu"
+                        className="rounded-md border border-[#d8deea] bg-white px-2.5 py-1 text-[11px] font-black uppercase text-[#273f7a] transition hover:bg-[#f4f6fb]"
+                        aria-label="Done editing page layout"
                       >
-                        x
+                        Done
                       </button>
                     </div>
 
@@ -4130,11 +4169,6 @@ export default function EditableInspectionReport() {
                             className="h-4 w-4 accent-[#273f7a]"
                           />
                         </label>
-                        <div className="mt-2 space-y-1 border-l border-[#d8deea] pl-3 text-[12px] font-bold text-[#4d5360]">
-                          <div className="rounded-sm px-2 py-1">Name</div>
-                          <div className="rounded-sm px-2 py-1">Email</div>
-                          <div className="rounded-sm px-2 py-1">Phone Number</div>
-                        </div>
                       </section>
 
                       <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
@@ -4161,18 +4195,35 @@ export default function EditableInspectionReport() {
                         </label>
                         <div className="mt-2 space-y-1 border-l border-[#d8deea] pl-3">
                           {repairSections.map((section) => (
-                            <label
-                              key={section.id}
-                              className="flex cursor-pointer items-center justify-between gap-3 rounded-sm px-2 py-1 text-[12px] font-bold text-[#4d5360] transition hover:bg-white"
-                            >
-                              <span className="min-w-0 flex-1 truncate">{section.title}</span>
-                              <input
-                                type="checkbox"
-                                checked={repairSectionVisibility[section.id] !== false}
-                                onChange={(event) => toggleRepairSectionVisibility(section.id, event.currentTarget.checked)}
-                                className="h-4 w-4 accent-[#273f7a]"
-                              />
-                            </label>
+                            <div key={section.id} className="rounded-sm px-2 py-1">
+                              <label className="flex cursor-pointer items-center justify-between gap-3 text-[12px] font-bold text-[#4d5360] transition hover:bg-white">
+                                <span className="min-w-0 flex-1 truncate">{section.title}</span>
+                                <input
+                                  type="checkbox"
+                                  checked={repairSectionVisibility[section.id] !== false}
+                                  onChange={(event) => toggleRepairSectionVisibility(section.id, event.currentTarget.checked)}
+                                  className="h-4 w-4 accent-[#273f7a]"
+                                />
+                              </label>
+                              <div className="mt-1 space-y-1 border-l border-[#d8deea] pl-3">
+                                {section.costSections.map((costSection) => (
+                                  <label
+                                    key={costSection.id}
+                                    className="flex cursor-pointer items-center justify-between gap-3 rounded-sm px-2 py-1 text-[11px] font-bold text-[#4d5360] transition hover:bg-white"
+                                  >
+                                    <span className="min-w-0 flex-1 truncate">{costSection.title}</span>
+                                    <input
+                                      type="checkbox"
+                                      checked={isRepairCostSectionVisible(repairSectionVisibility, section.id, costSection.id)}
+                                      onChange={(event) =>
+                                        toggleRepairCostSectionVisibility(section.id, costSection.id, event.currentTarget.checked)
+                                      }
+                                      className="h-4 w-4 accent-[#273f7a]"
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
                           ))}
                         </div>
                       </section>
