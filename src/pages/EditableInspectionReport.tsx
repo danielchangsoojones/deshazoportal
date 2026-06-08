@@ -233,12 +233,12 @@ const createDefaultRepairCostSections = (repairId: string): CostSection[] => [
   {
     id: `${repairId}-parts`,
     title: 'Parts',
-    lineItems: [{ id: `${repairId}-parts-line-1`, description: 'Parts required for this repair.', quantity: '1', rate: '0.00', margin: '0' }],
+    lineItems: [],
   },
   {
     id: `${repairId}-labor`,
     title: 'Labor',
-    lineItems: [{ id: `${repairId}-labor-line-1`, description: 'Labor required for this repair.', quantity: '1', rate: '0.00', margin: '0' }],
+    lineItems: [],
   },
 ]
 
@@ -293,12 +293,12 @@ const defaultCostSections: CostSection[] = [
   {
     id: 'equipment-rental',
     title: 'Equipment Rental',
-    lineItems: [{ id: 'rental-line-1', description: 'Rental equipment.', quantity: '1', rate: '0.00', margin: '0' }],
+    lineItems: [],
   },
   {
     id: 'freight',
     title: 'Freight',
-    lineItems: [{ id: 'freight-line-1', description: 'Freight and delivery.', quantity: '1', rate: '0.00', margin: '0' }],
+    lineItems: [],
   },
 ]
 
