@@ -123,6 +123,77 @@ function getConditionTone(point: DeshazoInspectionPoint) {
   return 'danger'
 }
 
+function getConditionRank(point: DeshazoInspectionPoint) {
+  const tone = getConditionTone(point)
+  if (tone === 'repair') return 4
+  if (tone === 'danger') return 3
+  if (tone === 'success') return 2
+  return 1
+}
+
+function mergePointCollections<T>(left: T[] | undefined, right: T[] | undefined) {
+  return [...(left ?? []), ...(right ?? [])]
+}
+
+function getPointIdentity(point: DeshazoInspectionPoint) {
+  return [
+    point.id ?? '',
+    point.order ?? '',
+    (point.name ?? '').trim().toLowerCase(),
+  ].join('|')
+}
+
+function dedupeInspectionPoints(points: DeshazoInspectionPoint[]) {
+  const pointsByIdentity = new Map<string, DeshazoInspectionPoint>()
+
+  points.forEach((point) => {
+    const identity = getPointIdentity(point)
+    const existingPoint = pointsByIdentity.get(identity)
+    if (!existingPoint) {
+      pointsByIdentity.set(identity, point)
+      return
+    }
+
+    const preferredPoint = getConditionRank(point) > getConditionRank(existingPoint) ? point : existingPoint
+    pointsByIdentity.set(identity, {
+      ...preferredPoint,
+      notes: preferredPoint.notes || existingPoint.notes || point.notes,
+      remarks: mergePointCollections(existingPoint.remarks, point.remarks),
+      photos: mergePointCollections(existingPoint.photos, point.photos),
+    })
+  })
+
+  return Array.from(pointsByIdentity.values())
+}
+
+function resolveHoistSections(points: DeshazoInspectionPoint[], hoistCount: number) {
+  if (hoistCount <= 1) return [dedupeInspectionPoints(points)]
+
+  const groupedPoints = new Map<string, DeshazoInspectionPoint[]>()
+  points.forEach((point) => {
+    const identity = getPointIdentity(point)
+    groupedPoints.set(identity, [...(groupedPoints.get(identity) ?? []), point])
+  })
+
+  const canDeinterleave = Array.from(groupedPoints.values()).some((group) => group.length >= hoistCount)
+  if (!canDeinterleave) {
+    const chunkSize = Math.max(1, Math.floor(points.length / hoistCount))
+    return Array.from({ length: hoistCount }, (_, hoistIndex) => {
+      const start = hoistIndex * chunkSize
+      const end = hoistIndex === hoistCount - 1 ? points.length : start + chunkSize
+      return dedupeInspectionPoints(points.slice(start, end))
+    })
+  }
+
+  return Array.from({ length: hoistCount }, (_, hoistIndex) =>
+    dedupeInspectionPoints(
+      Array.from(groupedPoints.values())
+        .map((group) => group[hoistIndex] ?? group[0])
+        .filter((point): point is DeshazoInspectionPoint => Boolean(point)),
+    ),
+  )
+}
+
 function sortPoints(points: DeshazoInspectionPoint[]) {
   return [...points].sort((left, right) => {
     const leftOrder = typeof left.order === 'number' ? left.order : Number.MAX_SAFE_INTEGER
@@ -146,22 +217,18 @@ function resolveSections(craneReport: DeshazoCraneReport) {
       if (sortedPoints.length === 0) return
 
       if ((section.name ?? '').includes('craneStructureType')) {
-        sections.push({ name: getStructureSectionName(craneReport), points: sortedPoints })
+        sections.push({ name: getStructureSectionName(craneReport), points: dedupeInspectionPoints(sortedPoints) })
         return
       }
 
       if ((section.name ?? '').includes('Hoist') && hoists.length > 0) {
-        const chunkSize = Math.max(1, Math.floor(sortedPoints.length / hoists.length))
-        hoists.forEach((_, hoistIndex) => {
-          const start = hoistIndex * chunkSize
-          const end = hoistIndex === hoists.length - 1 ? sortedPoints.length : start + chunkSize
-          const points = sortedPoints.slice(start, end)
+        resolveHoistSections(sortedPoints, hoists.length).forEach((points, hoistIndex) => {
           if (points.length > 0) sections.push({ name: `Hoist ${hoistIndex + 1}`, points })
         })
         return
       }
 
-      sections.push({ name: section.name || inspection.type || 'Inspection Section', points: sortedPoints })
+      sections.push({ name: section.name || inspection.type || 'Inspection Section', points: dedupeInspectionPoints(sortedPoints) })
     })
   })
 
@@ -248,7 +315,7 @@ function renderSectionedItems(items: SectionedItem[], itemLabel: string, include
                 (item) => `
                   <div class="page2-point">
                     <div class="page2-point-name">${escapeHtml(item.label)}</div>
-                    <div class="${page2StatusClass(item.status)}">${escapeHtml(toTitleCase(item.status))}</div>
+                    <div class="${page2StatusClass(item.status)}">${renderStatusLabel(item.status)}</div>
                     ${
                       includePhotos && item.photos.length > 0
                         ? `<div class="page2-action-photos">
@@ -331,16 +398,32 @@ function getInspectionStats(craneReport: DeshazoCraneReport) {
 
 function toneClass(point: DeshazoInspectionPoint) {
   const tone = getConditionTone(point)
+  const normalizedStatus = getPointDisplayValue(point).toUpperCase()
   if (tone === 'success') return 'status status-success'
   if (tone === 'neutral') return 'status status-neutral'
-  return 'status status-danger'
+  if (normalizedStatus === 'MONITOR') return 'status status-monitor status-with-icons'
+  return 'status status-danger status-with-icons'
 }
 
 function page2StatusClass(status: string) {
   const normalizedStatus = status.toUpperCase()
   if (normalizedStatus === 'SATISFACTORY') return 'page2-point-status page2-status-success'
   if (normalizedStatus === 'N/A') return 'page2-point-status page2-status-neutral'
-  return 'page2-point-status page2-status-danger'
+  if (normalizedStatus === 'MONITOR') return 'page2-point-status page2-status-monitor status-with-icons'
+  return 'page2-point-status page2-status-danger status-with-icons'
+}
+
+function renderStatusLabel(status: string) {
+  const label = toTitleCase(status)
+  const normalizedStatus = status.toUpperCase()
+  if (normalizedStatus !== 'REPAIR' && normalizedStatus !== 'MONITOR') return escapeHtml(label)
+
+  const iconClass = normalizedStatus === 'MONITOR' ? 'status-icon-monitor' : 'status-icon-repair'
+  return `
+    <span class="status-icon ${iconClass}"></span>
+    <span>${escapeHtml(label)}</span>
+    <span class="status-camera"></span>
+  `
 }
 
 function buildEquipmentLines(
@@ -404,7 +487,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
                   (point) => `
                     <div class="detail-row">
                       <div class="detail-label">${escapeHtml(point.name ?? 'Inspection point')}</div>
-                      <div class="${toneClass(point)}">${escapeHtml(toTitleCase(getPointDisplayValue(point)))}</div>
+                      <div class="${toneClass(point)}">${renderStatusLabel(getPointDisplayValue(point))}</div>
                     </div>
                   `,
                 )
@@ -433,7 +516,9 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
           if (item.notes) height += 22
         })
       })
-    } else if (notesAndPhotoItems.length > 0) {
+    }
+
+    if (notesAndPhotoItems.length > 0) {
       height += 45
       groupItemsBySection(notesAndPhotoItems).forEach((group) => {
         height += 28 + group.items.length * 58
@@ -486,7 +571,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
       (item) => `
         <div class="mini-action-row">
           <div class="mini-action-label">${escapeHtml(item.sectionName)}:<br />${escapeHtml(item.label)}</div>
-          <div class="mini-action-status"><span class="action-pill">${escapeHtml(toTitleCase(item.status))}</span></div>
+          <div class="mini-action-status"><span class="action-pill status-with-icons">${renderStatusLabel(item.status)}</span></div>
         </div>
       `,
     )
@@ -524,6 +609,11 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     ? `
       <div class="page2-title page2-title-repair">ACTION LIST - REPAIR ITEMS</div>
       ${renderSectionedItems(actionItems, 'Repair item', true)}
+      ${
+        notesAndPhotoItems.length
+          ? `<div class="page2-title page2-title-notes">NOTES AND PHOTOS</div>${renderSectionedItems(notesAndPhotoItems, 'item')}`
+          : ''
+      }
       ${
         photos.length
           ? `<div class="page2-title page2-title-pictures">ADDITIONAL DETAILS - PICTURES</div>${photoMarkup}`
@@ -693,17 +783,29 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .mini-action-row:nth-last-child(-n+3) { border-bottom: 0; }
     .mini-action-label { min-width: 0; line-height: 1.15; }
     .mini-action-status { display: flex; align-items: center; justify-content: flex-end; }
-    .action-pill { display: inline-block; box-sizing: border-box; width: 104px; height: 18px; padding: 0 9px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: middle; overflow: hidden; }
+    .action-pill { display: inline-flex; box-sizing: border-box; width: 104px; height: 18px; padding: 0 8px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: middle; overflow: hidden; }
     .overview-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; font-size: 12px; }
     .detail-section { padding-top: 11px; margin-top: 11px; border-top: 1px solid #dadada; break-inside: avoid; }
     .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 6px; font-size: 12px; font-weight: 700; }
     .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 14px; }
     .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 7px; min-height: 17px; font-size: 12px; }
     .detail-label { min-width: 0; line-height: 1.18; }
-    .status { display: block; box-sizing: border-box; width: 92px; height: 17px; padding: 0 6px; text-align: center; font-size: 11px; font-weight: 700; line-height: 17px; white-space: nowrap; overflow: hidden; }
+    .status { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 92px; height: 17px; padding: 0 6px; text-align: center; font-size: 11px; font-weight: 700; line-height: 17px; white-space: nowrap; overflow: hidden; }
+    .status-with-icons { justify-content: space-between; gap: 4px; }
+    .status-with-icons > span:nth-child(2) { flex: 1; min-width: 0; text-align: center; }
+    .status-icon { position: relative; display: inline-block; flex: 0 0 auto; width: 11px; height: 11px; }
+    .status-icon-repair { background: currentColor; clip-path: polygon(50% 0, 90% 15%, 86% 62%, 50% 100%, 14% 62%, 10% 15%); }
+    .status-icon-repair::after { content: "i"; position: absolute; inset: 0; color: #fff; font-family: Georgia, serif; font-size: 8px; font-weight: 900; font-style: italic; line-height: 11px; text-align: center; }
+    .status-icon-monitor { width: 12px; height: 12px; }
+    .status-icon-monitor::before { content: ""; position: absolute; left: 2px; top: 0; width: 8px; height: 11px; background: currentColor; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+    .status-icon-monitor::after { content: ""; position: absolute; left: 3px; top: 5px; width: 6px; height: 1px; background: #fbf4bf; box-shadow: 0 3px 0 #fbf4bf; }
+    .status-camera { position: relative; display: inline-block; flex: 0 0 auto; width: 11px; height: 8px; border-radius: 2px; background: currentColor; }
+    .status-camera::before { content: ""; position: absolute; left: 2px; top: -2px; width: 4px; height: 2px; border-radius: 1px 1px 0 0; background: currentColor; }
+    .status-camera::after { content: ""; position: absolute; left: 4px; top: 2px; width: 3px; height: 3px; border-radius: 50%; background: #fff; opacity: .9; }
     .status-success { background: #bff2be; color: #1f6a2e; }
     .status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .status-danger { background: #f7c7c7; color: #a61616; }
+    .status-monitor { background: #fbf4bf; color: #8b7a00; }
     .page2-header { display: grid; grid-template-columns: 250px 1fr; align-items: start; gap: 24px; padding: 0 0 9px; border-bottom: 3px solid #f0aa2e; }
     .page2-brand { font-size: 30px; font-weight: 900; letter-spacing: -1px; line-height: .9; color: #050505; }
     .page2-brand span { color: #f0aa2e; }
@@ -715,6 +817,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-continuation .detail-section:first-child { margin-top: 0; }
     .page2-title { margin-left: 5px; padding-bottom: 11px; border-bottom: 1px solid #b81717; font-size: 15px; font-weight: 700; line-height: 1.05; text-transform: uppercase; color: #171821; }
     .page2-title-repair { color: #b81717; }
+    .page2-title-notes { margin-top: 22px; }
     .page2-title-pictures { margin-top: 22px; border-bottom-color: #d8d8d8; color: #171821; }
     .page2-title-pictures-only { margin-top: 20px; }
     .page2-item-section { margin: 12px 0 0 13px; }
@@ -724,10 +827,11 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-point { margin: 0; font-size: 12px; }
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
-    .page2-point-status { display: inline-block; box-sizing: border-box; min-width: 86px; height: 18px; margin: 7px 0 0 18px; padding: 0 10px; font-size: 10px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: middle; white-space: nowrap; overflow: hidden; }
+    .page2-point-status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; height: 18px; margin: 7px 0 0 18px; padding: 0 8px; font-size: 10px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: middle; white-space: nowrap; overflow: hidden; }
     .page2-status-success { background: #bff2be; color: #1f6a2e; }
     .page2-status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .page2-status-danger { background: #e8c7c9; color: #9d1c1c; }
+    .page2-status-monitor { background: #fbf4bf; color: #8b7a00; }
     .page2-action-photos { display: grid; grid-template-columns: repeat(2, 112px); gap: 0; margin: 7px 0 0 18px; }
     .page2-action-photo { position: relative; width: 112px; height: 136px; margin: 0; background: #ecdcdc; overflow: hidden; }
     .page2-action-photo img { display: block; width: 100%; height: 118px; object-fit: cover; }
