@@ -9,6 +9,7 @@ import {
   getSavedDeshazoWorkOrders,
   syncDeshazoExternalWorkOrders,
 } from '../lib/deshazoExternalReports'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -115,8 +116,10 @@ export default function DeshazoWorkOrders() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState('')
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const canFetchAll = userTag === 'developer'
 
   const activeMenuItems = useMemo(
     () =>
@@ -145,9 +148,10 @@ export default function DeshazoWorkOrders() {
       }
 
       const offset = (currentPage - 1) * WORK_ORDERS_PAGE_SIZE
-      const [result, latestSyncAt] = await Promise.all([
+      const [result, latestSyncAt, nextUserTag] = await Promise.all([
         getSavedDeshazoWorkOrders(WORK_ORDERS_PAGE_SIZE, submittedSearch, offset),
         getDeshazoExternalWorkOrdersLastSync(),
+        getCurrentUserTag(nextUser.id),
       ])
       if (cancelledRef?.cancelled) return
 
@@ -161,6 +165,7 @@ export default function DeshazoWorkOrders() {
       const lastVisibleRow = Math.min(offset + result.workOrders.length, result.totalCount)
 
       setUser(nextUser)
+      setUserTag(nextUserTag)
       setWorkOrders(result.workOrders)
       setTotalCount(result.totalCount)
       setLastSyncAt(latestSyncAt)
@@ -396,16 +401,18 @@ export default function DeshazoWorkOrders() {
                 </div>
               </div>
               <div className="flex w-full flex-col gap-3 lg:max-w-[760px] lg:items-end">
-                <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-                  <button
-                    type="button"
-                    onClick={() => handleSync('all work orders', FULL_SYNC_MISSING_BATCH_SIZE)}
-                    disabled={syncing}
-                    className="rounded-sm bg-[#4f9879] px-3 py-2 text-sm font-black text-white transition hover:bg-[#43886c] disabled:cursor-not-allowed disabled:opacity-55"
-                  >
-                    Fetch All
-                  </button>
-                </div>
+                {canFetchAll && (
+                  <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleSync('all work orders', FULL_SYNC_MISSING_BATCH_SIZE)}
+                      disabled={syncing}
+                      className="rounded-sm bg-[#4f9879] px-3 py-2 text-sm font-black text-white transition hover:bg-[#43886c] disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      Fetch All
+                    </button>
+                  </div>
+                )}
                 <form onSubmit={handleSearchSubmit} className="flex w-full max-w-[440px] items-stretch">
                   <div className="relative min-w-0 flex-1">
                     <input
