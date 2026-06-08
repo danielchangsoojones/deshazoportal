@@ -246,30 +246,25 @@ const defaultRepairSections: RepairSection[] = [
   {
     id: 'under-running-bridge-wheels',
     title: 'Under Running Bridge: Wheels',
+    description: 'Inspect wheel tread wear and flange condition. Confirm wheel bearings rotate freely under load.',
     status: 'Repair',
-    lineItems: [
-      { id: 'wheel-line-1', description: 'Inspect wheel tread wear and flange condition.', quantity: '1', rate: '185.00', margin: '0' },
-      { id: 'wheel-line-2', description: 'Confirm wheel bearings rotate freely under load.', quantity: '1', rate: '145.00', margin: '0' },
-    ],
+    lineItems: [],
     costSections: createDefaultRepairCostSections('under-running-bridge-wheels'),
   },
   {
     id: 'under-running-bridge-conductors',
     title: 'Under Running Bridge: Conductors/Festoon System',
+    description: 'Replace damaged festoon cable carrier hardware. Verify conductor alignment through full bridge travel.',
     status: 'Repair',
-    lineItems: [
-      { id: 'festoon-line-1', description: 'Replace damaged festoon cable carrier hardware.', quantity: '2', rate: '95.00', margin: '0' },
-      { id: 'festoon-line-2', description: 'Verify conductor alignment through full bridge travel.', quantity: '1', rate: '125.00', margin: '0' },
-    ],
+    lineItems: [],
     costSections: createDefaultRepairCostSections('under-running-bridge-conductors'),
   },
   {
     id: 'hoist-1-festoons',
     title: 'Hoist 1: Festoons',
+    description: 'Repair loose festoon trolley and check cable strain relief.',
     status: 'Repair',
-    lineItems: [
-      { id: 'hoist-line-1', description: 'Repair loose festoon trolley and check cable strain relief.', quantity: '1', rate: '210.00', margin: '0' },
-    ],
+    lineItems: [],
     costSections: createDefaultRepairCostSections('hoist-1-festoons'),
   },
 ]
@@ -822,9 +817,6 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
   repairSections.forEach((section) => {
     const repairLabel = [section.title, section.description].filter((value) => value?.trim()).join(' - ')
     lines.push('', `${repairLabel} (${section.status || 'Repair'})`)
-    section.lineItems.forEach((lineItem) => {
-      lines.push(getPdfLineItemSummary(lineItem))
-    })
     section.costSections.forEach((costSection) => {
       lines.push(costSection.title)
       costSection.lineItems.forEach((lineItem) => {
@@ -991,23 +983,6 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             <span>${escapeHtml([section.title, section.description].filter((value) => value?.trim()).join(' - '))}</span>
             <span class="status">${escapeHtml(section.status || 'Repair')}</span>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th>Qty</th>
-                <th>Customer Price</th>
-                <th>Total Customer Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${getTemplateLineItemRows(section.lineItems, getCustomerLineAmount)}
-              <tr class="subtotal">
-                <td colspan="3">Repair Scope Subtotal</td>
-                <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}</td>
-              </tr>
-            </tbody>
-          </table>
           ${repairCostMarkup}
           <table>
             <tbody>
@@ -1430,16 +1405,14 @@ const getCostCustomerLineAmount = (
   parseMoney(lineItem.quantity) * getCostCustomerUnitPrice(sectionId, lineItem, settings)
 
 const getRepairSectionInternalTotal = (section: RepairSection) =>
-  section.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0)
-  + section.costSections.reduce(
+  section.costSections.reduce(
     (total, costSection) =>
       total + costSection.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
     0,
   )
 
 const getRepairSectionCustomerTotal = (section: RepairSection) =>
-  section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0)
-  + section.costSections.reduce(
+  section.costSections.reduce(
     (total, costSection) =>
       total + costSection.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
     0,
@@ -1475,8 +1448,6 @@ const normalizeEstimateCostSections = (sections: CostSection[]) =>
 const shouldPromoteRepairLineItemToDescription = (lineItem: RepairLineItem) =>
   Boolean(lineItem.description?.trim())
   && !shouldClearPlaceholderDescription(lineItem.description)
-  && getInternalLineAmount(lineItem) === 0
-  && getCustomerLineAmount(lineItem) === 0
 
 const normalizeRepairSections = (sections: RepairSection[]) =>
   sections.map((section) => {
@@ -1486,11 +1457,12 @@ const normalizeRepairSections = (sections: RepairSection[]) =>
       !section.description?.trim()
       && firstLineItem
       && shouldPromoteRepairLineItemToDescription(firstLineItem)
+    const promotedDescription = shouldPromoteFirstLineItem ? firstLineItem.description : ''
 
     return {
       ...section,
-      description: section.description ?? (shouldPromoteFirstLineItem ? firstLineItem.description : ''),
-      lineItems: shouldPromoteFirstLineItem ? normalizedLineItems.slice(1) : normalizedLineItems,
+      description: section.description ?? promotedDescription,
+      lineItems: [],
       costSections: normalizeCostSections(
         Array.isArray(section.costSections) && section.costSections.length > 0
           ? section.costSections
@@ -3050,7 +3022,7 @@ export default function EditableInspectionReport() {
           title: 'New Repair Item',
           description: '',
           status: 'Repair',
-          lineItems: [createManualLineItem(createId('line'), 'Add repair detail here.')],
+          lineItems: [],
           costSections: createDefaultRepairCostSections(nextSectionId),
         },
       ]),
@@ -3074,106 +3046,8 @@ export default function EditableInspectionReport() {
     )
   }
 
-  const addRepairLineItem = (sectionId: string) => {
-    setRepairSections((currentSections) =>
-      saveRepairSections(
-        currentSections.map((section) =>
-          section.id === sectionId
-            ? {
-                ...section,
-                lineItems: [
-                  ...section.lineItems,
-                  createManualLineItem(createId('line'), 'Add repair detail here.'),
-                ],
-              }
-            : section,
-        ),
-      ),
-    )
-  }
-
-  const updateRepairLineItem = (
-    sectionId: string,
-    lineItemId: string,
-    field: 'description' | 'internalCost' | 'quantity' | 'customerPrice' | 'rate' | 'margin',
-    value: string,
-  ) => {
-    setRepairSections((currentSections) =>
-      saveRepairSections(
-        currentSections.map((section) =>
-          section.id === sectionId
-            ? {
-                ...section,
-                lineItems: section.lineItems.map((lineItem) => {
-                  if (lineItem.id !== lineItemId) return lineItem
-                  if (field === 'internalCost') {
-                    return {
-                      ...lineItem,
-                      internalCost: value,
-                      rate: value,
-                      margin: getUnitMargin(parseMoney(value), getCustomerUnitPrice(lineItem)).toFixed(2),
-                    }
-                  }
-                  if (field === 'customerPrice') {
-                    return {
-                      ...lineItem,
-                      customerPrice: value,
-                      margin: getUnitMargin(getInternalUnitCost(lineItem), parseMoney(value)).toFixed(2),
-                    }
-                  }
-                  if (field === 'margin') {
-                    return {
-                      ...lineItem,
-                      margin: value,
-                      customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
-                    }
-                  }
-                  return { ...lineItem, [field]: value }
-                }),
-              }
-            : section,
-        ),
-      ),
-    )
-  }
-
   const warnIfDecayedMenuItem = (item: MenuItem) => {
     if (isMenuItemDecayed(item)) setDecayedMenuItemWarning(item)
-  }
-
-  const addMenuItemToRepairSection = (sectionId: string, item: MenuItem) => {
-    addMenuItemToRecentlyUsed(item)
-    warnIfDecayedMenuItem(item)
-    setRepairSections((currentSections) =>
-      saveRepairSections(
-        currentSections.map((section) =>
-          section.id === sectionId
-            ? {
-                ...section,
-                lineItems: [
-                  ...section.lineItems,
-                  createMenuLineItem(createId('line'), item),
-                ],
-              }
-            : section,
-        ),
-      ),
-    )
-  }
-
-  const removeRepairLineItem = (sectionId: string, lineItemId: string) => {
-    setRepairSections((currentSections) =>
-      saveRepairSections(
-        currentSections.map((section) =>
-          section.id === sectionId
-            ? {
-                ...section,
-                lineItems: section.lineItems.filter((lineItem) => lineItem.id !== lineItemId),
-              }
-            : section,
-        ),
-      ),
-    )
   }
 
   const addRepairCostLineItem = (repairSectionId: string, costSectionId: string) => {
@@ -4497,17 +4371,6 @@ export default function EditableInspectionReport() {
                       key={section.id}
                       data-report-block-id={`repair-section-${section.id}`}
                       style={getRuntimePageBreakStyle(`repair-section-${section.id}`)}
-                      onDragOver={(event) => {
-                        if (!isMenuItemDrag(event)) return
-                        event.preventDefault()
-                        event.dataTransfer.dropEffect = 'copy'
-                      }}
-                      onDrop={(event) => {
-                        if (!isMenuItemDrag(event)) return
-                        event.preventDefault()
-                        const item = getDroppedMenuItem(event)
-                        if (item) addMenuItemToRepairSection(section.id, item)
-                      }}
                       className={`repair-section ${sectionTone.sectionBackground} ${getRuntimePageBreakClassName(`repair-section-${section.id}`)} ${
                         sectionIndex > 0 ? `border-t ${sectionTone.sectionBorder}` : ''
                       }`}
@@ -4556,222 +4419,6 @@ export default function EditableInspectionReport() {
                         </div>
                       </div>
 
-                      <div className="bg-white">
-                      <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#f7f7f7] text-[9px] font-black uppercase text-[#555b66]">
-                        <div className="px-2 py-1">Description</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Customer Price</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
-                        <div className="report-inline-action border-l border-[#d8d8d8]" />
-                        <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
-                          <div className="px-3 py-2">Margin</div>
-                          <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
-                          <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
-                        </div>
-                      </div>
-                      <div>
-                        {section.lineItems.map((lineItem, lineIndex) => (
-                          <div
-                            key={lineItem.id}
-                            className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
-                          >
-                            {activeDoneLineItem === `repair-${section.id}-${lineItem.id}` ? (
-                              <button
-                                type="button"
-                                onMouseDown={(event) => event.preventDefault()}
-                                onClick={() => {
-                                  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-                                  setActiveDoneLineItem('')
-                                }}
-                                className="report-inline-action absolute right-[-84px] top-1/2 z-20 -translate-y-1/2 rounded-r-md border border-l-0 border-[#2f9e44] bg-[#e7f8ec] px-2.5 py-1 text-[10px] font-black uppercase leading-none text-[#17652b] shadow-sm transition hover:bg-[#d3f3dc]"
-                                aria-label={`Finish editing ${section.title} line item ${lineIndex + 1}`}
-                              >
-                                Done
-                              </button>
-                            ) : null}
-                            {shouldShowAddMenuItemTag(lineItem) ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openMenuSettingsFromLineItem(lineItem, {
-                                    collection: 'repair',
-                                    sectionId: section.id,
-                                    lineItemId: lineItem.id,
-                                  })
-                                }
-                                className="report-inline-action absolute left-[-112px] top-1 z-10 rounded-l-md border border-r-0 border-[#d8b24f] bg-[#fff5cf] px-2 py-1 text-[9px] font-black uppercase leading-none text-[#6c4a00] shadow-sm transition hover:bg-[#ffeaa0]"
-                                aria-label={`Add menu item from ${lineItem.description}`}
-                                title="Add menu item"
-                              >
-                                <span className="mr-1 inline-flex h-3 w-3 items-center justify-center rounded-full bg-[#d8a91e] text-[9px] leading-none text-white">
-                                  +
-                                </span>
-                                Add Menu Item
-                              </button>
-                            ) : null}
-                            <div className="flex min-h-[25px] items-start gap-2 px-2 py-1.5">
-                              <EditableValue
-                                label={`${section.title} line item ${lineIndex + 1}`}
-                                value={lineItem.description}
-                                onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'description', value)}
-                                onDropMenuItem={(item) => addMenuItemToRepairSection(section.id, item)}
-                                clearOnFocus={shouldClearPlaceholderDescription(lineItem.description)}
-                                onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
-                                className="min-w-0 flex-1 leading-tight"
-                                multiline
-                              />
-                            </div>
-                            <EditableValue
-                              label={`${section.title} internal cost ${lineIndex + 1}`}
-                              value={formatMoney(getInternalUnitCost(lineItem))}
-                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
-                              clearOnFocus={getInternalUnitCost(lineItem) === 0}
-                              onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
-                              className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
-                            />
-                            <EditableValue
-                              label={`${section.title} quantity ${lineIndex + 1}`}
-                              value={lineItem.quantity}
-                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'quantity', value)}
-                              onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
-                              className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
-                            />
-                            <EditableValue
-                              label={`${section.title} customer price ${lineIndex + 1}`}
-                              value={formatMoney(getCustomerUnitPrice(lineItem))}
-                              onChange={(value) => updateRepairLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
-                              clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
-                              onEditFocus={() => setActiveDoneLineItem(`repair-${section.id}-${lineItem.id}`)}
-                              className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
-                            />
-                            <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
-                              {formatMoney(getInternalLineAmount(lineItem))}
-                            </div>
-                            <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
-                              {formatMoney(getCustomerLineAmount(lineItem))}
-                            </div>
-                            <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
-                              <div className="relative flex items-stretch">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveLineMenu('')
-                                    setActiveMarginMenu((currentMenu) =>
-                                      currentMenu === `repair-${section.id}-${lineItem.id}`
-                                        ? ''
-                                        : `repair-${section.id}-${lineItem.id}`,
-                                    )
-                                  }}
-                                  className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
-                                  aria-label={`Open margin settings for ${section.title} line item ${lineIndex + 1}`}
-                                >
-                                  {Math.round(parseMoney(lineItem.margin))}%
-                                </button>
-                                {activeMarginMenu === `repair-${section.id}-${lineItem.id}` ? (
-                                  <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
-                                    <div className="mb-2 flex items-center justify-between gap-2">
-                                      <span className="text-[11px] font-black uppercase text-[#555b66]">Margin</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setActiveMarginMenu('')}
-                                        className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                                        aria-label="Close margin settings"
-                                      >
-                                        x
-                                      </button>
-                                    </div>
-                                    <label className="block text-[11px] font-black uppercase text-[#555b66]">
-                                      Margin: {Math.round(parseMoney(lineItem.margin))}%
-                                    </label>
-                                    <input
-                                      type="range"
-                                      min="-100"
-                                      max="100"
-                                      step="1"
-                                      value={parseMoney(lineItem.margin)}
-                                      onChange={(event) =>
-                                        updateRepairLineItem(section.id, lineItem.id, 'margin', event.currentTarget.value)
-                                      }
-                                      className="mt-2 w-full accent-[#273f7a]"
-                                    />
-                                  </div>
-                                ) : null}
-                              </div>
-                              <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
-                                {formatMoney(getUnitProfit(getInternalUnitCost(lineItem), getCustomerUnitPrice(lineItem)))}
-                              </div>
-                              <div className="flex items-center justify-end border-l border-[#e5e7ef] px-3 py-1.5 text-right">
-                                {formatMoney(getLineProfit(getInternalLineAmount(lineItem), getCustomerLineAmount(lineItem)))}
-                              </div>
-                            </div>
-                            <div className="report-inline-action relative border-l border-[#e5e5e5]">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveMarginMenu('')
-                                  setActiveLineMenu((currentMenu) =>
-                                    currentMenu === `repair-${section.id}-${lineItem.id}`
-                                      ? ''
-                                      : `repair-${section.id}-${lineItem.id}`,
-                                  )
-                                }}
-                                className="flex min-h-[25px] w-full items-center justify-center bg-white text-[19px] font-black leading-none text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                                aria-label={`Open settings for line item ${lineIndex + 1}`}
-                              >
-                                ⚙
-                              </button>
-                              {activeLineMenu === `repair-${section.id}-${lineItem.id}` ? (
-                                <div className="absolute right-0 top-[calc(100%+4px)] z-20 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
-                                  <div className="mb-2 flex items-center justify-between gap-2">
-                                    <span className="text-[11px] font-black uppercase text-[#555b66]">Line settings</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => setActiveLineMenu('')}
-                                      className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                                      aria-label="Close line settings"
-                                    >
-                                      x
-                                    </button>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      removeRepairLineItem(section.id, lineItem.id)
-                                      setActiveLineMenu('')
-                                    }}
-                                    className="mb-3 w-full rounded-md border border-[#e1c6c6] bg-[#fff7f7] px-3 py-2 text-left text-[12px] font-black text-[#8a1a1a] transition hover:bg-[#fcecec]"
-                                  >
-                                    Delete item
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="grid grid-cols-[1fr_150px_108px_112px_30px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black">
-                        <div className="px-2 py-1.5">
-                          <button
-                            type="button"
-                            onClick={() => addRepairLineItem(section.id)}
-                            className="report-inline-action rounded-md border border-[#bdc4d3] bg-[#f8fafc] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a] transition hover:bg-[#edf2fb]"
-                          >
-                            Add Line Item
-                          </button>
-                        </div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right uppercase text-[#555b66]">
-                          Section Subtotal
-                        </div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
-                          {formatMoney(section.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0))}
-                        </div>
-                        <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
-                          {formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}
-                        </div>
-                        <div className="report-inline-action border-l border-[#d8d8d8]" />
-                      </div>
                       <div className="bg-white">
                         {section.costSections.map((costSection) => (
                           <section
@@ -4940,7 +4587,6 @@ export default function EditableInspectionReport() {
                           </div>
                           <div className="report-inline-action border-l border-[#d8d8d8]" />
                         </div>
-                      </div>
                       </div>
                     </section>
                   )
