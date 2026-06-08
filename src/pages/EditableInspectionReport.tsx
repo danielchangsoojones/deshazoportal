@@ -42,11 +42,18 @@ type RepairLineItem = {
   source?: 'manual' | 'menu'
 }
 
+type CostSection = {
+  id: string
+  title: string
+  lineItems: RepairLineItem[]
+}
+
 type RepairSection = {
   id: string
   title: string
   status: string
   lineItems: RepairLineItem[]
+  costSections: CostSection[]
 }
 
 type RepairSectionTone = {
@@ -55,12 +62,6 @@ type RepairSectionTone = {
   statusBackground: string
   statusText: string
   statusIcon: string
-}
-
-type CostSection = {
-  id: string
-  title: string
-  lineItems: RepairLineItem[]
 }
 
 type MenuItem = InspectionMenuItem
@@ -227,6 +228,19 @@ const defaultReport: ReportData = {
   notes: defaultAdditionalNotes,
 }
 
+const createDefaultRepairCostSections = (repairId: string): CostSection[] => [
+  {
+    id: `${repairId}-parts`,
+    title: 'Parts',
+    lineItems: [{ id: `${repairId}-parts-line-1`, description: 'Parts required for this repair.', quantity: '1', rate: '0.00', margin: '0' }],
+  },
+  {
+    id: `${repairId}-labor`,
+    title: 'Labor',
+    lineItems: [{ id: `${repairId}-labor-line-1`, description: 'Labor required for this repair.', quantity: '1', rate: '0.00', margin: '0' }],
+  },
+]
+
 const defaultRepairSections: RepairSection[] = [
   {
     id: 'under-running-bridge-wheels',
@@ -236,6 +250,7 @@ const defaultRepairSections: RepairSection[] = [
       { id: 'wheel-line-1', description: 'Inspect wheel tread wear and flange condition.', quantity: '1', rate: '185.00', margin: '0' },
       { id: 'wheel-line-2', description: 'Confirm wheel bearings rotate freely under load.', quantity: '1', rate: '145.00', margin: '0' },
     ],
+    costSections: createDefaultRepairCostSections('under-running-bridge-wheels'),
   },
   {
     id: 'under-running-bridge-conductors',
@@ -245,6 +260,7 @@ const defaultRepairSections: RepairSection[] = [
       { id: 'festoon-line-1', description: 'Replace damaged festoon cable carrier hardware.', quantity: '2', rate: '95.00', margin: '0' },
       { id: 'festoon-line-2', description: 'Verify conductor alignment through full bridge travel.', quantity: '1', rate: '125.00', margin: '0' },
     ],
+    costSections: createDefaultRepairCostSections('under-running-bridge-conductors'),
   },
   {
     id: 'hoist-1-festoons',
@@ -253,6 +269,7 @@ const defaultRepairSections: RepairSection[] = [
     lineItems: [
       { id: 'hoist-line-1', description: 'Repair loose festoon trolley and check cable strain relief.', quantity: '1', rate: '210.00', margin: '0' },
     ],
+    costSections: createDefaultRepairCostSections('hoist-1-festoons'),
   },
 ]
 
@@ -277,16 +294,6 @@ const getRepairSectionTone = (status: string) =>
   status.toLowerCase().includes('monitor') ? repairSectionTones.monitor : repairSectionTones.repair
 
 const defaultCostSections: CostSection[] = [
-  {
-    id: 'parts',
-    title: 'Parts',
-    lineItems: [{ id: 'parts-line-1', description: 'Parts required for listed repairs.', quantity: '1', rate: '0.00', margin: '0' }],
-  },
-  {
-    id: 'labor',
-    title: 'Labor',
-    lineItems: [{ id: 'labor-line-1', description: 'Technician labor.', quantity: '1', rate: '0.00', margin: '0' }],
-  },
   {
     id: 'equipment-rental',
     title: 'Equipment Rental',
@@ -642,6 +649,7 @@ const buildRepairSectionsFromJobsQuotingItem = (item: JobsQuotingItem): RepairSe
             margin: '0',
           },
         ],
+        costSections: createDefaultRepairCostSections(`jobs-quoting-${item.id}-${index}`),
       }
     })
     .filter((section): section is RepairSection => Boolean(section))
@@ -662,6 +670,7 @@ const buildRepairSectionsFromJobsQuotingItem = (item: JobsQuotingItem): RepairSe
           margin: '0',
         },
       ],
+      costSections: createDefaultRepairCostSections(`jobs-quoting-${item.id}-review`),
     },
   ]
 }
@@ -792,7 +801,7 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
   const { payload } = source
   const reportData = payload.reportData
   const repairSections = normalizeRepairSections(payload.repairSections as RepairSection[])
-  const costSections = normalizeCostSections(payload.costSections as CostSection[])
+  const costSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
   const equipmentSettings = {
     ...defaultEquipmentRentalSettings,
     ...payload.equipmentRentalSettings,
@@ -828,6 +837,12 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
     section.lineItems.forEach((lineItem) => {
       lines.push(getPdfLineItemSummary(lineItem))
     })
+    section.costSections.forEach((costSection) => {
+      lines.push(costSection.title)
+      costSection.lineItems.forEach((lineItem) => {
+        lines.push(getPdfLineItemSummary(lineItem))
+      })
+    })
   })
 
   lines.push('', 'Estimate Summary')
@@ -839,8 +854,7 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
   })
 
   const repairTotal = repairSections.reduce(
-    (total, section) =>
-      total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+    (total, section) => total + getRepairSectionCustomerTotal(section),
     0,
   )
   const costTotal = costSections.reduce(
@@ -940,14 +954,13 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
   const reportMarkup = sources.map((source) => {
     const reportData = normalizeReport(source.payload.reportData)
     const repairSections = normalizeRepairSections(source.payload.repairSections as RepairSection[])
-    const costSections = normalizeCostSections(source.payload.costSections as CostSection[])
+    const costSections = normalizeEstimateCostSections(source.payload.costSections as CostSection[])
     const equipmentSettings = {
       ...defaultEquipmentRentalSettings,
       ...source.payload.equipmentRentalSettings,
     } as EquipmentRentalSettings
     const repairTotal = repairSections.reduce(
-      (total, section) =>
-        total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+      (total, section) => total + getRepairSectionCustomerTotal(section),
       0,
     )
     const costTotal = costSections.reduce(
@@ -960,8 +973,32 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
       0,
     )
     const repairMarkup = repairSections
-      .map((section) => `
-        <section class="quote-section repair-section">
+      .map((section) => {
+        const repairCostMarkup = section.costSections
+          .map((costSection) => `
+            <div class="nested-title">${escapeHtml(costSection.title)}</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th>Qty</th>
+                  <th>Customer Price</th>
+                  <th>Total Customer Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${getTemplateLineItemRows(costSection.lineItems, getCustomerLineAmount)}
+                <tr class="subtotal">
+                  <td colspan="3">${escapeHtml(costSection.title)} Subtotal</td>
+                  <td class="money">${formatMoney(costSection.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}</td>
+                </tr>
+              </tbody>
+            </table>
+          `)
+          .join('')
+
+        return `
+          <section class="quote-section repair-section">
           <div class="section-title">
             <span>${escapeHtml(section.title)}</span>
             <span class="status">${escapeHtml(section.status || 'Repair')}</span>
@@ -978,13 +1015,23 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             <tbody>
               ${getTemplateLineItemRows(section.lineItems, getCustomerLineAmount)}
               <tr class="subtotal">
-                <td colspan="3">Section Subtotal</td>
+                <td colspan="3">Repair Scope Subtotal</td>
                 <td class="money">${formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}</td>
               </tr>
             </tbody>
           </table>
+          ${repairCostMarkup}
+          <table>
+            <tbody>
+              <tr class="subtotal repair-total">
+                <td colspan="3">Repair Item Total</td>
+                <td class="money">${formatMoney(getRepairSectionCustomerTotal(section))}</td>
+              </tr>
+            </tbody>
+          </table>
         </section>
-      `)
+        `
+      })
       .join('')
 
     const costMarkup = costSections
@@ -1233,6 +1280,16 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
           .estimate-title { color: #273f7a; text-transform: uppercase; }
           .repair-section { background: #f4e3e3; }
           .repair-section table { background: #fff; }
+          .nested-title {
+            border-top: 1px solid #d8d8d8;
+            border-bottom: 1px solid #d8d8d8;
+            background: #f7f7f7;
+            padding: 5px 8px;
+            color: #273f7a;
+            font-size: 10px;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
           .status {
             min-width: 95px;
             background: #efc9c9;
@@ -1266,6 +1323,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
           th:first-child, td:first-child { width: 56%; }
           .money, .qty { text-align: right; white-space: nowrap; }
           .subtotal td { background: #fbfbfb; font-weight: 900; text-transform: uppercase; }
+          .repair-total td { background: #f0f4fb; color: #111; }
           .grand-total {
             display: grid;
             grid-template-columns: 1fr;
@@ -1383,42 +1441,58 @@ const getCostCustomerLineAmount = (
 ) =>
   parseMoney(lineItem.quantity) * getCostCustomerUnitPrice(sectionId, lineItem, settings)
 
-const normalizeRepairSections = (sections: RepairSection[]) =>
-  sections.map((section) => ({
-    ...section,
-    lineItems: section.lineItems.map((lineItem) => {
-      const savedLineItem = lineItem as RepairLineItem & { text?: string }
+const getRepairSectionInternalTotal = (section: RepairSection) =>
+  section.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0)
+  + section.costSections.reduce(
+    (total, costSection) =>
+      total + costSection.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
+    0,
+  )
 
-      return {
-        id: savedLineItem.id,
-        description: savedLineItem.description ?? savedLineItem.text ?? 'Add repair detail here.',
-        internalCost: savedLineItem.internalCost ?? savedLineItem.rate ?? '0.00',
-        quantity: savedLineItem.quantity ?? '1',
-        customerPrice: savedLineItem.customerPrice ?? getLegacyCustomerUnitPrice(savedLineItem).toFixed(2),
-        rate: savedLineItem.rate ?? '0.00',
-        margin: savedLineItem.customerPrice ? savedLineItem.margin ?? '0' : '0',
-        source: savedLineItem.source,
-      }
-    }),
-  }))
+const getRepairSectionCustomerTotal = (section: RepairSection) =>
+  section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0)
+  + section.costSections.reduce(
+    (total, costSection) =>
+      total + costSection.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+    0,
+  )
+
+const isRepairScopedCostSection = (section: CostSection) =>
+  ['parts', 'labor'].includes(section.id) || ['parts', 'labor'].includes(section.title.trim().toLowerCase())
+
+const normalizeLineItem = (lineItem: RepairLineItem, fallbackDescription: string) => {
+  const savedLineItem = lineItem as RepairLineItem & { text?: string }
+
+  return {
+    id: savedLineItem.id,
+    description: savedLineItem.description ?? savedLineItem.text ?? fallbackDescription,
+    internalCost: savedLineItem.internalCost ?? savedLineItem.rate ?? '0.00',
+    quantity: savedLineItem.quantity ?? '1',
+    customerPrice: savedLineItem.customerPrice ?? getLegacyCustomerUnitPrice(savedLineItem).toFixed(2),
+    rate: savedLineItem.rate ?? '0.00',
+    margin: savedLineItem.customerPrice ? savedLineItem.margin ?? '0' : '0',
+    source: savedLineItem.source,
+  }
+}
 
 const normalizeCostSections = (sections: CostSection[]) =>
   sections.map((section) => ({
     ...section,
-    lineItems: section.lineItems.map((lineItem) => {
-      const savedLineItem = lineItem as RepairLineItem & { text?: string }
+    lineItems: section.lineItems.map((lineItem) => normalizeLineItem(lineItem, 'Add line item here.')),
+  }))
 
-      return {
-        id: savedLineItem.id,
-        description: savedLineItem.description ?? savedLineItem.text ?? 'Add line item here.',
-        internalCost: savedLineItem.internalCost ?? savedLineItem.rate ?? '0.00',
-        quantity: savedLineItem.quantity ?? '1',
-        customerPrice: savedLineItem.customerPrice ?? getLegacyCustomerUnitPrice(savedLineItem).toFixed(2),
-        rate: savedLineItem.rate ?? '0.00',
-        margin: savedLineItem.customerPrice ? savedLineItem.margin ?? '0' : '0',
-        source: savedLineItem.source,
-      }
-    }),
+const normalizeEstimateCostSections = (sections: CostSection[]) =>
+  normalizeCostSections(sections).filter((section) => !isRepairScopedCostSection(section))
+
+const normalizeRepairSections = (sections: RepairSection[]) =>
+  sections.map((section) => ({
+    ...section,
+    lineItems: section.lineItems.map((lineItem) => normalizeLineItem(lineItem, 'Add repair detail here.')),
+    costSections: normalizeCostSections(
+      Array.isArray(section.costSections) && section.costSections.length > 0
+        ? section.costSections
+        : createDefaultRepairCostSections(section.id),
+    ),
   }))
 
 const normalizeReport = (report: ReportData) => {
@@ -1439,7 +1513,7 @@ const normalizeReport = (report: ReportData) => {
 const getNormalizedReportPayload = (report: EditableInspectionReport): EditableInspectionReportPayload => ({
   reportData: normalizeReport(report.reportData),
   repairSections: normalizeRepairSections(report.repairSections as RepairSection[]),
-  costSections: normalizeCostSections(report.costSections as CostSection[]),
+  costSections: normalizeEstimateCostSections(report.costSections as CostSection[]),
   blockVisibility: { ...defaultBlockVisibility, ...report.blockVisibility },
   estimateNoteVisibility: { ...defaultEstimateNoteVisibility, ...report.estimateNoteVisibility },
   repairSectionVisibility: report.repairSectionVisibility,
@@ -1455,10 +1529,22 @@ const hasSavedEditableReportPayload = (item: JobsQuotingItem) =>
 
 const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableInspectionReportPayload => {
   if (hasSavedEditableReportPayload(item)) {
+    const repairSections = item.repairSections as RepairSection[]
+    const legacyRepairCostSections = (item.costSections as CostSection[]).filter(isRepairScopedCostSection)
+    const remainingCostSections = (item.costSections as CostSection[]).filter((section) => !isRepairScopedCostSection(section))
+    const shouldMoveLegacyCostsIntoFirstRepair =
+      legacyRepairCostSections.length > 0
+      && repairSections.length > 0
+      && !repairSections.some((section) => Array.isArray(section.costSections) && section.costSections.length > 0)
+
     return {
       reportData: item.reportData,
-      repairSections: item.repairSections,
-      costSections: item.costSections.length > 0 ? item.costSections : defaultCostSections,
+      repairSections: shouldMoveLegacyCostsIntoFirstRepair
+        ? repairSections.map((section, index) =>
+            index === 0 ? { ...section, costSections: legacyRepairCostSections } : section,
+          )
+        : item.repairSections,
+      costSections: remainingCostSections.length > 0 ? remainingCostSections : defaultCostSections,
       blockVisibility: item.blockVisibility,
       estimateNoteVisibility: item.estimateNoteVisibility,
       repairSectionVisibility: item.repairSectionVisibility,
@@ -1797,7 +1883,7 @@ export default function EditableInspectionReport() {
     if (!savedSections) return defaultCostSections
 
     try {
-      return normalizeCostSections(JSON.parse(savedSections) as CostSection[])
+      return normalizeEstimateCostSections(JSON.parse(savedSections) as CostSection[])
     } catch {
       return defaultCostSections
     }
@@ -1980,8 +2066,7 @@ export default function EditableInspectionReport() {
   const repairTotal = useMemo(
     () =>
       repairSections.reduce(
-        (total, section) =>
-          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getCustomerLineAmount(lineItem), 0),
+        (total, section) => total + getRepairSectionCustomerTotal(section),
         0,
       ),
     [repairSections],
@@ -2003,8 +2088,7 @@ export default function EditableInspectionReport() {
   const grandTotalInternalCost = useMemo(
     () =>
       repairSections.reduce(
-        (total, section) =>
-          total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
+        (total, section) => total + getRepairSectionInternalTotal(section),
         0,
       )
       + costSections.reduce(
@@ -2176,7 +2260,7 @@ export default function EditableInspectionReport() {
   const applyEditableReportPayload = useCallback((payload: EditableInspectionReportPayload) => {
     const nextReport = normalizeReport(payload.reportData)
     const nextRepairSections = normalizeRepairSections(payload.repairSections as RepairSection[])
-    const nextCostSections = normalizeCostSections(payload.costSections as CostSection[])
+    const nextCostSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
     const nextBlockVisibility = { ...defaultBlockVisibility, ...payload.blockVisibility }
     const nextEstimateNoteVisibility = { ...defaultEstimateNoteVisibility, ...payload.estimateNoteVisibility }
     const nextRepairSectionVisibility = payload.repairSectionVisibility
@@ -2962,6 +3046,7 @@ export default function EditableInspectionReport() {
           title: 'New Repair Item',
           status: 'Repair',
           lineItems: [createManualLineItem(createId('line'), 'Add repair detail here.')],
+          costSections: createDefaultRepairCostSections(nextSectionId),
         },
       ]),
     )
@@ -3079,6 +3164,133 @@ export default function EditableInspectionReport() {
             ? {
                 ...section,
                 lineItems: section.lineItems.filter((lineItem) => lineItem.id !== lineItemId),
+              }
+            : section,
+        ),
+      ),
+    )
+  }
+
+  const addRepairCostLineItem = (repairSectionId: string, costSectionId: string) => {
+    setRepairSections((currentSections) =>
+      saveRepairSections(
+        currentSections.map((section) =>
+          section.id === repairSectionId
+            ? {
+                ...section,
+                costSections: section.costSections.map((costSection) =>
+                  costSection.id === costSectionId
+                    ? {
+                        ...costSection,
+                        lineItems: [
+                          ...costSection.lineItems,
+                          createManualLineItem(createId('line'), 'Add line item here.'),
+                        ],
+                      }
+                    : costSection,
+                ),
+              }
+            : section,
+        ),
+      ),
+    )
+  }
+
+  const updateRepairCostLineItem = (
+    repairSectionId: string,
+    costSectionId: string,
+    lineItemId: string,
+    field: 'description' | 'internalCost' | 'quantity' | 'customerPrice' | 'rate' | 'margin',
+    value: string,
+  ) => {
+    setRepairSections((currentSections) =>
+      saveRepairSections(
+        currentSections.map((section) =>
+          section.id === repairSectionId
+            ? {
+                ...section,
+                costSections: section.costSections.map((costSection) =>
+                  costSection.id === costSectionId
+                    ? {
+                        ...costSection,
+                        lineItems: costSection.lineItems.map((lineItem) => {
+                          if (lineItem.id !== lineItemId) return lineItem
+                          if (field === 'internalCost') {
+                            return {
+                              ...lineItem,
+                              internalCost: value,
+                              rate: value,
+                              margin: getUnitMargin(parseMoney(value), getCustomerUnitPrice(lineItem)).toFixed(2),
+                            }
+                          }
+                          if (field === 'customerPrice') {
+                            return {
+                              ...lineItem,
+                              customerPrice: value,
+                              margin: getUnitMargin(getInternalUnitCost(lineItem), parseMoney(value)).toFixed(2),
+                            }
+                          }
+                          if (field === 'margin') {
+                            return {
+                              ...lineItem,
+                              margin: value,
+                              customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                            }
+                          }
+                          return { ...lineItem, [field]: value }
+                        }),
+                      }
+                    : costSection,
+                ),
+              }
+            : section,
+        ),
+      ),
+    )
+  }
+
+  const addMenuItemToRepairCostSection = (repairSectionId: string, costSectionId: string, item: MenuItem) => {
+    addMenuItemToRecentlyUsed(item)
+    warnIfDecayedMenuItem(item)
+    setRepairSections((currentSections) =>
+      saveRepairSections(
+        currentSections.map((section) =>
+          section.id === repairSectionId
+            ? {
+                ...section,
+                costSections: section.costSections.map((costSection) =>
+                  costSection.id === costSectionId
+                    ? {
+                        ...costSection,
+                        lineItems: [
+                          ...costSection.lineItems,
+                          createMenuLineItem(createId('line'), item),
+                        ],
+                      }
+                    : costSection,
+                ),
+              }
+            : section,
+        ),
+      ),
+    )
+  }
+
+  const removeRepairCostLineItem = (repairSectionId: string, costSectionId: string, lineItemId: string) => {
+    setRepairSections((currentSections) =>
+      saveRepairSections(
+        currentSections.map((section) =>
+          section.id === repairSectionId
+            ? {
+                ...section,
+                costSections: section.costSections.map((costSection) =>
+                  costSection.id === costSectionId
+                    ? {
+                        ...costSection,
+                        lineItems: costSection.lineItems.filter((lineItem) => lineItem.id !== lineItemId),
+                      }
+                    : costSection,
+                ),
               }
             : section,
         ),
@@ -4542,6 +4754,175 @@ export default function EditableInspectionReport() {
                           {formatMoney(section.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}
                         </div>
                         <div className="report-inline-action border-l border-[#d8d8d8]" />
+                      </div>
+                      <div className="bg-white">
+                        {section.costSections.map((costSection) => (
+                          <section
+                            key={costSection.id}
+                            onDragOver={(event) => {
+                              if (!isMenuItemDrag(event)) return
+                              event.preventDefault()
+                              event.dataTransfer.dropEffect = 'copy'
+                            }}
+                            onDrop={(event) => {
+                              if (!isMenuItemDrag(event)) return
+                              event.preventDefault()
+                              const item = getDroppedMenuItem(event)
+                              if (item) addMenuItemToRepairCostSection(section.id, costSection.id, item)
+                            }}
+                            className="border-b border-[#d8d8d8]"
+                          >
+                            <div className="border-b border-[#d8d8d8] bg-[#f7f7f7] px-3 py-1.5 text-[12px] font-black uppercase leading-tight text-[#273f7a]">
+                              {costSection.title}
+                            </div>
+                            <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
+                              <div className="px-2 py-1">Description</div>
+                              <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
+                              <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
+                              <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Customer Price</div>
+                              <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
+                              <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
+                              <div className="report-inline-action border-l border-[#d8d8d8]" />
+                            </div>
+                            {costSection.lineItems.map((lineItem, lineIndex) => (
+                              <div
+                                key={lineItem.id}
+                                className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                              >
+                                {activeDoneLineItem === `repair-cost-${section.id}-${costSection.id}-${lineItem.id}` ? (
+                                  <button
+                                    type="button"
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => {
+                                      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+                                      setActiveDoneLineItem('')
+                                    }}
+                                    className="report-inline-action absolute right-[-84px] top-1/2 z-20 -translate-y-1/2 rounded-r-md border border-l-0 border-[#2f9e44] bg-[#e7f8ec] px-2.5 py-1 text-[10px] font-black uppercase leading-none text-[#17652b] shadow-sm transition hover:bg-[#d3f3dc]"
+                                    aria-label={`Finish editing ${costSection.title} line item ${lineIndex + 1}`}
+                                  >
+                                    Done
+                                  </button>
+                                ) : null}
+                                <div className="flex min-h-[25px] items-start gap-2 px-2 py-1.5">
+                                  <EditableValue
+                                    label={`${section.title} ${costSection.title} line item ${lineIndex + 1}`}
+                                    value={lineItem.description}
+                                    onChange={(value) => updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'description', value)}
+                                    onDropMenuItem={(item) => addMenuItemToRepairCostSection(section.id, costSection.id, item)}
+                                    clearOnFocus={shouldClearPlaceholderDescription(lineItem.description)}
+                                    onEditFocus={() => setActiveDoneLineItem(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)}
+                                    className="min-w-0 flex-1 leading-tight"
+                                  />
+                                </div>
+                                <EditableValue
+                                  label={`${section.title} ${costSection.title} internal cost ${lineIndex + 1}`}
+                                  value={formatMoney(getInternalUnitCost(lineItem))}
+                                  onChange={(value) => updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
+                                  clearOnFocus={getInternalUnitCost(lineItem) === 0}
+                                  onEditFocus={() => setActiveDoneLineItem(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)}
+                                  className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                                />
+                                <EditableValue
+                                  label={`${section.title} ${costSection.title} quantity ${lineIndex + 1}`}
+                                  value={lineItem.quantity}
+                                  onChange={(value) => updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'quantity', value)}
+                                  onEditFocus={() => setActiveDoneLineItem(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)}
+                                  className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                                />
+                                <EditableValue
+                                  label={`${section.title} ${costSection.title} customer price ${lineIndex + 1}`}
+                                  value={formatMoney(getCustomerUnitPrice(lineItem))}
+                                  onChange={(value) => updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
+                                  clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
+                                  onEditFocus={() => setActiveDoneLineItem(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)}
+                                  className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                                />
+                                <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
+                                  {formatMoney(getInternalLineAmount(lineItem))}
+                                </div>
+                                <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
+                                  {formatMoney(getCustomerLineAmount(lineItem))}
+                                </div>
+                                <div className="report-inline-action relative border-l border-[#e5e5e5]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveMarginMenu('')
+                                      setActiveLineMenu((currentMenu) =>
+                                        currentMenu === `repair-cost-${section.id}-${costSection.id}-${lineItem.id}`
+                                          ? ''
+                                          : `repair-cost-${section.id}-${costSection.id}-${lineItem.id}`,
+                                      )
+                                    }}
+                                    className="flex min-h-[25px] w-full items-center justify-center bg-white text-[19px] font-black leading-none text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                    aria-label={`Open settings for ${costSection.title} line item ${lineIndex + 1}`}
+                                  >
+                                    ⚙
+                                  </button>
+                                  {activeLineMenu === `repair-cost-${section.id}-${costSection.id}-${lineItem.id}` ? (
+                                    <div className="absolute right-0 top-[calc(100%+4px)] z-20 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
+                                      <div className="mb-2 flex items-center justify-between gap-2">
+                                        <span className="text-[11px] font-black uppercase text-[#555b66]">Line settings</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setActiveLineMenu('')}
+                                          className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
+                                          aria-label="Close line settings"
+                                        >
+                                          x
+                                        </button>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          removeRepairCostLineItem(section.id, costSection.id, lineItem.id)
+                                          setActiveLineMenu('')
+                                        }}
+                                        className="mb-3 w-full rounded-md border border-[#e1c6c6] bg-[#fff7f7] px-3 py-2 text-left text-[12px] font-black text-[#8a1a1a] transition hover:bg-[#fcecec]"
+                                      >
+                                        Delete item
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                            <div className="grid grid-cols-[1fr_150px_108px_112px_30px] bg-[#fbfbfb] text-[12px] font-black">
+                              <div className="px-2 py-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => addRepairCostLineItem(section.id, costSection.id)}
+                                  className="report-inline-action rounded-md border border-[#bdc4d3] bg-[#f8fafc] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a] transition hover:bg-[#edf2fb]"
+                                >
+                                  Add {costSection.title} Item
+                                </button>
+                              </div>
+                              <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right uppercase text-[#555b66]">
+                                {costSection.title} Subtotal
+                              </div>
+                              <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
+                                {formatMoney(costSection.lineItems.reduce((total, lineItem) => total + getInternalLineAmount(lineItem), 0))}
+                              </div>
+                              <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
+                                {formatMoney(costSection.lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem), 0))}
+                              </div>
+                              <div className="report-inline-action border-l border-[#d8d8d8]" />
+                            </div>
+                          </section>
+                        ))}
+                        <div className="grid grid-cols-[1fr_150px_108px_112px_30px] bg-[#f0f4fb] text-[12px] font-black">
+                          <div className="px-2 py-1.5" />
+                          <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right uppercase text-[#273f7a]">
+                            Repair Item Total
+                          </div>
+                          <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
+                            {formatMoney(getRepairSectionInternalTotal(section))}
+                          </div>
+                          <div className="border-l border-[#d8d8d8] px-2 py-1.5 text-right text-[#111]">
+                            {formatMoney(getRepairSectionCustomerTotal(section))}
+                          </div>
+                          <div className="report-inline-action border-l border-[#d8d8d8]" />
+                        </div>
                       </div>
                       </div>
                     </section>
