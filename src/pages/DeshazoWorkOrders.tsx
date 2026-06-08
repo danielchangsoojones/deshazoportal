@@ -25,8 +25,8 @@ const menuItems = [
 ]
 
 const WORK_ORDERS_PAGE_SIZE = 15
-const FULL_SYNC_PAGE_SIZE = 100
-const FULL_SYNC_MAX_BACKFILL_PASSES = 20
+const FULL_SYNC_MISSING_BATCH_SIZE = 10
+const FULL_SYNC_MAX_BACKFILL_PASSES = 80
 
 function formatDate(value: string) {
   if (!value) return ''
@@ -221,20 +221,20 @@ export default function DeshazoWorkOrders() {
     setCurrentPage(1)
   }
 
-  const syncAllWorkOrders = async (pageSize: number) => {
-    const updateResult = await syncDeshazoExternalWorkOrders({ pageSize })
-    let workOrdersSeen = updateResult.workOrdersSeen
-    let reportsSeen = updateResult.reportsSeen
-    const failures = [...(updateResult.failures ?? [])]
-    let totalCount = updateResult.totalCount
-    let totalPages = updateResult.totalPages
+  const syncAllWorkOrders = async () => {
+    let pagesProcessed = 0
+    let totalCount: number | null = null
+    let totalPages: number | null = null
+    let workOrdersSeen = 0
+    let reportsSeen = 0
+    const failures: Array<Record<string, unknown>> = []
 
     for (let pass = 1; pass <= FULL_SYNC_MAX_BACKFILL_PASSES; pass += 1) {
       setMessage(
         `Backfilling missing work orders from production API... pass ${pass}, ${workOrdersSeen} processed so far.`,
       )
       const missingResult = await syncDeshazoExternalWorkOrders({
-        pageSize,
+        pageSize: FULL_SYNC_MISSING_BATCH_SIZE,
         maxPages: 1,
         page: 1,
         nextMissingByDate: true,
@@ -242,6 +242,7 @@ export default function DeshazoWorkOrders() {
 
       totalCount = missingResult.totalCount ?? totalCount
       totalPages = missingResult.totalPages ?? totalPages
+      pagesProcessed += missingResult.pagesProcessed
       workOrdersSeen += missingResult.workOrdersSeen
       reportsSeen += missingResult.reportsSeen
       failures.push(...(missingResult.failures ?? []))
@@ -252,7 +253,9 @@ export default function DeshazoWorkOrders() {
     }
 
     return {
-      ...updateResult,
+      saved: true,
+      pagesProcessed,
+      pageSize: FULL_SYNC_MISSING_BATCH_SIZE,
       totalCount,
       totalPages,
       workOrdersSeen,
@@ -269,7 +272,10 @@ export default function DeshazoWorkOrders() {
     latestByDate = false,
     nextMissingByDate = false,
   ) => {
-    const scopeText = nextMissingByDate
+    const isFetchAll = !maxPages && !latestByDate && !nextMissingByDate
+    const scopeText = isFetchAll
+      ? `all missing work orders from the full source list in batches of ${FULL_SYNC_MISSING_BATCH_SIZE}`
+      : nextMissingByDate
       ? `the next ${pageSize} newest work orders that are not already saved`
       : maxPages
         ? `${pageSize} work orders from source page ${page}`
@@ -282,9 +288,8 @@ export default function DeshazoWorkOrders() {
     try {
       setSyncing(true)
       setMessage(`Syncing ${label} from production API...`)
-      const isFetchAll = !maxPages && !latestByDate && !nextMissingByDate
       const result = isFetchAll
-        ? await syncAllWorkOrders(pageSize)
+        ? await syncAllWorkOrders()
         : await syncDeshazoExternalWorkOrders({ pageSize, maxPages, page, latestByDate, nextMissingByDate })
       const failureText = result.failures?.length ? ` ${result.failures.length} failures returned.` : ''
       await loadWorkOrders()
@@ -411,7 +416,7 @@ export default function DeshazoWorkOrders() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSync('all work orders', FULL_SYNC_PAGE_SIZE)}
+                    onClick={() => handleSync('all work orders', FULL_SYNC_MISSING_BATCH_SIZE)}
                     disabled={syncing}
                     className="rounded-sm bg-[#4f9879] px-3 py-2 text-sm font-black text-white transition hover:bg-[#43886c] disabled:cursor-not-allowed disabled:opacity-55"
                   >
