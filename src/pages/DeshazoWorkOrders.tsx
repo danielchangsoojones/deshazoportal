@@ -19,7 +19,6 @@ const menuItems = [
   { label: 'Documents', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
   { label: 'Work Orders', href: '/deshazo-work-orders' },
-  { label: 'Deshazo Reports', href: '/deshazo-external-reports' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -398,22 +397,6 @@ export default function DeshazoWorkOrders() {
               </div>
               <div className="flex w-full flex-col gap-3 lg:max-w-[760px] lg:items-end">
                 <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-                  <button
-                    type="button"
-                    onClick={() => handleSync('next 10 missing work orders', 10, 1, 1, false, true)}
-                    disabled={syncing}
-                    className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
-                  >
-                    Fetch 10
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSync('next 50 missing work orders', 50, 1, 1, false, true)}
-                    disabled={syncing}
-                    className="rounded-sm bg-[#4f7fd6] px-3 py-2 text-sm font-black text-white transition hover:bg-[#3f6dc0] disabled:cursor-not-allowed disabled:opacity-55"
-                  >
-                    Fetch 50
-                  </button>
                   <button
                     type="button"
                     onClick={() => handleSync('all work orders', FULL_SYNC_MISSING_BATCH_SIZE)}

@@ -49,6 +49,12 @@ const portalCards = [
     href: '/custom-reports',
   },
   {
+    eyebrow: 'Operations',
+    title: 'Work Orders',
+    description: 'Open synced DeShazo work orders from Supabase and drill into inspection ticket PDFs.',
+    href: '/deshazo-work-orders',
+  },
+  {
     eyebrow: 'Help',
     title: 'Add User',
     description: 'Add new users to the portal and manage who gets access to key operational tools.',
@@ -62,20 +68,13 @@ const portalCards = [
   },
 ]
 
-const workOrdersPortalCard = {
-  eyebrow: 'Operations',
-  title: 'Work Orders',
-  description: 'Open synced DeShazo work orders from Supabase and drill into inspection ticket PDFs.',
-  href: '/deshazo-work-orders',
-}
-
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
   const visiblePortalCards = useMemo(
-    () => [...portalCards, workOrdersPortalCard],
+    () => portalCards,
     [],
   )
 

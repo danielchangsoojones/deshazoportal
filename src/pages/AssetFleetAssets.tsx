@@ -20,6 +20,7 @@ const menuItems = [
   { label: 'Location Comparison', href: '/location-comparison' },
   { label: 'Documents', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
+  { label: 'Work Orders', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]

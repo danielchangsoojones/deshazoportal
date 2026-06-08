@@ -53,6 +53,7 @@ const menuItems = [
   { label: 'Documents', href: '/documents-reports' },
   { label: 'Equipment Notebook LLM', href: '/equipment-notebook-llm' },
   { label: 'Custom Reports', href: '/custom-reports' },
+  { label: 'Work Orders', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]

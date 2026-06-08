@@ -29,7 +29,6 @@ const menuItems = [
   { label: 'Documents', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
   { label: 'Work Orders', href: '/deshazo-work-orders' },
-  { label: 'Deshazo Reports', href: '/deshazo-external-reports' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -233,7 +232,7 @@ export default function DeshazoExternalReports() {
     () =>
       menuItems.map((item) => ({
         ...item,
-        active: item.href === '/deshazo-external-reports',
+        active: item.href === '/deshazo-work-orders',
       })),
     [],
   )
