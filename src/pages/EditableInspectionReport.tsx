@@ -1479,7 +1479,9 @@ const shouldPromoteRepairLineItemToDescription = (lineItem: RepairLineItem) =>
 
 const normalizeRepairSections = (sections: RepairSection[]) =>
   sections.map((section) => {
-    const normalizedLineItems = section.lineItems.map((lineItem) => normalizeLineItem(lineItem, 'Add repair detail here.'))
+    const normalizedLineItems = Array.isArray(section.lineItems)
+      ? section.lineItems.map((lineItem) => normalizeLineItem(lineItem, 'Add repair detail here.'))
+      : []
     const firstLineItem = normalizedLineItems[0]
     const shouldPromoteFirstLineItem =
       !section.description?.trim()
@@ -1489,7 +1491,7 @@ const normalizeRepairSections = (sections: RepairSection[]) =>
 
     return {
       ...section,
-      description: section.description ?? promotedDescription,
+      description: section.description?.trim() ? section.description : promotedDescription,
       lineItems: [],
       costSections: normalizeCostSections(
         Array.isArray(section.costSections) && section.costSections.length > 0
