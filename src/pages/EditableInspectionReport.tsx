@@ -51,6 +51,7 @@ type CostSection = {
 type RepairSection = {
   id: string
   title: string
+  description?: string
   status: string
   lineItems: RepairLineItem[]
   costSections: CostSection[]
@@ -639,16 +640,9 @@ const buildRepairSectionsFromJobsQuotingItem = (item: JobsQuotingItem): RepairSe
       return {
         id: `jobs-quoting-${item.id}-${index}`,
         title,
+        description: note === title ? '' : note,
         status,
-        lineItems: [
-          {
-            id: `jobs-quoting-${item.id}-${index}-line-1`,
-            description: note,
-            quantity: '1',
-            rate: '0.00',
-            margin: '0',
-          },
-        ],
+        lineItems: [],
         costSections: createDefaultRepairCostSections(`jobs-quoting-${item.id}-${index}`),
       }
     })
@@ -660,16 +654,9 @@ const buildRepairSectionsFromJobsQuotingItem = (item: JobsQuotingItem): RepairSe
     {
       id: `jobs-quoting-${item.id}-review`,
       title: item.documentName,
+      description: 'Review the saved split inspection PDF and add quote line items for the listed repair/safety scope.',
       status: item.safetyCount > item.repairCount ? 'Monitor' : 'Repair',
-      lineItems: [
-        {
-          id: `jobs-quoting-${item.id}-review-line-1`,
-          description: 'Review the saved split inspection PDF and add quote line items for the listed repair/safety scope.',
-          quantity: '1',
-          rate: '0.00',
-          margin: '0',
-        },
-      ],
+      lineItems: [],
       costSections: createDefaultRepairCostSections(`jobs-quoting-${item.id}-review`),
     },
   ]
@@ -833,7 +820,8 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
   ]
 
   repairSections.forEach((section) => {
-    lines.push('', `${section.title} (${section.status || 'Repair'})`)
+    const repairLabel = [section.title, section.description].filter((value) => value?.trim()).join(' - ')
+    lines.push('', `${repairLabel} (${section.status || 'Repair'})`)
     section.lineItems.forEach((lineItem) => {
       lines.push(getPdfLineItemSummary(lineItem))
     })
@@ -1000,7 +988,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
         return `
           <section class="quote-section repair-section">
           <div class="section-title">
-            <span>${escapeHtml(section.title)}</span>
+            <span>${escapeHtml([section.title, section.description].filter((value) => value?.trim()).join(' - '))}</span>
             <span class="status">${escapeHtml(section.status || 'Repair')}</span>
           </div>
           <table>
@@ -1484,16 +1472,32 @@ const normalizeCostSections = (sections: CostSection[]) =>
 const normalizeEstimateCostSections = (sections: CostSection[]) =>
   normalizeCostSections(sections).filter((section) => !isRepairScopedCostSection(section))
 
+const shouldPromoteRepairLineItemToDescription = (lineItem: RepairLineItem) =>
+  Boolean(lineItem.description?.trim())
+  && !shouldClearPlaceholderDescription(lineItem.description)
+  && getInternalLineAmount(lineItem) === 0
+  && getCustomerLineAmount(lineItem) === 0
+
 const normalizeRepairSections = (sections: RepairSection[]) =>
-  sections.map((section) => ({
-    ...section,
-    lineItems: section.lineItems.map((lineItem) => normalizeLineItem(lineItem, 'Add repair detail here.')),
-    costSections: normalizeCostSections(
-      Array.isArray(section.costSections) && section.costSections.length > 0
-        ? section.costSections
-        : createDefaultRepairCostSections(section.id),
-    ),
-  }))
+  sections.map((section) => {
+    const normalizedLineItems = section.lineItems.map((lineItem) => normalizeLineItem(lineItem, 'Add repair detail here.'))
+    const firstLineItem = normalizedLineItems[0]
+    const shouldPromoteFirstLineItem =
+      !section.description?.trim()
+      && firstLineItem
+      && shouldPromoteRepairLineItemToDescription(firstLineItem)
+
+    return {
+      ...section,
+      description: section.description ?? (shouldPromoteFirstLineItem ? firstLineItem.description : ''),
+      lineItems: shouldPromoteFirstLineItem ? normalizedLineItems.slice(1) : normalizedLineItems,
+      costSections: normalizeCostSections(
+        Array.isArray(section.costSections) && section.costSections.length > 0
+          ? section.costSections
+          : createDefaultRepairCostSections(section.id),
+      ),
+    }
+  })
 
 const normalizeReport = (report: ReportData) => {
   const nextReport = { ...defaultReport, ...report }
@@ -3044,6 +3048,7 @@ export default function EditableInspectionReport() {
         {
           id: nextSectionId,
           title: 'New Repair Item',
+          description: '',
           status: 'Repair',
           lineItems: [createManualLineItem(createId('line'), 'Add repair detail here.')],
           costSections: createDefaultRepairCostSections(nextSectionId),
@@ -3053,7 +3058,7 @@ export default function EditableInspectionReport() {
     toggleRepairSectionVisibility(nextSectionId, true)
   }
 
-  const updateRepairSection = (sectionId: string, field: 'title' | 'status', value: string) => {
+  const updateRepairSection = (sectionId: string, field: 'title' | 'description' | 'status', value: string) => {
     setRepairSections((currentSections) =>
       saveRepairSections(
         currentSections.map((section) =>
@@ -4508,13 +4513,25 @@ export default function EditableInspectionReport() {
                       }`}
                     >
                       <div className={`grid grid-cols-[1fr_150px] gap-3 border-b ${sectionTone.sectionBorder} px-2.5 py-1`}>
-                        <EditableValue
-                          label={`${section.title} title`}
-                          value={section.title}
-                          onChange={(value) => updateRepairSection(section.id, 'title', value)}
-                          className="text-[13px] font-black leading-tight"
-                          multiline
-                        />
+                        <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[13px] leading-tight">
+                          <EditableValue
+                            label={`${section.title} title`}
+                            value={section.title}
+                            onChange={(value) => updateRepairSection(section.id, 'title', value)}
+                            className="min-w-[150px] font-black"
+                            multiline
+                          />
+                          {section.description?.trim() ? (
+                            <span className="font-black text-[#4d1f1f]"> - </span>
+                          ) : null}
+                          <EditableValue
+                            label={`${section.title} repair description`}
+                            value={section.description ?? ''}
+                            onChange={(value) => updateRepairSection(section.id, 'description', value)}
+                            className="min-w-[180px] flex-1 font-semibold text-[#4d1f1f]"
+                            multiline
+                          />
+                        </div>
                         <div className="space-y-0.5">
                           <div className={`flex items-center justify-between gap-1.5 ${sectionTone.statusBackground} px-1.5 py-0.5 ${sectionTone.statusText}`}>
                             <span className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full ${sectionTone.statusIcon} text-[9px] font-black text-white`}>
