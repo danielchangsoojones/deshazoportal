@@ -25,6 +25,8 @@ const menuItems = [
 ]
 
 const WORK_ORDERS_PAGE_SIZE = 15
+const FULL_SYNC_PAGE_SIZE = 100
+const FULL_SYNC_MAX_BACKFILL_PASSES = 20
 
 function formatDate(value: string) {
   if (!value) return ''
@@ -219,6 +221,46 @@ export default function DeshazoWorkOrders() {
     setCurrentPage(1)
   }
 
+  const syncAllWorkOrders = async (pageSize: number) => {
+    const updateResult = await syncDeshazoExternalWorkOrders({ pageSize })
+    let workOrdersSeen = updateResult.workOrdersSeen
+    let reportsSeen = updateResult.reportsSeen
+    const failures = [...(updateResult.failures ?? [])]
+    let totalCount = updateResult.totalCount
+    let totalPages = updateResult.totalPages
+
+    for (let pass = 1; pass <= FULL_SYNC_MAX_BACKFILL_PASSES; pass += 1) {
+      setMessage(
+        `Backfilling missing work orders from production API... pass ${pass}, ${workOrdersSeen} processed so far.`,
+      )
+      const missingResult = await syncDeshazoExternalWorkOrders({
+        pageSize,
+        maxPages: 1,
+        page: 1,
+        nextMissingByDate: true,
+      })
+
+      totalCount = missingResult.totalCount ?? totalCount
+      totalPages = missingResult.totalPages ?? totalPages
+      workOrdersSeen += missingResult.workOrdersSeen
+      reportsSeen += missingResult.reportsSeen
+      failures.push(...(missingResult.failures ?? []))
+
+      if (missingResult.workOrdersSeen === 0) {
+        break
+      }
+    }
+
+    return {
+      ...updateResult,
+      totalCount,
+      totalPages,
+      workOrdersSeen,
+      reportsSeen,
+      failures,
+    }
+  }
+
   const handleSync = async (
     label: string,
     pageSize: number,
@@ -240,7 +282,10 @@ export default function DeshazoWorkOrders() {
     try {
       setSyncing(true)
       setMessage(`Syncing ${label} from production API...`)
-      const result = await syncDeshazoExternalWorkOrders({ pageSize, maxPages, page, latestByDate, nextMissingByDate })
+      const isFetchAll = !maxPages && !latestByDate && !nextMissingByDate
+      const result = isFetchAll
+        ? await syncAllWorkOrders(pageSize)
+        : await syncDeshazoExternalWorkOrders({ pageSize, maxPages, page, latestByDate, nextMissingByDate })
       const failureText = result.failures?.length ? ` ${result.failures.length} failures returned.` : ''
       await loadWorkOrders()
       setMessage(
@@ -366,7 +411,7 @@ export default function DeshazoWorkOrders() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSync('all work orders', 100)}
+                    onClick={() => handleSync('all work orders', FULL_SYNC_PAGE_SIZE)}
                     disabled={syncing}
                     className="rounded-sm bg-[#4f9879] px-3 py-2 text-sm font-black text-white transition hover:bg-[#43886c] disabled:cursor-not-allowed disabled:opacity-55"
                   >
