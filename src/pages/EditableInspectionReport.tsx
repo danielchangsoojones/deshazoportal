@@ -530,6 +530,9 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
   const purchaseOrder = getTopLevelExtractedText(data, ['purchase_order', 'purchaseOrder', 'Purchase Order'])
   const location = getTopLevelExtractedText(data, ['location', 'Location', 'service_location', 'serviceLocation', 'Service Location'])
   const customerAddress = getTopLevelExtractedText(data, ['customer_address', 'customerAddress', 'Customer Address'])
+  const customerContactName = getTopLevelExtractedText(data, ['customer_contact_name', 'customerContactName', 'contact_name', 'contactName', 'Customer Contact Name'])
+  const customerContactEmail = getTopLevelExtractedText(data, ['customer_contact_email', 'customerContactEmail', 'contact_email', 'contactEmail', 'Customer Contact Email'])
+  const customerContactPhone = getTopLevelExtractedText(data, ['customer_contact_phone', 'customerContactPhone', 'contact_phone', 'contactPhone', 'Customer Contact Phone'])
   const manufacturerCrane = getTopLevelExtractedText(data, ['manufacturer_crane', 'manufacturerCrane', 'manufacturer', 'Manufacturer'])
   const serialCrane = getTopLevelExtractedText(data, ['serial_crane', 'serialCrane', 'serial_number', 'serialNumber', 'Serial Number'])
   const capacityCrane = getTopLevelExtractedText(data, ['capacity_crane', 'capacityCrane', 'capacity', 'Capacity'])
@@ -584,6 +587,9 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
     serialHoist4: formatReportValue('Hoist 4', serialHoist4, '---'),
     capacityHoist4: formatReportValue('Hoist 4', capacityHoist4, '---'),
     modelHoist4: formatReportValue('Hoist 4', modelHoist4, '---'),
+    contactName: customerContactName,
+    contactEmail: customerContactEmail,
+    contactPhone: customerContactPhone,
     scopeOfWork: '',
     notes: defaultAdditionalNotes,
   }
