@@ -739,6 +739,23 @@ const getVisibleRepairSections = (
       ),
     }))
 
+const hasLineItems = (lineItems: RepairLineItem[] | undefined) =>
+  Array.isArray(lineItems) && lineItems.length > 0
+
+const hasPrintableRepairSectionLineItems = (section: RepairSection) =>
+  section.costSections.some((costSection) => hasLineItems(costSection.lineItems))
+
+const getPrintableRepairSections = (repairSections: RepairSection[]) =>
+  repairSections
+    .map((section) => ({
+      ...section,
+      costSections: section.costSections.filter((costSection) => hasLineItems(costSection.lineItems)),
+    }))
+    .filter(hasPrintableRepairSectionLineItems)
+
+const getPrintableCostSections = (costSections: CostSection[]) =>
+  costSections.filter((section) => hasLineItems(section.lineItems))
+
 const escapeHtml = (value: string | number) =>
   String(value)
     .replace(/&/g, '&amp;')
@@ -810,11 +827,11 @@ const getPdfLineItemSummary = (lineItem: RepairLineItem, sectionId?: string, set
 const getReportPdfLines = (source: CombinedReportPdfSource) => {
   const { payload } = source
   const reportData = payload.reportData
-  const repairSections = getVisibleRepairSections(
+  const repairSections = getPrintableRepairSections(getVisibleRepairSections(
     normalizeRepairSections(payload.repairSections as RepairSection[]),
     payload.repairSectionVisibility,
-  )
-  const costSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
+  ))
+  const costSections = getPrintableCostSections(normalizeEstimateCostSections(payload.costSections as CostSection[]))
   const equipmentSettings = {
     ...defaultEquipmentRentalSettings,
     ...payload.equipmentRentalSettings,
@@ -964,11 +981,11 @@ const getTemplateLineItemRows = (
 const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
   const reportMarkup = sources.map((source) => {
     const reportData = normalizeReport(source.payload.reportData)
-    const repairSections = getVisibleRepairSections(
+    const repairSections = getPrintableRepairSections(getVisibleRepairSections(
       normalizeRepairSections(source.payload.repairSections as RepairSection[]),
       source.payload.repairSectionVisibility,
-    )
-    const costSections = normalizeEstimateCostSections(source.payload.costSections as CostSection[])
+    ))
+    const costSections = getPrintableCostSections(normalizeEstimateCostSections(source.payload.costSections as CostSection[]))
     const equipmentSettings = {
       ...defaultEquipmentRentalSettings,
       ...source.payload.equipmentRentalSettings,
@@ -3661,6 +3678,10 @@ export default function EditableInspectionReport() {
               page-break-inside: avoid;
             }
 
+            .report-print-empty-section {
+              display: none !important;
+            }
+
             .editable-report-field:hover,
             .editable-report-field:focus {
               background: transparent !important;
@@ -4432,7 +4453,7 @@ export default function EditableInspectionReport() {
                       style={getRuntimePageBreakStyle(`repair-section-${section.id}`)}
                       className={`repair-section ${sectionTone.sectionBackground} ${getRuntimePageBreakClassName(`repair-section-${section.id}`)} ${
                         sectionIndex > 0 ? `border-t ${sectionTone.sectionBorder}` : ''
-                      }`}
+                      } ${hasPrintableRepairSectionLineItems(section) ? '' : 'report-print-empty-section'}`}
                     >
                       <div className={`grid grid-cols-[1fr_150px] gap-3 border-b ${sectionTone.sectionBorder} px-2.5 py-1`}>
                         <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[13px] leading-tight">
@@ -4493,7 +4514,7 @@ export default function EditableInspectionReport() {
                               const item = getDroppedMenuItem(event)
                               if (item) addMenuItemToRepairCostSection(section.id, costSection.id, item)
                             }}
-                            className="border-b border-[#d8d8d8]"
+                            className={`border-b border-[#d8d8d8] ${hasLineItems(costSection.lineItems) ? '' : 'report-print-empty-section'}`}
                           >
                             <div className="border-b border-[#d8d8d8] bg-[#f7f7f7] px-3 py-1.5 text-[12px] font-black uppercase leading-tight text-[#273f7a]">
                               {costSection.title}
@@ -4756,7 +4777,7 @@ export default function EditableInspectionReport() {
                       const item = getDroppedMenuItem(event)
                       if (item) addMenuItemToCostSection(section.id, item)
                     }}
-                    className={`repair-section border-x border-b border-[#d4d4d4] bg-white ${getRuntimePageBreakClassName(`cost-section-${section.id}`)}`}
+                    className={`repair-section border-x border-b border-[#d4d4d4] bg-white ${getRuntimePageBreakClassName(`cost-section-${section.id}`)} ${hasLineItems(section.lineItems) ? '' : 'report-print-empty-section'}`}
                   >
                     <div className="relative flex items-center justify-between gap-3 border-b border-[#d8d8d8] bg-[#f7f7f7] px-3 py-1.5">
                       <EditableValue
