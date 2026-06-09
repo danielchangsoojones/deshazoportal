@@ -1,13 +1,37 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 
-export default function Login() {
+type LoginProps = {
+  redirectTo?: string
+  forgotPasswordFrom?: string
+  redirectIfAuthenticated?: boolean
+}
+
+export default function Login({
+  redirectTo = '/dashboard',
+  forgotPasswordFrom = 'login',
+  redirectIfAuthenticated = false,
+}: LoginProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!redirectIfAuthenticated || !isConfigured || !supabase) return
+
+    let active = true
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (active && data.user) navigate(redirectTo, { replace: true })
+    })
+
+    return () => {
+      active = false
+    }
+  }, [navigate, redirectIfAuthenticated, redirectTo])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,7 +48,7 @@ export default function Login() {
     if (error) {
       setError(error.message)
     } else {
-      navigate('/dashboard')
+      navigate(redirectTo, { replace: redirectTo !== '/dashboard' })
     }
 
     setLoading(false)
@@ -63,7 +87,7 @@ export default function Login() {
                 Password
               </label>
               <Link
-                to="/forgot-password?from=login"
+                to={`/forgot-password?from=${encodeURIComponent(forgotPasswordFrom)}`}
                 className="text-xs text-indigo-600 hover:underline"
               >
                 Forgot password?
