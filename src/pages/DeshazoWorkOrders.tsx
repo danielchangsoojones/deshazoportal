@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   type DeshazoSavedWorkOrderListItem,
   getDeshazoExternalWorkOrdersLastSync,
@@ -409,7 +410,10 @@ export default function DeshazoWorkOrders() {
                       disabled={syncing}
                       className="rounded-sm bg-[#4f9879] px-3 py-2 text-sm font-black text-white transition hover:bg-[#43886c] disabled:cursor-not-allowed disabled:opacity-55"
                     >
-                      Fetch All
+                      <span className="inline-flex items-center gap-2">
+                        Fetch All
+                        <DeveloperBadge />
+                      </span>
                     </button>
                   </div>
                 )}
@@ -500,11 +504,12 @@ export default function DeshazoWorkOrders() {
                         <td className="px-3 py-3 font-black">
                           <div className="flex items-center gap-2">
                             <span>{getWorkOrderNumber(workOrder)}</span>
-                            {isRecentlySynced(workOrder) ? (
+                            {canFetchAll && isRecentlySynced(workOrder) ? (
                               <span className="rounded-sm bg-[#4f7fd6] px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.02em] text-white">
                                 New
                               </span>
                             ) : null}
+                            {canFetchAll && isRecentlySynced(workOrder) ? <DeveloperBadge /> : null}
                           </div>
                         </td>
                         <td className="px-3 py-3">

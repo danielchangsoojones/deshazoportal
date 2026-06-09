@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   createJobQuotingItemsFromExternalInspectionReports,
   getJobsQuotingItemsForRuns,
@@ -848,9 +849,10 @@ export default function JobsQuotingList() {
                       type="button"
                       disabled={busy}
                       onClick={() => giantPdfInputRef.current?.click()}
-                      className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      Giant PDF
+                      <span>Giant PDF</span>
+                      <DeveloperBadge />
                     </button>
                   ) : null}
                 </div>
@@ -1052,18 +1054,20 @@ export default function JobsQuotingList() {
                           href={selectedRunGroup.extendWorkflowUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
+                          className="inline-flex items-center gap-2 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
                         >
-                          Open Extend
+                          <span>Open Extend</span>
+                          <DeveloperBadge />
                         </a>
                       ) : null}
                       <button
                         type="button"
                         disabled={busy}
                         onClick={() => syncRunGroup(selectedRunGroup)}
-                        className="rounded-md bg-[#273f7a] px-3 py-2 text-xs font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-2 rounded-md bg-[#273f7a] px-3 py-2 text-xs font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {activeStatuses.has(selectedRunGroup.status) ? 'Check Extend' : 'Refresh Selected'}
+                        <span>{activeStatuses.has(selectedRunGroup.status) ? 'Check Extend' : 'Refresh Selected'}</span>
+                        <DeveloperBadge />
                       </button>
                     </div>
                   ) : null}

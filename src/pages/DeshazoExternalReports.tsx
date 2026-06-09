@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js'
 import JSZip from 'jszip'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   DESHAZO_PDF_PAGE_HEIGHT_PX,
   DESHAZO_PDF_PAGE_WIDTH_PX,
@@ -457,8 +458,11 @@ export default function DeshazoExternalReports() {
         <section className="min-w-0 flex-1 bg-[#e9eef8] px-5 py-5 sm:px-8 lg:px-10">
           <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
-                DESHA<span className="text-[#f2b43f]">Z</span>O
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
+                  DESHA<span className="text-[#f2b43f]">Z</span>O
+                </div>
+                <DeveloperBadge className="text-[11px]" />
               </div>
               <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#8b92a1]">
                 Recent synced work orders from Supabase
