@@ -1,105 +1,52 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { supabase, isConfigured } from '../lib/supabase'
-import { usePortalMenu } from '../lib/usePortalMenu'
+import type { User } from '@supabase/supabase-js'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
+import { supabase, isConfigured } from '../lib/supabase'
 import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
-import type { User } from '@supabase/supabase-js'
+import { usePortalMenu } from '../lib/usePortalMenu'
 
-const portalCards = [
+const internalCards = [
   {
-    eyebrow: 'Service',
-    title: 'Open Risk Items',
-    description: 'See all open risks that are currently outstanding, categorized from high to low priority.',
-    href: '/asset-fleet-assets?view=open-risk',
+    eyebrow: 'Quotes',
+    title: 'Quote List',
+    description: 'Review imported quote reports, edit saved quote proposals, and refresh synced inspection work.',
+    href: '/jobsquotinglist',
   },
   {
-    eyebrow: 'Assets',
-    title: 'Asset Fleet',
-    description: 'See what percentage of your industrial assets have been inspected and which items need attention.',
-    href: '/asset-fleet',
-  },
-  {
-    eyebrow: 'Analytics',
-    title: 'Spend',
-    description: 'See an analytical breakdown of your spend regarding parts, labor, and maintenance trends.',
-    href: '/spend',
-  },
-  {
-    eyebrow: 'Analytics',
-    title: 'Location Comparison',
-    description: 'Compare parts and labor times across different facilities and identify outliers quickly.',
-    href: '/location-comparison',
-  },
-  {
-    eyebrow: 'Documents',
-    title: 'Documents',
-    description: 'Download maintenance reports, summaries, and supporting PDFs from one place.',
-    href: '/documents-reports',
-  },
-  {
-    eyebrow: 'Documents',
-    title: 'Equipment Notebook LLM',
-    description: 'Chat with inspection reports and manuals to build cited repair and parts recommendations.',
+    eyebrow: 'AI Tools',
+    title: 'Equipment LLM',
+    description: 'Chat with quote context, inspection reports, and equipment manuals to build cited parts guidance.',
     href: '/equipment-notebook-llm',
-  },
-  {
-    eyebrow: 'Reports',
-    title: 'Custom Reports',
-    description: 'Download a csv of the data to use on your own computer.',
-    href: '/custom-reports',
-  },
-  {
-    eyebrow: 'Operations',
-    title: 'Work Orders',
-    description: 'Open synced DeShazo work orders from Supabase and drill into inspection ticket PDFs.',
-    href: '/deshazo-work-orders',
-  },
-  {
-    eyebrow: 'Help',
-    title: 'Add User',
-    description: 'Add new users to the portal and manage who gets access to key operational tools.',
-    href: '/add-user',
-  },
-  {
-    eyebrow: 'Help',
-    title: 'Contact Us',
-    description: 'Contact our team for any additional feature requests, product questions, or portal support.',
-    href: '/contact-us',
   },
 ]
 
-export default function Dashboard() {
+export default function DeshazoInternalDashboard() {
   const [user, setUser] = useState<User | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
-  const visiblePortalCards = useMemo(
-    () => portalCards,
-    [],
-  )
-
   const menuItems = useMemo(
     () => [
-      { label: 'Home', active: true, href: '/dashboard' },
-      ...visiblePortalCards.map((card) => ({
+      { label: 'Internal Dashboard', active: true, href: '/deshazo-internal-dashboard' },
+      ...internalCards.map((card) => ({
         label: card.title,
         active: false,
         href: card.href,
       })),
     ],
-    [visiblePortalCards],
+    [],
   )
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate('/quotelogin')
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate('/quotelogin')
       } else {
         setUser(data.user)
       }
@@ -108,7 +55,7 @@ export default function Dashboard() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate('/quotelogin')
   }
 
   if (!user) return null
@@ -143,31 +90,20 @@ export default function Dashboard() {
             <div className="flex-1 px-4 py-5">
               <div className="rounded-[24px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/50 p-4">
                 <nav className="space-y-2">
-                  {menuItems.map((item) =>
-                    item.href ? (
-                      <Link
-                        key={item.label}
-                        to={item.href}
-                        className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium transition ${
-                          item.active
-                            ? 'bg-[#dbe5ff] text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.06)]'
-                            : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
-                        }`}
-                      >
-                        <span>{item.label}</span>
-                        <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
-                      </Link>
-                    ) : (
-                      <button
-                        key={item.label}
-                        type="button"
-                        className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium text-[rgba(21,24,33,0.7)] transition hover:bg-white"
-                      >
-                        <span>{item.label}</span>
-                        <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
-                      </button>
-                    ),
-                  )}
+                  {menuItems.map((item) => (
+                    <Link
+                      key={item.label}
+                      to={item.href}
+                      className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium transition ${
+                        item.active
+                          ? 'bg-[#dbe5ff] text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.06)]'
+                          : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                      <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
+                    </Link>
+                  ))}
                 </nav>
               </div>
             </div>
@@ -196,16 +132,15 @@ export default function Dashboard() {
                   DESHA<span className="text-[#f2b43f]">Z</span>O
                 </div>
                 <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                  Cranes / Service / Automation
+                  Internal Quote Tools
                 </p>
                 <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>
-
             </div>
           </div>
 
           <section className="grid w-full grid-cols-1 gap-x-8 gap-y-8 md:grid-cols-2 xl:grid-cols-3">
-            {visiblePortalCards.map((card) => (
+            {internalCards.map((card) => (
               <article
                 key={card.title}
                 className="group relative flex min-h-[260px] flex-col overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 pb-5 pt-5 text-left shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_26px_48px_-34px_rgba(47,86,166,0.42)]"
@@ -213,34 +148,22 @@ export default function Dashboard() {
                 <div className="absolute inset-x-0 top-0 h-1.5 bg-[linear-gradient(90deg,var(--deshazo-blue)_0%,var(--deshazo-blue-soft)_100%)] opacity-90" />
                 <div className="mb-4 flex items-center justify-between gap-3 pt-1">
                   <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{card.eyebrow}</p>
-                  <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]">
-                  </span>
+                  <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]" />
                 </div>
-                <h2 className="text-[clamp(28px,2.3vw,32px)] font-extrabold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
+                <h2 className="text-[clamp(28px,2.3vw,32px)] font-extrabold leading-[1.08] text-[var(--deshazo-text)]">
                   {card.title}
                 </h2>
-                {/* <p className="mt-4 text-[15px] font-bold text-[var(--deshazo-blue-soft)]">Description</p> */}
                 <p className="mt-2 max-w-[34ch] text-base leading-7 text-[rgba(21,24,33,0.9)]">
                   {card.description}
                 </p>
                 <div className="mt-auto flex items-end justify-end gap-4 pt-8">
-                  {card.href ? (
-                    <Link
-                      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[15px] font-bold text-[var(--deshazo-blue)] no-underline shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition group-hover:gap-3"
-                      to={card.href}
-                    >
-                      <span>Open</span>
-                      <span aria-hidden="true">→</span>
-                    </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[15px] font-bold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition group-hover:gap-3"
-                    >
-                      <span>Open</span>
-                      <span aria-hidden="true">→</span>
-                    </button>
-                  )}
+                  <Link
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[15px] font-bold text-[var(--deshazo-blue)] no-underline shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition group-hover:gap-3"
+                    to={card.href}
+                  >
+                    <span>Open</span>
+                    <span aria-hidden="true">→</span>
+                  </Link>
                 </div>
               </article>
             ))}
