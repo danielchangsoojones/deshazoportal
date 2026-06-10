@@ -23,12 +23,18 @@ import {
   getAssetPDF,
   getRecurringIssues,
   isPortalApiConfigured,
+  searchAssetByDNumber,
   type AssetPdfDocument,
   type AssetPdfResponse,
   type AssetInfoAnalytics,
   type AssetIssue,
   type RecurringIssue,
 } from '../lib/portalApi'
+import {
+  getSupabaseOpenRiskAssetInfo,
+  getSupabaseOpenRiskRecurringIssues,
+} from '../lib/deshazoOpenRiskSupabase'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -192,7 +198,27 @@ const buildVisiblePages = (currentPage: number, totalPages: number) => {
     .sort((left, right) => left - right)
 }
 
-function AssetIssueRow({ issue, index, onClick }: { issue: AssetIssue; index: number; onClick: () => void }) {
+function LegacySourceDot() {
+  return (
+    <span
+      className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-red-600"
+      title="Developer marker: clicking this issue still uses the legacy Parse/PDF lookup."
+      aria-label="Legacy-backed PDF lookup"
+    />
+  )
+}
+
+function AssetIssueRow({
+  issue,
+  index,
+  onClick,
+  showLegacyPdfMarker,
+}: {
+  issue: AssetIssue
+  index: number
+  onClick: () => void
+  showLegacyPdfMarker: boolean
+}) {
   return (
     <tr onClick={onClick} className={`cursor-pointer transition hover:bg-[#dbe5ff] ${index % 2 === 0 ? 'bg-[#f4f7ff]' : 'bg-white'}`}>
       <td className="px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
@@ -212,7 +238,10 @@ function AssetIssueRow({ issue, index, onClick }: { issue: AssetIssue; index: nu
         </span>
       </td>
       <td className="px-4 py-3 align-top text-[15px] font-medium leading-snug text-[var(--deshazo-text)]">
-        {issue.remarks}
+        <span className="flex items-start gap-2">
+          {showLegacyPdfMarker ? <LegacySourceDot /> : null}
+          <span>{issue.remarks}</span>
+        </span>
       </td>
     </tr>
   )
@@ -221,6 +250,7 @@ function AssetIssueRow({ issue, index, onClick }: { issue: AssetIssue; index: nu
 export default function AssetInfo() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const [searchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<AssetInfoTab>('issues')
@@ -264,6 +294,8 @@ export default function AssetInfo() {
   const navigate = useNavigate()
   const unitId = searchParams.get('unit_id')?.trim() || ''
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
+  const isOpenRiskView = currentView === 'open-risk'
+  const canSeeDeveloperMarkers = userTag === 'developer'
 
   const activeMenuItems = useMemo(
     () =>
@@ -401,6 +433,30 @@ export default function AssetInfo() {
   }, [navigate])
 
   useEffect(() => {
+    if (!user) {
+      setUserTag(null)
+      return
+    }
+
+    let cancelled = false
+    getCurrentUserTag(user.id)
+      .then((tag) => {
+        if (!cancelled) setUserTag(tag)
+      })
+      .catch(() => {
+        if (!cancelled) setUserTag(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (authLoading || !user) {
+      return
+    }
+
     const controller = new AbortController()
 
     const loadAssetInfo = async () => {
@@ -414,7 +470,9 @@ export default function AssetInfo() {
       try {
         setLoading(true)
         setError('')
-        const data = await getAssetInfo(unitId, controller.signal)
+        const data = isOpenRiskView
+          ? await getSupabaseOpenRiskAssetInfo(unitId)
+          : await getAssetInfo(unitId, controller.signal)
         setAssetInfo(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -430,16 +488,21 @@ export default function AssetInfo() {
     void loadAssetInfo()
 
     return () => controller.abort()
-  }, [unitId])
+  }, [unitId, isOpenRiskView, authLoading, user])
 
   useEffect(() => {
+    if (authLoading || !user) {
+      return
+    }
     if (!unitId) return
     const controller = new AbortController()
 
     const loadRecurringIssues = async () => {
       try {
         setRecurringIssuesLoading(true)
-        const data = await getRecurringIssues(unitId, controller.signal)
+        const data = isOpenRiskView
+          ? await getSupabaseOpenRiskRecurringIssues(unitId)
+          : await getRecurringIssues(unitId, controller.signal)
         setRecurringIssues(data)
       } catch {
         if (!controller.signal.aborted) setRecurringIssues([])
@@ -450,7 +513,7 @@ export default function AssetInfo() {
 
     void loadRecurringIssues()
     return () => controller.abort()
-  }, [unitId])
+  }, [unitId, isOpenRiskView, authLoading, user])
 
   useEffect(() => {
     if (!user || !unitId || !supabase) {
@@ -580,7 +643,17 @@ export default function AssetInfo() {
       try {
         setDocumentsLoading(true)
         setDocumentsError('')
-        const data = await getAssetPDF(unitId, documentsPage, controller.signal)
+        const docNumber = extractDocumentNumber(assetInfo.unit_name, unitId)
+        if (isOpenRiskView && !docNumber) {
+          setDocumentsError('No D number was found for this asset, so legacy PM reports could not be loaded.')
+          setAssetDocuments(defaultAssetDocuments)
+          setSelectedDocumentUrl('')
+          return
+        }
+        const legacyUnitId = isOpenRiskView
+          ? (await searchAssetByDNumber(docNumber, controller.signal)).unit_id
+          : unitId
+        const data = await getAssetPDF(legacyUnitId, documentsPage, controller.signal)
         setAssetDocuments(data)
         setSelectedDocumentUrl((current) =>
           data.results.some((document) => document.pdf === current) ? current : (data.results[0]?.pdf ?? ''),
@@ -600,7 +673,7 @@ export default function AssetInfo() {
     loadDocuments()
 
     return () => controller.abort()
-  }, [activeTab, unitId, documentsPage])
+  }, [activeTab, unitId, documentsPage, isOpenRiskView, assetInfo.unit_name])
 
   useEffect(() => {
     if (activeTab !== 'repair') {
@@ -746,7 +819,9 @@ export default function AssetInfo() {
     try {
       setLoading(true)
       setError('')
-      const data = await getAssetInfo(unitId)
+      const data = isOpenRiskView
+        ? await getSupabaseOpenRiskAssetInfo(unitId)
+        : await getAssetInfo(unitId)
       setAssetInfo(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load asset information.')
@@ -836,7 +911,10 @@ export default function AssetInfo() {
   }
 
   const findIssueDocumentMatch = async (issue: AssetIssue, docNumber: string) => {
-    const response = await findAssetPdfPage(unitId, docNumber, issue.inspection_date)
+    const legacyUnitId = isOpenRiskView
+      ? (await searchAssetByDNumber(docNumber)).unit_id
+      : unitId
+    const response = await findAssetPdfPage(legacyUnitId, docNumber, issue.inspection_date)
 
     return response.match
   }
@@ -1189,6 +1267,7 @@ export default function AssetInfo() {
                               key={`${issue.category}-${issue.component_type}-${index}`}
                               issue={issue}
                               index={index}
+                              showLegacyPdfMarker={isOpenRiskView && canSeeDeveloperMarkers}
                               onClick={() => void handleIssueRowClick(issue)}
                             />
                           ))

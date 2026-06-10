@@ -10,6 +10,7 @@ import {
   type AssetUnit,
   type AssetsPageAnalytics,
 } from '../lib/portalApi'
+import { getSupabaseOpenRiskAssets } from '../lib/deshazoOpenRiskSupabase'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -185,13 +186,19 @@ export default function AssetFleetAssets() {
   }, [navigate])
 
   useEffect(() => {
+    if (authLoading || !user) {
+      return
+    }
+
     const controller = new AbortController()
 
     const loadAssets = async () => {
       try {
         setLoading(true)
         setError('')
-        const data = await getAssets(selectedLocations, currentPage - 1, controller.signal)
+        const data = currentView === 'open-risk'
+          ? await getSupabaseOpenRiskAssets(selectedLocations, currentPage - 1)
+          : await getAssets(selectedLocations, currentPage - 1, controller.signal)
         setAssetsPage(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -207,7 +214,7 @@ export default function AssetFleetAssets() {
     loadAssets()
 
     return () => controller.abort()
-  }, [selectedLocations, currentPage])
+  }, [selectedLocations, currentPage, currentView, authLoading, user])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
