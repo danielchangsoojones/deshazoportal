@@ -23,6 +23,13 @@ const runGroupWindowMs = 10 * 60 * 1000
 const allReportsRunId = 'all-reports'
 const reportsPerPage = 50
 
+type JobsQuotingListProps = {
+  homePath?: string
+  headerLabel?: string
+  pageTitle?: string
+  loadingLabel?: string
+}
+
 type JobsQuotingRunGroup = {
   id: string
   sourceFileName: string
@@ -268,7 +275,12 @@ function buildJobGroups(items: JobsQuotingItem[]) {
   }))
 }
 
-export default function JobsQuotingList() {
+export default function JobsQuotingList({
+  homePath = '/dashboard',
+  headerLabel = 'Jobs Quoting',
+  pageTitle = 'Jobs Quoting List',
+  loadingLabel = 'Loading jobs quoting...',
+}: JobsQuotingListProps = {}) {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [userTag, setUserTag] = useState<UserTag | null>(null)
@@ -672,7 +684,7 @@ export default function JobsQuotingList() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#e8eaef] px-4">
         <div className="rounded-md border border-[#dfe4ef] bg-white px-6 py-4 text-sm font-black text-[#273f7a] shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
-          Loading jobs quoting...
+          {loadingLabel}
         </div>
       </div>
     )
@@ -690,14 +702,14 @@ export default function JobsQuotingList() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate(homePath)}
             className="text-[22px] font-black leading-none transition hover:text-white/80"
             aria-label="Home"
           >
             ⌂
           </button>
           <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
-            Jobs Quoting
+            {headerLabel}
           </div>
         </div>
 
@@ -954,7 +966,7 @@ export default function JobsQuotingList() {
           <div className="mb-4 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
               <h1 className="text-[clamp(24px,2.4vw,34px)] font-black leading-tight tracking-normal text-[#1f2430]">
-                Jobs Quoting List
+                {pageTitle}
               </h1>
               <p className="mt-2 max-w-[72ch] text-[15px] font-semibold leading-6 text-[#5b606b]">
                 Upload a full Deshazo inspection reports, then edit only the reports that contain repair or safety items.

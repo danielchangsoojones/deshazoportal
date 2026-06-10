@@ -14,11 +14,13 @@ const Spend = lazy(() => import('./pages/Spend'))
 const DocumentsReports = lazy(() => import('./pages/DocumentsReports'))
 const EquipmentNotebookLLM = lazy(() => import('./pages/EquipmentNotebookLLM'))
 const DeshazoInternalDashboard = lazy(() => import('./pages/DeshazoInternalDashboard'))
+const SteelDemoDashboard = lazy(() => import('./pages/SteelDemoDashboard'))
 const CustomReports = lazy(() => import('./pages/CustomReports'))
 const DeshazoExternalReports = lazy(() => import('./pages/DeshazoExternalReports'))
 const DeshazoWorkOrders = lazy(() => import('./pages/DeshazoWorkOrders'))
 const EditableInspectionReport = lazy(() => import('./pages/EditableInspectionReport'))
 const JobsQuotingList = lazy(() => import('./pages/JobsQuotingList'))
+const SteelQuotingList = lazy(() => import('./pages/SteelQuotingList'))
 const AssetFleet = lazy(() => import('./pages/AssetFleet'))
 const AssetFleetAssets = lazy(() => import('./pages/AssetFleetAssets'))
 const AssetInfo = lazy(() => import('./pages/AssetInfo'))
@@ -52,10 +54,12 @@ function App() {
           <Route path="/equipment-notebook-llm" element={<EquipmentNotebookLLM />} />
           <Route path="/deshazo-internal-dashboard" element={<DeshazoInternalDashboard />} />
           <Route path="/dashazo-internal-dashboard" element={<Navigate to="/deshazo-internal-dashboard" replace />} />
+          <Route path="/steel-demo-dashboard" element={<SteelDemoDashboard />} />
           <Route path="/custom-reports" element={<CustomReports />} />
           <Route path="/deshazo-work-orders" element={<DeshazoWorkOrders />} />
           <Route path="/deshazo-external-reports" element={<DeshazoExternalReports />} />
           <Route path="/jobsquotinglist" element={<JobsQuotingList />} />
+          <Route path="/steel-quoting-list" element={<SteelQuotingList />} />
           <Route path="/inspection-report-template" element={<EditableInspectionReport />} />
           <Route path="/editable-inspection-report" element={<EditableInspectionReport />} />
           <Route path="/asset-fleet" element={<AssetFleet />} />
