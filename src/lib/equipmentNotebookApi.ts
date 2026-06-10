@@ -3,7 +3,8 @@ const isLocalNotebookHost =
   typeof window === 'undefined' ||
   window.location.hostname === 'localhost' ||
   window.location.hostname === '127.0.0.1'
-const defaultNotebookApiUrl = isLocalNotebookHost ? '/notebook-api' : productionNotebookApiUrl
+const localNotebookApiUrl = '/notebook-api'
+const defaultNotebookApiUrl = isLocalNotebookHost ? localNotebookApiUrl : productionNotebookApiUrl
 
 const notebookApiUrl =
   (import.meta.env.VITE_EQUIPMENT_NOTEBOOK_API_URL as string | undefined)?.trim().replace(/\/$/, '') ||
@@ -68,6 +69,8 @@ export async function askNotebook(message: string, sourceIndex: number | null, s
     body: JSON.stringify({
       message,
       top_k: 12,
+      document_type: 'manual',
+      document_types: ['manual'],
       ...(sourceIndex === null ? {} : { source_index: sourceIndex }),
     }),
     signal,
@@ -80,10 +83,10 @@ export async function askNotebook(message: string, sourceIndex: number | null, s
   return (await response.json()) as NotebookChatResponse
 }
 
-export async function uploadNotebookPdf(file: File, documentType: 'manual' | 'inspection') {
+export async function uploadNotebookPdf(file: File) {
   const formData = new FormData()
   formData.append('file', file)
-  formData.append('document_type', documentType)
+  formData.append('document_type', 'manual')
 
   const response = await fetchNotebook('/upload', {
     method: 'POST',
