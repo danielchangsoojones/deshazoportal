@@ -172,8 +172,8 @@ export default function DeshazoWorkOrders() {
       setLastSyncAt(latestSyncAt)
       setMessage(
         result.totalCount > 0
-          ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved work orders from Supabase.`
-          : 'No saved work orders found yet.',
+          ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved Wabash work orders from Supabase.`
+          : 'No saved Wabash work orders found yet.',
       )
     } catch (error) {
       if (cancelledRef?.cancelled) return
