@@ -479,6 +479,65 @@ const mockSteelCostSections: CostSection[] = [
   },
 ]
 
+const mockSteelVendorMenuItems: MenuItem[] = [
+  {
+    id: '6494e064-d469-43db-a422-f85e67697771',
+    label: 'REFLX-REFLECTOR-AD',
+    description: 'REFLECTOR ADHESIVE, 2\'X2\' Reflector for ReFlx Systems, Adhesive 24" x 24"',
+    rate: '65.72',
+    internalCost: '65.72',
+    customerPrice: '65.72',
+    sourceDocumentId: '54d0957e-e8ed-44d9-ae2c-fe985cbf0cfe',
+    sourceDocumentName: 'Magnetek Reflector Signs & Brkt P&D 251803',
+    sourceDocumentBucket: 'editable-inspection-documents',
+    sourceDocumentFilePath: 'f4817043-afc4-4bef-bf45-516151489850/54d0957e-e8ed-44d9-ae2c-fe985cbf0cfe/Magnetek Reflector Signs & Brkt P&D 251803.pdf',
+    createdAt: '2026-06-08T23:02:38.947992Z',
+    updatedAt: '2026-06-08T23:07:18.112663Z',
+  },
+  {
+    id: '48a0a0d5-cf30-411f-962b-db269ea03555',
+    label: 'RIGID-BRACKET',
+    description: 'MOUNTING BRACKET, RIGID Rigid Sensor Mounting Bracket with Hardware Fits: LaserGuard 2, LaserGuard Mini, and ReFlx 45 Sensors',
+    rate: '18.60',
+    internalCost: '18.60',
+    customerPrice: '18.60',
+    sourceDocumentId: '54d0957e-e8ed-44d9-ae2c-fe985cbf0cfe',
+    sourceDocumentName: 'Magnetek Reflector Signs & Brkt P&D 251803',
+    sourceDocumentBucket: 'editable-inspection-documents',
+    sourceDocumentFilePath: 'f4817043-afc4-4bef-bf45-516151489850/54d0957e-e8ed-44d9-ae2c-fe985cbf0cfe/Magnetek Reflector Signs & Brkt P&D 251803.pdf',
+    createdAt: '2026-06-08T23:02:38.947992Z',
+    updatedAt: '2026-06-08T23:07:18.112663Z',
+  },
+  {
+    id: '28e3ee15-ce6f-41b3-a5b8-26d29b65cb19',
+    label: 'Blank Sign: Aluminum, Mounting Holes Sign Mounting, 18 in Nominal Sign Size, 0.08 in Thick',
+    description: 'Blank Sign: Aluminum, Mounting Holes Sign Mounting, 18 in Nominal Sign Size, 0.08 in Thick',
+    rate: '38.71',
+    internalCost: '38.71',
+    customerPrice: '38.71',
+    sourceDocumentId: 'e77034b7-fc8e-4354-9ec5-8a7162fca8a2',
+    sourceDocumentName: 'Grainger Target & Tape P&D',
+    sourceDocumentBucket: 'editable-inspection-documents',
+    sourceDocumentFilePath: 'f4817043-afc4-4bef-bf45-516151489850/e77034b7-fc8e-4354-9ec5-8a7162fca8a2/Grainger Target & Tape P&D.pdf',
+    createdAt: '2026-06-08T23:02:37.279114Z',
+    updatedAt: '2026-06-08T23:07:18.112663Z',
+  },
+  {
+    id: '524da164-38f4-483b-97df-b514a4747b68',
+    label: 'Reflective Tape: White, 6 in Wd, 50 yd Lg, Acrylic',
+    description: 'Reflective Tape: White, 6 in Wd, 50 yd Lg, Acrylic',
+    rate: '401.03',
+    internalCost: '401.03',
+    customerPrice: '401.03',
+    sourceDocumentId: 'e77034b7-fc8e-4354-9ec5-8a7162fca8a2',
+    sourceDocumentName: 'Grainger Target & Tape P&D',
+    sourceDocumentBucket: 'editable-inspection-documents',
+    sourceDocumentFilePath: 'f4817043-afc4-4bef-bf45-516151489850/e77034b7-fc8e-4354-9ec5-8a7162fca8a2/Grainger Target & Tape P&D.pdf',
+    createdAt: '2026-06-08T23:02:37.279114Z',
+    updatedAt: '2026-06-08T23:07:18.112663Z',
+  },
+]
+
 const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => {
   const internalCost = item.internalCost ?? item.rate
   const customerPrice = item.customerPrice ?? item.rate
@@ -3111,6 +3170,55 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
     return `${prefix}-${generatedId.current}`
   }
 
+  const addSteelMockVendorUpload = async (files: Array<File & { webkitRelativePath?: string }>, source: string) => {
+    const now = new Date().toISOString()
+    const mockDocuments: RelatedDocument[] = files.map((file, fileIndex) => {
+      const relativePath = file.webkitRelativePath || file.name
+      return {
+        id: `steel-mock-upload-${fileIndex}-${relativePath}-${file.size}-${file.lastModified}`,
+        name: getDocumentNameFromFile(file.name),
+        description: getUploadDescription(source, relativePath),
+        filePath: `steel-demo/${relativePath}`,
+        fileName: file.name,
+        fileSize: file.size,
+        source,
+        url: '#',
+        createdAt: now,
+      }
+    })
+
+    setRelatedDocuments((currentDocuments) => {
+      const nextDocumentMap = new Map(currentDocuments.map((document) => [document.id, document]))
+      mockDocuments.forEach((document) => nextDocumentMap.set(document.id, document))
+      return Array.from(nextDocumentMap.values()).sort((firstDocument, secondDocument) =>
+        secondDocument.createdAt.localeCompare(firstDocument.createdAt),
+      )
+    })
+
+    setMenuItemsRefreshProgress({ active: true, percent: 35 })
+    setMenuItemSections((currentSections) => {
+      const normalizedSections = normalizeMenuItemSections(currentSections)
+      const currentItems = normalizedSections[0]?.items ?? []
+      const currentItemIds = new Set(
+        currentItems.map((item) => item.id).filter((itemId): itemId is string => Boolean(itemId)),
+      )
+      const vendorItemsToAdd = mockSteelVendorMenuItems.filter((item) => item.id && !currentItemIds.has(item.id))
+
+      return saveMenuItemSections([
+        {
+          title: menuItemsSectionTitle,
+          items: [...vendorItemsToAdd, ...currentItems],
+        },
+      ])
+    })
+    setMenuItemsRefreshProgress({ active: false, percent: 100 })
+    setMenuDatabaseStatus('local')
+    setMenuDatabaseMessage('Mock vendor items loaded from uploaded steel PDF.')
+    setRelatedDocumentsMessage(
+      `${files.length} PDF${files.length === 1 ? '' : 's'} uploaded. Added ${mockSteelVendorMenuItems.length} mock vendor item${mockSteelVendorMenuItems.length === 1 ? '' : 's'} to the menu.`,
+    )
+  }
+
   const addRelatedDocuments = async (files: Array<File & { webkitRelativePath?: string }>, source: string) => {
     if (files.length === 0) {
       setRelatedDocumentsMessage(
@@ -3121,8 +3229,13 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
       return
     }
 
+    if (mockMode) {
+      await addSteelMockVendorUpload(files, source)
+      return
+    }
+
     if (!backendEnabled) {
-      setRelatedDocumentsMessage(mockMode ? 'Mock mode: PDFs are not uploaded to the backend.' : 'Supabase is not configured. PDFs were not saved.')
+      setRelatedDocumentsMessage('Supabase is not configured. PDFs were not saved.')
       return
     }
 
