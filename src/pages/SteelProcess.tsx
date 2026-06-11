@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { steelProcessMenuItemsStorageKey, type SteelProcessMenuItemsPayload } from '../lib/steelProcessMenuItems'
 
 type OperationType = 'Primary' | 'Secondary'
 
@@ -184,6 +185,55 @@ export default function SteelProcess() {
       quotedTotal,
     }
   }, [materialCostPerLb, marginPercent, overheadPercent, quantity, routing, scrapPercent, weightPerPiece])
+
+  const calculatedMenuItems = useMemo(() => {
+    const costMultiplier = (1 + overheadPercent / 100) * (1 + marginPercent / 100)
+    const materialCustomerPrice = estimate.materialCost * costMultiplier
+    const createdAt = new Date().toISOString()
+
+    return [
+      {
+        id: 'steel-process-material',
+        label: 'Material package',
+        description: `${estimate.materialWeight.toFixed(2)} lb steel package with ${scrapPercent}% scrap allowance.`,
+        rate: materialCustomerPrice.toFixed(2),
+        internalCost: estimate.materialCost.toFixed(2),
+        customerPrice: materialCustomerPrice.toFixed(2),
+        createdAt,
+        updatedAt: createdAt,
+      },
+      ...routing.map((step, index) => {
+        const stepHours = calculateStepHours(step)
+        const stepCost = calculateStepCost(step)
+        const customerPrice = stepCost * costMultiplier
+
+        return {
+          id: `steel-process-${step.id}`,
+          label: `${step.operation} ${index + 1}`,
+          description: `${step.type} ${step.operation} on ${step.machine}: ${stepHours.toFixed(2)} hr, ${step.quantity} ${step.basis}.`,
+          rate: customerPrice.toFixed(2),
+          internalCost: stepCost.toFixed(2),
+          customerPrice: customerPrice.toFixed(2),
+          createdAt,
+          updatedAt: createdAt,
+        }
+      }),
+    ]
+  }, [estimate.materialCost, estimate.materialWeight, marginPercent, overheadPercent, routing, scrapPercent])
+
+  useEffect(() => {
+    const payload: SteelProcessMenuItemsPayload = {
+      updatedAt: new Date().toISOString(),
+      menuSections: [
+        {
+          title: 'Menu Items',
+          items: calculatedMenuItems,
+        },
+      ],
+    }
+
+    window.localStorage.setItem(steelProcessMenuItemsStorageKey, JSON.stringify(payload))
+  }, [calculatedMenuItems])
 
   const updateRoutingStep = (stepId: string, updates: Partial<RoutingStep>) => {
     setRouting((currentRouting) => currentRouting.map((step) => (step.id === stepId ? { ...step, ...updates } : step)))

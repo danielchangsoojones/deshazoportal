@@ -27,6 +27,7 @@ import {
   type EditableInspectionReport,
   type EditableInspectionReportPayload,
 } from '../lib/editableInspectionReports'
+import { readSteelProcessMenuItemSections } from '../lib/steelProcessMenuItems'
 import { getUserDisplayNames } from '../lib/userTags'
 
 type ReportData = Record<string, string>
@@ -409,7 +410,7 @@ const mockSteelReport: ReportData = {
   estimateTopNote: 'Mock steel estimate generated from the demo process page.',
   estimateBottomNote: 'Pricing is for demonstration only and does not create a binding offer.',
   notesHeader: 'Additional Notes',
-  notes: 'Sales tax will be added as applicable based on project location and tax exemption status. Mock data is local to the steel demo and is not saved to the backend.',
+  notes: 'Sales tax will be added as applicable based on project location and tax exemption status.',
 }
 
 const mockSteelRepairSections: RepairSection[] = [
@@ -2065,7 +2066,8 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
     }
   })
   const [menuItemSections, setMenuItemSections] = useState<MenuItemSection[]>(() => {
-    if (backendEnabled || mockMode) return normalizeMenuItemSections(defaultMenuItemSections)
+    if (mockMode) return normalizeMenuItemSections(readSteelProcessMenuItemSections())
+    if (backendEnabled) return normalizeMenuItemSections(defaultMenuItemSections)
 
     const savedSections = window.localStorage.getItem(menuStorageKey)
 
@@ -3524,8 +3526,8 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
     )
   }
 
-  const goBackToJobsQuotingList = async () => {
-    navigate('/jobsquotinglist')
+  const goBackFromReport = async () => {
+    navigate(mockMode ? '/process' : '/jobsquotinglist')
   }
 
   const saveEditableReportFromButton = () => {
@@ -3848,12 +3850,12 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
         <div className="flex items-center gap-5">
           <button
             type="button"
-            onClick={goBackToJobsQuotingList}
+            onClick={goBackFromReport}
             className="flex h-9 w-9 items-center justify-center rounded-md border-2 border-white/80 text-[20px] font-black leading-none transition hover:bg-white/10"
-            aria-label="Go back to Jobs Quoting List"
-            title="Back to Jobs Quoting List"
+            aria-label={mockMode ? 'Go back to process' : 'Go back to Jobs Quoting List'}
+            title={mockMode ? 'Back to Process' : 'Back to Jobs Quoting List'}
           >
-            ⌂
+            {mockMode ? '‹' : '⌂'}
           </button>
           <div className="relative">
             <button
