@@ -310,7 +310,7 @@ export default function EquipmentNotebookLLM() {
   const [thinking, setThinking] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [panelWidths, setPanelWidths] = useState({ chats: 250, sources: 280, chat: 460 })
-  const [openPanels, setOpenPanels] = useState({ chats: true, sources: true })
+  const [openPanels, setOpenPanels] = useState({ chats: false, sources: false })
   const [composerHeight, setComposerHeight] = useState(96)
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const launchedQuoteIdRef = useRef<string | null>(null)
