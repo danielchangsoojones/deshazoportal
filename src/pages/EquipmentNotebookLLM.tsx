@@ -310,7 +310,7 @@ export default function EquipmentNotebookLLM() {
   const [thinking, setThinking] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [panelWidths, setPanelWidths] = useState({ chats: 250, sources: 280, chat: 460 })
-  const [openPanels, setOpenPanels] = useState({ chats: true, sources: true })
+  const [openPanels, setOpenPanels] = useState({ chats: false, sources: false })
   const [composerHeight, setComposerHeight] = useState(96)
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const launchedQuoteIdRef = useRef<string | null>(null)
@@ -750,13 +750,13 @@ export default function EquipmentNotebookLLM() {
       .join('') || 'DP'
 
   return (
-    <div className="h-screen overflow-hidden bg-[var(--bg)] text-[var(--deshazo-text)]">
-      <header className="sticky top-0 z-40 bg-[var(--deshazo-blue)] px-5 py-3 shadow-sm">
+    <div className="h-screen overflow-hidden bg-[#eef1f4] text-[#18202b]">
+      <header className="sticky top-0 z-40 border-b border-[#d9dee8] bg-white/95 px-5 py-3 shadow-[0_18px_50px_-42px_rgba(15,23,42,0.55)] backdrop-blur">
         <div className="flex w-full items-center justify-between gap-4">
           <button
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
-            className="inline-flex min-w-[120px] items-center justify-center gap-2 rounded-md border-2 border-white/80 px-6 py-2.5 text-base font-semibold text-white transition hover:bg-white/10"
+            className="inline-flex h-10 min-w-[112px] items-center justify-center gap-2 rounded-md border border-[#cbd3df] bg-white px-4 text-sm font-black text-[#273f4f] shadow-sm transition hover:border-[#8ba1b5] hover:bg-[#f6f8fb]"
           >
             <span>Menu</span>
             <span aria-hidden="true" className="text-xs">
@@ -765,26 +765,26 @@ export default function EquipmentNotebookLLM() {
           </button>
 
           <div className="text-right">
-            <h1 className="text-[22px] font-black tracking-[0] text-white">Equipment Notebook LLM</h1>
-            <p className="hidden text-xs font-semibold text-white/75 sm:block">Folder-aware manual and inspection chat</p>
+            <h1 className="text-[22px] font-black tracking-[0] text-[#18202b]">Equipment Notebook LLM</h1>
+            <p className="hidden text-xs font-semibold text-[#657183] sm:block">Folder-aware manual and inspection chat</p>
           </div>
         </div>
       </header>
 
       <main className="flex h-[calc(100vh-60px)] min-h-0 w-full items-stretch">
         {menuOpen && (
-          <aside className="hidden h-full w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
+          <aside className="hidden h-full w-[268px] shrink-0 border-r border-[#d9dee8] bg-[#f8fafc] lg:flex lg:flex-col">
             <div className="flex-1 px-4 py-5">
-              <div className="rounded-[24px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/50 p-4">
+              <div className="rounded-lg border border-[#dfe5ee] bg-white p-3 shadow-[0_18px_50px_-44px_rgba(15,23,42,0.5)]">
                 <nav className="space-y-2">
                   {activeMenuItems.map((item) => (
                     <Link
                       key={item.label}
                       to={item.href}
-                      className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium transition ${
+                      className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-[14px] font-bold transition ${
                         item.active
-                          ? 'bg-[#dbe5ff] text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.06)]'
-                          : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
+                          ? 'bg-[#e6f4f1] text-[#184d47] shadow-[inset_0_0_0_1px_rgba(24,77,71,0.08)]'
+                          : 'text-[#647084] hover:bg-[#f4f7fb] hover:text-[#253241]'
                       }`}
                     >
                       <span>{item.label}</span>
@@ -794,15 +794,15 @@ export default function EquipmentNotebookLLM() {
               </div>
             </div>
 
-            <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
-              <div className="rounded-2xl bg-[var(--deshazo-surface)] px-3 py-3">
+            <div className="border-t border-[#d9dee8] px-4 py-4">
+              <div className="rounded-lg border border-[#dfe5ee] bg-white px-3 py-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-sm font-extrabold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-18px_rgba(47,86,166,0.45)]">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-md bg-[#e6f4f1] text-sm font-black text-[#184d47]">
                     {initials}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-[15px] font-bold text-[var(--deshazo-text)]">{fullName}</p>
-                    <p className="truncate text-[14px] text-[rgba(21,24,33,0.55)]">{user.email}</p>
+                    <p className="truncate text-[14px] font-black text-[#18202b]">{fullName}</p>
+                    <p className="truncate text-[13px] font-semibold text-[#667386]">{user.email}</p>
                   </div>
                 </div>
               </div>
@@ -818,14 +818,14 @@ export default function EquipmentNotebookLLM() {
         >
           {openPanels.chats ? (
             <>
-              <aside className="min-h-0 bg-white">
+              <aside className="min-h-0 bg-[#fbfcfe]">
                 <div className="flex h-full min-h-0 flex-col">
-                  <div className="border-b border-[var(--deshazo-border)] p-3">
+                  <div className="border-b border-[#d9dee8] p-3">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={startNewChat}
-                        className="inline-flex flex-1 items-center justify-center rounded-lg bg-[var(--deshazo-blue)] px-3 py-2 text-sm font-bold text-white transition hover:bg-[var(--deshazo-blue-deep)]"
+                        className="inline-flex h-10 flex-1 items-center justify-center rounded-md bg-[#184d47] px-3 text-sm font-black text-white shadow-sm transition hover:bg-[#123d38]"
                       >
                         + New chat
                       </button>
@@ -833,28 +833,28 @@ export default function EquipmentNotebookLLM() {
                         type="button"
                         aria-label="Close chat history"
                         onClick={() => setOpenPanels((current) => ({ ...current, chats: false }))}
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--deshazo-border)] bg-white text-lg font-black leading-none text-[rgba(21,24,33,0.58)] transition hover:bg-[var(--deshazo-surface)] hover:text-[var(--deshazo-blue)]"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#d7dee8] bg-white text-lg font-black leading-none text-[#69778a] transition hover:bg-[#f4f7fb] hover:text-[#184d47]"
                       >
                         x
                       </button>
                     </div>
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                    <div className="mb-2 text-xs font-black uppercase text-[rgba(21,24,33,0.48)]">Chat history</div>
+                    <div className="mb-2 text-xs font-black uppercase text-[#768294]">Chat history</div>
                     <div className="space-y-2">
                       {sessions.map((session) => (
                         <button
                           key={session.id}
                           type="button"
                           onClick={() => setActiveSessionId(session.id)}
-                          className={`w-full rounded-lg px-3 py-3 text-left transition ${
+                          className={`w-full rounded-md border px-3 py-3 text-left transition ${
                             session.id === activeSession.id
-                              ? 'bg-[#e9edf8] text-[var(--deshazo-text)]'
-                              : 'text-[rgba(21,24,33,0.72)] hover:bg-[var(--deshazo-surface)]'
+                              ? 'border-[#9ccac2] bg-[#edf8f6] text-[#18202b]'
+                              : 'border-transparent bg-white text-[#626e7f] hover:border-[#dce3ed] hover:bg-[#f8fafc]'
                           }`}
                         >
                           <span className="block truncate text-sm font-bold">{session.title}</span>
-                          <span className="mt-1 block text-xs text-[rgba(21,24,33,0.48)]">
+                          <span className="mt-1 block text-xs font-semibold text-[#7a8697]">
                             {new Date(session.createdAt).toLocaleDateString()}
                           </span>
                         </button>
@@ -867,16 +867,16 @@ export default function EquipmentNotebookLLM() {
                 type="button"
                 aria-label="Resize chat history"
                 onPointerDown={(event) => startColumnResize('chats', event)}
-                className="h-full cursor-col-resize border-x border-[var(--deshazo-border)] bg-[#eef2f8] transition hover:bg-[#dbe5ff]"
+                className="h-full cursor-col-resize border-x border-[#d9dee8] bg-[#e5eaf0] transition hover:bg-[#cad6e4]"
               />
             </>
           ) : null}
 
           {openPanels.sources ? (
             <>
-              <aside className="min-h-0 bg-[#fafbfe]">
+              <aside className="min-h-0 bg-[#f8fafc]">
                 <div
-                  className={`flex h-full min-h-0 flex-col ${dragging ? 'bg-[#eef3ff]' : ''}`}
+                  className={`flex h-full min-h-0 flex-col ${dragging ? 'bg-[#e8f5f2]' : ''}`}
                   onDragOver={(event) => {
                     event.preventDefault()
                     setDragging(true)
@@ -888,11 +888,11 @@ export default function EquipmentNotebookLLM() {
                     void uploadManuals(event.dataTransfer.files)
                   }}
                 >
-                  <div className="border-b border-[var(--deshazo-border)] p-3">
+                  <div className="border-b border-[#d9dee8] p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="text-sm font-black text-[var(--deshazo-text)]">Source folder</div>
-                        <div className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.52)]">
+                        <div className="text-sm font-black text-[#18202b]">Source folder</div>
+                        <div className="mt-1 text-xs font-semibold text-[#687589]">
                           {sourcesLoading
                             ? 'Loading sources...'
                             : `${manualSourceCount} uploaded manual${manualSourceCount === 1 ? '' : 's'}`}
@@ -902,14 +902,14 @@ export default function EquipmentNotebookLLM() {
                         type="button"
                         aria-label="Close source folder"
                         onClick={() => setOpenPanels((current) => ({ ...current, sources: false }))}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--deshazo-border)] bg-white text-lg font-black leading-none text-[rgba(21,24,33,0.58)] transition hover:bg-[var(--deshazo-surface)] hover:text-[var(--deshazo-blue)]"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#d7dee8] bg-white text-lg font-black leading-none text-[#69778a] transition hover:bg-[#f4f7fb] hover:text-[#184d47]"
                       >
                         x
                       </button>
                     </div>
-                    <label className="mt-3 flex cursor-pointer flex-col rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white px-3 py-3 text-sm font-bold text-[var(--deshazo-blue)]">
+                    <label className="mt-3 flex cursor-pointer flex-col rounded-md border border-dashed border-[#aebbc9] bg-white px-3 py-3 text-sm font-black text-[#184d47] transition hover:border-[#76aaa1] hover:bg-[#f5fbfa]">
                       <span>{uploading ? 'Uploading...' : '+ Drop or add manual PDF'}</span>
-                      <span className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.48)]">manuals only</span>
+                      <span className="mt-1 text-xs font-semibold text-[#738094]">manuals only</span>
                       <input
                         type="file"
                         accept="application/pdf"
@@ -924,22 +924,22 @@ export default function EquipmentNotebookLLM() {
                   </div>
 
                   {sourcesError ? (
-                    <div className="m-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-700">
+                    <div className="m-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-700">
                       {sourcesError}
                       <div className="mt-2 text-[11px]">API: {notebookApiUrl}</div>
                     </div>
                   ) : null}
                   {contextWarning ? (
-                    <div className="m-3 rounded-lg border border-[#f0d58b] bg-[#fff9e7] p-3 text-xs font-semibold leading-5 text-[#7a560f]">
+                    <div className="m-3 rounded-md border border-[#f0d58b] bg-[#fff9e7] p-3 text-xs font-semibold leading-5 text-[#7a560f]">
                       {contextWarning}
                     </div>
                   ) : null}
 
                   <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                    <div className="mb-2 text-xs font-black uppercase text-[rgba(21,24,33,0.48)]">Files in source folder</div>
+                    <div className="mb-2 text-xs font-black uppercase text-[#768294]">Files in source folder</div>
                     <div className="space-y-2">
                       {sources.length === 0 && !sourcesLoading ? (
-                        <div className="rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white/70 px-3 py-4 text-xs font-semibold leading-5 text-[rgba(21,24,33,0.56)]">
+                        <div className="rounded-md border border-dashed border-[#c9d2df] bg-white/80 px-3 py-4 text-xs font-semibold leading-5 text-[#657183]">
                           No manuals in the source folder yet. Drop or add a manual PDF to start.
                         </div>
                       ) : null}
@@ -947,10 +947,10 @@ export default function EquipmentNotebookLLM() {
                         return (
                           <div
                             key={source.index}
-                            className={`rounded-lg border px-3 py-3 text-left transition ${
+                            className={`rounded-md border px-3 py-3 text-left shadow-sm transition ${
                               activeSource?.index === source.index && !activeExternalPdfUrl
-                                ? 'border-[var(--deshazo-blue)] bg-white'
-                                : 'border-transparent bg-white/70 hover:border-[var(--deshazo-border)]'
+                                ? 'border-[#76aaa1] bg-white'
+                                : 'border-transparent bg-white/80 hover:border-[#d7dee8]'
                             }`}
                           >
                             <button
@@ -964,20 +964,20 @@ export default function EquipmentNotebookLLM() {
                               className="w-full text-left"
                             >
                               <span className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-black text-[var(--deshazo-blue)]">#{index + 1} manual</span>
-                                <span className="rounded-full bg-[var(--deshazo-surface)] px-2 py-0.5 text-[11px] font-bold text-[var(--deshazo-blue)]">
+                                <span className="text-xs font-black text-[#184d47]">#{index + 1} manual</span>
+                                <span className="rounded-full bg-[#e8f5f2] px-2 py-0.5 text-[11px] font-bold text-[#184d47]">
                                   PDF
                                 </span>
                               </span>
-                              <span className="mt-1 block truncate text-sm font-bold text-[var(--deshazo-text)]">{source.name}</span>
-                              <span className="mt-1 block text-xs font-semibold text-[rgba(21,24,33,0.5)]">{sourceLabel(source)}</span>
-                              <span className="mt-2 block truncate text-xs text-[rgba(21,24,33,0.52)]">{source.source}</span>
+                              <span className="mt-1 block truncate text-sm font-bold text-[#18202b]">{source.name}</span>
+                              <span className="mt-1 block text-xs font-semibold text-[#6d7a8d]">{sourceLabel(source)}</span>
+                              <span className="mt-2 block truncate text-xs text-[#7f8a9a]">{source.source}</span>
                             </button>
                             <button
                               type="button"
                               disabled={uploading}
                               onClick={() => void removeNotebookSource(source)}
-                              className="mt-3 rounded-full border border-[#f1b7b7] bg-white px-2 py-1 text-[10px] font-black uppercase text-[#a2472f] transition hover:bg-[#fff5f5] disabled:opacity-50"
+                              className="mt-3 rounded-md border border-[#f1b7b7] bg-white px-2 py-1 text-[10px] font-black uppercase text-[#a2472f] transition hover:bg-[#fff5f5] disabled:opacity-50"
                             >
                               Remove source
                             </button>
@@ -992,19 +992,19 @@ export default function EquipmentNotebookLLM() {
                 type="button"
                 aria-label="Resize sources"
                 onPointerDown={(event) => startColumnResize('sources', event)}
-                className="h-full cursor-col-resize border-x border-[var(--deshazo-border)] bg-[#eef2f8] transition hover:bg-[#dbe5ff]"
+                className="h-full cursor-col-resize border-x border-[#d9dee8] bg-[#e5eaf0] transition hover:bg-[#cad6e4]"
               />
             </>
           ) : null}
 
-          <section className="relative min-h-0 overflow-hidden bg-[#f1f2f5]">
+          <section className="relative min-h-0 overflow-hidden bg-[#e9edf2]">
             {!openPanels.chats || !openPanels.sources ? (
               <div className="absolute left-4 top-4 z-20 flex flex-wrap gap-2">
                 {!openPanels.chats ? (
                   <button
                     type="button"
                     onClick={() => setOpenPanels((current) => ({ ...current, chats: true }))}
-                    className="rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-black text-[var(--deshazo-blue)] shadow-[0_12px_30px_-20px_rgba(47,86,166,0.4)] transition hover:bg-[var(--deshazo-surface)]"
+                    className="rounded-md border border-[#cdd6e2] bg-white px-3 py-2 text-xs font-black text-[#184d47] shadow-[0_16px_38px_-28px_rgba(15,23,42,0.5)] transition hover:border-[#8fbab2] hover:bg-[#f5fbfa]"
                   >
                     Open chats
                   </button>
@@ -1013,7 +1013,7 @@ export default function EquipmentNotebookLLM() {
                   <button
                     type="button"
                     onClick={() => setOpenPanels((current) => ({ ...current, sources: true }))}
-                    className="rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-black text-[var(--deshazo-blue)] shadow-[0_12px_30px_-20px_rgba(47,86,166,0.4)] transition hover:bg-[var(--deshazo-surface)]"
+                    className="rounded-md border border-[#cdd6e2] bg-white px-3 py-2 text-xs font-black text-[#184d47] shadow-[0_16px_38px_-28px_rgba(15,23,42,0.5)] transition hover:border-[#8fbab2] hover:bg-[#f5fbfa]"
                   >
                     Open sources
                   </button>
@@ -1031,12 +1031,12 @@ export default function EquipmentNotebookLLM() {
                   />
                 ) : activeSourcePreviewUnavailable ? (
                   <div className="flex h-full items-center justify-center px-6 text-center">
-                    <div className="max-w-md rounded-xl border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_18px_50px_-36px_rgba(47,86,166,0.5)]">
-                      <p className="text-base font-black text-[var(--deshazo-text)]">PDF preview unavailable</p>
-                      <p className="mt-2 text-sm font-semibold leading-6 text-[rgba(21,24,33,0.62)]">
+                    <div className="max-w-md rounded-lg border border-[#d7dee8] bg-white px-5 py-5 shadow-[0_22px_60px_-42px_rgba(15,23,42,0.55)]">
+                      <p className="text-base font-black text-[#18202b]">PDF preview unavailable</p>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-[#5f6d80]">
                         {pdfTitle} is available in the source folder for manual search and chat, but the notebook backend did not return a previewable PDF file for this source.
                       </p>
-                      <p className="mt-3 text-xs font-semibold text-[rgba(21,24,33,0.48)]">
+                      <p className="mt-3 text-xs font-semibold text-[#7f8a9a]">
                         {activeSourcePreviewError?.message}
                       </p>
                     </div>
@@ -1050,11 +1050,11 @@ export default function EquipmentNotebookLLM() {
                   />
                 ) : null}
                 {!activeSourcePreviewUnavailable ? (
-                  <div className="absolute bottom-5 left-1/2 z-20 flex max-w-[calc(100%-40px)] -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-semibold text-[rgba(21,24,33,0.66)] shadow-[0_12px_30px_-20px_rgba(47,86,166,0.4)]">
+                  <div className="absolute bottom-5 left-1/2 z-20 flex max-w-[calc(100%-40px)] -translate-x-1/2 items-center gap-2 rounded-md border border-[#d7dee8] bg-white/95 px-3 py-2 text-xs font-semibold text-[#5f6d80] shadow-[0_18px_44px_-30px_rgba(15,23,42,0.55)] backdrop-blur">
                     <button
                       type="button"
                       onClick={() => goToPage(Math.max(1, activePage - 1))}
-                      className="rounded-md border border-[var(--deshazo-border)] px-2 py-1 text-[var(--deshazo-blue)]"
+                      className="rounded-md border border-[#cdd6e2] px-2 py-1 text-[#184d47] transition hover:bg-[#f5fbfa]"
                     >
                       -
                     </button>
@@ -1068,7 +1068,7 @@ export default function EquipmentNotebookLLM() {
                       onChange={(event) =>
                         goToPage(Math.min(activeExternalPdfUrl || activeSource?.pdf_url ? Number.MAX_SAFE_INTEGER : activePageCount, Math.max(1, Number(event.target.value || 1))))
                       }
-                      className="h-7 w-16 rounded-md border border-[var(--deshazo-border)] px-2 text-sm text-[var(--deshazo-text)] outline-none"
+                      className="h-7 w-16 rounded-md border border-[#cdd6e2] px-2 text-sm text-[#18202b] outline-none focus:border-[#76aaa1]"
                     />
                     {!activeExternalPdfUrl && !activeSource?.pdf_url ? <span>/ {activePageCount}</span> : null}
                     <button
@@ -1076,7 +1076,7 @@ export default function EquipmentNotebookLLM() {
                       onClick={() =>
                         goToPage(activeExternalPdfUrl || activeSource?.pdf_url ? activePage + 1 : Math.min(activePageCount, activePage + 1))
                       }
-                      className="rounded-md border border-[var(--deshazo-border)] px-2 py-1 text-[var(--deshazo-blue)]"
+                      className="rounded-md border border-[#cdd6e2] px-2 py-1 text-[#184d47] transition hover:bg-[#f5fbfa]"
                     >
                       +
                     </button>
@@ -1084,8 +1084,10 @@ export default function EquipmentNotebookLLM() {
                 ) : null}
               </>
             ) : (
-              <div className="flex h-full items-center justify-center px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.48)]">
-                Add a manual PDF to preview cited pages.
+              <div className="flex h-full items-center justify-center px-6 text-center">
+                <div className="max-w-sm rounded-lg border border-dashed border-[#c7d0dd] bg-white/80 px-5 py-5 text-sm font-semibold leading-6 text-[#667386] shadow-[0_20px_60px_-48px_rgba(15,23,42,0.45)]">
+                  Add a manual PDF to preview cited pages.
+                </div>
               </div>
             )}
           </section>
@@ -1093,33 +1095,33 @@ export default function EquipmentNotebookLLM() {
             type="button"
             aria-label="Resize chat panel"
             onPointerDown={(event) => startColumnResize('chat', event)}
-            className="h-full cursor-col-resize border-x border-[var(--deshazo-border)] bg-[#eef2f8] transition hover:bg-[#dbe5ff]"
+            className="h-full cursor-col-resize border-x border-[#d9dee8] bg-[#e5eaf0] transition hover:bg-[#cad6e4]"
           />
 
-          <section className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] border-l border-[var(--deshazo-border)] bg-white">
-            <div ref={messagesRef} className="min-h-0 overflow-y-auto px-5 py-5">
-              <div className="sticky top-0 z-10 -mx-5 mb-4 border-b border-[var(--deshazo-border)] bg-white/95 px-5 pb-3 backdrop-blur">
+          <section className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] border-l border-[#d9dee8] bg-white">
+            <div ref={messagesRef} className="min-h-0 overflow-y-auto bg-[#fbfcfe] px-5 py-5">
+              <div className="sticky top-0 z-10 -mx-5 mb-4 border-b border-[#d9dee8] bg-[#fbfcfe]/95 px-5 pb-3 backdrop-blur">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-black text-[var(--deshazo-text)]">
+                    <div className="text-sm font-black text-[#18202b]">
                       {chatView === 'overview' ? 'AI Overview' : 'Chat'}
                     </div>
-                    <div className="text-xs font-semibold text-[rgba(21,24,33,0.55)]">
+                    <div className="text-xs font-semibold text-[#657183]">
                       {chatView === 'overview'
                         ? 'Action items and recommended parts from the primary context.'
                         : 'Ask follow-up questions. Reference the overview when useful.'}
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 rounded-full bg-[var(--deshazo-surface)] p-1 text-xs font-black">
+                  <div className="grid grid-cols-2 rounded-md bg-[#e7ecf2] p-1 text-xs font-black">
                     {(['overview', 'chat'] as const).map((view) => (
                       <button
                         key={view}
                         type="button"
                         onClick={() => setChatView(view)}
-                        className={`rounded-full px-3 py-1.5 transition ${
+                        className={`rounded-md px-3 py-1.5 transition ${
                           chatView === view
-                            ? 'bg-white text-[var(--deshazo-blue)] shadow-sm'
-                            : 'text-[rgba(21,24,33,0.52)] hover:text-[var(--deshazo-blue)]'
+                            ? 'bg-white text-[#184d47] shadow-sm'
+                            : 'text-[#667386] hover:text-[#184d47]'
                         }`}
                       >
                         {view === 'overview' ? 'Overview' : 'Chat'}
@@ -1131,7 +1133,7 @@ export default function EquipmentNotebookLLM() {
 
               <div className="space-y-5">
                 {displayedMessages.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/60 px-4 py-6 text-sm font-semibold text-[rgba(21,24,33,0.56)]">
+                  <div className="rounded-lg border border-dashed border-[#c7d0dd] bg-white px-4 py-6 text-sm font-semibold text-[#667386]">
                     {chatView === 'overview'
                       ? 'Building the overview from the selected quote or inspection...'
                       : 'Start with a follow-up question, or reference the AI Overview.'}
@@ -1140,7 +1142,7 @@ export default function EquipmentNotebookLLM() {
                 {displayedMessages.map((chatMessage) => (
                   <div
                     key={chatMessage.id}
-                    className={chatMessage.role === 'user' ? 'ml-auto max-w-[92%] rounded-xl bg-[#f0f2f6] px-4 py-3' : 'mr-auto max-w-[98%]'}
+                    className={chatMessage.role === 'user' ? 'ml-auto max-w-[92%] rounded-lg bg-[#e6f4f1] px-4 py-3 shadow-sm' : 'mr-auto max-w-[98%] rounded-lg border border-[#e0e6ee] bg-white px-4 py-3 shadow-sm'}
                   >
                     {chatMessage.role === 'assistant' && chatMessage.rankedSources && chatMessage.rankedSources.length > 0 ? (
                       <div className="mb-3 flex flex-wrap gap-2">
@@ -1154,7 +1156,7 @@ export default function EquipmentNotebookLLM() {
                               setActiveExternalPdfName('')
                               goToPage(1)
                             }}
-                            className="rounded-full bg-[var(--deshazo-surface)] px-2.5 py-1 text-[11px] font-bold text-[var(--deshazo-blue)]"
+                            className="rounded-full bg-[#edf4f7] px-2.5 py-1 text-[11px] font-bold text-[#184d47] transition hover:bg-[#e0eff1]"
                           >
                             manual: {source.name}
                           </button>
@@ -1164,7 +1166,7 @@ export default function EquipmentNotebookLLM() {
 
                     {chatMessage.role === 'assistant' ? (
                       <div
-                        className="notebook-answer text-sm leading-6 text-[rgba(21,24,33,0.86)]"
+                        className="notebook-answer text-sm leading-6 text-[#273241]"
                         onClick={(event) => {
                           const target = event.target as HTMLElement
                           const button = target.closest<HTMLButtonElement>('.notebook-ref')
@@ -1176,19 +1178,19 @@ export default function EquipmentNotebookLLM() {
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(chatMessage.content) }}
                       />
                     ) : (
-                      <div className="text-sm font-medium leading-6 text-[var(--deshazo-text)]">{chatMessage.content}</div>
+                      <div className="text-sm font-semibold leading-6 text-[#18202b]">{chatMessage.content}</div>
                     )}
                   </div>
                 ))}
               </div>
             </div>
 
-            <form onSubmit={handleAsk} className="border-t border-[var(--deshazo-border)] bg-white p-3">
+            <form onSubmit={handleAsk} className="border-t border-[#d9dee8] bg-white p-3 shadow-[0_-18px_44px_-38px_rgba(15,23,42,0.5)]">
               <button
                 type="button"
                 aria-label="Resize message input"
                 onPointerDown={startComposerResize}
-                className="-mt-3 mb-2 block h-3 w-full cursor-row-resize rounded-full border-y border-transparent bg-transparent transition hover:border-[var(--deshazo-border)] hover:bg-[#eef2f8]"
+                className="-mt-3 mb-2 block h-3 w-full cursor-row-resize rounded-full border-y border-transparent bg-transparent transition hover:border-[#d9dee8] hover:bg-[#eef2f8]"
               />
               <div className="flex items-end gap-2">
                 <textarea
@@ -1201,18 +1203,19 @@ export default function EquipmentNotebookLLM() {
                     }
                   }}
                   style={{ height: composerHeight }}
-                  className="min-h-16 flex-1 resize-none rounded-lg border border-[var(--deshazo-border)] px-3 py-2 text-sm text-[var(--deshazo-text)] outline-none transition focus:border-[var(--deshazo-blue)]"
+                  placeholder="Ask about parts, repair actions, manuals, or the quote..."
+                  className="min-h-16 flex-1 resize-none rounded-md border border-[#cdd6e2] bg-[#fbfcfe] px-3 py-2 text-sm text-[#18202b] outline-none transition placeholder:text-[#8d99aa] focus:border-[#76aaa1] focus:bg-white focus:ring-2 focus:ring-[#dff1ee]"
                 />
                 <button
                   type="submit"
                   disabled={thinking || !message.trim()}
                   style={{ height: composerHeight }}
-                  className="min-h-16 shrink-0 rounded-lg bg-[var(--deshazo-blue)] px-5 text-sm font-bold text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="min-h-16 shrink-0 rounded-md bg-[#184d47] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[#123d38] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {thinking ? 'Reading' : 'Ask'}
                 </button>
               </div>
-              <div className="mt-2 text-xs font-semibold text-[rgba(21,24,33,0.48)]">
+              <div className="mt-2 text-xs font-semibold text-[#7a8697]">
                 {thinking ? 'Reading sources...' : 'References open the cited PDF page.'}
               </div>
             </form>
