@@ -4023,6 +4023,11 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
               <button
                 type="button"
                 onClick={() => {
+                  if (mockMode) {
+                    window.location.assign('https://portal.blockstampsf.com/equipment-notebook-llm?jobsQuotingItemId=a04d024f-8e02-4093-964e-3350e9ab03c0')
+                    return
+                  }
+
                   const params = isUuid(currentJobsQuotingItemId || '')
                     ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId || '')}`
                     : `editableReportId=${encodeURIComponent(currentEditableReportId)}`
