@@ -4019,7 +4019,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
             >
               Save
             </button>
-            {isUuid(currentJobsQuotingItemId || '') || isUuid(currentEditableReportId) ? (
+            {mockMode || isUuid(currentJobsQuotingItemId || '') || isUuid(currentEditableReportId) ? (
               <button
                 type="button"
                 onClick={() => {
