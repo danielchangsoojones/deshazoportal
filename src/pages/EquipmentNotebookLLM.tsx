@@ -284,6 +284,9 @@ const messageReferencesOverview = (value: string) =>
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+
 export default function EquipmentNotebookLLM() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -302,6 +305,7 @@ export default function EquipmentNotebookLLM() {
   const [activeExternalPdfName, setActiveExternalPdfName] = useState('')
   const [activePage, setActivePage] = useState(1)
   const [activePageCount, setActivePageCount] = useState(1)
+  const [activeSourcePreviewError, setActiveSourcePreviewError] = useState<{ sourceIndex: number; message: string } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [thinking, setThinking] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -336,10 +340,13 @@ export default function EquipmentNotebookLLM() {
       ? activeSession?.messages.filter((item) => item.kind === 'overview') ?? []
       : activeSession?.messages.filter((item) => item.kind !== 'overview') ?? []
   const latestCitations = latestAssistant?.citations ?? []
-  const latestRankedSources = latestAssistant?.rankedSources ?? rankSources(message, sources)
-  const topSourceItem = latestRankedSources[0]
-  const activeSource = sources.find((source) => source.index === activeSourceIndex) ?? topSourceItem ?? sources[0]
+  const activeSource = sources.find((source) => source.index === activeSourceIndex) ?? sources[0]
   const pdfTitle = activeExternalPdfName || activeSource?.name || 'Source PDF'
+  const activeSourcePreviewUnavailable =
+    !!activeSource && activeSourcePreviewError?.sourceIndex === activeSource.index
+  const hasInvalidContextId =
+    (!!jobsQuotingItemId && !isUuid(jobsQuotingItemId)) ||
+    (!!editableReportId && !isUuid(editableReportId))
   const manualSourceCount = sources.filter((source) => source.document_type === 'manual').length
   const notebookGridColumns = [
     openPanels.chats ? `${panelWidths.chats}px 6px` : '',
@@ -431,7 +438,11 @@ export default function EquipmentNotebookLLM() {
         const manualSources = data.filter((source) => source.document_type === 'manual')
         setSources(manualSources)
         setSupabaseInspections(inspectionData)
-        setActiveSourceIndex((current) => current ?? manualSources[0]?.index ?? null)
+        setActiveSourceIndex((current) =>
+          current !== null && manualSources.some((source) => source.index === current)
+            ? current
+            : manualSources[0]?.index ?? null,
+        )
       } catch (error) {
         if (controller.signal.aborted) return
         setSourcesError(error instanceof Error ? error.message : 'Notebook sources could not be loaded.')
@@ -448,21 +459,46 @@ export default function EquipmentNotebookLLM() {
   }, [])
 
   useEffect(() => {
-    if (activeExternalPdfUrl || !activeSource) {
+    setActiveSourceIndex((current) => {
+      if (sources.length === 0) return null
+      return current !== null && sources.some((source) => source.index === current)
+        ? current
+        : sources[0].index
+    })
+  }, [sources])
+
+  useEffect(() => {
+    if (activeExternalPdfUrl || !activeSource || activeSource.pdf_url) {
       setActivePageCount(1)
+      setActiveSourcePreviewError(null)
       return
     }
 
     const controller = new AbortController()
-    getNotebookPdfInfo(activeSource.index, controller.signal)
-      .then((info) => {
+    async function checkPreview() {
+      try {
+        setActiveSourcePreviewError(null)
+        const info = await getNotebookPdfInfo(activeSource.index, controller.signal)
+        const response = await fetch(notebookPdfUrl(activeSource.index, 1), { signal: controller.signal })
+        if (!response.ok) {
+          throw new Error(`Preview failed with status ${response.status}`)
+        }
         setActivePageCount(Math.max(1, info.pages || 1))
         setActivePage((page) => Math.min(Math.max(1, page), Math.max(1, info.pages || 1)))
-      })
-      .catch(() => setActivePageCount(1))
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setActivePageCount(1)
+        setActiveSourcePreviewError({
+          sourceIndex: activeSource.index,
+          message: error instanceof Error ? error.message : 'Preview is unavailable for this source.',
+        })
+      }
+    }
+
+    void checkPreview()
 
     return () => controller.abort()
-  }, [activeExternalPdfUrl, activeSource?.index])
+  }, [activeExternalPdfUrl, activeSource?.index, activeSource?.pdf_url])
 
   const updateActiveSession = (updater: (session: ChatSession) => ChatSession) => {
     setSessions((current) => current.map((session) => (session.id === activeSessionId ? updater(session) : session)))
@@ -505,7 +541,7 @@ export default function EquipmentNotebookLLM() {
       await reindexNotebook()
       const data = (await getNotebookSources()).filter((source) => source.document_type === 'manual')
       setSources(data)
-      setActiveSourceIndex(data[data.length - 1]?.index ?? null)
+      setActiveSourceIndex(data[0]?.index ?? null)
       setActiveExternalPdfUrl('')
       setActiveExternalPdfName('')
     } catch (error) {
@@ -638,7 +674,16 @@ export default function EquipmentNotebookLLM() {
   }
 
   useEffect(() => {
-    if (!jobsQuotingItemId || sourcesLoading || thinking || launchedQuoteIdRef.current === jobsQuotingItemId) return
+    if (!hasInvalidContextId) return
+
+    setContextWarning(
+      'This AI chat was opened with a mock or local report id. Save or open a real quote report before building an AI overview from backend inspection data.',
+    )
+    setChatView('chat')
+  }, [hasInvalidContextId])
+
+  useEffect(() => {
+    if (!jobsQuotingItemId || !isUuid(jobsQuotingItemId) || sourcesLoading || thinking || launchedQuoteIdRef.current === jobsQuotingItemId) return
 
     launchedQuoteIdRef.current = jobsQuotingItemId
     async function loadQuoteContext() {
@@ -659,7 +704,7 @@ export default function EquipmentNotebookLLM() {
   }, [jobsQuotingItemId, sourcesLoading, thinking])
 
   useEffect(() => {
-    if (!editableReportId || jobsQuotingItemId || sourcesLoading || thinking || launchedQuoteIdRef.current === editableReportId) return
+    if (!editableReportId || !isUuid(editableReportId) || jobsQuotingItemId || sourcesLoading || thinking || launchedQuoteIdRef.current === editableReportId) return
 
     launchedQuoteIdRef.current = editableReportId
     async function loadEditableReportContext() {
@@ -984,45 +1029,59 @@ export default function EquipmentNotebookLLM() {
                     title={pdfTitle}
                     className="h-full w-full border-0"
                   />
+                ) : activeSourcePreviewUnavailable ? (
+                  <div className="flex h-full items-center justify-center px-6 text-center">
+                    <div className="max-w-md rounded-xl border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_18px_50px_-36px_rgba(47,86,166,0.5)]">
+                      <p className="text-base font-black text-[var(--deshazo-text)]">PDF preview unavailable</p>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-[rgba(21,24,33,0.62)]">
+                        {pdfTitle} is available in the source folder for manual search and chat, but the notebook backend did not return a previewable PDF file for this source.
+                      </p>
+                      <p className="mt-3 text-xs font-semibold text-[rgba(21,24,33,0.48)]">
+                        {activeSourcePreviewError?.message}
+                      </p>
+                    </div>
+                  </div>
                 ) : activeSource ? (
                   <iframe
                     key={`${activeSource.index}-${activePage}`}
-                    src={notebookPdfUrl(activeSource.index, activePage)}
+                    src={activeSource.pdf_url ? `${activeSource.pdf_url}#page=${activePage}` : notebookPdfUrl(activeSource.index, activePage)}
                     title={pdfTitle}
                     className="h-full w-full border-0"
                   />
                 ) : null}
-                <div className="absolute bottom-5 left-1/2 z-20 flex max-w-[calc(100%-40px)] -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-semibold text-[rgba(21,24,33,0.66)] shadow-[0_12px_30px_-20px_rgba(47,86,166,0.4)]">
-                  <button
-                    type="button"
-                    onClick={() => goToPage(Math.max(1, activePage - 1))}
-                    className="rounded-md border border-[var(--deshazo-border)] px-2 py-1 text-[var(--deshazo-blue)]"
-                  >
-                    -
-                  </button>
-                  <span className="max-w-[220px] truncate">{pdfTitle}</span>
-                  <span>Page</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={activeExternalPdfUrl ? undefined : activePageCount}
-                    value={activePage}
-                    onChange={(event) =>
-                      goToPage(Math.min(activeExternalPdfUrl ? Number.MAX_SAFE_INTEGER : activePageCount, Math.max(1, Number(event.target.value || 1))))
-                    }
-                    className="h-7 w-16 rounded-md border border-[var(--deshazo-border)] px-2 text-sm text-[var(--deshazo-text)] outline-none"
-                  />
-                  {!activeExternalPdfUrl ? <span>/ {activePageCount}</span> : null}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      goToPage(activeExternalPdfUrl ? activePage + 1 : Math.min(activePageCount, activePage + 1))
-                    }
-                    className="rounded-md border border-[var(--deshazo-border)] px-2 py-1 text-[var(--deshazo-blue)]"
-                  >
-                    +
-                  </button>
-                </div>
+                {!activeSourcePreviewUnavailable ? (
+                  <div className="absolute bottom-5 left-1/2 z-20 flex max-w-[calc(100%-40px)] -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-semibold text-[rgba(21,24,33,0.66)] shadow-[0_12px_30px_-20px_rgba(47,86,166,0.4)]">
+                    <button
+                      type="button"
+                      onClick={() => goToPage(Math.max(1, activePage - 1))}
+                      className="rounded-md border border-[var(--deshazo-border)] px-2 py-1 text-[var(--deshazo-blue)]"
+                    >
+                      -
+                    </button>
+                    <span className="max-w-[220px] truncate">{pdfTitle}</span>
+                    <span>Page</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={activeExternalPdfUrl || activeSource?.pdf_url ? undefined : activePageCount}
+                      value={activePage}
+                      onChange={(event) =>
+                        goToPage(Math.min(activeExternalPdfUrl || activeSource?.pdf_url ? Number.MAX_SAFE_INTEGER : activePageCount, Math.max(1, Number(event.target.value || 1))))
+                      }
+                      className="h-7 w-16 rounded-md border border-[var(--deshazo-border)] px-2 text-sm text-[var(--deshazo-text)] outline-none"
+                    />
+                    {!activeExternalPdfUrl && !activeSource?.pdf_url ? <span>/ {activePageCount}</span> : null}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        goToPage(activeExternalPdfUrl || activeSource?.pdf_url ? activePage + 1 : Math.min(activePageCount, activePage + 1))
+                      }
+                      className="rounded-md border border-[var(--deshazo-border)] px-2 py-1 text-[var(--deshazo-blue)]"
+                    >
+                      +
+                    </button>
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="flex h-full items-center justify-center px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.48)]">
