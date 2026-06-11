@@ -17,6 +17,7 @@ import {
 import {
   type DeshazoCraneReport,
   type DeshazoSavedInspectionReport,
+  getSavedDeshazoInspectionReport,
   getSavedDeshazoInspectionReports,
 } from '../lib/deshazoExternalReports'
 import { getCurrentUserTag } from '../lib/userTags'
@@ -262,19 +263,55 @@ export default function DeshazoExternalReports() {
           return
         }
 
+        const requestedWorkOrderId = Number(searchParams.get('workOrderId'))
+        const hasRequestedWorkOrderId = Number.isFinite(requestedWorkOrderId)
+        setUser(nextUser)
+
+        if (hasRequestedWorkOrderId) {
+          const requestedReport = await getSavedDeshazoInspectionReport(requestedWorkOrderId)
+          if (cancelled) return
+
+          if (requestedReport) {
+            setReports([requestedReport])
+            setSelectedWorkOrderId(requestedReport.workOrderId)
+            const requestedReportLabel =
+              requestedReport.summary?.jobNo ||
+              requestedReport.summary?.salesOrderNo ||
+              requestedReport.jobNo ||
+              String(requestedReport.workOrderId)
+            setMessage(`Showing inspection report for work order ${requestedReportLabel} from Supabase.`)
+          } else {
+            setReports([])
+            setSelectedWorkOrderId(null)
+            setMessage(`No saved inspection report was found for work order ${requestedWorkOrderId}.`)
+          }
+
+          setLoading(false)
+
+          try {
+            const recentReports = await getSavedDeshazoInspectionReports(100)
+            if (cancelled) return
+
+            const nextReports = requestedReport
+              ? [requestedReport, ...recentReports.filter((report) => report.workOrderId !== requestedReport.workOrderId)]
+              : recentReports
+            setReports(nextReports)
+          } catch {
+            // Keep the requested report visible even if the dropdown backfill fails.
+          }
+          return
+        }
+
         const nextReports = await getSavedDeshazoInspectionReports(100)
         if (cancelled) return
 
-        const requestedWorkOrderId = Number(searchParams.get('workOrderId'))
-        const nextSelectedWorkOrderId =
-          Number.isFinite(requestedWorkOrderId) && nextReports.some((report) => report.workOrderId === requestedWorkOrderId)
-            ? requestedWorkOrderId
-            : nextReports[0]?.workOrderId ?? null
-
-        setUser(nextUser)
         setReports(nextReports)
-        setSelectedWorkOrderId(nextSelectedWorkOrderId)
-        setMessage(nextReports.length > 0 ? `Showing ${nextReports.length} recent synced work orders from Supabase.` : 'No saved reports found yet.')
+        setSelectedWorkOrderId(nextReports[0]?.workOrderId ?? null)
+        setMessage(
+          nextReports.length > 0
+            ? `Showing ${nextReports.length} recent synced inspection reports from Supabase.`
+            : 'No saved reports found yet.',
+        )
       } catch (error) {
         if (cancelled) return
         setMessage(error instanceof Error ? error.message : 'Saved reports could not be loaded.')
