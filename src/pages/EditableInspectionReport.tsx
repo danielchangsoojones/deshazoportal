@@ -3954,6 +3954,14 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
               display: none !important;
             }
 
+            .report-print-internal-cost {
+              display: none !important;
+            }
+
+            .report-customer-cost-grid {
+              grid-template-columns: 1fr 54px 108px 132px !important;
+            }
+
             .editable-report-field:hover,
             .editable-report-field:focus {
               background: transparent !important;
@@ -4796,12 +4804,12 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                             <div className="border-b border-[#d8d8d8] bg-[#f7f7f7] px-3 py-1.5 text-[12px] font-black uppercase leading-tight text-[#273f7a]">
                               {costSection.title}
                             </div>
-                            <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
+                            <div className="report-customer-cost-grid relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
                               <div className="px-2 py-1">Description</div>
-                              <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
+                              <div className="report-print-internal-cost border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
                               <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
                               <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Customer Price</div>
-                              <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
+                              <div className="report-print-internal-cost border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
                               <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                               <div className="report-inline-action border-l border-[#d8d8d8]" />
                               <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
@@ -4813,7 +4821,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                             {costSection.lineItems.map((lineItem, lineIndex) => (
                               <div
                                 key={lineItem.id}
-                                className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                                className="report-customer-cost-grid relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                               >
                                 {activeDoneLineItem === `repair-cost-${section.id}-${costSection.id}-${lineItem.id}` ? (
                                   <button
@@ -4846,7 +4854,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                                   onChange={(value) => updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
                                   clearOnFocus={getInternalUnitCost(lineItem) === 0}
                                   onEditFocus={() => setActiveDoneLineItem(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)}
-                                  className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                                  className="report-print-internal-cost min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                                 />
                                 <EditableValue
                                   label={`${section.title} ${costSection.title} quantity ${lineIndex + 1}`}
@@ -4863,7 +4871,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                                   onEditFocus={() => setActiveDoneLineItem(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)}
                                   className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                                 />
-                                <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
+                                <div className="report-print-internal-cost border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                                   {formatMoney(getInternalLineAmount(lineItem))}
                                 </div>
                                 <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
@@ -5120,12 +5128,12 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                       ) : null}
                     </div>
 
-                    <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
+                    <div className="report-customer-cost-grid relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
                       <div className="px-2 py-1">Description</div>
-                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
+                      <div className="report-print-internal-cost border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Qty</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Customer Price</div>
-                      <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
+                      <div className="report-print-internal-cost border-l border-[#d8d8d8] px-2 py-1 text-right">Total Internal Cost</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
                       <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
@@ -5138,7 +5146,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                     {section.lineItems.map((lineItem, lineIndex) => (
                       <div
                         key={lineItem.id}
-                        className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
+                        className="report-customer-cost-grid relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#e5e5e5] text-[12px] font-semibold"
                       >
                         {activeDoneLineItem === `cost-${section.id}-${lineItem.id}` ? (
                           <button
@@ -5191,7 +5199,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                           onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
                           clearOnFocus={getInternalUnitCost(lineItem) === 0}
                           onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
-                          className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                          className="report-print-internal-cost min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                         />
                         <EditableValue
                           label={`${section.title} quantity ${lineIndex + 1}`}
@@ -5224,7 +5232,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                             className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                           />
                         )}
-                        <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
+                        <div className="report-print-internal-cost border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                           {formatMoney(getInternalLineAmount(lineItem))}
                         </div>
                         <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
