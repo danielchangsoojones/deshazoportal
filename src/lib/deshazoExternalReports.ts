@@ -6,6 +6,7 @@ const deshazoExternalApiBaseUrl =
   (portalParseBaseUrl ? new URL(portalParseBaseUrl).origin : '') ||
   'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com'
 const deshazoExternalApiKey = (import.meta.env.VITE_DESHAZO_EXTERNAL_API_KEY as string | undefined)?.trim() || ''
+const wabashCustomerNameFilter = '%Wabash%'
 
 export type DeshazoInspectionPhoto = {
   id?: string
@@ -287,6 +288,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
       'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload, synced_at, created_at',
       { count: 'exact' },
     )
+    .ilike('bill_to_name', wabashCustomerNameFilter)
     .order('start_date', { ascending: false, nullsFirst: false })
     .order('end_date', { ascending: false, nullsFirst: false })
     .order('work_order_id', { ascending: false })

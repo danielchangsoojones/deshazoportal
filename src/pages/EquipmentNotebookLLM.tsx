@@ -16,7 +16,7 @@ import {
   type NotebookCitation,
   type NotebookSource,
 } from '../lib/equipmentNotebookApi'
-import { getJobsQuotingItem, getJobsQuotingItemPdfUrl, getJobsQuotingItems, type JobsQuotingItem } from '../lib/jobsQuoting'
+import { getJobsQuotingItem, getJobsQuotingItems, type JobsQuotingItem } from '../lib/jobsQuoting'
 
 type ChatMessage = {
   id: string
@@ -67,7 +67,7 @@ const starterSession = (): ChatSession => ({
       id: crypto.randomUUID(),
       role: 'assistant',
       content:
-        'Drop an inspection report or manual into the source folder, then ask for a parts list, repair plan, or quote package.',
+        'Drop a manual into the source folder, then ask for a parts list, repair plan, or quote package.',
       citations: [],
       rankedSources: [],
     },
@@ -83,10 +83,10 @@ const tokenize = (value: string) =>
 
 const rankSources = (query: string, sources: NotebookSource[]): RankedSource[] => {
   const tokens = tokenize(query)
-  const wantsInspection = /\b(inspection|repair|defect|issue|action|quote|maintenance|report)\b/i.test(query)
   const wantsManual = /\b(part|parts|manual|serial|model|key|fig|figure|purchase|order|replace)\b/i.test(query)
 
   return sources
+    .filter((source) => source.document_type === 'manual')
     .map((source) => {
       const haystack = tokenize(
         `${source.name} ${source.manufacturer} ${source.equipment_id} ${source.document_type} ${source.source}`,
@@ -97,10 +97,6 @@ const rankSources = (query: string, sources: NotebookSource[]): RankedSource[] =
       let score = overlap.length * 8
 
       if (overlap.length > 0) reasons.push(`matches ${overlap.slice(0, 4).join(', ')}`)
-      if (wantsInspection && source.document_type === 'inspection') {
-        score += 22
-        reasons.push('inspection context')
-      }
       if (wantsManual && source.document_type === 'manual') {
         score += 16
         reasons.push('manual/parts context')
@@ -149,13 +145,9 @@ const rankInspections = (query: string, inspections: JobsQuotingItem[]): RankedI
 
 const pickSourceForApi = (rankedSources: RankedSource[]) => {
   if (rankedSources.length === 0) return null
-  const inspection = rankedSources.find((source) => source.document_type === 'inspection')
   const manual = rankedSources.find((source) => source.document_type === 'manual')
-  return (inspection?.score ?? 0) >= (manual?.score ?? 0) + 8 ? inspection?.index ?? null : rankedSources[0].index
+  return manual?.index ?? rankedSources[0].index
 }
-
-const shouldUseFolderContext = (query: string) =>
-  /\b(inspection|repair|parts?|purchase|quote|action|maintenance|replace|needed)\b/i.test(query)
 
 const buildInspectionContextPrompt = (query: string, inspections: RankedInspection[], primaryInspection?: JobsQuotingItem) => {
   const selectedInspections = primaryInspection
@@ -172,7 +164,7 @@ const buildInspectionContextPrompt = (query: string, inspections: RankedInspecti
 
   const instruction = primaryInspection
     ? 'Use ONLY this primary Supabase inspection context for defect/repair facts unless the user explicitly asks to compare another inspection. Then choose the most relevant manual from the notebook source folder.'
-    : 'Use this Supabase inspection context first, then choose the most relevant manual from the notebook source folder. If multiple inspections appear to conflict, ask the user which inspection to continue with before mixing repair facts.'
+    : 'Use this Supabase inspection context first, then choose the most relevant manual from the notebook source folder. Do not rely on uploaded inspection files from the notebook source folder. If multiple inspections appear to conflict, ask the user which inspection to continue with before mixing repair facts.'
 
   return `${query}\n\n${instruction}\n\n${context}`
 }
@@ -242,8 +234,7 @@ const renderMarkdown = (markdown: string) => {
   return linkReferences(html.join(''))
 }
 
-const sourceLabel = (source: NotebookSource) =>
-  `${source.document_type === 'inspection' ? 'Inspection' : 'Manual'} - ${source.manufacturer}`
+const sourceLabel = (source: NotebookSource) => `Manual - ${source.manufacturer}`
 
 const normalizeMatchText = (value: string) =>
   value
@@ -312,7 +303,6 @@ export default function EquipmentNotebookLLM() {
   const [activePage, setActivePage] = useState(1)
   const [activePageCount, setActivePageCount] = useState(1)
   const [uploading, setUploading] = useState(false)
-  const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([])
   const [thinking, setThinking] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [panelWidths, setPanelWidths] = useState({ chats: 250, sources: 280, chat: 460 })
@@ -351,7 +341,6 @@ export default function EquipmentNotebookLLM() {
   const activeSource = sources.find((source) => source.index === activeSourceIndex) ?? topSourceItem ?? sources[0]
   const pdfTitle = activeExternalPdfName || activeSource?.name || 'Source PDF'
   const manualSourceCount = sources.filter((source) => source.document_type === 'manual').length
-  const inspectionSourceCount = sources.filter((source) => source.document_type === 'inspection').length
   const notebookGridColumns = [
     openPanels.chats ? `${panelWidths.chats}px 6px` : '',
     openPanels.sources ? `${panelWidths.sources}px 6px` : '',
@@ -439,9 +428,10 @@ export default function EquipmentNotebookLLM() {
           getNotebookSources(controller.signal),
           getJobsQuotingItems().catch(() => []),
         ])
-        setSources(data)
+        const manualSources = data.filter((source) => source.document_type === 'manual')
+        setSources(manualSources)
         setSupabaseInspections(inspectionData)
-        setActiveSourceIndex((current) => current ?? data[0]?.index ?? null)
+        setActiveSourceIndex((current) => current ?? manualSources[0]?.index ?? null)
       } catch (error) {
         if (controller.signal.aborted) return
         setSourcesError(error instanceof Error ? error.message : 'Notebook sources could not be loaded.')
@@ -503,24 +493,17 @@ export default function EquipmentNotebookLLM() {
     }
   }
 
-  const openUploadTypeDialog = (files: FileList | File[]) => {
-    const pdfs = Array.from(files).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
-    if (pdfs.length > 0) {
-      setPendingUploadFiles(pdfs)
-    }
-  }
-
-  const handleUpload = async (files: File[], documentType: 'manual' | 'inspection') => {
+  const uploadManuals = async (files: FileList | File[]) => {
     const pdfs = Array.from(files).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
     if (pdfs.length === 0) return
 
     try {
       setUploading(true)
       for (const file of pdfs) {
-        await uploadNotebookPdf(file, documentType)
+        await uploadNotebookPdf(file)
       }
       await reindexNotebook()
-      const data = await getNotebookSources()
+      const data = (await getNotebookSources()).filter((source) => source.document_type === 'manual')
       setSources(data)
       setActiveSourceIndex(data[data.length - 1]?.index ?? null)
       setActiveExternalPdfUrl('')
@@ -532,63 +515,12 @@ export default function EquipmentNotebookLLM() {
     }
   }
 
-  const addInspectionToSourceFolder = async (inspection: JobsQuotingItem) => {
-    const existingSource = sources.find(
-      (source) =>
-        source.document_type === 'inspection' &&
-        (source.name === inspection.documentName ||
-          source.name === inspection.pdfFileName?.replace(/\.pdf$/i, '') ||
-          inspection.documentName.includes(source.name) ||
-          source.name.includes(inspection.documentName.slice(0, 40))),
-    )
-    if (existingSource) {
-      setActiveSourceIndex(existingSource.index)
-      setActiveExternalPdfUrl('')
-      setActiveExternalPdfName('')
-      goToPage(1)
-      return existingSource
-    }
-
-    const signedUrl = await getJobsQuotingItemPdfUrl(inspection)
-    if (!signedUrl) {
-      setSourcesError('This inspection does not have a source PDF to add.')
-      return null
-    }
-
-    try {
-      setUploading(true)
-      setSourcesError('')
-      const response = await fetch(signedUrl)
-      if (!response.ok) {
-        throw new Error(`Inspection PDF download failed with status ${response.status}`)
-      }
-      const blob = await response.blob()
-      const fileName = inspection.pdfFileName || `${inspection.documentName || inspection.id}.pdf`
-      await uploadNotebookPdf(new File([blob], fileName, { type: inspection.pdfContentType || 'application/pdf' }), 'inspection')
-      await reindexNotebook()
-      const data = await getNotebookSources()
-      setSources(data)
-      const added = data.find((source) => source.name === fileName) ?? data[data.length - 1]
-      setActiveSourceIndex(added?.index ?? null)
-      setActiveExternalPdfUrl('')
-      setActiveExternalPdfName('')
-      goToPage(1)
-      return added ?? null
-    } catch (error) {
-      setSourcesError(error instanceof Error ? error.message : 'Inspection could not be added to the source folder.')
-      return null
-    } finally {
-      setUploading(false)
-      setPendingUploadFiles([])
-    }
-  }
-
   const removeNotebookSource = async (source: NotebookSource) => {
     try {
       setSourcesError('')
       await deleteNotebookSource(source.index)
       await reindexNotebook()
-      const data = await getNotebookSources()
+      const data = (await getNotebookSources()).filter((source) => source.document_type === 'manual')
       setSources(data)
       setActiveSourceIndex((current) => {
         if (current !== source.index) return current
@@ -613,10 +545,10 @@ export default function EquipmentNotebookLLM() {
         ? [preferredInspection, ...supabaseInspections.filter((inspection) => inspection.id !== preferredInspection.id)]
         : supabaseInspections,
     )
-    const sourceIndex = shouldUseFolderContext(trimmed) ? null : pickSourceForApi(rankedSources)
+    const sourceIndex = pickSourceForApi(rankedSources)
     const prompt =
       options.kind === 'chat' && latestOverview && messageReferencesOverview(trimmed)
-        ? `${trimmed}\n\nThe user is referring to this AI Overview from the current chat. Use it as conversation context, but verify against cited manuals/inspection reports before answering:\n\n${latestOverview.content}`
+        ? `${trimmed}\n\nThe user is referring to this AI Overview from the current chat. Use it as conversation context, but verify against cited manuals and Supabase inspection records before answering:\n\n${latestOverview.content}`
         : trimmed
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -715,7 +647,6 @@ export default function EquipmentNotebookLLM() {
         setSupabaseInspections((current) =>
           current.some((inspection) => inspection.id === quoteItem.id) ? current : [quoteItem, ...current],
         )
-        await addInspectionToSourceFolder(quoteItem)
         const prompt = buildOverviewPrompt(buildQuotePrompt(quoteItem))
         setChatView('overview')
         await submitQuestion(prompt, quoteItem, { kind: 'overview', hideUserMessage: true, title: 'AI Overview' })
@@ -909,7 +840,7 @@ export default function EquipmentNotebookLLM() {
                   onDrop={(event) => {
                     event.preventDefault()
                     setDragging(false)
-                    openUploadTypeDialog(event.dataTransfer.files)
+                    void uploadManuals(event.dataTransfer.files)
                   }}
                 >
                   <div className="border-b border-[var(--deshazo-border)] p-3">
@@ -919,7 +850,7 @@ export default function EquipmentNotebookLLM() {
                         <div className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.52)]">
                           {sourcesLoading
                             ? 'Loading sources...'
-                            : `${manualSourceCount} manuals, ${inspectionSourceCount} inspection files`}
+                            : `${manualSourceCount} uploaded manual${manualSourceCount === 1 ? '' : 's'}`}
                         </div>
                       </div>
                       <button
@@ -932,15 +863,15 @@ export default function EquipmentNotebookLLM() {
                       </button>
                     </div>
                     <label className="mt-3 flex cursor-pointer flex-col rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white px-3 py-3 text-sm font-bold text-[var(--deshazo-blue)]">
-                      <span>{uploading ? 'Uploading...' : '+ Drop or add PDF'}</span>
-                      <span className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.48)]">choose manual or inspection next</span>
+                      <span>{uploading ? 'Uploading...' : '+ Drop or add manual PDF'}</span>
+                      <span className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.48)]">manuals only</span>
                       <input
                         type="file"
                         accept="application/pdf"
                         multiple
                         className="hidden"
                         onChange={(event) => {
-                          if (event.target.files) openUploadTypeDialog(event.target.files)
+                          if (event.target.files) void uploadManuals(event.target.files)
                           event.currentTarget.value = ''
                         }}
                       />
@@ -964,7 +895,7 @@ export default function EquipmentNotebookLLM() {
                     <div className="space-y-2">
                       {sources.length === 0 && !sourcesLoading ? (
                         <div className="rounded-lg border border-dashed border-[var(--deshazo-border)] bg-white/70 px-3 py-4 text-xs font-semibold leading-5 text-[rgba(21,24,33,0.56)]">
-                          No files in the source folder yet. Drop or add a PDF to start.
+                          No manuals in the source folder yet. Drop or add a manual PDF to start.
                         </div>
                       ) : null}
                       {sources.map((source, index) => {
@@ -988,7 +919,7 @@ export default function EquipmentNotebookLLM() {
                               className="w-full text-left"
                             >
                               <span className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-black text-[var(--deshazo-blue)]">#{index + 1} {source.document_type}</span>
+                                <span className="text-xs font-black text-[var(--deshazo-blue)]">#{index + 1} manual</span>
                                 <span className="rounded-full bg-[var(--deshazo-surface)] px-2 py-0.5 text-[11px] font-bold text-[var(--deshazo-blue)]">
                                   PDF
                                 </span>
@@ -1095,7 +1026,7 @@ export default function EquipmentNotebookLLM() {
               </>
             ) : (
               <div className="flex h-full items-center justify-center px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.48)]">
-                Add or connect source PDFs to preview cited pages.
+                Add a manual PDF to preview cited pages.
               </div>
             )}
           </section>
@@ -1166,7 +1097,7 @@ export default function EquipmentNotebookLLM() {
                             }}
                             className="rounded-full bg-[var(--deshazo-surface)] px-2.5 py-1 text-[11px] font-bold text-[var(--deshazo-blue)]"
                           >
-                            {source.document_type}: {source.name}
+                            manual: {source.name}
                           </button>
                         ))}
                       </div>
@@ -1229,42 +1160,6 @@ export default function EquipmentNotebookLLM() {
           </section>
         </section>
       </main>
-      {pendingUploadFiles.length > 0 ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
-          <div className="w-full max-w-sm rounded-xl border border-[var(--deshazo-border)] bg-white p-5 shadow-[0_24px_70px_-36px_rgba(15,23,42,0.7)]">
-            <h2 className="text-lg font-black text-[var(--deshazo-text)]">Add source as</h2>
-            <p className="mt-2 text-sm font-semibold text-[rgba(21,24,33,0.58)]">
-              {pendingUploadFiles.length === 1 ? pendingUploadFiles[0].name : `${pendingUploadFiles.length} PDF files`}
-            </p>
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                disabled={uploading}
-                onClick={() => void handleUpload(pendingUploadFiles, 'inspection')}
-                className="rounded-lg bg-[var(--deshazo-blue)] px-4 py-3 text-sm font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:opacity-50"
-              >
-                Inspection
-              </button>
-              <button
-                type="button"
-                disabled={uploading}
-                onClick={() => void handleUpload(pendingUploadFiles, 'manual')}
-                className="rounded-lg border border-[var(--deshazo-border)] bg-white px-4 py-3 text-sm font-black text-[var(--deshazo-blue)] transition hover:bg-[#eef3ff] disabled:opacity-50"
-              >
-                Manual
-              </button>
-            </div>
-            <button
-              type="button"
-              disabled={uploading}
-              onClick={() => setPendingUploadFiles([])}
-              className="mt-3 w-full rounded-lg px-4 py-2 text-sm font-bold text-[rgba(21,24,33,0.56)] transition hover:bg-[var(--deshazo-surface)] disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }
