@@ -22,6 +22,7 @@ const EditableInspectionReport = lazy(() => import('./pages/EditableInspectionRe
 const JobsQuotingList = lazy(() => import('./pages/JobsQuotingList'))
 const SteelQuotingList = lazy(() => import('./pages/SteelQuotingList'))
 const SteelProcess = lazy(() => import('./pages/SteelProcess'))
+const SteelEditableInspectionReport = lazy(() => import('./pages/SteelEditableInspectionReport'))
 const AssetFleet = lazy(() => import('./pages/AssetFleet'))
 const AssetFleetAssets = lazy(() => import('./pages/AssetFleetAssets'))
 const AssetInfo = lazy(() => import('./pages/AssetInfo'))
@@ -62,6 +63,7 @@ function App() {
           <Route path="/jobsquotinglist" element={<JobsQuotingList />} />
           <Route path="/steel-quoting-list" element={<SteelQuotingList />} />
           <Route path="/process" element={<SteelProcess />} />
+          <Route path="/steel-editable-inspection-report" element={<SteelEditableInspectionReport />} />
           <Route path="/inspection-report-template" element={<EditableInspectionReport />} />
           <Route path="/editable-inspection-report" element={<EditableInspectionReport />} />
           <Route path="/asset-fleet" element={<AssetFleet />} />

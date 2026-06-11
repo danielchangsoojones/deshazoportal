@@ -240,7 +240,7 @@ export default function SteelProcess() {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/steel-editable-quote-page')}
+            onClick={() => navigate('/steel-editable-inspection-report')}
             className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff]"
           >
             Next
