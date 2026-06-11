@@ -221,26 +221,26 @@ function AssetIssueRow({
 }) {
   return (
     <tr onClick={onClick} className={`cursor-pointer transition hover:bg-[#dbe5ff] ${index % 2 === 0 ? 'bg-[#f4f7ff]' : 'bg-white'}`}>
-      <td className="px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
+      <td className="w-[23%] px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
         {issue.category}
       </td>
-      <td className="px-4 py-3 align-top">
+      <td className="w-[17%] px-4 py-3 align-top">
         <span className={`inline-flex rounded-full px-2.5 py-1 text-[13px] font-bold ${getSafetyBadgeClass(issue.safety_category)}`}>
           {issue.safety_category}
         </span>
       </td>
-      <td className="px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
+      <td className="w-[16%] px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
         {formatDisplayDate(issue.inspection_date)}
       </td>
-      <td className="px-4 py-3 align-top">
+      <td className="w-[11%] px-4 py-3 align-top">
         <span className={`inline-flex rounded-full px-2.5 py-1 text-[13px] font-bold ${getComponentBadgeClass(issue.component_type)}`}>
           {formatTitleCase(issue.component_type)}
         </span>
       </td>
-      <td className="px-4 py-3 align-top text-[15px] font-medium leading-snug text-[var(--deshazo-text)]">
-        <span className="flex items-start gap-2">
+      <td className="w-[33%] px-4 py-3 align-top text-[15px] font-medium leading-snug text-[var(--deshazo-text)]">
+        <span className="flex min-w-0 items-start gap-2">
+          <span className="min-w-0 flex-1 whitespace-normal break-words">{issue.remarks}</span>
           {showLegacyPdfMarker ? <LegacySourceDot /> : null}
-          <span>{issue.remarks}</span>
         </span>
       </td>
     </tr>
@@ -1250,14 +1250,14 @@ export default function AssetInfo() {
                   {/* Issues table */}
                   <div className="overflow-hidden rounded-[8px] border border-[var(--deshazo-border)]">
                   <div className="overflow-x-auto">
-                    <table className="min-w-full border-collapse">
+                    <table className="min-w-full table-fixed border-collapse">
                       <thead className="bg-[#f4f5f7]">
                         <tr className="text-left">
-                          <th className="px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Category</th>
-                          <th className="px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Safety category</th>
-                          <th className="px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Inspection date</th>
-                          <th className="w-[180px] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Component</th>
-                          <th className="px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Remarks</th>
+                          <th className="w-[23%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Category</th>
+                          <th className="w-[17%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Safety category</th>
+                          <th className="w-[16%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Inspection date</th>
+                          <th className="w-[11%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Component</th>
+                          <th className="w-[33%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Remarks</th>
                         </tr>
                       </thead>
                       <tbody>

@@ -65,6 +65,30 @@ type OpenRiskDataset = {
   loadedAt: number
 }
 
+type SummaryViewRow = {
+  unit_id: string
+  unit_name: string | null
+  warehouse_location: string | null
+  interior_location: string | null
+  inspection_date: string | null
+  safety_issue_count: number | null
+  monitor_issue_count: number | null
+  total_issue_count: number | null
+}
+
+type IssueViewRow = {
+  unit_id: string
+  category: string | null
+  safety_category: string | null
+  inspection_date: string | null
+  completed_at?: string | null
+  component_type?: string | null
+  remarks: string | null
+  section_sort?: number | null
+  point_sort?: number | null
+  remark_sort?: number | null
+}
+
 let cachedDataset: OpenRiskDataset | null = null
 let pendingDataset: Promise<OpenRiskDataset> | null = null
 
@@ -203,23 +227,33 @@ function mapConditionToSafetyCategory(value?: string | null) {
   return null
 }
 
-function parseRemarkText(value: unknown) {
-  if (value == null || value === '') return ['']
-  if (typeof value === 'string') return [value]
-  if (!Array.isArray(value)) return [String(value)]
+function parseRemarkTexts(value: unknown) {
+  if (value == null || value === '') return []
+  if (typeof value === 'string') return [value].filter(Boolean)
+  if (!Array.isArray(value)) return [String(value)].filter(Boolean)
 
-  if (value.length === 0) return ['']
+  if (value.length === 0) return []
 
   return value.map((item) => {
     if (item == null) return ''
     if (typeof item === 'string') return item
     if (typeof item === 'object') {
       const record = item as Record<string, unknown>
-      const candidate = record.Remark ?? record.remark ?? record.notes ?? record.value ?? record.text
+      const candidate = record.Remark ?? record.remark ?? record.content ?? record.notes ?? record.value ?? record.text
       return typeof candidate === 'string' ? candidate : ''
     }
     return String(item)
-  })
+  }).map((remark) => remark.trim()).filter(Boolean)
+}
+
+function ensureSentencePunctuation(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`
+}
+
+function formatRemarks(value: unknown) {
+  return parseRemarkTexts(value).map(ensureSentencePunctuation).join(' ')
 }
 
 function buildSectionComponentLabels(sections: SectionRow[]) {
@@ -248,6 +282,10 @@ function buildSectionComponentLabels(sections: SectionRow[]) {
   return labels
 }
 
+function isHoistSection(section?: SectionRow) {
+  return normalizeText(section?.section_name).toLowerCase().includes('hoist')
+}
+
 function getLocationValue(unit: AssetUnit) {
   return normalizeKey(unit.warehouse_location)
 }
@@ -272,6 +310,74 @@ function buildAssetName(dNumber: string, description?: string | null) {
   return cleanDescription ? `${dNumber} ${cleanDescription}` : dNumber
 }
 
+function isMissingViewError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return /does not exist|schema cache|Could not find|PGRST205/i.test(message)
+}
+
+async function loadDatasetFromViews(): Promise<OpenRiskDataset> {
+  const summaries = await fetchAll<SummaryViewRow>(
+    'deshazo_open_risk_asset_summaries',
+    'unit_id,unit_name,warehouse_location,interior_location,inspection_date,safety_issue_count,monitor_issue_count,total_issue_count',
+    undefined,
+    1000,
+  )
+
+  const issueRows = await fetchAll<IssueViewRow>(
+    'deshazo_open_risk_latest_issue_rows',
+    'unit_id,category,safety_category,inspection_date,completed_at,component_type,remarks,section_sort,point_sort,remark_sort',
+    undefined,
+    1000,
+  )
+
+  const issuesByUnitId = new Map<string, AssetIssue[]>()
+  for (const row of issueRows) {
+    const unitId = normalizeText(row.unit_id).toUpperCase()
+    if (!unitId) continue
+    const group = issuesByUnitId.get(unitId) ?? []
+    group.push({
+      category: normalizeText(row.category).toLowerCase(),
+      safety_category: normalizeText(row.safety_category),
+      inspection_date: formatDateLabel(row.inspection_date ?? row.completed_at) ?? '',
+      component_type: normalizeText(row.component_type) || 'component_1',
+      remarks: row.remarks ?? '',
+    })
+    issuesByUnitId.set(unitId, group)
+  }
+
+  const assets = summaries.map<AssetRecord>((summary, index) => {
+    const unitId = normalizeText(summary.unit_id).toUpperCase()
+    const safetyIssueCount = Number(summary.safety_issue_count ?? 0)
+    const monitorIssueCount = Number(summary.monitor_issue_count ?? 0)
+    return {
+      unit: {
+        unit_id: unitId,
+        unit_name: normalizeText(summary.unit_name) || unitId,
+        warehouse_location: normalizeText(summary.warehouse_location),
+        interior_location: normalizeText(summary.interior_location),
+        inspection_date: formatDateLabel(summary.inspection_date),
+        safety_issue_count: safetyIssueCount,
+        monitor_issue_count: monitorIssueCount,
+      },
+      issues: issuesByUnitId.get(unitId) ?? [],
+      sortIndex: index,
+    }
+  })
+
+  assets.sort((left, right) => {
+    const leftTotal = left.unit.safety_issue_count + left.unit.monitor_issue_count
+    const rightTotal = right.unit.safety_issue_count + right.unit.monitor_issue_count
+    return rightTotal - leftTotal || left.sortIndex - right.sortIndex
+  })
+
+  return {
+    assets,
+    totalSafetyIssues: assets.reduce((sum, asset) => sum + asset.unit.safety_issue_count, 0),
+    totalMonitorIssues: assets.reduce((sum, asset) => sum + asset.unit.monitor_issue_count, 0),
+    loadedAt: Date.now(),
+  }
+}
+
 function buildIssueRows(
   inspection: InspectionRow,
   sections: SectionRow[],
@@ -279,6 +385,7 @@ function buildIssueRows(
 ) {
   const sectionLabels = buildSectionComponentLabels(sections)
   const sectionById = new Map(sections.map((section) => [section.id, section]))
+  const hoistPointOccurrences = new Map<string, number>()
   const sortedPoints = [...points].sort((left, right) => {
     const leftSection = sectionById.get(left.section_row_id)
     const rightSection = sectionById.get(right.section_row_id)
@@ -292,18 +399,82 @@ function buildIssueRows(
     const safetyCategory = mapConditionToSafetyCategory(point.condition)
     if (!safetyCategory) continue
 
-    for (const remark of parseRemarkText(point.remarks)) {
-      issues.push({
-        category: normalizeText(point.point_name).toLowerCase(),
-        safety_category: safetyCategory,
-        inspection_date: formatDateLabel(inspection.inspection_date ?? inspection.completed_at) ?? '',
-        component_type: sectionLabels.get(point.section_row_id) ?? 'component_1',
-        remarks: remark,
-      })
-    }
+    const section = sectionById.get(point.section_row_id)
+    const pointKey = `${point.section_row_id}:${normalizeText(point.point_name).toLowerCase()}`
+    const hoistOccurrence = (hoistPointOccurrences.get(pointKey) ?? 0) + 1
+    hoistPointOccurrences.set(pointKey, hoistOccurrence)
+    const componentType = isHoistSection(section)
+      ? `hoist_${hoistOccurrence}`
+      : sectionLabels.get(point.section_row_id) ?? 'component_1'
+
+    issues.push({
+      category: normalizeText(point.point_name).toLowerCase(),
+      safety_category: safetyCategory,
+      inspection_date: formatDateLabel(inspection.inspection_date ?? inspection.completed_at) ?? '',
+      component_type: componentType,
+      remarks: formatRemarks(point.remarks),
+    })
   }
 
   return issues
+}
+
+async function loadLatestAssetDetailFromTables(dNumber: string): Promise<AssetInfoAnalytics | null> {
+  const cranes = await fetchAll<CraneRow>(
+    'deshazo_external_report_cranes',
+    'id,work_order_id,contact_code,description,location',
+    (query) => query.eq('contact_code', dNumber),
+  )
+  if (cranes.length === 0) return null
+
+  const workOrders = await fetchByInChunks<WorkOrderRow>(
+    'deshazo_external_work_orders',
+    'work_order_id,bill_to_name,customer,customer_location_name,service_location_name',
+    'work_order_id',
+    cranes.map((crane) => crane.work_order_id),
+  )
+  const workOrderById = new Map(workOrders.filter(isWabashWorkOrder).map((workOrder) => [workOrder.work_order_id, workOrder]))
+  const wabashCranes = cranes.filter((crane) => workOrderById.has(crane.work_order_id))
+  if (wabashCranes.length === 0) return null
+
+  const craneById = new Map(wabashCranes.map((crane) => [crane.id, crane]))
+  const inspections = await fetchByInChunks<InspectionRow>(
+    'deshazo_external_report_inspections',
+    'id,crane_row_id,inspection_date,completed_at',
+    'crane_row_id',
+    Array.from(craneById.keys()),
+  )
+  if (inspections.length === 0) return null
+
+  const latestInspection = [...inspections].sort((left, right) =>
+    getDateTime(right.inspection_date ?? right.completed_at) - getDateTime(left.inspection_date ?? left.completed_at) ||
+    right.id.localeCompare(left.id),
+  )[0]
+  const latestCrane = craneById.get(latestInspection.crane_row_id)
+  if (!latestCrane) return null
+
+  const sections = await fetchAll<SectionRow>(
+    'deshazo_external_report_sections',
+    'id,inspection_row_id,section_name,section_index,section_order',
+    (query) => query.eq('inspection_row_id', latestInspection.id),
+    500,
+  )
+  const points = await fetchByInChunks<PointRow>(
+    'deshazo_external_report_points',
+    'id,section_row_id,point_name,condition,remarks,point_index',
+    'section_row_id',
+    sections.map((section) => section.id),
+    (query) => query.in('condition', actionableConditions),
+    200,
+  )
+  const workOrder = workOrderById.get(latestCrane.work_order_id)
+
+  return {
+    unit_location: normalizeText(workOrder?.customer_location_name || workOrder?.service_location_name),
+    unit_internal_location: normalizeText(latestCrane.location),
+    unit_name: buildAssetName(dNumber, latestCrane.description),
+    issues: buildIssueRows(latestInspection, sections, points),
+  }
 }
 
 async function loadDataset() {
@@ -317,6 +488,16 @@ async function loadDataset() {
 
   pendingDataset = (async () => {
     await requireAuthenticatedSession()
+
+    try {
+      cachedDataset = await loadDatasetFromViews()
+      pendingDataset = null
+      return cachedDataset
+    } catch (error) {
+      if (!isMissingViewError(error)) {
+        throw error
+      }
+    }
 
     const workOrders = await fetchAll<WorkOrderRow>(
       'deshazo_external_work_orders',
@@ -419,7 +600,7 @@ async function loadDataset() {
     assets.sort((left, right) => {
       const leftTotal = left.unit.safety_issue_count + left.unit.monitor_issue_count
       const rightTotal = right.unit.safety_issue_count + right.unit.monitor_issue_count
-      return rightTotal - leftTotal || left.sortIndex - right.sortIndex || left.unit.unit_id.localeCompare(right.unit.unit_id)
+      return rightTotal - leftTotal || left.sortIndex - right.sortIndex
     })
 
     cachedDataset = {
@@ -458,8 +639,11 @@ export async function getSupabaseOpenRiskAssets(
 }
 
 export async function getSupabaseOpenRiskAssetInfo(unitId: string): Promise<AssetInfoAnalytics> {
-  const dataset = await loadDataset()
   const dNumber = normalizeText(unitId).toUpperCase()
+  const tableDetail = await loadLatestAssetDetailFromTables(dNumber)
+  if (tableDetail) return tableDetail
+
+  const dataset = await loadDataset()
   const asset = dataset.assets.find((item) => item.unit.unit_id.toUpperCase() === dNumber)
 
   if (!asset) {
@@ -478,6 +662,33 @@ export async function getSupabaseOpenRiskRecurringIssues(unitId: string): Promis
   await requireAuthenticatedSession()
   const dNumber = normalizeText(unitId).toUpperCase()
   if (!dNumber) return []
+
+  try {
+    const rows = await fetchAll<IssueViewRow>(
+      'deshazo_open_risk_issue_rows',
+      'unit_id,category,inspection_date,completed_at',
+      (query) => query.eq('unit_id', dNumber),
+      1000,
+    )
+    const cutoff = Date.now() - recurringWindowMs
+    const categoryCounts = new Map<string, number>()
+
+    for (const row of rows) {
+      const issueTime = getDateTime(row.inspection_date ?? row.completed_at)
+      if (issueTime < cutoff) continue
+      const category = normalizeText(row.category) || 'uncategorized'
+      categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1)
+    }
+
+    return Array.from(categoryCounts.entries())
+      .filter(([, occurrences]) => occurrences > 4)
+      .map(([category_display_name, occurrences]) => ({ category_display_name, occurrences }))
+      .sort((left, right) => right.occurrences - left.occurrences || left.category_display_name.localeCompare(right.category_display_name))
+  } catch (error) {
+    if (!isMissingViewError(error)) {
+      throw error
+    }
+  }
 
   const cranes = await fetchAll<CraneRow>(
     'deshazo_external_report_cranes',
