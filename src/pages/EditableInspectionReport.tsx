@@ -1953,6 +1953,9 @@ function PencilIcon() {
   )
 }
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+
 type EditableInspectionReportPageProps = {
   mockMode?: boolean
 }
@@ -1964,6 +1967,8 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
   const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
   const editableReportIdParam = searchParams.get('editableReportId')?.trim() || ''
   const backendEnabled = isConfigured && !mockMode
+  const validJobsQuotingItemId = isUuid(jobsQuotingItemId) ? jobsQuotingItemId : ''
+  const validEditableReportIdParam = isUuid(editableReportIdParam) ? editableReportIdParam : ''
   const menuDatabaseSyncReady = useRef(false)
   const skipNextMenuDatabaseSave = useRef(false)
   const reportHydrationReady = useRef(false)
@@ -2002,10 +2007,10 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     backendEnabled ? 'loading' : 'local',
   )
-  const [currentEditableReportId, setCurrentEditableReportId] = useState(mockMode ? 'steel-mock-report' : editableReportIdParam)
+  const [currentEditableReportId, setCurrentEditableReportId] = useState(mockMode ? 'steel-mock-report' : validEditableReportIdParam)
   const [currentReportName, setCurrentReportName] = useState(mockMode ? 'Steel mock quote proposal' : 'Untitled quote report')
   const [currentSourceDocumentName, setCurrentSourceDocumentName] = useState(mockMode ? 'Steel demo mock data' : 'Untitled quote report')
-  const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(mockMode ? null : jobsQuotingItemId || null)
+  const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(mockMode ? null : validJobsQuotingItemId || null)
   const [runtimePageBreaks, setRuntimePageBreaks] = useState<Record<string, number>>({})
   const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [isReportEditing, setIsReportEditing] = useState(false)
@@ -2512,7 +2517,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
 
     async function hydrateEditableReport() {
       try {
-        const quoteItemId = jobsQuotingItemId || editableReportIdParam
+        const quoteItemId = validJobsQuotingItemId || validEditableReportIdParam
 
         if (quoteItemId) {
           const quoteItem = await getJobsQuotingItem(quoteItemId)
@@ -2552,7 +2557,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
     return () => {
       active = false
     }
-  }, [applyEditableReportPayload, backendEnabled, editableReportIdParam, jobsQuotingItemId])
+  }, [applyEditableReportPayload, backendEnabled, validEditableReportIdParam, validJobsQuotingItemId])
 
   useEffect(() => {
     if (!backendEnabled || !reportHydrationReady.current) return
@@ -2841,8 +2846,8 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
 
         let quoteInspectionDocument: RelatedDocument | null = null
 
-        if (jobsQuotingItemId) {
-          const quoteItem = await getJobsQuotingItem(jobsQuotingItemId)
+        if (validJobsQuotingItemId) {
+          const quoteItem = await getJobsQuotingItem(validJobsQuotingItemId)
           const originalInspectionReportUrl = getOriginalInspectionReportUrl(quoteItem)
           const quotePdfUrl = originalInspectionReportUrl ? '' : await getJobsQuotingItemPdfUrl(quoteItem)
 
@@ -2894,7 +2899,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
     return () => {
       active = false
     }
-  }, [backendEnabled, currentCraneIdentifier, jobsQuotingItemId, mockMode])
+  }, [backendEnabled, currentCraneIdentifier, mockMode, validJobsQuotingItemId])
 
   const updatedAt = useMemo(
     () =>
@@ -4014,12 +4019,12 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
             >
               Save
             </button>
-            {currentJobsQuotingItemId || currentEditableReportId ? (
+            {isUuid(currentJobsQuotingItemId || '') || isUuid(currentEditableReportId) ? (
               <button
                 type="button"
                 onClick={() => {
-                  const params = currentJobsQuotingItemId
-                    ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId)}`
+                  const params = isUuid(currentJobsQuotingItemId || '')
+                    ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId || '')}`
                     : `editableReportId=${encodeURIComponent(currentEditableReportId)}`
                   navigate(`/equipment-notebook-llm?${params}`)
                 }}
