@@ -1816,12 +1816,17 @@ function PencilIcon() {
   )
 }
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
   const editableReportIdParam = searchParams.get('editableReportId')?.trim() || ''
+  const validJobsQuotingItemId = isUuid(jobsQuotingItemId) ? jobsQuotingItemId : ''
+  const validEditableReportIdParam = isUuid(editableReportIdParam) ? editableReportIdParam : ''
   const menuDatabaseSyncReady = useRef(false)
   const skipNextMenuDatabaseSave = useRef(false)
   const reportHydrationReady = useRef(false)
@@ -1860,10 +1865,10 @@ export default function EditableInspectionReport() {
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
-  const [currentEditableReportId, setCurrentEditableReportId] = useState(editableReportIdParam)
+  const [currentEditableReportId, setCurrentEditableReportId] = useState(validEditableReportIdParam)
   const [currentReportName, setCurrentReportName] = useState('Untitled quote report')
   const [currentSourceDocumentName, setCurrentSourceDocumentName] = useState('Untitled quote report')
-  const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(jobsQuotingItemId || null)
+  const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(validJobsQuotingItemId || null)
   const [runtimePageBreaks, setRuntimePageBreaks] = useState<Record<string, number>>({})
   const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [isReportEditing, setIsReportEditing] = useState(false)
@@ -2359,7 +2364,7 @@ export default function EditableInspectionReport() {
 
     async function hydrateEditableReport() {
       try {
-        const quoteItemId = jobsQuotingItemId || editableReportIdParam
+        const quoteItemId = validJobsQuotingItemId || validEditableReportIdParam
 
         if (quoteItemId) {
           const quoteItem = await getJobsQuotingItem(quoteItemId)
@@ -2399,7 +2404,7 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [applyEditableReportPayload, editableReportIdParam, jobsQuotingItemId])
+  }, [applyEditableReportPayload, validEditableReportIdParam, validJobsQuotingItemId])
 
   useEffect(() => {
     if (!isConfigured || !reportHydrationReady.current) return
@@ -3860,12 +3865,12 @@ export default function EditableInspectionReport() {
             >
               Save
             </button>
-            {currentJobsQuotingItemId || currentEditableReportId ? (
+            {isUuid(currentJobsQuotingItemId || '') || isUuid(currentEditableReportId) ? (
               <button
                 type="button"
                 onClick={() => {
-                  const params = currentJobsQuotingItemId
-                    ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId)}`
+                  const params = isUuid(currentJobsQuotingItemId || '')
+                    ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId || '')}`
                     : `editableReportId=${encodeURIComponent(currentEditableReportId)}`
                   navigate(`/equipment-notebook-llm?${params}`)
                 }}
