@@ -342,6 +342,142 @@ const createManualLineItem = (id: string, description: string): RepairLineItem =
   source: 'manual',
 })
 
+const createSteelLineItem = (
+  id: string,
+  description: string,
+  internalCost: string,
+  quantity: string,
+  customerPrice: string,
+): RepairLineItem => {
+  const internalCostValue = Number(internalCost) || 0
+  const customerPriceValue = Number(customerPrice) || 0
+  const margin = customerPriceValue > 0
+    ? ((customerPriceValue - internalCostValue) / customerPriceValue) * 100
+    : 0
+
+  return {
+    id,
+    description,
+    internalCost,
+    quantity,
+    customerPrice,
+    rate: internalCost,
+    margin: margin.toFixed(2),
+    source: 'manual',
+  }
+}
+
+const mockSteelReport: ReportData = {
+  ...defaultReport,
+  logoName: 'SAT BRANDCO',
+  logoTagline: 'STEEL FABRICATION / SUPPLY / ESTIMATING',
+  branch: 'Sat Brandco Steel: Demo Shop',
+  phone: 'Shop Contact Phone: (555) 014-7300',
+  title: 'STEEL QUOTE PROPOSAL',
+  summary: 'Steel demo estimate prepared by: Sat Brandco',
+  type: 'Type: Structural steel supply',
+  date: 'Date: Jun 10, 2026',
+  structure: 'Structure: Wide flange beam package',
+  description: 'Description: Cut, drill, prep, package, and freight structural steel.',
+  customer: 'Customer: Mock Steel Customer',
+  purchaseOrder: 'Purchase Order: MOCK-STEEL-001',
+  jobNumber: 'Job #: STEEL-1001',
+  location: 'Location: Demo Project Site',
+  customerAddress: 'Customer Address: 100 Industrial Way',
+  manufacturerLabel: 'Material:',
+  serialLabel: 'Heat / Lot:',
+  capacityLabel: 'Grade:',
+  modelLabel: 'Shape:',
+  manufacturerCrane: 'Material: A992 / A36 mixed package',
+  serialCrane: 'Heat / Lot: MOCK-STEEL',
+  capacityCrane: 'Grade: Structural steel',
+  modelCrane: 'Shape: Beam, channel, plate, bolt kit',
+  manufacturerHoist: 'Beam: W12x26 wide flange',
+  serialHoist: 'Beam Qty: 5 pieces',
+  capacityHoist: 'Channel: C6x10.5',
+  modelHoist: 'Plate: 1/2" x 8" base plates',
+  manufacturerHoist2: 'Bolts: 3/4" A325 galvanized',
+  serialHoist2: 'Bolt Qty: 160 sets',
+  capacityHoist2: 'Freight: LTL, 1 load',
+  modelHoist2: 'Packaging: Palletized bundle',
+  scopeOfWorkHeader: 'Scope',
+  scopeOfWork: 'Structural steel supply only. Includes material, cutting, drilling, prep, palletizing, packaging, and estimated LTL freight.',
+  contactName: 'Jordan Miller',
+  contactEmail: 'quotes@satbrandco.example',
+  contactPhone: '(555) 014-7300',
+  sectionHeader: 'Line Items',
+  estimateTopNote: 'Mock steel estimate generated from the demo process page.',
+  estimateBottomNote: 'Pricing is for demonstration only and does not create a binding offer.',
+  notesHeader: 'Additional Notes',
+  notes: 'Sales tax will be added as applicable based on project location and tax exemption status. Mock data is local to the steel demo and is not saved to the backend.',
+}
+
+const mockSteelRepairSections: RepairSection[] = [
+  {
+    id: 'steel-materials',
+    title: 'Structural Steel Materials',
+    description: 'Supply beams, channel, base plates, and galvanized fastener sets for the demo package.',
+    status: 'Repair',
+    lineItems: [],
+    costSections: [
+      {
+        id: 'steel-materials-parts',
+        title: 'Materials',
+        lineItems: [
+          createSteelLineItem('steel-w12', 'W12x26 wide flange beam, A992', '315.00', '5', '420.00'),
+          createSteelLineItem('steel-w8', 'W8x18 wide flange beam, A992', '195.00', '8', '260.00'),
+          createSteelLineItem('steel-channel', 'C6x10.5 channel, A36', '68.00', '12', '95.00'),
+          createSteelLineItem('steel-plate', '1/2" x 8" base plates, A36, pre-drilled', '22.00', '24', '32.00'),
+          createSteelLineItem('steel-bolts', '3/4" A325 galvanized bolts, nuts, washers', '2.15', '160', '3.10'),
+        ],
+      },
+      {
+        id: 'steel-materials-labor',
+        title: 'Labor',
+        lineItems: [],
+      },
+    ],
+  },
+  {
+    id: 'steel-cutting-prep',
+    title: 'Cutting, Drilling, Prep',
+    description: 'Saw cutting, drilling, deburr, and shop prep calculated from the steel process routing.',
+    status: 'Repair',
+    lineItems: [],
+    costSections: [
+      {
+        id: 'steel-cutting-prep-parts',
+        title: 'Parts',
+        lineItems: [],
+      },
+      {
+        id: 'steel-cutting-prep-labor',
+        title: 'Labor',
+        lineItems: [
+          createSteelLineItem('steel-cut-drill-prep', 'Cutting, drilling, prep', '295.00', '1', '450.00'),
+        ],
+      },
+    ],
+  },
+]
+
+const mockSteelCostSections: CostSection[] = [
+  {
+    id: 'packaging',
+    title: 'Packaging',
+    lineItems: [
+      { ...createSteelLineItem('steel-packaging', 'Palletizing & packaging', '75.00', '1', '120.00'), margin: '0' },
+    ],
+  },
+  {
+    id: 'freight',
+    title: 'Freight',
+    lineItems: [
+      { ...createSteelLineItem('steel-freight', 'Estimated freight (LTL, 1 load)', '300.00', '1', '380.00'), margin: '0' },
+    ],
+  },
+]
+
 const createMenuLineItem = (id: string, item: MenuItem): RepairLineItem => {
   const internalCost = item.internalCost ?? item.rate
   const customerPrice = item.customerPrice ?? item.rate
@@ -1816,12 +1952,17 @@ function PencilIcon() {
   )
 }
 
-export default function EditableInspectionReport() {
+type EditableInspectionReportPageProps = {
+  mockMode?: boolean
+}
+
+export default function EditableInspectionReport({ mockMode = false }: EditableInspectionReportPageProps = {}) {
   const generatedId = useRef(1000)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
   const editableReportIdParam = searchParams.get('editableReportId')?.trim() || ''
+  const backendEnabled = isConfigured && !mockMode
   const menuDatabaseSyncReady = useRef(false)
   const skipNextMenuDatabaseSave = useRef(false)
   const reportHydrationReady = useRef(false)
@@ -1858,12 +1999,12 @@ export default function EditableInspectionReport() {
   const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
   const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
-    isConfigured ? 'loading' : 'local',
+    backendEnabled ? 'loading' : 'local',
   )
-  const [currentEditableReportId, setCurrentEditableReportId] = useState(editableReportIdParam)
-  const [currentReportName, setCurrentReportName] = useState('Untitled quote report')
-  const [currentSourceDocumentName, setCurrentSourceDocumentName] = useState('Untitled quote report')
-  const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(jobsQuotingItemId || null)
+  const [currentEditableReportId, setCurrentEditableReportId] = useState(mockMode ? 'steel-mock-report' : editableReportIdParam)
+  const [currentReportName, setCurrentReportName] = useState(mockMode ? 'Steel mock quote proposal' : 'Untitled quote report')
+  const [currentSourceDocumentName, setCurrentSourceDocumentName] = useState(mockMode ? 'Steel demo mock data' : 'Untitled quote report')
+  const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(mockMode ? null : jobsQuotingItemId || null)
   const [runtimePageBreaks, setRuntimePageBreaks] = useState<Record<string, number>>({})
   const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [isReportEditing, setIsReportEditing] = useState(false)
@@ -1879,12 +2020,14 @@ export default function EditableInspectionReport() {
   const [pendingAddMenuLineItem, setPendingAddMenuLineItem] = useState<PendingAddMenuLineItem | null>(null)
   const [decayedMenuItemWarning, setDecayedMenuItemWarning] = useState<MenuItem | null>(null)
   const [menuDatabaseStatus, setMenuDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
-    isConfigured ? 'loading' : 'local',
+    backendEnabled ? 'loading' : 'local',
   )
   const [menuDatabaseMessage, setMenuDatabaseMessage] = useState(
-    isConfigured ? 'Loading menu items from the server.' : 'Supabase is not configured. Menu items are saved locally.',
+    backendEnabled ? 'Loading menu items from the server.' : 'Mock mode: menu items are local to this demo.',
   )
   const [report, setReport] = useState<ReportData>(() => {
+    if (mockMode) return mockSteelReport
+
     const savedReport = window.localStorage.getItem(storageKey)
 
     if (!savedReport) return defaultReport
@@ -1896,6 +2039,8 @@ export default function EditableInspectionReport() {
     }
   })
   const [repairSections, setRepairSections] = useState<RepairSection[]>(() => {
+    if (mockMode) return normalizeRepairSections(mockSteelRepairSections)
+
     const savedSections = window.localStorage.getItem(repairStorageKey)
 
     if (!savedSections) return defaultRepairSections
@@ -1907,6 +2052,8 @@ export default function EditableInspectionReport() {
     }
   })
   const [costSections, setCostSections] = useState<CostSection[]>(() => {
+    if (mockMode) return normalizeEstimateCostSections(mockSteelCostSections)
+
     const savedSections = window.localStorage.getItem(costStorageKey)
 
     if (!savedSections) return defaultCostSections
@@ -1918,7 +2065,7 @@ export default function EditableInspectionReport() {
     }
   })
   const [menuItemSections, setMenuItemSections] = useState<MenuItemSection[]>(() => {
-    if (isConfigured) return normalizeMenuItemSections(defaultMenuItemSections)
+    if (backendEnabled || mockMode) return normalizeMenuItemSections(defaultMenuItemSections)
 
     const savedSections = window.localStorage.getItem(menuStorageKey)
 
@@ -2167,10 +2314,10 @@ export default function EditableInspectionReport() {
       return
     }
 
-    if (!isConfigured) {
+    if (!backendEnabled) {
       setMenuSearchSections([])
       setMenuSearchLoading(false)
-      setMenuSearchMessage('Supabase is not configured. Menu search is unavailable.')
+      setMenuSearchMessage(mockMode ? 'Mock mode uses local menu items only.' : 'Supabase is not configured. Menu search is unavailable.')
       return
     }
 
@@ -2202,7 +2349,7 @@ export default function EditableInspectionReport() {
       active = false
       window.clearTimeout(searchTimer)
     }
-  }, [currentCraneIdentifier, menuSearch])
+  }, [backendEnabled, currentCraneIdentifier, menuSearch, mockMode])
 
   useEffect(() => {
     const sourceSections = menuSearchSections ?? menuItemSections
@@ -2318,7 +2465,10 @@ export default function EditableInspectionReport() {
   }, [])
 
   const saveCurrentEditableReportNow = useCallback(async () => {
-    if (!isConfigured || !reportHydrationReady.current) return null
+    if (!backendEnabled || !reportHydrationReady.current) {
+      setReportDatabaseStatus('local')
+      return null
+    }
 
     setReportDatabaseStatus('saving')
     const reportName = getEditableReportDisplayName(currentEditableReportPayload.reportData, currentReportName)
@@ -2344,10 +2494,11 @@ export default function EditableInspectionReport() {
     currentJobsQuotingItemId,
     currentReportName,
     currentSourceDocumentName,
+    backendEnabled,
   ])
 
   useEffect(() => {
-    if (!isConfigured) {
+    if (!backendEnabled) {
       reportHydrationReady.current = true
       setReportDatabaseStatus('local')
       return
@@ -2399,10 +2550,10 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [applyEditableReportPayload, editableReportIdParam, jobsQuotingItemId])
+  }, [applyEditableReportPayload, backendEnabled, editableReportIdParam, jobsQuotingItemId])
 
   useEffect(() => {
-    if (!isConfigured || !reportHydrationReady.current) return
+    if (!backendEnabled || !reportHydrationReady.current) return
 
     if (skipNextReportDatabaseSave.current) {
       skipNextReportDatabaseSave.current = false
@@ -2523,12 +2674,12 @@ export default function EditableInspectionReport() {
       shouldApply?: () => boolean
       markSyncReady?: boolean
     } = {}) => {
-      if (!isConfigured) {
-        menuDatabaseSyncReady.current = false
-        setMenuDatabaseStatus('local')
-        setMenuDatabaseMessage('Supabase is not configured. Menu items are saved locally.')
-        return false
-      }
+    if (!backendEnabled) {
+      menuDatabaseSyncReady.current = false
+      setMenuDatabaseStatus('local')
+      setMenuDatabaseMessage(mockMode ? 'Mock mode: menu items are local to this demo.' : 'Supabase is not configured. Menu items are saved locally.')
+      return false
+    }
 
       const refreshRequestId = menuItemsRefreshRequestId.current + 1
       menuItemsRefreshRequestId.current = refreshRequestId
@@ -2566,7 +2717,7 @@ export default function EditableInspectionReport() {
         return false
       }
     },
-    [],
+    [backendEnabled, mockMode],
   )
 
   const clearMenuItemsUploadRefreshTimers = useCallback(() => {
@@ -2587,7 +2738,7 @@ export default function EditableInspectionReport() {
   }, [])
 
   const refreshMenuItemsAfterPdfUpload = useCallback(() => {
-    if (!isConfigured) return
+    if (!backendEnabled) return
 
     clearMenuItemsUploadRefreshTimers()
 
@@ -2625,10 +2776,10 @@ export default function EditableInspectionReport() {
         emptyMessage: 'Menu items finished loading from uploaded PDFs.',
       })
     }, menuItemsUploadRefreshDurationMs)
-  }, [clearMenuItemsUploadRefreshTimers, currentCraneIdentifier, refreshMenuItemsFromDatabase])
+  }, [backendEnabled, clearMenuItemsUploadRefreshTimers, currentCraneIdentifier, refreshMenuItemsFromDatabase])
 
   useEffect(() => {
-    if (!isConfigured) {
+    if (!backendEnabled) {
       menuDatabaseSyncReady.current = false
       return
     }
@@ -2643,12 +2794,12 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [refreshMenuItemsFromDatabase])
+  }, [backendEnabled, refreshMenuItemsFromDatabase])
 
   useEffect(() => () => clearMenuItemsUploadRefreshTimers(), [clearMenuItemsUploadRefreshTimers])
 
   useEffect(() => {
-    if (!isConfigured || !menuDatabaseSyncReady.current) return
+    if (!backendEnabled || !menuDatabaseSyncReady.current) return
     if (skipNextMenuDatabaseSave.current) {
       skipNextMenuDatabaseSave.current = false
       return
@@ -2671,11 +2822,12 @@ export default function EditableInspectionReport() {
     }, databaseSyncIdleDelayMs)
 
     return () => window.clearTimeout(saveTimer)
-  }, [menuItemSections])
+  }, [backendEnabled, menuItemSections])
 
   useEffect(() => {
-    if (!isConfigured) {
-      setRelatedDocumentsMessage('Supabase is not configured. PDFs are not saved yet.')
+    if (!backendEnabled) {
+      setRelatedDocuments([])
+      setRelatedDocumentsMessage(mockMode ? 'Mock mode: related PDFs are local-only placeholders.' : 'Supabase is not configured. PDFs are not saved yet.')
       return
     }
 
@@ -2740,7 +2892,7 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [currentCraneIdentifier, jobsQuotingItemId])
+  }, [backendEnabled, currentCraneIdentifier, jobsQuotingItemId, mockMode])
 
   const updatedAt = useMemo(
     () =>
@@ -2962,8 +3114,8 @@ export default function EditableInspectionReport() {
       return
     }
 
-    if (!isConfigured) {
-      setRelatedDocumentsMessage('Supabase is not configured. PDFs were not saved.')
+    if (!backendEnabled) {
+      setRelatedDocumentsMessage(mockMode ? 'Mock mode: PDFs are not uploaded to the backend.' : 'Supabase is not configured. PDFs were not saved.')
       return
     }
 
@@ -3384,9 +3536,9 @@ export default function EditableInspectionReport() {
   }
 
   const refreshJobReportPrintReports = useCallback(async () => {
-    if (!isConfigured) {
+    if (!backendEnabled) {
       setJobReportPrintReports([])
-      setJobReportPrintMessage('Supabase is not configured.')
+      setJobReportPrintMessage(mockMode ? 'Mock mode uses the current steel report only.' : 'Supabase is not configured.')
       return []
     }
 
@@ -3412,7 +3564,7 @@ export default function EditableInspectionReport() {
     } finally {
       setJobReportPrintLoading(false)
     }
-  }, [normalizedCurrentJobNumber])
+  }, [backendEnabled, mockMode, normalizedCurrentJobNumber])
 
   const printEditableReport = () => {
     const previousTitle = document.title
