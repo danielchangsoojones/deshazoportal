@@ -598,6 +598,27 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
 const getTextFromRecord = (value: unknown, keys: string[]) =>
   value && typeof value === 'object' ? getExtractedText(value, keys) : ''
 
+const getDisplayValueFromLabeledReportValue = (value: string) =>
+  value.includes(':') ? value.split(':').slice(1).join(':').trim() : value.trim()
+
+const cleanInspectionLabel = (value: string, reportData?: Record<string, unknown>) => {
+  const structureValue = reportData?.structure
+  const structureText = typeof structureValue === 'string' ? structureValue : ''
+  const structure = getDisplayValueFromLabeledReportValue(structureText) || 'Structure'
+
+  return value
+    .replace(/\{\{\s*(?:Trolley\s+)?Hoist\s*<\s*index\s*>\s*\}\}/gi, 'Trolley Hoist')
+    .replace(/\{\{\s*craneStructureType\.name\s*\}\}/gi, structure)
+    .replace(/\bcraneStructureType\.name\b/gi, structure)
+    .replace(/\{\{\s*([^{}<>]+?)\s*\}\}/g, '$1')
+    .replace(/\s*:\s*/g, ': ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const cleanRepairSectionTitle = (title: string, reportData?: Record<string, unknown>) =>
+  cleanInspectionLabel(title, reportData) || title
+
 const buildRepairSectionsFromJobsQuotingItem = (item: JobsQuotingItem): RepairSection[] => {
   const data = item.extractionData
   const extractedItems = [
@@ -632,7 +653,12 @@ const buildRepairSectionsFromJobsQuotingItem = (item: JobsQuotingItem): RepairSe
         'item',
         'name',
       ])
-      const title = [sectionName, componentName].filter(Boolean).join(': ') || `Inspection Item ${index + 1}`
+      const title =
+        cleanRepairSectionTitle(
+          [sectionName, componentName].filter(Boolean).join(': '),
+          Object.keys(item.reportData).length > 0 ? item.reportData : item.extractionData,
+        ) ||
+        `Inspection Item ${index + 1}`
       const status = getTextFromRecord(extractedItem, ['severity', 'status', 'type', 'condition']) || defaultStatus
       const note =
         getTextFromRecord(extractedItem, ['note', 'notes', 'description', 'comment', 'recommended_corrective_action', 'recommendedCorrectiveAction']) ||
@@ -1500,7 +1526,7 @@ const shouldPromoteRepairLineItemToDescription = (lineItem: RepairLineItem) =>
   Boolean(lineItem.description?.trim())
   && !shouldClearPlaceholderDescription(lineItem.description)
 
-const normalizeRepairSections = (sections: RepairSection[]) =>
+const normalizeRepairSections = (sections: RepairSection[], reportData?: Record<string, unknown>) =>
   sections.map((section) => {
     const normalizedLineItems = Array.isArray(section.lineItems)
       ? section.lineItems.map((lineItem) => normalizeLineItem(lineItem, 'Add repair detail here.'))
@@ -1514,6 +1540,7 @@ const normalizeRepairSections = (sections: RepairSection[]) =>
 
     return {
       ...section,
+      title: cleanRepairSectionTitle(section.title, reportData),
       description: section.description?.trim() ? section.description : promotedDescription,
       lineItems: [],
       costSections: normalizeCostSections(
@@ -1541,7 +1568,7 @@ const normalizeReport = (report: ReportData) => {
 
 const getNormalizedReportPayload = (report: EditableInspectionReport): EditableInspectionReportPayload => ({
   reportData: normalizeReport(report.reportData),
-  repairSections: normalizeRepairSections(report.repairSections as RepairSection[]),
+  repairSections: normalizeRepairSections(report.repairSections as RepairSection[], report.reportData),
   costSections: normalizeEstimateCostSections(report.costSections as CostSection[]),
   blockVisibility: { ...defaultBlockVisibility, ...report.blockVisibility },
   estimateNoteVisibility: { ...defaultEstimateNoteVisibility, ...report.estimateNoteVisibility },
@@ -1816,12 +1843,17 @@ function PencilIcon() {
   )
 }
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+
 export default function EditableInspectionReport() {
   const generatedId = useRef(1000)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
   const editableReportIdParam = searchParams.get('editableReportId')?.trim() || ''
+  const validJobsQuotingItemId = isUuid(jobsQuotingItemId) ? jobsQuotingItemId : ''
+  const validEditableReportIdParam = isUuid(editableReportIdParam) ? editableReportIdParam : ''
   const menuDatabaseSyncReady = useRef(false)
   const skipNextMenuDatabaseSave = useRef(false)
   const reportHydrationReady = useRef(false)
@@ -1860,10 +1892,10 @@ export default function EditableInspectionReport() {
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
-  const [currentEditableReportId, setCurrentEditableReportId] = useState(editableReportIdParam)
+  const [currentEditableReportId, setCurrentEditableReportId] = useState(validEditableReportIdParam)
   const [currentReportName, setCurrentReportName] = useState('Untitled quote report')
   const [currentSourceDocumentName, setCurrentSourceDocumentName] = useState('Untitled quote report')
-  const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(jobsQuotingItemId || null)
+  const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(validJobsQuotingItemId || null)
   const [runtimePageBreaks, setRuntimePageBreaks] = useState<Record<string, number>>({})
   const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [isReportEditing, setIsReportEditing] = useState(false)
@@ -2288,7 +2320,7 @@ export default function EditableInspectionReport() {
 
   const applyEditableReportPayload = useCallback((payload: EditableInspectionReportPayload) => {
     const nextReport = normalizeReport(payload.reportData)
-    const nextRepairSections = normalizeRepairSections(payload.repairSections as RepairSection[])
+    const nextRepairSections = normalizeRepairSections(payload.repairSections as RepairSection[], payload.reportData)
     const nextCostSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
     const nextBlockVisibility = { ...defaultBlockVisibility, ...payload.blockVisibility }
     const nextEstimateNoteVisibility = { ...defaultEstimateNoteVisibility, ...payload.estimateNoteVisibility }
@@ -2359,7 +2391,7 @@ export default function EditableInspectionReport() {
 
     async function hydrateEditableReport() {
       try {
-        const quoteItemId = jobsQuotingItemId || editableReportIdParam
+        const quoteItemId = validJobsQuotingItemId || validEditableReportIdParam
 
         if (quoteItemId) {
           const quoteItem = await getJobsQuotingItem(quoteItemId)
@@ -2399,7 +2431,7 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [applyEditableReportPayload, editableReportIdParam, jobsQuotingItemId])
+  }, [applyEditableReportPayload, validEditableReportIdParam, validJobsQuotingItemId])
 
   useEffect(() => {
     if (!isConfigured || !reportHydrationReady.current) return
@@ -3860,12 +3892,12 @@ export default function EditableInspectionReport() {
             >
               Save
             </button>
-            {currentJobsQuotingItemId || currentEditableReportId ? (
+            {isUuid(currentJobsQuotingItemId || '') || isUuid(currentEditableReportId) ? (
               <button
                 type="button"
                 onClick={() => {
-                  const params = currentJobsQuotingItemId
-                    ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId)}`
+                  const params = isUuid(currentJobsQuotingItemId || '')
+                    ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId || '')}`
                     : `editableReportId=${encodeURIComponent(currentEditableReportId)}`
                   navigate(`/equipment-notebook-llm?${params}`)
                 }}
