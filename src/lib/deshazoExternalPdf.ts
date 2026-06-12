@@ -300,10 +300,12 @@ function groupItemsBySection(items: SectionedItem[]) {
   }, [])
 }
 
-function renderSectionedItems(items: SectionedItem[], itemLabel: string, includePhotos = false) {
-  return groupItemsBySection(items)
-    .map(
-      (group) => `
+function renderSectionedItemGroup(
+  group: { sectionName: string; items: SectionedItem[] },
+  itemLabel: string,
+  includePhotos = false,
+) {
+  return `
         <section class="page2-item-section">
           <div class="page2-section-title">
             <span>${escapeHtml(group.sectionName)}</span>
@@ -344,9 +346,7 @@ function renderSectionedItems(items: SectionedItem[], itemLabel: string, include
               .join('')}
           </div>
         </section>
-      `,
-    )
-    .join('')
+      `
 }
 
 function getAllPhotos(craneReport: DeshazoCraneReport) {
@@ -469,7 +469,6 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   const actionPhotoUrls = new Set(actionItems.flatMap((item) => item.photos.map((photo) => photo.content).filter(Boolean)))
   const photos = getAllPhotos(selectedCrane)
     .filter((photo) => !actionPhotoUrls.has(photo.content))
-    .slice(0, 18)
   const sections = resolveSections(selectedCrane)
   const primaryCrane = selectedCrane.crane
   const overviewDate = selectedCrane.inspections?.find((inspection) => inspection.completedAt)?.completedAt || report.summary?.completedAt
@@ -503,35 +502,6 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     return 44 + visualRows * 22
   }
 
-  const estimateFollowUpHeight = () => {
-    let height = 0
-
-    if (actionItems.length > 0) {
-      height += 45
-      groupItemsBySection(actionItems).forEach((group) => {
-        height += 28
-        group.items.forEach((item) => {
-          height += 34
-          if (item.photos.length > 0) height += 144
-          if (item.notes) height += 22
-        })
-      })
-    }
-
-    if (notesAndPhotoItems.length > 0) {
-      height += 45
-      groupItemsBySection(notesAndPhotoItems).forEach((group) => {
-        height += 28 + group.items.length * 58
-      })
-    }
-
-    if (photos.length > 0) {
-      height += 58 + Math.ceil(photos.length / 3) * 184
-    }
-
-    return height
-  }
-
   const packPageBlocks = (blocks: Array<{ html: string; estimatedHeight: number }>) => {
     const packedPages: string[] = []
     let currentPageBlocks: string[] = []
@@ -554,6 +524,76 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
 
     if (currentPageBlocks.length > 0) packedPages.push(currentPageBlocks.join(''))
     return packedPages
+  }
+
+  const estimateSectionedItemHeight = (item: SectionedItem, includePhotos = false) => {
+    let height = 34
+    if (includePhotos && item.photos.length > 0) height += 150
+    if (item.notes) height += Math.max(22, Math.ceil(item.notes.length / 95) * 14)
+    return height
+  }
+
+  const chunkSectionedGroupBlocks = (
+    group: { sectionName: string; items: SectionedItem[] },
+    itemLabel: string,
+    includePhotos = false,
+  ) => {
+    const maxGroupHeight = 660
+    const blocks: Array<{ html: string; estimatedHeight: number }> = []
+    let currentItems: SectionedItem[] = []
+    let currentHeight = 52
+
+    group.items.forEach((item) => {
+      const itemHeight = estimateSectionedItemHeight(item, includePhotos)
+      if (currentItems.length > 0 && currentHeight + itemHeight > maxGroupHeight) {
+        blocks.push({
+          html: renderSectionedItemGroup({ sectionName: group.sectionName, items: currentItems }, itemLabel, includePhotos),
+          estimatedHeight: currentHeight,
+        })
+        currentItems = []
+        currentHeight = 52
+      }
+
+      currentItems.push(item)
+      currentHeight += itemHeight
+    })
+
+    if (currentItems.length > 0) {
+      blocks.push({
+        html: renderSectionedItemGroup({ sectionName: group.sectionName, items: currentItems }, itemLabel, includePhotos),
+        estimatedHeight: currentHeight,
+      })
+    }
+
+    return blocks
+  }
+
+  const chunkPhotoBlocks = (reportPhotos: Array<DeshazoInspectionPhoto & { caption: string }>) => {
+    const blocks: Array<{ html: string; estimatedHeight: number }> = []
+    const chunkSize = 9
+    for (let index = 0; index < reportPhotos.length; index += chunkSize) {
+      const chunk = reportPhotos.slice(index, index + chunkSize)
+      blocks.push({
+        html: `
+          <section class="photos-section">
+            <div class="photo-grid">
+              ${chunk
+                .map(
+                  (photo) => `
+                    <figure class="photo-card">
+                      <img src="${escapeHtml(photo.content ?? '')}" alt="${escapeHtml(photo.caption)}" />
+                      <figcaption>${escapeHtml(photo.caption)}</figcaption>
+                    </figure>
+                  `,
+                )
+                .join('')}
+            </div>
+          </section>
+        `,
+        estimatedHeight: 32 + Math.ceil(chunk.length / 3) * 184,
+      })
+    }
+    return blocks
   }
 
   const firstPageSectionCount = sections.length > 2 ? 2 : sections.length
@@ -586,56 +626,36 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     `
     : ''
 
-  const photoMarkup = photos.length
-    ? `
-      <section class="photos-section">
-        <div class="photo-grid">
-          ${photos
-            .map(
-              (photo) => `
-                <figure class="photo-card">
-                  <img src="${escapeHtml(photo.content ?? '')}" alt="${escapeHtml(photo.caption)}" />
-                  <figcaption>${escapeHtml(photo.caption)}</figcaption>
-                </figure>
-              `,
-            )
-            .join('')}
-        </div>
-      </section>
-    `
-    : ''
+  const followUpBlocks: Array<{ html: string; estimatedHeight: number }> = []
 
-  const page2MainContent = actionItems.length
-    ? `
-      <div class="page2-title page2-title-repair">ACTION LIST - REPAIR ITEMS</div>
-      ${renderSectionedItems(actionItems, 'Repair item', true)}
-      ${
-        notesAndPhotoItems.length
-          ? `<div class="page2-title page2-title-notes">NOTES AND PHOTOS</div>${renderSectionedItems(notesAndPhotoItems, 'item')}`
-          : ''
-      }
-      ${
-        photos.length
-          ? `<div class="page2-title page2-title-pictures">ADDITIONAL DETAILS - PICTURES</div>${photoMarkup}`
-          : ''
-      }
-    `
-    : notesAndPhotoItems.length
-      ? `
-        <div class="page2-title">NOTES AND PHOTOS</div>
-        ${renderSectionedItems(notesAndPhotoItems, 'item')}
-        ${photoMarkup}
-      `
-      : photos.length
-        ? `
-          <div class="page2-title page2-title-pictures-only">ADDITIONAL DETAILS - PICTURES</div>
-          ${photoMarkup}
-        `
-        : ''
+  if (actionItems.length > 0) {
+    followUpBlocks.push({
+      html: '<div class="page2-title page2-title-repair">ACTION LIST - REPAIR ITEMS</div>',
+      estimatedHeight: 38,
+    })
+    groupItemsBySection(actionItems).forEach((group) => {
+      followUpBlocks.push(...chunkSectionedGroupBlocks(group, 'Repair item', true))
+    })
+  }
 
-  const followUpBlocks = page2MainContent.trim()
-    ? [{ html: page2MainContent, estimatedHeight: estimateFollowUpHeight() }]
-    : []
+  if (notesAndPhotoItems.length > 0) {
+    followUpBlocks.push({
+      html: `<div class="page2-title ${actionItems.length ? 'page2-title-notes' : ''}">NOTES AND PHOTOS</div>`,
+      estimatedHeight: 38,
+    })
+    groupItemsBySection(notesAndPhotoItems).forEach((group) => {
+      followUpBlocks.push(...chunkSectionedGroupBlocks(group, 'item'))
+    })
+  }
+
+  if (photos.length > 0) {
+    followUpBlocks.push({
+      html: `<div class="page2-title ${actionItems.length || notesAndPhotoItems.length ? 'page2-title-pictures' : 'page2-title-pictures-only'}">ADDITIONAL DETAILS - PICTURES</div>`,
+      estimatedHeight: 38,
+    })
+    followUpBlocks.push(...chunkPhotoBlocks(photos))
+  }
+
   const remainingPageContents = packPageBlocks([...continuationBlocks, ...followUpBlocks])
   const totalPages = 1 + remainingPageContents.length
 

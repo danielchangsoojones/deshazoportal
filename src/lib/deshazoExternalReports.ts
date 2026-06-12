@@ -166,6 +166,12 @@ export type DeshazoSavedWorkOrderListItem = DeshazoSavedWorkOrderSummary & {
   createdAt: string
 }
 
+export type DeshazoSavedInspectionReportMatch = {
+  report: DeshazoSavedInspectionReport
+  craneIndex: number
+  inspectionDate: string
+}
+
 export type DeshazoExternalSyncResult = {
   saved: boolean
   pagesProcessed: number
@@ -303,6 +309,97 @@ export async function getSavedDeshazoInspectionReport(workOrderId: number) {
   }
 
   return normalizeSavedReport(data as DeshazoInspectionReportRow, summaryData as DeshazoExternalWorkOrderRow | undefined)
+}
+
+function normalizeDNumber(value?: string | number | null) {
+  return String(value ?? '').replace(/[^a-z0-9]/gi, '').toUpperCase()
+}
+
+function getCraneReportDate(craneReport: DeshazoCraneReport) {
+  return (
+    craneReport.inspections?.find((inspection) => inspection.date || inspection.completedAt)?.date ||
+    craneReport.inspections?.find((inspection) => inspection.completedAt)?.completedAt ||
+    ''
+  )
+}
+
+function dateScore(value: string) {
+  const parsed = new Date(value).getTime()
+  return Number.isNaN(parsed) ? -Infinity : parsed
+}
+
+export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: string) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const normalizedDNumber = normalizeDNumber(dNumber)
+  if (!normalizedDNumber) return []
+
+  const { data: craneRows, error: craneError } = await supabase
+    .from('deshazo_external_report_cranes')
+    .select('work_order_id')
+    .ilike('contact_code', dNumber)
+    .limit(500)
+
+  if (craneError) {
+    throw new Error(craneError.message)
+  }
+
+  const workOrderIds = Array.from(
+    new Set(
+      ((craneRows ?? []) as Array<{ work_order_id: number | null }>)
+        .map((row) => row.work_order_id)
+        .filter((workOrderId): workOrderId is number => typeof workOrderId === 'number'),
+    ),
+  )
+
+  if (workOrderIds.length === 0) return []
+
+  const { data: reportData, error: reportError } = await supabase
+    .from('deshazo_external_inspection_reports')
+    .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .in('work_order_id', workOrderIds)
+
+  if (reportError) {
+    throw new Error(reportError.message)
+  }
+
+  const { data: summaryData, error: summaryError } = await supabase
+    .from('deshazo_external_work_orders')
+    .select(
+      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
+    )
+    .in('work_order_id', workOrderIds)
+
+  if (summaryError) {
+    throw new Error(summaryError.message)
+  }
+
+  const summariesById = new Map<number, DeshazoExternalWorkOrderRow>()
+  ;((summaryData ?? []) as DeshazoExternalWorkOrderRow[]).forEach((row) => {
+    summariesById.set(row.work_order_id, row)
+  })
+
+  const matches: DeshazoSavedInspectionReportMatch[] = []
+
+  ;((reportData ?? []) as DeshazoInspectionReportRow[]).forEach((row) => {
+    const report = normalizeSavedReport(row, summariesById.get(row.work_order_id))
+    ;(report.rawPayload.cranes ?? []).forEach((craneReport, craneIndex) => {
+      const contactCode = normalizeDNumber(craneReport.crane?.contactCode)
+      if (contactCode !== normalizedDNumber) return
+      matches.push({
+        report,
+        craneIndex,
+        inspectionDate: getCraneReportDate(craneReport) || report.summary?.endDate || report.summary?.completedAt || '',
+      })
+    })
+  })
+
+  return matches.sort((left, right) =>
+    dateScore(right.inspectionDate) - dateScore(left.inspectionDate) ||
+    right.report.workOrderId - left.report.workOrderId,
+  )
 }
 
 export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset = 0) {

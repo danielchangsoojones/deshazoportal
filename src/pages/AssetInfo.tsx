@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line,
@@ -18,7 +18,6 @@ import {
 } from '../lib/assetNotificationSubscribers'
 import { listRepairReportsByCity } from '../lib/repairReports'
 import {
-  findAssetPdfPage,
   getAssetInfo,
   getAssetPDF,
   getRecurringIssues,
@@ -30,10 +29,19 @@ import {
   type RecurringIssue,
 } from '../lib/portalApi'
 import {
+  DESHAZO_PDF_PAGE_HEIGHT_PX,
+  DESHAZO_PDF_PAGE_WIDTH_PX,
+  getDeshazoInspectionReportHtml,
+  getDeshazoInspectionReportStyles,
+} from '../lib/deshazoExternalPdf'
+import {
+  getSavedDeshazoInspectionReportMatchesForDNumber,
+  type DeshazoSavedInspectionReport,
+} from '../lib/deshazoExternalReports'
+import {
   getSupabaseOpenRiskAssetInfo,
   getSupabaseOpenRiskRecurringIssues,
 } from '../lib/deshazoOpenRiskSupabase'
-import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -69,12 +77,12 @@ type NotificationSubscriber = {
   repairDone: boolean
 }
 
-type IssueReportMatch = {
-  document: AssetPdfDocument
-  pageNumber: number
-}
-
 type FilterField = 'category' | 'safety_category' | 'inspection_date' | 'component_type' | 'remarks'
+
+type GeneratedIssueReportMatch = {
+  report: DeshazoSavedInspectionReport
+  craneIndex: number
+}
 
 const defaultAssetInfo: AssetInfoAnalytics = {
   unit_location: '',
@@ -197,26 +205,14 @@ const buildVisiblePages = (currentPage: number, totalPages: number) => {
     .sort((left, right) => left - right)
 }
 
-function LegacySourceDot() {
-  return (
-    <span
-      className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-red-600"
-      title="Developer marker: clicking this issue still uses the legacy Parse/PDF lookup."
-      aria-label="Legacy-backed PDF lookup"
-    />
-  )
-}
-
 function AssetIssueRow({
   issue,
   index,
   onClick,
-  showLegacyPdfMarker,
 }: {
   issue: AssetIssue
   index: number
   onClick: () => void
-  showLegacyPdfMarker: boolean
 }) {
   return (
     <tr onClick={onClick} className={`cursor-pointer transition hover:bg-[#dbe5ff] ${index % 2 === 0 ? 'bg-[#f4f7ff]' : 'bg-white'}`}>
@@ -237,19 +233,110 @@ function AssetIssueRow({
         </span>
       </td>
       <td className="w-[33%] px-4 py-3 align-top text-[15px] font-medium leading-snug text-[var(--deshazo-text)]">
-        <span className="flex min-w-0 items-start gap-2">
-          <span className="min-w-0 flex-1 whitespace-normal break-words">{issue.remarks}</span>
-          {showLegacyPdfMarker ? <LegacySourceDot /> : null}
-        </span>
+        <span className="min-w-0 flex-1 whitespace-normal break-words">{issue.remarks}</span>
       </td>
     </tr>
+  )
+}
+
+function GeneratedInspectionReportPreview({
+  report,
+  selectedCraneIndex,
+}: {
+  report: DeshazoSavedInspectionReport
+  selectedCraneIndex: number
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+  const [currentPage, setCurrentPage] = useState(0)
+  const reportMarkup = useMemo(
+    () =>
+      `<style>${getDeshazoInspectionReportStyles('preview')}</style>${getDeshazoInspectionReportHtml(
+        report,
+        selectedCraneIndex,
+      )}`,
+    [report, selectedCraneIndex],
+  )
+  const pageCount = useMemo(() => Math.max(1, reportMarkup.match(/class="pdf-page"/g)?.length ?? 1), [reportMarkup])
+
+  useEffect(() => {
+    setCurrentPage(0)
+  }, [report, selectedCraneIndex])
+
+  useEffect(() => {
+    const node = containerRef.current
+    if (!node) return undefined
+
+    const updateScale = () => {
+      const availableWidth = Math.max(0, node.clientWidth - 32)
+      const availableHeight = Math.max(0, node.clientHeight - 76)
+      const widthScale = availableWidth / DESHAZO_PDF_PAGE_WIDTH_PX
+      const heightScale = availableHeight / DESHAZO_PDF_PAGE_HEIGHT_PX
+      setScale(Math.max(0.35, Math.min(1, widthScale, heightScale)))
+    }
+
+    updateScale()
+    const observer = new ResizeObserver(updateScale)
+    observer.observe(node)
+    window.addEventListener('resize', updateScale)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateScale)
+    }
+  }, [])
+
+  const pageGap = 24
+  const scaledWidth = DESHAZO_PDF_PAGE_WIDTH_PX * scale
+  const scaledHeight = DESHAZO_PDF_PAGE_HEIGHT_PX * scale
+  const pageOffset = currentPage * (DESHAZO_PDF_PAGE_HEIGHT_PX + pageGap) * scale
+
+  return (
+    <section ref={containerRef} className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#e9eef8]">
+      <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto px-4 py-5">
+        <div className="overflow-hidden bg-white shadow-[0_16px_40px_-34px_rgba(0,0,0,0.4)]" style={{ width: scaledWidth, height: scaledHeight }}>
+          <div
+            className="deshazo-pdf-root"
+            style={{
+              marginTop: -pageOffset,
+              transform: `scale(${scale})`,
+              transformOrigin: 'top left',
+            }}
+            dangerouslySetInnerHTML={{ __html: reportMarkup }}
+          />
+        </div>
+      </div>
+      <div className="border-t border-[var(--deshazo-border)] bg-white px-4 py-3">
+        <div className="grid grid-cols-[44px_1fr_44px] items-center gap-3 rounded-sm border border-[var(--deshazo-border)] bg-white px-2 py-2">
+          <button
+            type="button"
+            onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+            disabled={currentPage === 0}
+            className="flex h-9 w-9 items-center justify-center rounded-md bg-[#edae2f] text-2xl font-bold leading-none text-white transition hover:bg-[#d89b22] disabled:cursor-not-allowed disabled:opacity-45"
+            aria-label="Previous PDF page"
+          >
+            ‹
+          </button>
+          <div className="text-center text-[15px] font-bold text-[var(--deshazo-text)]">
+            Page {currentPage + 1} of {pageCount}
+          </div>
+          <button
+            type="button"
+            onClick={() => setCurrentPage((page) => Math.min(pageCount - 1, page + 1))}
+            disabled={currentPage >= pageCount - 1}
+            className="flex h-9 w-9 items-center justify-center rounded-md bg-[#edae2f] text-2xl font-bold leading-none text-white transition hover:bg-[#d89b22] disabled:cursor-not-allowed disabled:opacity-45"
+            aria-label="Next PDF page"
+          >
+            ›
+          </button>
+        </div>
+      </div>
+    </section>
   )
 }
 
 export default function AssetInfo() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const [searchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<AssetInfoTab>('issues')
@@ -285,7 +372,7 @@ export default function AssetInfo() {
   const [issueReportLoading, setIssueReportLoading] = useState(false)
   const [issueReportError, setIssueReportError] = useState('')
   const [selectedIssue, setSelectedIssue] = useState<AssetIssue | null>(null)
-  const [selectedIssueMatch, setSelectedIssueMatch] = useState<IssueReportMatch | null>(null)
+  const [selectedIssueMatch, setSelectedIssueMatch] = useState<GeneratedIssueReportMatch | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [recurringIssues, setRecurringIssues] = useState<RecurringIssue[]>([])
@@ -294,7 +381,6 @@ export default function AssetInfo() {
   const unitId = searchParams.get('unit_id')?.trim() || ''
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
   const usesSupabaseAssetData = currentView === 'open-risk' || currentView === 'asset-fleet'
-  const canSeeDeveloperMarkers = userTag === 'developer'
 
   const activeMenuItems = useMemo(
     () =>
@@ -430,26 +516,6 @@ export default function AssetInfo() {
       setAuthLoading(false)
     })
   }, [navigate])
-
-  useEffect(() => {
-    if (!user) {
-      setUserTag(null)
-      return
-    }
-
-    let cancelled = false
-    getCurrentUserTag(user.id)
-      .then((tag) => {
-        if (!cancelled) setUserTag(tag)
-      })
-      .catch(() => {
-        if (!cancelled) setUserTag(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [user])
 
   useEffect(() => {
     if (authLoading || !user) {
@@ -909,15 +975,6 @@ export default function AssetInfo() {
     await saveNotificationSubscriber({ ...subscriber, [field]: !subscriber[field] })
   }
 
-  const findIssueDocumentMatch = async (issue: AssetIssue, docNumber: string) => {
-    const legacyUnitId = usesSupabaseAssetData
-      ? (await searchAssetByDNumber(docNumber)).unit_id
-      : unitId
-    const response = await findAssetPdfPage(legacyUnitId, docNumber, issue.inspection_date)
-
-    return response.match
-  }
-
   const handleIssueRowClick = async (issue: AssetIssue) => {
     setSelectedIssue(issue)
     setSelectedIssueMatch(null)
@@ -932,16 +989,28 @@ export default function AssetInfo() {
 
     try {
       setIssueReportLoading(true)
-      const matchedDocument = await findIssueDocumentMatch(issue, docNumber)
+      const matchedReports = await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber)
 
-      if (!matchedDocument) {
-        setIssueReportError(`No asset PDF page matched ${docNumber} for this unit.`)
+      if (matchedReports.length === 0) {
+        setIssueReportError(`No synced inspection report matched ${docNumber}.`)
         return
       }
 
-      setSelectedIssueMatch(matchedDocument)
+      const issueDate = parseInspectionDate(issue.inspection_date)
+      const sameDateMatch = issueDate
+        ? matchedReports.find((match) => {
+            const matchDate = parseInspectionDate(match.inspectionDate)
+            return Boolean(matchDate && matchDate.toDateString() === issueDate.toDateString())
+          })
+        : null
+      const matchedReport = sameDateMatch ?? matchedReports[0]
+
+      setSelectedIssueMatch({
+        report: matchedReport.report,
+        craneIndex: matchedReport.craneIndex,
+      })
     } catch (err) {
-      setIssueReportError(err instanceof Error ? err.message : 'Unable to load the matching issue PDF.')
+      setIssueReportError(err instanceof Error ? err.message : 'Unable to load the matching inspection report.')
     } finally {
       setIssueReportLoading(false)
     }
@@ -1260,7 +1329,6 @@ export default function AssetInfo() {
                               key={`${issue.category}-${issue.component_type}-${index}`}
                               issue={issue}
                               index={index}
-                              showLegacyPdfMarker={usesSupabaseAssetData && canSeeDeveloperMarkers}
                               onClick={() => void handleIssueRowClick(issue)}
                             />
                           ))
@@ -1786,35 +1854,41 @@ export default function AssetInfo() {
             </div>
             {issueReportLoading ? (
               <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                Searching asset PDFs for the matching D number...
+                Building the matching inspection report from Supabase...
               </div>
             ) : issueReportError ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-                <p className="text-base font-bold text-[var(--deshazo-text)]">Matching PDF not available</p>
+                <p className="text-base font-bold text-[var(--deshazo-text)]">Matching inspection report not available</p>
                 <p className="max-w-xl text-sm font-medium text-[rgba(21,24,33,0.55)]">{issueReportError}</p>
               </div>
             ) : selectedIssueMatch ? (
               <div className="flex flex-1 flex-col overflow-hidden">
                 <div className="flex items-center justify-between border-b border-[var(--deshazo-border)] px-5 py-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-[var(--deshazo-blue)]">{selectedIssueMatch.document.display_name}</p>
+                    <p className="truncate text-sm font-bold text-[var(--deshazo-blue)]">
+                      {selectedIssueMatch.report.summary?.jobNo ||
+                        selectedIssueMatch.report.summary?.salesOrderNo ||
+                        selectedIssueMatch.report.jobNo ||
+                        selectedIssueMatch.report.workOrderId}
+                    </p>
                     <p className="text-xs text-[rgba(21,24,33,0.45)]">
-                      Showing page {selectedIssueMatch.pageNumber}
+                      Generated from synced Supabase inspection report data.
                     </p>
                   </div>
                   <a
-                    href={`${selectedIssueMatch.document.pdf}#page=${selectedIssueMatch.pageNumber}`}
+                    href={`/deshazo-external-reports?workOrderId=${encodeURIComponent(selectedIssueMatch.report.workOrderId)}&dNumber=${encodeURIComponent(
+                      extractDocumentNumber(selectedIssue?.remarks, assetInfo.unit_name, unitId) || unitId,
+                    )}`}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
                   >
-                    Open full PDF
+                    Open report page
                   </a>
                 </div>
-                <iframe
-                  src={`${selectedIssueMatch.document.pdf}#page=${selectedIssueMatch.pageNumber}`}
-                  title={selectedIssueMatch.document.display_name}
-                  className="flex-1 w-full border-0 bg-white"
+                <GeneratedInspectionReportPreview
+                  report={selectedIssueMatch.report}
+                  selectedCraneIndex={selectedIssueMatch.craneIndex}
                 />
               </div>
             ) : (
