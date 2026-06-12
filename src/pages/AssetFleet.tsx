@@ -3,12 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import DNumberSearchBar from '../components/DNumberSearchBar'
-import {
-  getAssetsServiced,
-  isPortalApiConfigured,
-  type AssetsServicedAnalytics,
-  type ServicedAsset,
-} from '../lib/portalApi'
+import { type AssetsServicedAnalytics, type ServicedAsset } from '../lib/portalApi'
+import { getSupabaseAssetFleetServiced } from '../lib/deshazoOpenRiskSupabase'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -25,17 +21,20 @@ const menuItems = [
 ]
 
 const defaultAssetsSummary: AssetsServicedAnalytics = {
-  total_serviced_str: '0/ 0 Inspected',
+  total_serviced_str: '0 Assets',
   total_units_count: 0,
   serviced_units_count: 0,
+  total_open_issues: 0,
+  safety_issue_count: 0,
+  monitor_issue_count: 0,
   serviced_assets: [],
 }
 
 const buildProgressGradient = (percent: number) =>
-  `conic-gradient(var(--deshazo-blue) 0deg ${percent * 3.6}deg, rgba(219,227,245,0.9) ${percent * 3.6}deg 360deg)`
+  `conic-gradient(#f53822 0deg ${percent * 3.6}deg, #efb634 ${percent * 3.6}deg 360deg)`
 
-const getPercent = (servicedUnits: number, totalUnits: number) =>
-  totalUnits > 0 ? Math.round((servicedUnits / totalUnits) * 100) : 0
+const getSafetyPercent = (safetyIssues = 0, totalIssues = 0) =>
+  totalIssues > 0 ? Math.round((safetyIssues / totalIssues) * 100) : 0
 
 function ProgressRing({ percent, size = 56 }: { percent: number; size?: number }) {
   const innerSize = size - 10
@@ -56,7 +55,7 @@ function ProgressRing({ percent, size = 56 }: { percent: number; size?: number }
 }
 
 function AssetCard({ asset }: { asset: ServicedAsset }) {
-  const percent = getPercent(asset.serviced_units, asset.total_units)
+  const percent = getSafetyPercent(asset.safety_issue_count, asset.total_open_issues)
 
   return (
     <Link
@@ -121,7 +120,7 @@ export default function AssetFleet() {
       try {
         setLoading(true)
         setError('')
-        const data = await getAssetsServiced(controller.signal)
+        const data = await getSupabaseAssetFleetServiced()
         setAssetSummary(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -166,7 +165,7 @@ export default function AssetFleet() {
     .slice(0, 2)
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
-  const overallPercent = getPercent(assetSummary.serviced_units_count, assetSummary.total_units_count)
+  const overallPercent = getSafetyPercent(assetSummary.safety_issue_count, assetSummary.total_open_issues)
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -268,12 +267,6 @@ export default function AssetFleet() {
               </div>
             </div>
           </div>
-
-          {!isPortalApiConfigured && (
-            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-              Add `VITE_PORTAL_PARSE_REST_API_KEY` to load live asset fleet analytics.
-            </div>
-          )}
 
           {error && (
             <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

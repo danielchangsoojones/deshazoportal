@@ -22,7 +22,6 @@ import {
   getAssetInfo,
   getAssetPDF,
   getRecurringIssues,
-  isPortalApiConfigured,
   searchAssetByDNumber,
   type AssetPdfDocument,
   type AssetPdfResponse,
@@ -294,7 +293,7 @@ export default function AssetInfo() {
   const navigate = useNavigate()
   const unitId = searchParams.get('unit_id')?.trim() || ''
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
-  const isOpenRiskView = currentView === 'open-risk'
+  const usesSupabaseAssetData = currentView === 'open-risk' || currentView === 'asset-fleet'
   const canSeeDeveloperMarkers = userTag === 'developer'
 
   const activeMenuItems = useMemo(
@@ -470,7 +469,7 @@ export default function AssetInfo() {
       try {
         setLoading(true)
         setError('')
-        const data = isOpenRiskView
+        const data = usesSupabaseAssetData
           ? await getSupabaseOpenRiskAssetInfo(unitId)
           : await getAssetInfo(unitId, controller.signal)
         setAssetInfo(data)
@@ -488,7 +487,7 @@ export default function AssetInfo() {
     void loadAssetInfo()
 
     return () => controller.abort()
-  }, [unitId, isOpenRiskView, authLoading, user])
+  }, [unitId, usesSupabaseAssetData, authLoading, user])
 
   useEffect(() => {
     if (authLoading || !user) {
@@ -500,7 +499,7 @@ export default function AssetInfo() {
     const loadRecurringIssues = async () => {
       try {
         setRecurringIssuesLoading(true)
-        const data = isOpenRiskView
+        const data = usesSupabaseAssetData
           ? await getSupabaseOpenRiskRecurringIssues(unitId)
           : await getRecurringIssues(unitId, controller.signal)
         setRecurringIssues(data)
@@ -513,7 +512,7 @@ export default function AssetInfo() {
 
     void loadRecurringIssues()
     return () => controller.abort()
-  }, [unitId, isOpenRiskView, authLoading, user])
+  }, [unitId, usesSupabaseAssetData, authLoading, user])
 
   useEffect(() => {
     if (!user || !unitId || !supabase) {
@@ -644,13 +643,13 @@ export default function AssetInfo() {
         setDocumentsLoading(true)
         setDocumentsError('')
         const docNumber = extractDocumentNumber(assetInfo.unit_name, unitId)
-        if (isOpenRiskView && !docNumber) {
+        if (usesSupabaseAssetData && !docNumber) {
           setDocumentsError('No D number was found for this asset, so legacy PM reports could not be loaded.')
           setAssetDocuments(defaultAssetDocuments)
           setSelectedDocumentUrl('')
           return
         }
-        const legacyUnitId = isOpenRiskView
+        const legacyUnitId = usesSupabaseAssetData
           ? (await searchAssetByDNumber(docNumber, controller.signal)).unit_id
           : unitId
         const data = await getAssetPDF(legacyUnitId, documentsPage, controller.signal)
@@ -673,7 +672,7 @@ export default function AssetInfo() {
     loadDocuments()
 
     return () => controller.abort()
-  }, [activeTab, unitId, documentsPage, isOpenRiskView, assetInfo.unit_name])
+  }, [activeTab, unitId, documentsPage, usesSupabaseAssetData, assetInfo.unit_name])
 
   useEffect(() => {
     if (activeTab !== 'repair') {
@@ -819,7 +818,7 @@ export default function AssetInfo() {
     try {
       setLoading(true)
       setError('')
-      const data = isOpenRiskView
+      const data = usesSupabaseAssetData
         ? await getSupabaseOpenRiskAssetInfo(unitId)
         : await getAssetInfo(unitId)
       setAssetInfo(data)
@@ -911,7 +910,7 @@ export default function AssetInfo() {
   }
 
   const findIssueDocumentMatch = async (issue: AssetIssue, docNumber: string) => {
-    const legacyUnitId = isOpenRiskView
+    const legacyUnitId = usesSupabaseAssetData
       ? (await searchAssetByDNumber(docNumber)).unit_id
       : unitId
     const response = await findAssetPdfPage(legacyUnitId, docNumber, issue.inspection_date)
@@ -1120,12 +1119,6 @@ export default function AssetInfo() {
             </h1>
           </div>
 
-          {!isPortalApiConfigured && (
-            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-              Add `VITE_PORTAL_PARSE_REST_API_KEY` to load live asset information.
-            </div>
-          )}
-
           {error && (
             <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
@@ -1267,7 +1260,7 @@ export default function AssetInfo() {
                               key={`${issue.category}-${issue.component_type}-${index}`}
                               issue={issue}
                               index={index}
-                              showLegacyPdfMarker={isOpenRiskView && canSeeDeveloperMarkers}
+                              showLegacyPdfMarker={usesSupabaseAssetData && canSeeDeveloperMarkers}
                               onClick={() => void handleIssueRowClick(issue)}
                             />
                           ))

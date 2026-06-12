@@ -115,12 +115,18 @@ export type ServicedAsset = {
   total_units: number
   serviced_units: number
   checked_in_display: string
+  total_open_issues?: number
+  safety_issue_count?: number
+  monitor_issue_count?: number
 }
 
 export type AssetsServicedAnalytics = {
   total_serviced_str: string
   total_units_count: number
   serviced_units_count: number
+  total_open_issues?: number
+  safety_issue_count?: number
+  monitor_issue_count?: number
   serviced_assets: ServicedAsset[]
 }
 

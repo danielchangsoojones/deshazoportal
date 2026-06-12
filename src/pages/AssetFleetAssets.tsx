@@ -5,12 +5,10 @@ import { usePortalMenu } from '../lib/usePortalMenu'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import { portalLocationOptions } from '../lib/portalLocations'
 import {
-  getAssets,
-  isPortalApiConfigured,
   type AssetUnit,
   type AssetsPageAnalytics,
 } from '../lib/portalApi'
-import { getSupabaseOpenRiskAssets } from '../lib/deshazoOpenRiskSupabase'
+import { getSupabaseAssetFleetAssets, getSupabaseOpenRiskAssets } from '../lib/deshazoOpenRiskSupabase'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -198,7 +196,7 @@ export default function AssetFleetAssets() {
         setError('')
         const data = currentView === 'open-risk'
           ? await getSupabaseOpenRiskAssets(selectedLocations, currentPage - 1)
-          : await getAssets(selectedLocations, currentPage - 1, controller.signal)
+          : await getSupabaseAssetFleetAssets(selectedLocations, currentPage - 1)
         setAssetsPage(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -439,12 +437,6 @@ export default function AssetFleetAssets() {
               </div>
             </div>
           </div>
-
-          {!isPortalApiConfigured && (
-            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-              Add `VITE_PORTAL_PARSE_REST_API_KEY` to load live asset detail data.
-            </div>
-          )}
 
           {error && (
             <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

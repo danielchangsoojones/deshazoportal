@@ -2,10 +2,12 @@ import { supabase } from './supabase'
 import type {
   AssetInfoAnalytics,
   AssetIssue,
+  AssetsServicedAnalytics,
   AssetsPageAnalytics,
   AssetUnit,
   RecurringIssue,
 } from './portalApi'
+import { portalLocationOptions } from './portalLocations'
 
 const pageSize = 24
 const cacheTtlMs = 5 * 60 * 1000
@@ -312,7 +314,7 @@ function buildAssetName(dNumber: string, description?: string | null) {
 
 function isMissingViewError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
-  return /does not exist|schema cache|Could not find|PGRST205/i.test(message)
+  return /does not exist|schema cache|Could not find|PGRST205|permission denied for view/i.test(message)
 }
 
 async function loadDatasetFromViews(): Promise<OpenRiskDataset> {
@@ -636,6 +638,63 @@ export async function getSupabaseOpenRiskAssets(
     total_pages: Math.max(1, Math.ceil(filteredAssets.length / pageSize)),
     current_page: currentPage,
   }
+}
+
+export async function getSupabaseAssetFleetServiced(): Promise<AssetsServicedAnalytics> {
+  const dataset = await loadDataset()
+  const assetsByLocation = new Map<string, AssetRecord[]>()
+
+  for (const asset of dataset.assets) {
+    const locationValue = getLocationValue(asset.unit)
+    const matchedLocation = portalLocationOptions.find((location) =>
+      locationValue.includes(location.value.replace(/_([a-z]{2})$/, '')) || locationValue === location.value,
+    )
+    const key = matchedLocation?.value ?? locationValue
+    const group = assetsByLocation.get(key) ?? []
+    group.push(asset)
+    assetsByLocation.set(key, group)
+  }
+
+  const servicedAssets = portalLocationOptions.map((location) => {
+    const group = assetsByLocation.get(location.value) ?? []
+    const assetCount = group.length
+    const safetyIssueCount = group.reduce((sum, asset) => sum + asset.unit.safety_issue_count, 0)
+    const monitorIssueCount = group.reduce((sum, asset) => sum + asset.unit.monitor_issue_count, 0)
+    const totalOpenIssues = safetyIssueCount + monitorIssueCount
+
+    return {
+      location: location.label,
+      location_value: location.value,
+      total_units: assetCount,
+      serviced_units: assetCount,
+      checked_in_display: `${assetCount} Assets`,
+      total_open_issues: totalOpenIssues,
+      safety_issue_count: safetyIssueCount,
+      monitor_issue_count: monitorIssueCount,
+    }
+  })
+
+  const totalAssets = servicedAssets.reduce((sum, location) => sum + location.total_units, 0)
+  const totalSafetyIssues = servicedAssets.reduce((sum, location) => sum + (location.safety_issue_count ?? 0), 0)
+  const totalMonitorIssues = servicedAssets.reduce((sum, location) => sum + (location.monitor_issue_count ?? 0), 0)
+  const totalOpenIssues = totalSafetyIssues + totalMonitorIssues
+
+  return {
+    total_serviced_str: `${totalAssets} Assets`,
+    total_units_count: totalAssets,
+    serviced_units_count: totalAssets,
+    total_open_issues: totalOpenIssues,
+    safety_issue_count: totalSafetyIssues,
+    monitor_issue_count: totalMonitorIssues,
+    serviced_assets: servicedAssets,
+  }
+}
+
+export async function getSupabaseAssetFleetAssets(
+  locations: string[] = [],
+  currentPage = 0,
+): Promise<AssetsPageAnalytics> {
+  return getSupabaseOpenRiskAssets(locations, currentPage)
 }
 
 export async function getSupabaseOpenRiskAssetInfo(unitId: string): Promise<AssetInfoAnalytics> {
