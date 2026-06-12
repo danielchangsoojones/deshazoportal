@@ -21,6 +21,7 @@ const DeshazoWorkOrders = lazy(() => import('./pages/DeshazoWorkOrders'))
 const EditableInspectionReport = lazy(() => import('./pages/EditableInspectionReport'))
 const JobsQuotingList = lazy(() => import('./pages/JobsQuotingList'))
 const SteelQuotingList = lazy(() => import('./pages/SteelQuotingList'))
+const SteelAiPortalIntegration = lazy(() => import('./pages/SteelAiPortalIntegration'))
 const SteelProcess = lazy(() => import('./pages/SteelProcess'))
 const SteelEditableInspectionReport = lazy(() => import('./pages/SteelEditableInspectionReport'))
 const AssetFleet = lazy(() => import('./pages/AssetFleet'))
@@ -62,6 +63,7 @@ function App() {
           <Route path="/deshazo-external-reports" element={<DeshazoExternalReports />} />
           <Route path="/jobsquotinglist" element={<JobsQuotingList />} />
           <Route path="/steel-quoting-list" element={<SteelQuotingList />} />
+          <Route path="/steel-ai-portal-integration" element={<SteelAiPortalIntegration />} />
           <Route path="/process" element={<SteelProcess />} />
           <Route path="/steel-editable-inspection-report" element={<SteelEditableInspectionReport />} />
           <Route path="/inspection-report-template" element={<EditableInspectionReport />} />

@@ -14,6 +14,12 @@ const steelCards = [
     description: 'Upload steel drawing PDFs, preview them, and pull out measurements for quoting.',
     href: '/steel-quoting-list',
   },
+  {
+    eyebrow: 'AI Portal',
+    title: 'AI Portal Integration',
+    description: 'Watch the AI portal workflow connect quoting context with the steel dashboard.',
+    href: '/steel-ai-portal-integration',
+  },
 ]
 
 export default function SteelDemoDashboard() {
