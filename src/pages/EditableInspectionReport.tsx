@@ -460,6 +460,28 @@ const getExtractedArray = (value: unknown, keys: string[]) => {
 const removeReportValueLabel = (value: string) =>
   value.includes(':') ? value.split(':').slice(1).join(':').trim() : value.trim()
 
+const ensureDNumberPrefix = (value: string) => {
+  const trimmedValue = value.trimStart()
+  if (!trimmedValue) return 'D'
+  if (/^d/i.test(trimmedValue)) return `D${trimmedValue.slice(1)}`
+  return `D${trimmedValue}`
+}
+
+const ensureJobNumberPrefix = (value: string) => {
+  const normalizedValue = value.trim()
+  const withoutLabel = normalizedValue
+    .replace(/^job\s*#\s*:?\s*/i, '')
+    .replace(/^#\s*:?\s*/i, '')
+
+  return `Job #: ${withoutLabel}`
+}
+
+const normalizeProtectedReportField = (id: string, value: string) => {
+  if (id === 'summary') return ensureDNumberPrefix(value)
+  if (id === 'jobNumber') return ensureJobNumberPrefix(value)
+  return value
+}
+
 const getDNumberFromReport = (reportData: ReportData | Record<string, string>) => {
   const reportText = Object.values(reportData).join(' ')
   const match = reportText.match(/\bD[\s-]*\d{3,}\b/i)
@@ -1658,6 +1680,8 @@ const normalizeReport = (report: ReportData) => {
   if (nextReport.notesHeader === 'Notes') nextReport.notesHeader = defaultReport.notesHeader
   if (!nextReport.notes?.trim()) nextReport.notes = defaultAdditionalNotes
   if (nextReport.notes?.trimEnd() === defaultAdditionalNotesBody) nextReport.notes = defaultAdditionalNotes
+  nextReport.summary = normalizeProtectedReportField('summary', nextReport.summary ?? '')
+  nextReport.jobNumber = normalizeProtectedReportField('jobNumber', nextReport.jobNumber ?? '')
 
   return nextReport
 }
@@ -1757,11 +1781,21 @@ type EditableTextProps = {
   className?: string
   linkify?: boolean
   multiline?: boolean
+  protectedPrefix?: string
   renderReadOnly?: (value: string) => ReactNode
   onChange: (id: string, value: string) => void
 }
 
-function EditableText({ id, data, className = '', linkify = false, multiline = false, renderReadOnly, onChange }: EditableTextProps) {
+function EditableText({
+  id,
+  data,
+  className = '',
+  linkify = false,
+  multiline = false,
+  protectedPrefix,
+  renderReadOnly,
+  onChange,
+}: EditableTextProps) {
   const fieldValue = data[id] ?? ''
   const value =
     id === 'scopeOfWorkHeader' && !fieldValue.trim()
@@ -1775,6 +1809,7 @@ function EditableText({ id, data, className = '', linkify = false, multiline = f
       className={className}
       linkify={linkify}
       multiline={multiline}
+      protectedPrefix={protectedPrefix}
       renderReadOnly={renderReadOnly}
       onChange={(value) => onChange(id, value)}
     />
@@ -1787,6 +1822,7 @@ type EditableValueProps = {
   className?: string
   linkify?: boolean
   multiline?: boolean
+  protectedPrefix?: string
   renderReadOnly?: (value: string) => ReactNode
   clearOnFocus?: boolean
   onEditFocus?: () => void
@@ -1861,11 +1897,46 @@ function renderAdditionalNotesContent(value: string) {
   )
 }
 
+const getEditableTextSelectionOffsets = (element: HTMLElement) => {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return null
+
+  const range = selection.getRangeAt(0)
+  if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return null
+
+  const startRange = range.cloneRange()
+  startRange.selectNodeContents(element)
+  startRange.setEnd(range.startContainer, range.startOffset)
+
+  const endRange = range.cloneRange()
+  endRange.selectNodeContents(element)
+  endRange.setEnd(range.endContainer, range.endOffset)
+
+  return {
+    start: startRange.toString().length,
+    end: endRange.toString().length,
+  }
+}
+
+const selectionTouchesProtectedPrefix = (element: HTMLElement, prefixLength: number, key: string) => {
+  const selectionOffsets = getEditableTextSelectionOffsets(element)
+  if (!selectionOffsets) return false
+
+  if (selectionOffsets.start !== selectionOffsets.end) {
+    return selectionOffsets.start < prefixLength
+  }
+
+  if (key === 'Backspace') return selectionOffsets.start <= prefixLength
+  if (key === 'Delete') return selectionOffsets.start < prefixLength
+  return false
+}
+
 function EditableValue({
   label,
   value,
   className = '',
   linkify = false,
+  protectedPrefix,
   renderReadOnly,
   clearOnFocus = false,
   onEditFocus,
@@ -1925,6 +1996,19 @@ function EditableValue({
       onBlur={(event) => {
         onChange(event.currentTarget.innerText)
         if (linkify) setIsEditing(false)
+      }}
+      onKeyDown={(event) => {
+        if (!protectedPrefix || (event.key !== 'Backspace' && event.key !== 'Delete')) return
+        if (selectionTouchesProtectedPrefix(event.currentTarget, protectedPrefix.length, event.key)) {
+          event.preventDefault()
+        }
+      }}
+      onCut={(event) => {
+        if (!protectedPrefix) return
+        const selectionOffsets = getEditableTextSelectionOffsets(event.currentTarget)
+        if (selectionOffsets && selectionOffsets.start < protectedPrefix.length) {
+          event.preventDefault()
+        }
       }}
       onDragOver={(event) => {
         if (onDropMenuItem) {
@@ -2912,7 +2996,7 @@ export default function EditableInspectionReport() {
 
   const updateField = (id: string, value: string) => {
     setReport((currentReport) => {
-      const nextReport = { ...currentReport, [id]: value }
+      const nextReport = { ...currentReport, [id]: normalizeProtectedReportField(id, value) }
       window.localStorage.setItem(storageKey, JSON.stringify(nextReport))
       return nextReport
     })
@@ -4495,7 +4579,13 @@ export default function EditableInspectionReport() {
                   <span className="absolute left-1/2 top-1 h-4 -translate-x-1/2 border-l border-[#111]" />
                 </div>
               </div>
-              <EditableText id="summary" data={report} onChange={updateField} className="border-r border-[#cfcfcf] px-2 text-[12px] font-bold leading-tight" />
+              <EditableText
+                id="summary"
+                data={report}
+                onChange={updateField}
+                protectedPrefix="D"
+                className="border-r border-[#cfcfcf] px-2 text-[12px] font-bold leading-tight"
+              />
               <EditableText id="type" data={report} onChange={updateField} className="border-r border-[#cfcfcf] px-2 text-[12px] font-bold leading-tight" />
               <EditableText id="date" data={report} onChange={updateField} className="px-2 text-[12px] font-bold leading-tight" />
             </div>
@@ -4515,6 +4605,7 @@ export default function EditableInspectionReport() {
                         id={fieldId}
                         data={report}
                         onChange={updateField}
+                        protectedPrefix={fieldId === 'jobNumber' ? 'Job #: ' : undefined}
                         className={`min-h-[21px] border-b border-[#dcdcdc] px-2 py-0.5 ${
                           columnIndex > 0 ? 'border-l border-[#d4d4d4]' : ''
                         } ${rowIndex === 1 ? 'font-bold' : ''}`}
