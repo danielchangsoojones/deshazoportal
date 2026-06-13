@@ -4,6 +4,7 @@ import { isConfigured } from '../lib/supabase'
 import {
   deleteInspectionMenuItem,
   getInspectionMenuItems,
+  getInspectionMenuItemBranches,
   normalizeDNumbers,
   searchInspectionMenuItems,
   upsertInspectionMenuItems,
@@ -2197,6 +2198,8 @@ export default function EditableInspectionReport() {
   const [pagePdfDragActive, setPagePdfDragActive] = useState(false)
   const [masterServiceAgreementOpen, setMasterServiceAgreementOpen] = useState(false)
   const [menuSearch, setMenuSearch] = useState('')
+  const [menuSearchBranchScope, setMenuSearchBranchScope] = useState<'branches' | 'all'>('branches')
+  const [menuSearchBranches, setMenuSearchBranches] = useState<string[]>([])
   const [menuSearchSections, setMenuSearchSections] = useState<InspectionMenuItemSection[] | null>(null)
   const [menuSearchLoading, setMenuSearchLoading] = useState(false)
   const [menuSearchMessage, setMenuSearchMessage] = useState('')
@@ -2567,7 +2570,7 @@ export default function EditableInspectionReport() {
     setMenuSearchMessage('Searching menu items...')
 
     const searchTimer = window.setTimeout(() => {
-      searchInspectionMenuItems(searchValue)
+      searchInspectionMenuItems(searchValue, menuSearchBranchScope === 'branches' ? menuSearchBranches : undefined)
         .then((savedMenu) => {
           if (!active) return
 
@@ -2590,7 +2593,27 @@ export default function EditableInspectionReport() {
       active = false
       window.clearTimeout(searchTimer)
     }
-  }, [currentCraneIdentifier, menuSearch])
+  }, [currentCraneIdentifier, menuSearch, menuSearchBranches, menuSearchBranchScope])
+
+  useEffect(() => {
+    if (!isConfigured) {
+      setMenuSearchBranches([])
+      return
+    }
+
+    let active = true
+    getInspectionMenuItemBranches()
+      .then((branches) => {
+        if (active) setMenuSearchBranches(branches)
+      })
+      .catch(() => {
+        if (active) setMenuSearchBranches([])
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
     const sourceSections = menuSearchSections ?? menuItemSections
@@ -4491,6 +4514,19 @@ export default function EditableInspectionReport() {
                     placeholder="Search menu items..."
                     className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none transition placeholder:text-[#9aa2b2] focus:border-[#273f7a]"
                   />
+                </label>
+                <label className="mb-4 grid gap-1.5 text-[10px] font-black uppercase tracking-[0.04em] text-[#747b8a]">
+                  Search filter
+                  <select
+                    value={menuSearchBranchScope}
+                    onChange={(event) => setMenuSearchBranchScope(event.currentTarget.value === 'all' ? 'all' : 'branches')}
+                    className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[12px] font-black normal-case tracking-normal text-[#1f2430] outline-none transition focus:border-[#273f7a]"
+                  >
+                    <option value="branches">
+                      {menuSearchBranches.length > 0 ? menuSearchBranches.join(', ') : 'My branches'}
+                    </option>
+                    <option value="all">All</option>
+                  </select>
                 </label>
                 {menuSearchMessage ? (
                   <p className="mb-3 rounded-md border border-[#dfe4ef] bg-white px-3 py-2 text-[11px] font-bold text-[#4d5360]">

@@ -259,7 +259,20 @@ function parseRateSearchValue(searchValue: string) {
   return Number(normalizedValue)
 }
 
-export async function searchInspectionMenuItems(searchValue: string) {
+export async function getInspectionMenuItemBranches() {
+  const userId = await getCurrentUserId()
+  return getCurrentUserBranches(userId)
+}
+
+function applyMenuItemBranchFilter<Query extends { overlaps: (column: string, values: string[]) => Query }>(
+  query: Query,
+  branches?: string[],
+) {
+  const normalizedBranches = Array.from(new Set((branches ?? []).map((branch) => branch.trim()).filter(Boolean)))
+  return normalizedBranches.length > 0 ? query.overlaps('branches', normalizedBranches) : query
+}
+
+export async function searchInspectionMenuItems(searchValue: string, branches?: string[]) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
@@ -272,19 +285,25 @@ export async function searchInspectionMenuItems(searchValue: string) {
   const rateSearchValue = parseRateSearchValue(normalizedSearchValue)
   const searchLimit = 100
 
-  const labelSearch = supabase
-    .from('editable_inspection_menu_items')
-    .select(inspectionMenuItemsSelect)
-    .ilike('label', likeSearchValue)
+  const labelSearch = applyMenuItemBranchFilter(
+    supabase
+      .from('editable_inspection_menu_items')
+      .select(inspectionMenuItemsSelect)
+      .ilike('label', likeSearchValue),
+    branches,
+  )
     .order('updated_at', { ascending: false })
     .order('display_order', { ascending: true })
     .order('label', { ascending: true })
     .limit(searchLimit)
 
-  const descriptionSearch = supabase
-    .from('editable_inspection_menu_items')
-    .select(inspectionMenuItemsSelect)
-    .ilike('description', likeSearchValue)
+  const descriptionSearch = applyMenuItemBranchFilter(
+    supabase
+      .from('editable_inspection_menu_items')
+      .select(inspectionMenuItemsSelect)
+      .ilike('description', likeSearchValue),
+    branches,
+  )
     .order('updated_at', { ascending: false })
     .order('display_order', { ascending: true })
     .order('label', { ascending: true })
@@ -292,10 +311,13 @@ export async function searchInspectionMenuItems(searchValue: string) {
 
   const rateSearch = rateSearchValue == null
     ? Promise.resolve({ data: [], error: null })
-    : supabase
-        .from('editable_inspection_menu_items')
-        .select(inspectionMenuItemsSelect)
-        .eq('rate', rateSearchValue)
+    : applyMenuItemBranchFilter(
+        supabase
+          .from('editable_inspection_menu_items')
+          .select(inspectionMenuItemsSelect)
+          .eq('rate', rateSearchValue),
+        branches,
+      )
         .order('updated_at', { ascending: false })
         .order('display_order', { ascending: true })
         .order('label', { ascending: true })
@@ -303,10 +325,13 @@ export async function searchInspectionMenuItems(searchValue: string) {
 
   const internalCostSearch = rateSearchValue == null
     ? Promise.resolve({ data: [], error: null })
-    : supabase
-        .from('editable_inspection_menu_items')
-        .select(inspectionMenuItemsSelect)
-        .eq('internal_cost', rateSearchValue)
+    : applyMenuItemBranchFilter(
+        supabase
+          .from('editable_inspection_menu_items')
+          .select(inspectionMenuItemsSelect)
+          .eq('internal_cost', rateSearchValue),
+        branches,
+      )
         .order('updated_at', { ascending: false })
         .order('display_order', { ascending: true })
         .order('label', { ascending: true })
@@ -314,10 +339,13 @@ export async function searchInspectionMenuItems(searchValue: string) {
 
   const customerPriceSearch = rateSearchValue == null
     ? Promise.resolve({ data: [], error: null })
-    : supabase
-        .from('editable_inspection_menu_items')
-        .select(inspectionMenuItemsSelect)
-        .eq('customer_price', rateSearchValue)
+    : applyMenuItemBranchFilter(
+        supabase
+          .from('editable_inspection_menu_items')
+          .select(inspectionMenuItemsSelect)
+          .eq('customer_price', rateSearchValue),
+        branches,
+      )
         .order('updated_at', { ascending: false })
         .order('display_order', { ascending: true })
         .order('label', { ascending: true })
