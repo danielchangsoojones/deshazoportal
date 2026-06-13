@@ -1533,6 +1533,9 @@ const normalizeMenuItemSections = (sections: MenuItemSection[]) => {
   return [{ title: menuItemsSectionTitle, items }]
 }
 
+const getMenuItemCount = (sections: MenuItemSection[]) =>
+  sections.reduce((total, section) => total + section.items.length, 0)
+
 const parseMoney = (value: string) => {
   const numericValue = Number(value.replace(/[^0-9.-]/g, ''))
   return Number.isFinite(numericValue) ? numericValue : 0
@@ -2786,21 +2789,24 @@ export default function EditableInspectionReport() {
           const normalizedSections = normalizeMenuItemSections(
             savedMenu.menuSections.length > 0 ? savedMenu.menuSections : defaultMenuItemSections,
           )
+          const itemCount = getMenuItemCount(normalizedSections)
           window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
           skipNextMenuDatabaseSave.current = true
           setMenuItemSections(normalizedSections)
           setMenuDatabaseMessage(loadedMessage)
+          if (markSyncReady) menuDatabaseSyncReady.current = true
+          setMenuDatabaseStatus('saved')
+          return { applied: true, itemCount }
         } else {
           const emptySections = normalizeMenuItemSections(defaultMenuItemSections)
           window.localStorage.setItem(menuStorageKey, JSON.stringify(emptySections))
           skipNextMenuDatabaseSave.current = true
           setMenuItemSections(emptySections)
           setMenuDatabaseMessage(emptyMessage)
+          if (markSyncReady) menuDatabaseSyncReady.current = true
+          setMenuDatabaseStatus('saved')
+          return { applied: true, itemCount: 0 }
         }
-
-        if (markSyncReady) menuDatabaseSyncReady.current = true
-        setMenuDatabaseStatus('saved')
-        return true
       } catch (error) {
         if (!shouldApply() || refreshRequestId !== menuItemsRefreshRequestId.current) return false
         if (markSyncReady) menuDatabaseSyncReady.current = false
@@ -2836,13 +2842,31 @@ export default function EditableInspectionReport() {
 
     const startedAt = Date.now()
     const refreshLoadingMessage = 'Loading menu items from uploaded PDFs.'
+    const startingItemCount = getMenuItemCount(menuItemSections)
+
+    const completeUploadRefresh = (itemCount: number) => {
+      clearMenuItemsUploadRefreshTimers()
+      menuItemsRefreshRequestId.current += 1
+      setMenuItemsRefreshProgress({ active: false, percent: 100 })
+      setMenuDatabaseStatus('saved')
+      setMenuDatabaseMessage(`Successfully loaded ${itemCount - startingItemCount} item${itemCount - startingItemCount === 1 ? '' : 's'} from uploaded PDFs.`)
+      setRelatedDocumentsMessage(`Successfully loaded menu items. Check the ${currentCraneIdentifier} section to see the new parts.`)
+    }
+
+    const checkForUploadedMenuItems = () => {
+      void refreshMenuItemsFromDatabase({
+        loadingMessage: refreshLoadingMessage,
+        loadedMessage: 'Checking uploaded PDFs for new menu items.',
+        emptyMessage: 'Checking uploaded PDFs for new menu items.',
+      }).then((result) => {
+        if (result && result.itemCount > startingItemCount) {
+          completeUploadRefresh(result.itemCount)
+        }
+      })
+    }
 
     setMenuItemsRefreshProgress({ active: true, percent: 0 })
-    refreshMenuItemsFromDatabase({
-      loadingMessage: refreshLoadingMessage,
-      loadedMessage: 'Checking uploaded PDFs for new menu items.',
-      emptyMessage: 'Checking uploaded PDFs for new menu items.',
-    })
+    checkForUploadedMenuItems()
 
     menuItemsUploadRefreshProgressInterval.current = window.setInterval(() => {
       const elapsedMs = Date.now() - startedAt
@@ -2851,11 +2875,7 @@ export default function EditableInspectionReport() {
     }, 1000)
 
     menuItemsUploadRefreshInterval.current = window.setInterval(() => {
-      refreshMenuItemsFromDatabase({
-        loadingMessage: refreshLoadingMessage,
-        loadedMessage: 'Checking uploaded PDFs for new menu items.',
-        emptyMessage: 'Checking uploaded PDFs for new menu items.',
-      })
+      checkForUploadedMenuItems()
     }, menuItemsUploadRefreshIntervalMs)
 
     menuItemsUploadRefreshTimeout.current = window.setTimeout(() => {
@@ -2868,7 +2888,7 @@ export default function EditableInspectionReport() {
         emptyMessage: 'Menu items finished loading from uploaded PDFs.',
       })
     }, menuItemsUploadRefreshDurationMs)
-  }, [clearMenuItemsUploadRefreshTimers, currentCraneIdentifier, refreshMenuItemsFromDatabase])
+  }, [clearMenuItemsUploadRefreshTimers, currentCraneIdentifier, menuItemSections, refreshMenuItemsFromDatabase])
 
   useEffect(() => {
     if (!isConfigured) {
