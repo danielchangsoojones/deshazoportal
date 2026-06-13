@@ -194,6 +194,10 @@ function getItemJobNumber(item: JobsQuotingItem) {
   return (item.jobNumber || getExtractionValue(item.extractionData, 'job_number')).trim()
 }
 
+function normalizeJobNumberForMatch(jobNumber: string) {
+  return jobNumber.trim().toLowerCase()
+}
+
 function getItemDNumber(item: JobsQuotingItem) {
   return (item.dNumber || getExtractionValue(item.extractionData, 'd_number')).trim()
 }
@@ -282,6 +286,7 @@ export default function JobsQuotingList() {
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
   const [externalJobNumberInput, setExternalJobNumberInput] = useState('')
   const [externalJobImporting, setExternalJobImporting] = useState(false)
+  const [pinnedImportedJobNumbers, setPinnedImportedJobNumbers] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -314,20 +319,35 @@ export default function JobsQuotingList() {
   }, [searchQuery, visibleItems])
   const jobGroups = useMemo(() => buildJobGroups(filteredItems), [filteredItems])
   const sortedJobGroups = useMemo(() => {
+    const pinnedJobNumbers = new Set(pinnedImportedJobNumbers.map(normalizeJobNumberForMatch))
+    const comparePinnedGroups = (firstGroup: JobsQuotingJobGroup, secondGroup: JobsQuotingJobGroup) => {
+      const firstGroupPinned = firstGroup.jobNumber ? pinnedJobNumbers.has(normalizeJobNumberForMatch(firstGroup.jobNumber)) : false
+      const secondGroupPinned = secondGroup.jobNumber ? pinnedJobNumbers.has(normalizeJobNumberForMatch(secondGroup.jobNumber)) : false
+
+      if (firstGroupPinned !== secondGroupPinned) {
+        return firstGroupPinned ? -1 : 1
+      }
+
+      return null
+    }
+
     if (selectedRunId === allReportsRunId) {
-      return [...jobGroups].sort(
-        (firstGroup, secondGroup) =>
-          new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime(),
-      )
+      return [...jobGroups].sort((firstGroup, secondGroup) => {
+        const pinnedComparison = comparePinnedGroups(firstGroup, secondGroup)
+        if (pinnedComparison !== null) return pinnedComparison
+        return new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime()
+      })
     }
 
     return [...jobGroups].sort((firstGroup, secondGroup) => {
+      const pinnedComparison = comparePinnedGroups(firstGroup, secondGroup)
+      if (pinnedComparison !== null) return pinnedComparison
       if (secondGroup.priorityCount !== firstGroup.priorityCount) return secondGroup.priorityCount - firstGroup.priorityCount
       if (secondGroup.repairCount !== firstGroup.repairCount) return secondGroup.repairCount - firstGroup.repairCount
       if (secondGroup.safetyCount !== firstGroup.safetyCount) return secondGroup.safetyCount - firstGroup.safetyCount
       return new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime()
     })
-  }, [jobGroups, selectedRunId])
+  }, [jobGroups, pinnedImportedJobNumbers, selectedRunId])
   const pageCount = Math.max(1, Math.ceil(sortedJobGroups.length / reportsPerPage))
   const safeCurrentPage = Math.min(currentPage, pageCount)
   const pageStartIndex = (safeCurrentPage - 1) * reportsPerPage
@@ -338,6 +358,12 @@ export default function JobsQuotingList() {
   useEffect(() => {
     setCurrentPage(1)
   }, [searchQuery, selectedRunId])
+
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      setPinnedImportedJobNumbers([])
+    }
+  }, [searchQuery])
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, pageCount))
@@ -609,6 +635,11 @@ export default function JobsQuotingList() {
     try {
       const result = await createJobQuotingItemsFromExternalInspectionReports(jobNumbers)
       const createdCount = result.results.reduce((total, item) => total + (item.createdOrUpdated ?? 0), 0)
+      const existingCount = result.results.reduce((total, item) => total + (item.existingQuoteItems?.length ?? 0), 0)
+      const importedJobNumbers = result.results
+        .filter((item) => (item.createdOrUpdated ?? 0) > 0 || (item.existingQuoteItems?.length ?? 0) > 0)
+        .map((item) => item.jobNumber || '')
+        .filter(Boolean)
       const importErrors = result.results
         .filter((item) => item.error)
         .map((item) => `${item.jobNumber || item.workOrderId || 'Report'}: ${item.error}`)
@@ -621,13 +652,20 @@ export default function JobsQuotingList() {
           : importWarnings.length > 0
           ? importWarnings.join(' ')
           : createdCount > 0
-          ? `Imported ${createdCount} quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}.`
+          ? `Imported ${createdCount} created quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}${existingCount > 0 ? `; ${existingCount} existing quote item${existingCount === 1 ? '' : 's'} moved to the top.` : '.'}`
+          : existingCount > 0
+          ? `Imported ${existingCount} existing quote item${existingCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')} and moved ${importedJobNumbers.length === 1 ? 'that job' : 'those jobs'} to the top.`
           : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have at least one repair or safety issue.`
 
-      if (createdCount > 0) {
-        setMessage(`Created or updated ${createdCount} quote item${createdCount === 1 ? '' : 's'}. Refreshing jobs...`)
-        await new Promise((resolve) => window.setTimeout(resolve, 3000))
+      if (createdCount > 0 || existingCount > 0) {
+        setMessage(`Imported ${createdCount + existingCount} quote item${createdCount + existingCount === 1 ? '' : 's'}. Refreshing jobs...`)
+        if (createdCount > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, 3000))
+        }
+        setPinnedImportedJobNumbers(importedJobNumbers.length > 0 ? importedJobNumbers : jobNumbers)
         setSelectedRunId(allReportsRunId)
+        setSearchQuery('')
+        setCurrentPage(1)
         await loadQuotingData(allReportsRunId)
       }
 
