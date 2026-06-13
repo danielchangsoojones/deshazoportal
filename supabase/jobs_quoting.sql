@@ -272,6 +272,15 @@ begin
     to authenticated
     using (user_id is null or (select auth.uid()) = user_id)
     with check (user_id is null or (select auth.uid()) = user_id);
+
+  drop policy if exists "Authenticated users can delete owned or shared quote items"
+    on public.jobs_quoting_items;
+
+  create policy "Authenticated users can delete owned or shared quote items"
+    on public.jobs_quoting_items
+    for delete
+    to authenticated
+    using (user_id is null or (select auth.uid()) = user_id);
 end
 $$;
 

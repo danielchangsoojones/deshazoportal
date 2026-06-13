@@ -5,6 +5,7 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   createJobQuotingItemsFromExternalInspectionReports,
+  deleteJobsQuotingItem,
   getJobsQuotingItemsForRuns,
   getJobsQuotingRuns,
   syncJobsQuotingRun,
@@ -312,6 +313,8 @@ export default function JobsQuotingList() {
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
+  const [openItemSettingsId, setOpenItemSettingsId] = useState<string | null>(null)
+  const [deletingItemIds, setDeletingItemIds] = useState<Set<string>>(() => new Set())
   const [externalJobNumberInput, setExternalJobNumberInput] = useState('')
   const [externalJobImporting, setExternalJobImporting] = useState(false)
   const [pinnedImportedJobNumbers, setPinnedImportedJobNumbers] = useState<string[]>([])
@@ -524,6 +527,30 @@ export default function JobsQuotingList() {
       ...uploadedRuns,
       ...currentRuns.filter((run) => !uploadedRunIds.has(run.id)),
     ])
+  }
+
+  const deleteQuoteItem = async (item: JobsQuotingItem) => {
+    const itemLabel = getItemDNumber(item) ? `D-number ${getItemDNumber(item)}` : getItemFileName(item) || 'this quote item'
+    const confirmed = window.confirm(`Delete ${itemLabel}? This will remove only this quote item from the jobs quoting list.`)
+    if (!confirmed) return
+
+    setDeletingItemIds((currentIds) => new Set(currentIds).add(item.id))
+    setOpenItemSettingsId(null)
+    setMessage(`Deleting ${itemLabel}.`)
+
+    try {
+      await deleteJobsQuotingItem(item.id)
+      setItems((currentItems) => currentItems.filter((currentItem) => currentItem.id !== item.id))
+      setMessage(`Deleted ${itemLabel}.`)
+    } catch (error) {
+      setMessage(getFriendlyErrorMessage(error))
+    } finally {
+      setDeletingItemIds((currentIds) => {
+        const nextIds = new Set(currentIds)
+        nextIds.delete(item.id)
+        return nextIds
+      })
+    }
   }
 
   const applyUploadResult = (result: Awaited<ReturnType<typeof uploadInspectionForQuoting>>) => {
@@ -1223,13 +1250,39 @@ export default function JobsQuotingList() {
                               {item.priorityCount}
                             </td>
                             <td className="px-3 py-4 text-center align-top">
-                              <button
-                                type="button"
-                                onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
-                                className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
-                              >
-                                Edit Quote
-                              </button>
+                              <div className="inline-flex flex-col items-center justify-center">
+                                <div className="inline-flex items-center justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
+                                    className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
+                                  >
+                                    Edit Quote
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenItemSettingsId((currentId) => currentId === item.id ? null : item.id)}
+                                    disabled={deletingItemIds.has(item.id)}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-[15px] font-black leading-none text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                                    aria-label="Quote settings"
+                                    title="Quote settings"
+                                  >
+                                    ⚙
+                                  </button>
+                                </div>
+                                {openItemSettingsId === item.id ? (
+                                  <div className="mt-2 w-[140px] rounded-md border border-[#dfe4ef] bg-white p-2 text-left shadow-[0_14px_34px_-28px_rgba(15,23,42,0.5)]">
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteQuoteItem(item)}
+                                      disabled={deletingItemIds.has(item.id)}
+                                      className="w-full rounded-md border border-[#f0c4bd] bg-[#fff7f5] px-3 py-2 text-left text-[12px] font-black text-[#a2472f] transition hover:bg-[#ffece8] disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {deletingItemIds.has(item.id) ? 'Deleting...' : 'Delete Quote'}
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
                             </td>
                           </tr>
                         ))}

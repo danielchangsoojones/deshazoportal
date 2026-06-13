@@ -408,6 +408,24 @@ export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingIte
   return mapJobsQuotingItem(data as JobsQuotingItemRow)
 }
 
+export async function deleteJobsQuotingItem(itemId: string) {
+  const client = requireSupabase()
+  await getCurrentUserId()
+  const { data, error } = await client
+    .from('jobs_quoting_items')
+    .delete()
+    .eq('id', itemId)
+    .select('id')
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Quote item was not deleted. Supabase delete permissions may not be enabled for jobs quoting items.')
+  }
+}
+
 export async function getJobsQuotingItemPdfUrl(item: JobsQuotingItem): Promise<string | null> {
   const client = requireSupabase()
 
