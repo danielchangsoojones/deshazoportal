@@ -86,6 +86,17 @@ function getFriendlyErrorMessage(error: unknown) {
   return message
 }
 
+function getFriendlyImportErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : 'Job import could not be completed.'
+  const lowerMessage = message.toLowerCase()
+
+  if (lowerMessage === 'load failed' || lowerMessage.includes('failed to fetch')) {
+    return 'Job import request could not reach the backend. Confirm the external inspection report import route is deployed and reachable.'
+  }
+
+  return getFriendlyErrorMessage(error)
+}
+
 function chunkFilesForUpload(files: File[]) {
   const batches: File[][] = []
   let batch: File[] = []
@@ -654,7 +665,7 @@ export default function JobsQuotingList() {
           : createdCount > 0
           ? `Imported ${createdCount} created quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}${existingCount > 0 ? `; ${existingCount} existing quote item${existingCount === 1 ? '' : 's'} moved to the top.` : '.'}`
           : existingCount > 0
-          ? `Imported ${existingCount} existing quote item${existingCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')} and moved ${importedJobNumbers.length === 1 ? 'that job' : 'those jobs'} to the top.`
+          ? `That job has already been imported. See the section below.`
           : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have at least one repair or safety issue.`
 
       if (createdCount > 0 || existingCount > 0) {
@@ -672,7 +683,7 @@ export default function JobsQuotingList() {
       setExternalJobNumberInput('')
       setMessage(finalImportMessage)
     } catch (error) {
-      setMessage(getFriendlyErrorMessage(error))
+      setMessage(getFriendlyImportErrorMessage(error))
     } finally {
       setExternalJobImporting(false)
       setBusy(false)
