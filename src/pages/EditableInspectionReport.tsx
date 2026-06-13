@@ -111,7 +111,6 @@ const menuCollapsedStorageKey = 'deshazo-editable-inspection-report-menu-collaps
 const estimateNoteVisibilityStorageKey = 'deshazo-editable-inspection-report-estimate-note-visibility'
 const repairSectionVisibilityStorageKey = 'deshazo-editable-inspection-report-repair-section-visibility'
 const equipmentRentalSettingsStorageKey = 'deshazo-editable-inspection-report-equipment-rental-settings'
-const equipmentRentalSectionId = 'equipment-rental'
 const equipmentRentalDefaultMargin = 15
 const printedPageWidthIn = 8.5
 const printedPageHeightIn = 11
@@ -1457,6 +1456,14 @@ const getUnitProfit = (internalUnitCost: number, customerUnitPrice: number) =>
 const getUnitMargin = (internalUnitCost: number, customerUnitPrice: number) =>
   internalUnitCost > 0 ? ((customerUnitPrice - internalUnitCost) / internalUnitCost) * 100 : 0
 
+const getLineItemMargin = (lineItem: RepairLineItem) => {
+  if (lineItem.margin !== undefined && lineItem.margin !== null && lineItem.margin !== '') {
+    return lineItem.margin
+  }
+
+  return getUnitMargin(getInternalUnitCost(lineItem), getCustomerUnitPrice(lineItem)).toFixed(2)
+}
+
 const getMarginCellClassName = (margin: string) =>
   parseMoney(margin) < 30
     ? 'bg-[#fbe3e3] text-[#8a1a1a] hover:bg-[#f7d4d4]'
@@ -1467,11 +1474,9 @@ const getCostCustomerUnitPrice = (
   lineItem: RepairLineItem,
   settings: EquipmentRentalSettings,
 ) => {
-  const customerPrice = getCustomerUnitPrice(lineItem)
-  const lineMargin = parseMoney(lineItem.margin)
-  const sectionMargin =
-    sectionId === equipmentRentalSectionId && settings.applyMarginToAll ? parseMoney(settings.margin) : 0
-  return customerPrice * (1 + (lineMargin + sectionMargin) / 100)
+  void sectionId
+  void settings
+  return getCustomerUnitPrice(lineItem)
 }
 
 const getCostCustomerLineAmount = (
@@ -1508,7 +1513,7 @@ const normalizeLineItem = (lineItem: RepairLineItem, fallbackDescription: string
     quantity: savedLineItem.quantity ?? '1',
     customerPrice: savedLineItem.customerPrice ?? getLegacyCustomerUnitPrice(savedLineItem).toFixed(2),
     rate: savedLineItem.rate ?? '0.00',
-    margin: savedLineItem.customerPrice ? savedLineItem.margin ?? '0' : '0',
+    margin: getLineItemMargin(savedLineItem),
     source: savedLineItem.source,
   }
 }
@@ -1869,7 +1874,6 @@ export default function EditableInspectionReport() {
   const [activeLineMenu, setActiveLineMenu] = useState('')
   const [activeMarginMenu, setActiveMarginMenu] = useState('')
   const [activeDoneLineItem, setActiveDoneLineItem] = useState('')
-  const [equipmentRentalSettingsOpen, setEquipmentRentalSettingsOpen] = useState(false)
   const [pageLayoutMenuOpen, setPageLayoutMenuOpen] = useState(false)
   const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
   const [menuSettingsOpen, setMenuSettingsOpen] = useState(false)
@@ -2314,7 +2318,8 @@ export default function EditableInspectionReport() {
       ? 'report-runtime-page-break'
       : ''
 
-  const getRuntimePageBreakStyle = (_blockId: string) => {
+  const getRuntimePageBreakStyle = (blockId: string) => {
+    void blockId
     return undefined
   }
 
@@ -2807,20 +2812,6 @@ export default function EditableInspectionReport() {
     const normalizedSections = normalizeMenuItemSections(nextSections)
     window.localStorage.setItem(menuStorageKey, JSON.stringify(normalizedSections))
     return normalizedSections
-  }
-
-  const saveEquipmentRentalSettings = (nextSettings: EquipmentRentalSettings) => {
-    window.localStorage.setItem(equipmentRentalSettingsStorageKey, JSON.stringify(nextSettings))
-    return nextSettings
-  }
-
-  const updateEquipmentRentalSettings = <Field extends keyof EquipmentRentalSettings>(
-    field: Field,
-    value: EquipmentRentalSettings[Field],
-  ) => {
-    setEquipmentRentalSettings((currentSettings) =>
-      saveEquipmentRentalSettings({ ...currentSettings, [field]: value }),
-    )
   }
 
   const setQuoteBlockVisibility = (block: keyof QuoteBlockVisibility, visible: boolean) => {
@@ -4818,61 +4809,6 @@ export default function EditableInspectionReport() {
                         onChange={(value) => updateCostSectionTitle(section.id, value)}
                         className="min-w-0 flex-1 text-[14px] font-black uppercase leading-tight text-[#273f7a]"
                       />
-                      {section.id === equipmentRentalSectionId ? (
-                        <>
-                          {equipmentRentalSettings.applyMarginToAll ? (
-                            <span className="text-[10px] font-black uppercase text-[#17652b]">
-                              +{Math.round(parseMoney(equipmentRentalSettings.margin))}% margin
-                            </span>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => setEquipmentRentalSettingsOpen((currentOpen) => !currentOpen)}
-                            className="report-inline-action flex h-7 w-7 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-[18px] font-black leading-none text-[#4d5360] transition hover:bg-[#edf2fb]"
-                            aria-label="Open equipment rental settings"
-                          >
-                            ⚙
-                          </button>
-                          {equipmentRentalSettingsOpen ? (
-                            <div className="report-inline-action absolute right-2 top-[calc(100%+6px)] z-30 w-[270px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
-                              <div className="mb-3 flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-black uppercase text-[#555b66]">Equipment rental settings</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setEquipmentRentalSettingsOpen(false)}
-                                  className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                                  aria-label="Close equipment rental settings"
-                                >
-                                  x
-                                </button>
-                              </div>
-                              <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-[#e3e8f1] bg-[#fffdf3] px-3 py-2 text-[12px] font-black text-[#7d5c00]">
-                                <span>Apply margin to all</span>
-                                <input
-                                  type="checkbox"
-                                  checked={equipmentRentalSettings.applyMarginToAll}
-                                  onChange={(event) =>
-                                    updateEquipmentRentalSettings('applyMarginToAll', event.currentTarget.checked)
-                                  }
-                                  className="h-4 w-4 accent-[#f5b400]"
-                                />
-                              </label>
-                              <label className="mt-3 block text-[11px] font-black uppercase text-[#555b66]">
-                                Margin: {Math.round(parseMoney(equipmentRentalSettings.margin))}%
-                              </label>
-                              <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="1"
-                                value={parseMoney(equipmentRentalSettings.margin)}
-                                onChange={(event) => updateEquipmentRentalSettings('margin', event.currentTarget.value)}
-                                className="mt-2 w-full accent-[#273f7a]"
-                              />
-                            </div>
-                          ) : null}
-                        </>
-                      ) : null}
                     </div>
 
                     <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
@@ -4955,30 +4891,14 @@ export default function EditableInspectionReport() {
                           onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                           className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
                         />
-                        {section.id === equipmentRentalSectionId && equipmentRentalSettings.applyMarginToAll ? (
-                          <div className="flex min-h-[25px] items-center justify-end gap-1 border-l border-[#e5e5e5] px-2 py-1.5 text-right">
-                            <EditableValue
-                              label={`${section.title} customer price ${lineIndex + 1}`}
-                              value={formatMoney(getCustomerUnitPrice(lineItem))}
-                              onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
-                              clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
-                              onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
-                              className="min-w-0"
-                            />
-                            <span className="whitespace-nowrap font-black text-[#17652b]">
-                              + {Math.round(parseMoney(equipmentRentalSettings.margin))}%
-                            </span>
-                          </div>
-                        ) : (
-                          <EditableValue
-                            label={`${section.title} customer price ${lineIndex + 1}`}
-                            value={formatMoney(getCustomerUnitPrice(lineItem))}
-                            onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
-                            clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
-                            onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
-                            className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
-                          />
-                        )}
+                        <EditableValue
+                          label={`${section.title} customer price ${lineIndex + 1}`}
+                          value={formatMoney(getCustomerUnitPrice(lineItem))}
+                          onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
+                          clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
+                          onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
+                          className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
+                        />
                         <div className="border-l border-[#e5e5e5] px-2 py-1.5 text-right font-black">
                           {formatMoney(getInternalLineAmount(lineItem))}
                         </div>
