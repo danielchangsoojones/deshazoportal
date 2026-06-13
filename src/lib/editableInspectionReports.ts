@@ -44,6 +44,12 @@ function getReportJobNumber(reportData: Record<string, string>) {
   return value.replace(/^job\s*#?\s*:\s*/i, '').replace(/^#\s*/, '').trim()
 }
 
+function getReportDNumber(reportData: Record<string, string>) {
+  const reportText = [reportData.summary, reportData.description, ...Object.values(reportData)].join(' ')
+  const match = reportText.match(/\bD[\s-]*\d[A-Z0-9]{2,}\b/i)
+  return match ? match[0].replace(/[\s-]+/g, '').toUpperCase() : ''
+}
+
 function getRepairSectionCounts(repairSections: unknown[]) {
   return repairSections.reduce<{ repairCount: number; safetyCount: number }>(
     (counts, section) => {
@@ -203,6 +209,7 @@ export async function saveEditableInspectionReport(input: SaveEditableInspection
     report_name: input.reportName.trim(),
     source_document_name: input.sourceDocumentName?.trim() || input.reportName.trim(),
     job_number: getReportJobNumber(input.reportData) || null,
+    d_number: getReportDNumber(input.reportData) || null,
     report_data: input.reportData,
     repair_sections: input.repairSections,
     cost_sections: input.costSections,

@@ -136,10 +136,14 @@ begin
   new.updated_at := timezone('utc', now());
   extracted_d_number := nullif(btrim(coalesce(new.extraction_data #>> '{d_number,value}', new.extraction_data ->> 'd_number')), '');
 
-  if extracted_d_number is not null then
+  if tg_op = 'UPDATE' and new.d_number is distinct from old.d_number then
+    new.d_number := nullif(btrim(new.d_number), '');
+  elsif nullif(btrim(new.d_number), '') is not null then
+    new.d_number := nullif(btrim(new.d_number), '');
+  elsif extracted_d_number is not null then
     new.d_number := extracted_d_number;
   else
-    new.d_number := nullif(btrim(new.d_number), '');
+    new.d_number := null;
   end if;
 
   return new;

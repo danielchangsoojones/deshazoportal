@@ -483,13 +483,37 @@ const normalizeProtectedReportField = (id: string, value: string) => {
 }
 
 const getDNumberFromReport = (reportData: ReportData | Record<string, string>) => {
-  const reportText = Object.values(reportData).join(' ')
-  const match = reportText.match(/\bD[\s-]*\d{3,}\b/i)
+  const reportText = [reportData.summary, reportData.description, ...Object.values(reportData)].join(' ')
+  const match = reportText.match(/\bD[\s-]*\d[A-Z0-9]{2,}\b/i)
   return match ? match[0].replace(/[\s-]+/g, '').toUpperCase() : ''
 }
 
 const getJobNumberDisplayFromReport = (reportData: ReportData | Record<string, string>) =>
   removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, '').trim() || '---'
+
+const getNormalizedColumnDNumber = (value: string) => {
+  const withoutLabel = removeReportValueLabel(value)
+  return withoutLabel ? ensureDNumberPrefix(withoutLabel).replace(/[\s-]+/g, '').toUpperCase() : ''
+}
+
+const replaceReportSummaryDNumber = (summary: string, dNumber: string) => {
+  const normalizedDNumber = getNormalizedColumnDNumber(dNumber)
+  if (!normalizedDNumber) return summary
+
+  const normalizedSummary = summary.trim()
+  if (!normalizedSummary) return normalizedDNumber
+  if (/\bD[\s-]*\d[A-Z0-9]{2,}\b/i.test(normalizedSummary)) {
+    return normalizedSummary.replace(/\bD[\s-]*\d[A-Z0-9]{2,}\b/i, normalizedDNumber)
+  }
+
+  return `${normalizedDNumber} ${normalizedSummary}`
+}
+
+const applyQuoteItemColumnIdentifiersToReport = (reportData: ReportData, item: JobsQuotingItem) => ({
+  ...reportData,
+  summary: item.dNumber ? replaceReportSummaryDNumber(reportData.summary, item.dNumber) : reportData.summary,
+  jobNumber: item.jobNumber ? ensureJobNumberPrefix(item.jobNumber) : reportData.jobNumber,
+})
 
 const getEditableReportDisplayName = (
   reportData: ReportData | Record<string, string>,
@@ -1715,7 +1739,7 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
       && !repairSections.some((section) => Array.isArray(section.costSections) && section.costSections.length > 0)
 
     return {
-      reportData: item.reportData,
+      reportData: applyQuoteItemColumnIdentifiersToReport(item.reportData, item),
       repairSections: shouldMoveLegacyCostsIntoFirstRepair
         ? repairSections.map((section, index) =>
             index === 0 ? { ...section, costSections: legacyRepairCostSections } : section,
@@ -1731,7 +1755,7 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
   }
 
   return {
-    reportData: buildReportFromJobsQuotingItem(item),
+    reportData: applyQuoteItemColumnIdentifiersToReport(buildReportFromJobsQuotingItem(item), item),
     repairSections: buildRepairSectionsFromJobsQuotingItem(item),
     costSections: defaultCostSections,
     blockVisibility: defaultBlockVisibility,
