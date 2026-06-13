@@ -939,8 +939,7 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
     reportData.customerAddress,
     reportData.purchaseOrder,
     '',
-    'Contact',
-    `Name: ${reportData.contactName || '---'}`,
+    `Contact Name: ${reportData.contactName || '---'}`,
     `Email: ${reportData.contactEmail || '---'}`,
     `Phone: ${reportData.contactPhone || '---'}`,
     '',
@@ -1209,8 +1208,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
         </div>
 
         <section class="contact-row">
-          <div><strong>Contact</strong></div>
-          <div>Name: ${getTemplateValue(reportData.contactName)}</div>
+          <div>Contact Name: ${getTemplateValue(reportData.contactName)}</div>
           <div>Email: ${getTemplateValue(reportData.contactEmail)}</div>
           <div>Phone: ${getTemplateValue(reportData.contactPhone)}</div>
         </section>
@@ -1331,7 +1329,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
           .cell-value { margin-top: 2px; color: #111; font-size: 8px; font-weight: 900; overflow-wrap: anywhere; }
           .contact-row {
             display: grid;
-            grid-template-columns: 0.8fr 1fr 1.25fr 1fr;
+            grid-template-columns: 1fr 1.25fr 1fr;
             margin-top: 12px;
             border: 1px solid #d4d4d4;
             background: #fafafa;
@@ -4699,15 +4697,13 @@ export default function EditableInspectionReport() {
               style={getRuntimePageBreakStyle('contact')}
               className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('contact')}`}
             >
-              <div className="grid grid-cols-[130px_1fr_1fr_1fr] border-b border-[#d4d4d4] bg-[#f7f7f7] text-[11px] font-black uppercase text-[#555b66]">
-                <div className="px-2 py-1">Contact</div>
-                <div className="border-l border-[#d4d4d4] px-2 py-1">Name</div>
+              <div className="grid grid-cols-[1fr_1fr_1fr] border-b border-[#d4d4d4] bg-[#f7f7f7] text-[11px] font-black uppercase text-[#555b66]">
+                <div className="px-2 py-1">Contact Name</div>
                 <div className="border-l border-[#d4d4d4] px-2 py-1">Email</div>
                 <div className="border-l border-[#d4d4d4] px-2 py-1">Phone Number</div>
               </div>
-              <div className="grid grid-cols-[130px_1fr_1fr_1fr] text-[12px] font-semibold leading-tight">
-                <div className="px-2 py-1.5" />
-                <EditableText id="contactName" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-1.5" />
+              <div className="grid grid-cols-[1fr_1fr_1fr] text-[12px] font-semibold leading-tight">
+                <EditableText id="contactName" data={report} onChange={updateField} className="px-2 py-1.5" />
                 <EditableText id="contactEmail" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-1.5" />
                 <EditableText id="contactPhone" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-1.5" />
               </div>
