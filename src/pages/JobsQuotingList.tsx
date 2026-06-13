@@ -21,7 +21,7 @@ const inspectionRunsCollapsedStorageKey = 'deshazo-jobs-quoting-inspection-runs-
 const extractOnlyUploadMaxFilesPerRequest = 25
 const extractOnlyUploadMaxBytesPerRequest = 60 * 1024 * 1024
 const runGroupWindowMs = 10 * 60 * 1000
-const allReportsRunId = 'all-reports'
+const allJobsSectionId = 'all-jobs'
 const reportsPerPage = 50
 
 type JobsQuotingRunGroup = {
@@ -54,10 +54,6 @@ function formatDate(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(value))
-}
-
-function formatStatus(status: string) {
-  return status.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function getFriendlyErrorMessage(error: unknown) {
@@ -128,10 +124,6 @@ function chunkFilesForUpload(files: File[]) {
 function getFileListFolderName(files: File[]) {
   const relativePath = files[0]?.webkitRelativePath || ''
   return relativePath.includes('/') ? relativePath.split('/')[0] : ''
-}
-
-function getRunGroupPdfCount(group: JobsQuotingRunGroup) {
-  return group.runs.length
 }
 
 function renameRunsForDisplay(runs: JobsQuotingRun[], sourceFileName: string) {
@@ -309,7 +301,7 @@ export default function JobsQuotingList() {
   const [items, setItems] = useState<JobsQuotingItem[]>([])
   const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
   const [itemsLoading, setItemsLoading] = useState(false)
-  const [selectedRunId, setSelectedRunId] = useState<string>(allReportsRunId)
+  const [selectedJobSectionId, setSelectedJobSectionId] = useState<string>(allJobsSectionId)
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
@@ -329,20 +321,22 @@ export default function JobsQuotingList() {
   const giantPdfInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
-  const runGroups = useMemo(() => buildRunGroups(runs), [runs])
   const runsById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs])
-  const selectedRunGroup = runGroups.find((group) => group.id === selectedRunId)
+  const jobSectionGroups = useMemo(
+    () => buildJobGroups(items).sort((firstGroup, secondGroup) => new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime()),
+    [items],
+  )
+  const selectedJobSection = jobSectionGroups.find((group) => group.id === selectedJobSectionId)
   const canUseExtendControls = userTag === 'developer'
   const getRunUploaderName = useCallback(
     (run: JobsQuotingRun | undefined) => (run?.userId ? userDisplayNames[run.userId] || '' : 'Shared'),
     [userDisplayNames],
   )
   const visibleItems = useMemo(() => {
-    if (selectedRunId === allReportsRunId || !selectedRunGroup) return sortItemsByNewest(items)
+    if (selectedJobSectionId === allJobsSectionId || !selectedJobSection) return sortItemsByNewest(items)
 
-    const selectedRunIds = new Set(selectedRunGroup.runIds)
-    return sortItemsByPriority(items.filter((item) => selectedRunIds.has(item.runId)))
-  }, [items, selectedRunGroup, selectedRunId])
+    return sortItemsByPriority(selectedJobSection.items)
+  }, [items, selectedJobSection, selectedJobSectionId])
   const filteredItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
     if (!normalizedQuery) return visibleItems
@@ -366,7 +360,7 @@ export default function JobsQuotingList() {
       return null
     }
 
-    if (selectedRunId === allReportsRunId) {
+    if (selectedJobSectionId === allJobsSectionId) {
       return [...jobGroups].sort((firstGroup, secondGroup) => {
         const pinnedComparison = comparePinnedGroups(firstGroup, secondGroup)
         if (pinnedComparison !== null) return pinnedComparison
@@ -382,7 +376,7 @@ export default function JobsQuotingList() {
       if (secondGroup.safetyCount !== firstGroup.safetyCount) return secondGroup.safetyCount - firstGroup.safetyCount
       return new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime()
     })
-  }, [jobGroups, pinnedImportedJobNumbers, selectedRunId])
+  }, [jobGroups, pinnedImportedJobNumbers, selectedJobSectionId])
   const pageCount = Math.max(1, Math.ceil(sortedJobGroups.length / reportsPerPage))
   const safeCurrentPage = Math.min(currentPage, pageCount)
   const pageStartIndex = (safeCurrentPage - 1) * reportsPerPage
@@ -392,7 +386,7 @@ export default function JobsQuotingList() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, selectedRunId])
+  }, [searchQuery, selectedJobSectionId])
 
   useEffect(() => {
     if (searchQuery.trim()) {
@@ -420,7 +414,7 @@ export default function JobsQuotingList() {
     })
   }, [navigate])
 
-  const loadQuotingData = useCallback(async (runId?: string) => {
+  const loadQuotingData = useCallback(async (sectionId?: string) => {
     setLoading(true)
     setItemsLoading(true)
     setMessage('')
@@ -428,15 +422,16 @@ export default function JobsQuotingList() {
     try {
       const nextRuns = await getJobsQuotingRuns()
       const nextRunGroups = buildRunGroups(nextRuns)
-      const nextSelectedRunId =
-        runId && (runId === allReportsRunId || nextRunGroups.some((group) => group.id === runId))
-          ? runId
-          : allReportsRunId
       const nextRunIds = nextRunGroups.flatMap((group) => group.runIds)
       const nextItems = nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : []
+      const nextJobSections = buildJobGroups(nextItems)
+      const nextSelectedSectionId =
+        sectionId && (sectionId === allJobsSectionId || nextJobSections.some((group) => group.id === sectionId))
+          ? sectionId
+          : allJobsSectionId
 
       setRuns(nextRuns)
-      setSelectedRunId(nextSelectedRunId)
+      setSelectedJobSectionId(nextSelectedSectionId)
       setItems(nextItems)
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
@@ -556,7 +551,7 @@ export default function JobsQuotingList() {
   const applyUploadResult = (result: Awaited<ReturnType<typeof uploadInspectionForQuoting>>) => {
     const uploadedRuns = result.runs && result.runs.length > 0 ? result.runs : [result.run]
     mergeUploadedRuns(uploadedRuns)
-    setSelectedRunId(result.run.id)
+    setSelectedJobSectionId(allJobsSectionId)
     setItems((currentItems) => sortItemsByNewest([...result.items, ...currentItems.filter((item) => !result.items.some((nextItem) => nextItem.id === item.id))]))
     setMessage(result.message ?? 'Inspection report sent to Extend.')
   }
@@ -602,7 +597,7 @@ export default function JobsQuotingList() {
         const result = await uploadInspectionForQuoting(file, folderName)
         const uploadedRuns = renameRunsForDisplay(result.runs && result.runs.length > 0 ? result.runs : [result.run], folderName)
         mergeUploadedRuns(uploadedRuns)
-        setSelectedRunId(result.run.id)
+        setSelectedJobSectionId(allJobsSectionId)
 
         if (!firstResult) {
           firstResult = result
@@ -638,8 +633,6 @@ export default function JobsQuotingList() {
 
     try {
       let firstResult: Awaited<ReturnType<typeof uploadExtractOnlyInspectionForQuoting>> | null = null
-      let latestRunId = ''
-
       for (const [batchIndex, batch] of batches.entries()) {
         setMessage(`Uploading batch ${batchIndex + 1} of ${batches.length} (${batch.length} PDF${batch.length === 1 ? '' : 's'}).`)
         const result = await uploadExtractOnlyInspectionForQuoting(batch, sourceFileName)
@@ -649,7 +642,6 @@ export default function JobsQuotingList() {
             ? result.runs
             : [result.run]
         mergeUploadedRuns(uploadedRuns)
-        latestRunId = result.run.id
 
         if (!firstResult) {
           firstResult = result
@@ -657,9 +649,7 @@ export default function JobsQuotingList() {
         }
       }
 
-      if (latestRunId) {
-        setSelectedRunId(latestRunId)
-      }
+      setSelectedJobSectionId(allJobsSectionId)
 
       if (firstResult) {
         setMessage(
@@ -722,10 +712,10 @@ export default function JobsQuotingList() {
           await new Promise((resolve) => window.setTimeout(resolve, 3000))
         }
         setPinnedImportedJobNumbers(importedJobNumbers.length > 0 ? importedJobNumbers : jobNumbers)
-        setSelectedRunId(allReportsRunId)
+        setSelectedJobSectionId(allJobsSectionId)
         setSearchQuery('')
         setCurrentPage(1)
-        await loadQuotingData(allReportsRunId)
+        await loadQuotingData(allJobsSectionId)
       }
 
       setExternalJobNumberInput('')
@@ -734,25 +724,6 @@ export default function JobsQuotingList() {
       setMessage(getFriendlyImportErrorMessage(error))
     } finally {
       setExternalJobImporting(false)
-      setBusy(false)
-    }
-  }
-
-  const syncRunGroup = async (group: JobsQuotingRunGroup) => {
-    setBusy(true)
-    setMessage('Checking Extend for extracted repair items.')
-
-    try {
-      const results = await Promise.all(group.runIds.map((runId) => syncJobsQuotingRun(runId)))
-      const syncedRunsById = new Map(results.map((result) => [result.run.id, result.run]))
-      setRuns((currentRuns) =>
-        currentRuns.map((run) => syncedRunsById.get(run.id) ?? run),
-      )
-      await loadQuotingData(group.id)
-      setMessage(results.map((result) => result.message).filter(Boolean).join(' ') || 'Quote jobs refreshed.')
-    } catch (error) {
-      setMessage(getFriendlyErrorMessage(error))
-    } finally {
       setBusy(false)
     }
   }
@@ -955,11 +926,11 @@ export default function JobsQuotingList() {
               type="button"
               onClick={toggleInspectionRunsCollapsed}
               className="flex h-full w-full items-center justify-center bg-white text-[#273f7a] transition hover:bg-[#f5f7ff]"
-              aria-label="Open inspection runs"
-              title="Open inspection runs"
+              aria-label="Open job sections"
+              title="Open job sections"
             >
               <span className="[writing-mode:vertical-rl] rotate-180 text-[12px] font-black uppercase tracking-[0.12em]">
-                Inspection Runs
+                Job Sections
               </span>
             </button>
           ) : (
@@ -968,23 +939,23 @@ export default function JobsQuotingList() {
                 type="button"
                 onClick={toggleInspectionRunsCollapsed}
                 className="absolute right-[-15px] top-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[#d4dbea] bg-white text-[17px] font-black text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
-                aria-label="Hide inspection runs"
-                title="Hide inspection runs"
+                aria-label="Hide job sections"
+                title="Hide job sections"
               >
                 ‹
               </button>
               <div className="border-b border-[#d9dce5] px-4 py-5">
-                <p className="text-[16px] font-black text-[#1f2430]">Inspection Runs</p>
+                <p className="text-[16px] font-black text-[#1f2430]">Job Sections</p>
                 <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
-                  Select a report to review extracted quote jobs.
+                  Select all jobs or one job section.
                 </p>
                 <button
                   type="button"
                   disabled={busy || loading}
-                  onClick={() => loadQuotingData(selectedRunId)}
+                  onClick={() => loadQuotingData(selectedJobSectionId)}
                   className="mt-4 flex w-full items-center justify-center rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Reload Runs
+                  Reload Jobs
                 </button>
               </div>
 
@@ -992,53 +963,53 @@ export default function JobsQuotingList() {
                 <div className="space-y-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedRunId(allReportsRunId)}
+                    onClick={() => setSelectedJobSectionId(allJobsSectionId)}
                     className={`w-full rounded-md border px-3 py-3 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition ${
-                      selectedRunId === allReportsRunId
+                      selectedJobSectionId === allJobsSectionId
                         ? 'border-[#9bb0dc] bg-[#f5f7ff]'
                         : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]'
                     }`}
                   >
                     <span className="block text-[13px] font-black leading-tight text-[#273f7a]">
-                      All Reports
+                      All Jobs
                     </span>
                     <span className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold text-[#747b8a]">
                       <span>Recently changed first</span>
                       <span className="rounded-sm bg-[#eef3ff] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a]">
-                        {items.length}
+                        {jobSectionGroups.length}
                       </span>
                     </span>
                   </button>
 
-                  {runGroups.map((runGroup) => (
+                  {jobSectionGroups.map((jobSection) => (
                     <button
-                      key={runGroup.id}
+                      key={jobSection.id}
                       type="button"
-                      onClick={() => setSelectedRunId(runGroup.id)}
+                      onClick={() => setSelectedJobSectionId(jobSection.id)}
                       className={`w-full rounded-md border px-3 py-3 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition ${
-                        selectedRunId === runGroup.id
+                        selectedJobSectionId === jobSection.id
                           ? 'border-[#9bb0dc] bg-[#f5f7ff]'
                           : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]'
                       }`}
                     >
                       <span className="block truncate text-[13px] font-black leading-tight text-[#273f7a]">
-                        {runGroup.sourceFileName}
+                        {jobSection.jobNumber ? `Job ${jobSection.jobNumber}` : 'Job number not found'}
                       </span>
                       <span className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold text-[#747b8a]">
                         <span>
-                          {formatDate(runGroup.createdAt)}
-                          {getRunGroupPdfCount(runGroup) > 1 ? ` • ${getRunGroupPdfCount(runGroup)} PDFs` : ''}
+                          {jobSection.items.length} report{jobSection.items.length === 1 ? '' : 's'}
+                          {jobSection.dNumber ? ` • ${jobSection.dNumber}` : ''}
                         </span>
                         <span className="rounded-sm bg-[#eef3ff] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a]">
-                          {formatStatus(runGroup.status)}
+                          {jobSection.repairCount + jobSection.safetyCount}
                         </span>
                       </span>
                     </button>
                   ))}
 
-                  {!loading && runGroups.length === 0 ? (
+                  {!loading && jobSectionGroups.length === 0 ? (
                     <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-8 text-center text-[12px] font-bold text-[#747b8a]">
-                      No inspection reports uploaded yet.
+                      No quote jobs yet.
                     </div>
                   ) : null}
                 </div>
@@ -1079,25 +1050,25 @@ export default function JobsQuotingList() {
           <div className="lg:hidden">
             <section className="mb-4 rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-3 shadow-[0_16px_44px_-36px_rgba(15,23,42,0.45)]">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="text-[15px] font-black text-[#1f2430]">Inspection Runs</h2>
+                <h2 className="text-[15px] font-black text-[#1f2430]">Job Sections</h2>
                 <button
                   type="button"
                   disabled={busy || loading}
-                  onClick={() => loadQuotingData(selectedRunId)}
+                  onClick={() => loadQuotingData(selectedJobSectionId)}
                   className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:opacity-60"
                 >
                   Reload
                 </button>
               </div>
               <select
-                value={selectedRunId}
-                onChange={(event) => setSelectedRunId(event.currentTarget.value)}
+                value={selectedJobSectionId}
+                onChange={(event) => setSelectedJobSectionId(event.currentTarget.value)}
                 className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none focus:border-[#273f7a]"
               >
-                <option value={allReportsRunId}>All Reports - Recently changed first</option>
-                {runGroups.map((runGroup) => (
-                  <option key={runGroup.id} value={runGroup.id}>
-                    {runGroup.sourceFileName} - {formatStatus(runGroup.status)}
+                <option value={allJobsSectionId}>All Jobs - Recently changed first</option>
+                {jobSectionGroups.map((jobSection) => (
+                  <option key={jobSection.id} value={jobSection.id}>
+                    {jobSection.jobNumber ? `Job ${jobSection.jobNumber}` : 'Job number not found'} - {jobSection.items.length} report{jobSection.items.length === 1 ? '' : 's'}
                   </option>
                 ))}
               </select>
@@ -1108,12 +1079,16 @@ export default function JobsQuotingList() {
               <div className="flex flex-col justify-between gap-3 border-b border-[#dfe4ef] bg-[#fbfcff] px-5 py-4 lg:flex-row lg:items-center">
                 <div className="min-w-0">
                   <h2 className="text-[20px] font-black tracking-normal text-[#1f2430]">
-                    {selectedRunId === allReportsRunId ? 'All Quote Reports' : selectedRunGroup?.sourceFileName ?? 'Quote Reports'}
+                    {selectedJobSectionId === allJobsSectionId
+                      ? 'All Quote Jobs'
+                      : selectedJobSection?.jobNumber
+                        ? `Job ${selectedJobSection.jobNumber}`
+                        : 'Job number not found'}
                   </h2>
                   <p className="mt-1 text-[13px] font-semibold text-[#747b8a]">
-                    {selectedRunId === allReportsRunId
-                      ? 'All uploaded quote reports, sorted by newest changed first.'
-                      : 'Showing reports from the selected inspection run, sorted by highest repair and safety count first.'}
+                    {selectedJobSectionId === allJobsSectionId
+                      ? 'All quote jobs, sorted by newest changed first.'
+                      : 'Showing quote reports from the selected job section.'}
                   </p>
                 </div>
 
@@ -1129,30 +1104,6 @@ export default function JobsQuotingList() {
                     placeholder="Search D-number or job number..."
                     className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none transition placeholder:text-[#8b91a1] focus:border-[#273f7a] focus:ring-2 focus:ring-[#dbe5ff]"
                   />
-                  {selectedRunGroup && canUseExtendControls ? (
-                    <div className="flex flex-wrap justify-end gap-2">
-                      {selectedRunGroup.extendWorkflowUrl ? (
-                        <a
-                          href={selectedRunGroup.extendWorkflowUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-2 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
-                        >
-                          <span>Open Extend</span>
-                          <DeveloperBadge />
-                        </a>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => syncRunGroup(selectedRunGroup)}
-                        className="inline-flex items-center gap-2 rounded-md bg-[#273f7a] px-3 py-2 text-xs font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <span>{activeStatuses.has(selectedRunGroup.status) ? 'Check Extend' : 'Refresh Selected'}</span>
-                        <DeveloperBadge />
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
               </div>
 
