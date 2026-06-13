@@ -505,6 +505,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   jobNumbers: string[],
 ): Promise<ExternalInspectionReportQuoteImportResult> {
   const normalizedJobNumbers = jobNumbers.map((jobNumber) => jobNumber.trim()).filter(Boolean)
+  const lookupJobNumbers = getJobNumberLookupValues(normalizedJobNumbers)
   if (normalizedJobNumbers.length === 0) {
     throw new Error('Enter at least one job number.')
   }
@@ -514,7 +515,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   }
 
   const url = new URL('/api/external/jobs-quoting/from-inspection-reports', deshazoExternalApiBaseUrl)
-  url.searchParams.set('jobNumbers', normalizedJobNumbers.join(','))
+  url.searchParams.set('jobNumbers', lookupJobNumbers.join(','))
   const response = await fetch(url.toString(), {
     method: 'POST',
     headers: {
@@ -522,7 +523,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
       'Content-Type': 'application/json',
       'X-API-Key': deshazoExternalApiKey,
     },
-    body: JSON.stringify({ jobNumbers: normalizedJobNumbers }),
+    body: JSON.stringify({ jobNumbers: lookupJobNumbers }),
   })
 
   const responseText = await response.text()
@@ -542,4 +543,28 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   }
 
   return body as ExternalInspectionReportQuoteImportResult
+}
+
+function getJobNumberLookupValues(jobNumbers: string[]) {
+  const seen = new Set<string>()
+  const values: string[] = []
+
+  jobNumbers.forEach((jobNumber) => {
+    const normalizedJobNumber = jobNumber.trim()
+    const withoutLeadingZeroes = normalizedJobNumber.replace(/^0+(?=\d)/, '')
+    const variants = [normalizedJobNumber, withoutLeadingZeroes]
+
+    if (/^\d+$/.test(withoutLeadingZeroes) && !withoutLeadingZeroes.startsWith('0')) {
+      variants.push(`0${withoutLeadingZeroes}`)
+    }
+
+    variants.forEach((variant) => {
+      if (variant && !seen.has(variant)) {
+        seen.add(variant)
+        values.push(variant)
+      }
+    })
+  })
+
+  return values
 }

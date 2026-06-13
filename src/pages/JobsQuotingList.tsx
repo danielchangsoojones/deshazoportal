@@ -192,13 +192,30 @@ function getExtractionValue(data: Record<string, unknown>, key: string) {
   return field == null ? '' : String(field)
 }
 
+function getSearchVariants(value: string) {
+  const normalizedValue = value.trim().toLowerCase()
+  if (!normalizedValue) return []
+
+  const variants = new Set([normalizedValue])
+  normalizedValue
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .forEach((token) => {
+      variants.add(token)
+      if (/^0+\d+$/.test(token)) {
+        variants.add(token.replace(/^0+/, '') || '0')
+      }
+    })
+
+  return Array.from(variants)
+}
+
 function getItemSearchText(item: JobsQuotingItem) {
   return [
-    getItemDNumber(item),
-    getItemJobNumber(item),
+    ...getSearchVariants(getItemDNumber(item)),
+    ...getSearchVariants(getItemJobNumber(item)),
   ]
     .join(' ')
-    .toLowerCase()
 }
 
 function getItemJobNumber(item: JobsQuotingItem) {
@@ -326,7 +343,11 @@ export default function JobsQuotingList() {
   const filteredItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
     if (!normalizedQuery) return visibleItems
-    return visibleItems.filter((item) => getItemSearchText(item).includes(normalizedQuery))
+    const queryVariants = getSearchVariants(normalizedQuery)
+    return visibleItems.filter((item) => {
+      const itemSearchText = getItemSearchText(item)
+      return queryVariants.some((queryVariant) => itemSearchText.includes(queryVariant))
+    })
   }, [searchQuery, visibleItems])
   const jobGroups = useMemo(() => buildJobGroups(filteredItems), [filteredItems])
   const sortedJobGroups = useMemo(() => {
