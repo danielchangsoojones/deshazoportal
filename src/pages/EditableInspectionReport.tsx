@@ -2071,6 +2071,7 @@ export default function EditableInspectionReport() {
   const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
+  const pagePdfDragDepth = useRef(0)
   const menuItemsRefreshRequestId = useRef(0)
   const reportContentRef = useRef<HTMLElement>(null)
   const relatedFolderInputRef = useRef<HTMLInputElement>(null)
@@ -2082,6 +2083,7 @@ export default function EditableInspectionReport() {
   const [menuCollapsed, setMenuCollapsed] = useState(() => window.localStorage.getItem(menuCollapsedStorageKey) === 'true')
   const [menuSettingsOpen, setMenuSettingsOpen] = useState(false)
   const [relatedDocumentsOpen, setRelatedDocumentsOpen] = useState(false)
+  const [pagePdfDragActive, setPagePdfDragActive] = useState(false)
   const [masterServiceAgreementOpen, setMasterServiceAgreementOpen] = useState(false)
   const [menuSearch, setMenuSearch] = useState('')
   const [menuSearchSections, setMenuSearchSections] = useState<InspectionMenuItemSection[] | null>(null)
@@ -3184,6 +3186,8 @@ export default function EditableInspectionReport() {
       setRelatedDocumentsMessage(
         source === 'Folder upload'
           ? 'No PDFs were found in that folder.'
+          : source === 'Dropped PDF'
+            ? 'No PDFs were dropped.'
           : 'No PDF was selected.',
       )
       return
@@ -3270,6 +3274,46 @@ export default function EditableInspectionReport() {
   const uploadRelatedPdfs = async (fileList: FileList | null) => {
     const pdfs = Array.from(fileList ?? []).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
     await addRelatedDocuments(pdfs, 'Uploaded PDF')
+  }
+
+  const isExternalFileDrag = (event: DragEvent<HTMLElement>) =>
+    !isMenuItemDrag(event) && Array.from(event.dataTransfer.types).includes('Files')
+
+  const handlePagePdfDragEnter = (event: DragEvent<HTMLElement>) => {
+    if (!isExternalFileDrag(event)) return
+
+    event.preventDefault()
+    pagePdfDragDepth.current += 1
+    setPagePdfDragActive(true)
+  }
+
+  const handlePagePdfDragOver = (event: DragEvent<HTMLElement>) => {
+    if (!isExternalFileDrag(event)) return
+
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setPagePdfDragActive(true)
+  }
+
+  const handlePagePdfDragLeave = (event: DragEvent<HTMLElement>) => {
+    if (!isExternalFileDrag(event)) return
+
+    event.preventDefault()
+    pagePdfDragDepth.current = Math.max(0, pagePdfDragDepth.current - 1)
+    if (pagePdfDragDepth.current === 0) setPagePdfDragActive(false)
+  }
+
+  const handlePagePdfDrop = async (event: DragEvent<HTMLElement>) => {
+    if (!isExternalFileDrag(event)) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    pagePdfDragDepth.current = 0
+    setPagePdfDragActive(false)
+
+    const pdfs = Array.from(event.dataTransfer.files).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    setRelatedDocumentsOpen(true)
+    await addRelatedDocuments(pdfs, 'Dropped PDF')
   }
 
   const openMenuItemSourceDocument = async (item: MenuItem) => {
@@ -3743,7 +3787,13 @@ export default function EditableInspectionReport() {
   }
 
   return (
-    <div className="min-h-screen bg-[#e8eaef] text-[#111]">
+    <div
+      className="min-h-screen bg-[#e8eaef] text-[#111]"
+      onDragEnter={handlePagePdfDragEnter}
+      onDragOver={handlePagePdfDragOver}
+      onDragLeave={handlePagePdfDragLeave}
+      onDrop={handlePagePdfDrop}
+    >
       <style>
         {`
           .editable-report-field {
@@ -3918,6 +3968,14 @@ export default function EditableInspectionReport() {
           }
         `}
       </style>
+      {pagePdfDragActive ? (
+        <div className="report-toolbar pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-[#273f7a]/18 px-6">
+          <div className="rounded-md border-2 border-dashed border-[#273f7a] bg-white px-8 py-5 text-center shadow-[0_24px_70px_-34px_rgba(47,86,166,0.55)]">
+            <div className="text-[18px] font-black text-[#273f7a]">Drop PDF to upload</div>
+            <div className="mt-1 text-[13px] font-bold text-[#555b66]">It will be added to Related Documents and processed for menu items.</div>
+          </div>
+        </div>
+      ) : null}
 
       <header className="report-toolbar sticky top-0 z-30 flex h-14 items-center justify-between bg-[var(--deshazo-blue)] px-5 text-white shadow-sm">
         <div className="flex items-center gap-5">
