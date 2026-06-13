@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isConfigured } from '../lib/supabase'
 import {
@@ -164,7 +164,13 @@ const defaultEstimateNoteVisibility: EstimateNoteVisibility = {
 const legacyScopeOfWorkSample =
   'Remove 2 old Budgit 2 ton hoists and install (2) new 2 ton Harrington chain hoist model: NER2M020LD-LD specs are listed below for hoists.'
 
-const defaultAdditionalNotes = `1. Quote is subject to DeSHAZO General Terms and Conditions, available at http://www.deshazo.com/terms.
+const additionalNotesFooter = `Jeffrey R. Melton
+Assistant Service Manager
+513-903-6405-C
+DESHAZO
+CRANES / SERVICE / AUTOMATION`
+
+const defaultAdditionalNotesBody = `1. Quote is subject to DeSHAZO General Terms and Conditions, available at http://www.deshazo.com/terms.
 2. Unless specified in Scope of Work, all work is to be performed during normal working hours, Monday- Friday.
 3. Any additional work beyond scope provided will be billed on a time and material basis.
 4. Quote assumes free & clear access to crane, runway, and all components to be serviced.
@@ -175,6 +181,10 @@ const defaultAdditionalNotes = `1. Quote is subject to DeSHAZO General Terms and
 9. Field work schedule subject to availability and delivery of parts, if applicable.
 
 DeSHAZO appreciates the opportunity to provide you with this quotation. If you have any questions, please feel free to email me at jmelton@deshazo.com`
+
+const defaultAdditionalNotes = `${defaultAdditionalNotesBody}
+
+${additionalNotesFooter}`
 
 const defaultReport: ReportData = {
   logoName: 'DESHAZO',
@@ -789,6 +799,37 @@ const escapeHtml = (value: string | number) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
 
+const splitAdditionalNotesFooter = (value: string) => {
+  const normalizedValue = value.trimEnd()
+  if (!normalizedValue.endsWith(additionalNotesFooter)) {
+    return { body: value, hasFooter: false }
+  }
+
+  return {
+    body: normalizedValue.slice(0, -additionalNotesFooter.length).trimEnd(),
+    hasFooter: true,
+  }
+}
+
+const renderAdditionalNotesHtml = (value: string) => {
+  const { body, hasFooter } = splitAdditionalNotesFooter(value || '---')
+
+  return `
+    ${body ? `<p>${escapeHtml(body)}</p>` : ''}
+    ${hasFooter ? `
+      <div class="notes-footer">
+        <div class="notes-footer-name">Jeffrey R. Melton</div>
+        <div class="notes-footer-title">Assistant Service Manager</div>
+        <div class="notes-footer-phone">513-903-6405-C</div>
+        <img class="notes-footer-logo" src="/deshazo-logo.png" alt="DESHAZO" />
+        <div class="notes-footer-tagline">
+          <span>CRANES</span><strong>/</strong><span>SERVICE</span><strong>/</strong><span>AUTOMATION</span>
+        </div>
+      </div>
+    ` : ''}
+  `
+}
+
 const sanitizePdfText = (text: string) =>
   text
     .replace(/[–—]/g, '-')
@@ -1172,7 +1213,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
 
         <section class="notes">
           <h2>${escapeHtml(reportData.notesHeader || 'Additional Notes')}</h2>
-          <p>${escapeHtml(reportData.notes || '---')}</p>
+          <div class="notes-body">${renderAdditionalNotesHtml(reportData.notes || '---')}</div>
         </section>
       </article>
     `
@@ -1293,6 +1334,55 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             padding: 9px 10px;
             white-space: pre-wrap;
             line-height: 1.38;
+          }
+          .notes-body {
+            min-height: 0.56in;
+            padding: 9px 10px 12px;
+          }
+          .notes-body p {
+            min-height: 0;
+            padding: 0;
+          }
+          .notes-footer {
+            margin-top: 14px;
+            color: #222;
+            line-height: 1.2;
+            break-inside: avoid;
+          }
+          .notes-footer-name {
+            font-size: 16px;
+            font-weight: 900;
+          }
+          .notes-footer-title {
+            margin-top: 5px;
+            font-size: 14px;
+            font-weight: 500;
+          }
+          .notes-footer-phone {
+            margin-top: 6px;
+            color: #000;
+            font-size: 16px;
+            font-weight: 900;
+          }
+          .notes-footer-logo {
+            display: block;
+            width: 1.25in;
+            height: auto;
+            margin-top: 16px;
+          }
+          .notes-footer-tagline {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 5px;
+            color: #777;
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0;
+          }
+          .notes-footer-tagline strong {
+            color: #f5a400;
+            font-weight: 900;
           }
           .band {
             margin-top: 12px;
@@ -1567,6 +1657,7 @@ const normalizeReport = (report: ReportData) => {
   if (nextReport.contactPhone === 'Phone: ---') nextReport.contactPhone = ''
   if (nextReport.notesHeader === 'Notes') nextReport.notesHeader = defaultReport.notesHeader
   if (!nextReport.notes?.trim()) nextReport.notes = defaultAdditionalNotes
+  if (nextReport.notes?.trimEnd() === defaultAdditionalNotesBody) nextReport.notes = defaultAdditionalNotes
 
   return nextReport
 }
@@ -1666,10 +1757,11 @@ type EditableTextProps = {
   className?: string
   linkify?: boolean
   multiline?: boolean
+  renderReadOnly?: (value: string) => ReactNode
   onChange: (id: string, value: string) => void
 }
 
-function EditableText({ id, data, className = '', linkify = false, multiline = false, onChange }: EditableTextProps) {
+function EditableText({ id, data, className = '', linkify = false, multiline = false, renderReadOnly, onChange }: EditableTextProps) {
   const fieldValue = data[id] ?? ''
   const value =
     id === 'scopeOfWorkHeader' && !fieldValue.trim()
@@ -1683,6 +1775,7 @@ function EditableText({ id, data, className = '', linkify = false, multiline = f
       className={className}
       linkify={linkify}
       multiline={multiline}
+      renderReadOnly={renderReadOnly}
       onChange={(value) => onChange(id, value)}
     />
   )
@@ -1694,6 +1787,7 @@ type EditableValueProps = {
   className?: string
   linkify?: boolean
   multiline?: boolean
+  renderReadOnly?: (value: string) => ReactNode
   clearOnFocus?: boolean
   onEditFocus?: () => void
   onChange: (value: string) => void
@@ -1742,11 +1836,37 @@ function renderLinkifiedText(value: string) {
   })
 }
 
+function renderAdditionalNotesContent(value: string) {
+  const { body, hasFooter } = splitAdditionalNotesFooter(value || '---')
+
+  return (
+    <div>
+      {body ? <div className="whitespace-pre-wrap">{renderLinkifiedText(body)}</div> : null}
+      {hasFooter ? (
+        <div className="mt-5 text-[#222]">
+          <div className="text-[20px] font-black leading-tight">Jeffrey R. Melton</div>
+          <div className="mt-1.5 text-[17px] font-medium leading-tight">Assistant Service Manager</div>
+          <div className="mt-2 text-[20px] font-black leading-tight text-black">513-903-6405-C</div>
+          <img src="/deshazo-logo.png" alt="DESHAZO" className="mt-5 h-auto w-[126px]" />
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-medium leading-tight text-[#777]">
+            <span>CRANES</span>
+            <span className="font-black text-[#f5a400]">/</span>
+            <span>SERVICE</span>
+            <span className="font-black text-[#f5a400]">/</span>
+            <span>AUTOMATION</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function EditableValue({
   label,
   value,
   className = '',
   linkify = false,
+  renderReadOnly,
   clearOnFocus = false,
   onEditFocus,
   onChange,
@@ -1835,7 +1955,7 @@ function EditableValue({
         document.execCommand('insertText', false, text)
       }}
     >
-      {linkify && !isEditing ? renderLinkifiedText(value) : value}
+      {linkify && !isEditing ? (renderReadOnly ? renderReadOnly(value) : renderLinkifiedText(value)) : value}
     </div>
   )
 }
@@ -5095,7 +5215,15 @@ export default function EditableInspectionReport() {
                 onChange={updateField}
                 className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase"
               />
-              <EditableText id="notes" data={report} onChange={updateField} multiline linkify className="min-h-[96px] px-3 py-3 text-[15px] font-semibold" />
+              <EditableText
+                id="notes"
+                data={report}
+                onChange={updateField}
+                multiline
+                linkify
+                renderReadOnly={renderAdditionalNotesContent}
+                className="min-h-[96px] px-3 py-3 text-[15px] font-semibold"
+              />
             </section>
             ) : null}
           </section>
