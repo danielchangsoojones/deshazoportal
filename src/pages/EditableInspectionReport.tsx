@@ -4410,7 +4410,7 @@ export default function EditableInspectionReport() {
                 aria-haspopup="menu"
                 aria-expanded={jobReportPrintMenuOpen}
               >
-                Print PDF
+                Download PDF
               </button>
               {jobReportPrintMenuOpen ? (
                 <div
