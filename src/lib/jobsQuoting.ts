@@ -58,11 +58,20 @@ export type JobsQuotingItem = {
   costSections: unknown[]
   blockVisibility: Record<string, boolean>
   estimateNoteVisibility: Record<string, boolean>
+  estimateCostSectionVisibility: Record<string, boolean>
   repairSectionVisibility: Record<string, boolean>
+  pageLayoutVisibility: JobsQuotingPageLayoutVisibility
   textBoxes: unknown[]
   equipmentRentalSettings: Record<string, unknown>
   createdAt: string
   updatedAt: string
+}
+
+export type JobsQuotingPageLayoutVisibility = {
+  blockVisibility: Record<string, boolean>
+  estimateNoteVisibility: Record<string, boolean>
+  estimateCostSectionVisibility?: Record<string, boolean>
+  repairSectionVisibility: Record<string, boolean>
 }
 
 type JobsQuotingRunRow = {
@@ -105,6 +114,7 @@ export type JobsQuotingItemRow = {
   block_visibility: Record<string, boolean> | null
   estimate_note_visibility: Record<string, boolean> | null
   repair_section_visibility: Record<string, boolean> | null
+  page_layout_visibility: JobsQuotingPageLayoutVisibility | null
   equipment_rental_settings: Record<string, unknown> | null
   created_at: string
   updated_at: string
@@ -160,6 +170,10 @@ function mapRun(row: JobsQuotingRunRow): JobsQuotingRun {
 export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
   const repairCount = row.repair_count ?? 0
   const safetyCount = row.safety_count ?? 0
+  const blockVisibility = row.page_layout_visibility?.blockVisibility ?? row.block_visibility ?? {}
+  const estimateNoteVisibility = row.page_layout_visibility?.estimateNoteVisibility ?? row.estimate_note_visibility ?? {}
+  const estimateCostSectionVisibility = row.page_layout_visibility?.estimateCostSectionVisibility ?? {}
+  const repairSectionVisibility = row.page_layout_visibility?.repairSectionVisibility ?? row.repair_section_visibility ?? {}
 
   return {
     id: row.id,
@@ -187,9 +201,16 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
     reportData: row.report_data ?? {},
     repairSections: row.repair_sections ?? [],
     costSections: row.cost_sections ?? [],
-    blockVisibility: row.block_visibility ?? {},
-    estimateNoteVisibility: row.estimate_note_visibility ?? {},
-    repairSectionVisibility: row.repair_section_visibility ?? {},
+    blockVisibility,
+    estimateNoteVisibility,
+    estimateCostSectionVisibility,
+    repairSectionVisibility,
+    pageLayoutVisibility: {
+      blockVisibility,
+      estimateNoteVisibility,
+      estimateCostSectionVisibility,
+      repairSectionVisibility,
+    },
     textBoxes: [],
     equipmentRentalSettings: row.equipment_rental_settings ?? {},
     createdAt: row.created_at,
@@ -225,6 +246,7 @@ export const jobsQuotingItemSelect = `
   block_visibility,
   estimate_note_visibility,
   repair_section_visibility,
+  page_layout_visibility,
   equipment_rental_settings,
   created_at,
   updated_at

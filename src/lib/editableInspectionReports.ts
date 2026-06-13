@@ -7,7 +7,14 @@ export type EditableInspectionReportPayload = {
   costSections: unknown[]
   blockVisibility: Record<string, boolean>
   estimateNoteVisibility: Record<string, boolean>
+  estimateCostSectionVisibility: Record<string, boolean>
   repairSectionVisibility: Record<string, boolean>
+  pageLayoutVisibility?: {
+    blockVisibility: Record<string, boolean>
+    estimateNoteVisibility: Record<string, boolean>
+    estimateCostSectionVisibility?: Record<string, boolean>
+    repairSectionVisibility: Record<string, boolean>
+  }
   textBoxes: unknown[]
   equipmentRentalSettings: Record<string, unknown>
 }
@@ -96,7 +103,9 @@ function mapQuoteItemToEditableInspectionReport(item: JobsQuotingItem): Editable
     costSections: item.costSections ?? [],
     blockVisibility: item.blockVisibility ?? {},
     estimateNoteVisibility: item.estimateNoteVisibility ?? {},
+    estimateCostSectionVisibility: item.estimateCostSectionVisibility ?? {},
     repairSectionVisibility: item.repairSectionVisibility ?? {},
+    pageLayoutVisibility: item.pageLayoutVisibility,
     textBoxes: item.textBoxes ?? [],
     equipmentRentalSettings: item.equipmentRentalSettings ?? {},
     createdAt: item.createdAt,
@@ -205,6 +214,12 @@ export async function saveEditableInspectionReport(input: SaveEditableInspection
   }
 
   const { repairCount, safetyCount } = getRepairSectionCounts(input.repairSections)
+  const pageLayoutVisibility = {
+    blockVisibility: input.blockVisibility,
+    estimateNoteVisibility: input.estimateNoteVisibility,
+    estimateCostSectionVisibility: input.estimateCostSectionVisibility,
+    repairSectionVisibility: input.repairSectionVisibility,
+  }
   const row = {
     report_name: input.reportName.trim(),
     source_document_name: input.sourceDocumentName?.trim() || input.reportName.trim(),
@@ -216,6 +231,7 @@ export async function saveEditableInspectionReport(input: SaveEditableInspection
     block_visibility: input.blockVisibility,
     estimate_note_visibility: input.estimateNoteVisibility,
     repair_section_visibility: input.repairSectionVisibility,
+    page_layout_visibility: pageLayoutVisibility,
     equipment_rental_settings: input.equipmentRentalSettings,
     repair_count: repairCount,
     safety_count: safetyCount,
@@ -252,6 +268,7 @@ export async function deleteEditableInspectionReport(reportId: string) {
       block_visibility: {},
       estimate_note_visibility: {},
       repair_section_visibility: {},
+      page_layout_visibility: {},
       equipment_rental_settings: {},
     })
     .eq('id', reportId)

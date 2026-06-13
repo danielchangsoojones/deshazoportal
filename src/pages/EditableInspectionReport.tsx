@@ -102,6 +102,8 @@ type EstimateNoteVisibility = {
   bottomNote: boolean
 }
 
+type EstimateCostSectionVisibility = Record<string, boolean>
+
 const storageKey = 'deshazo-editable-inspection-report'
 const repairStorageKey = 'deshazo-editable-inspection-report-repairs'
 const costStorageKey = 'deshazo-editable-inspection-report-costs'
@@ -109,6 +111,7 @@ const menuStorageKey = 'deshazo-editable-inspection-report-menu-items'
 const blockVisibilityStorageKey = 'deshazo-editable-inspection-report-block-visibility'
 const menuCollapsedStorageKey = 'deshazo-editable-inspection-report-menu-collapsed'
 const estimateNoteVisibilityStorageKey = 'deshazo-editable-inspection-report-estimate-note-visibility'
+const estimateCostSectionVisibilityStorageKey = 'deshazo-editable-inspection-report-estimate-cost-section-visibility'
 const repairSectionVisibilityStorageKey = 'deshazo-editable-inspection-report-repair-section-visibility'
 const equipmentRentalSettingsStorageKey = 'deshazo-editable-inspection-report-equipment-rental-settings'
 const equipmentRentalDefaultMargin = 15
@@ -310,6 +313,11 @@ const defaultCostSections: CostSection[] = [
     lineItems: [],
   },
 ]
+
+const defaultEstimateCostSectionVisibility: EstimateCostSectionVisibility = defaultCostSections.reduce(
+  (visibility, section) => ({ ...visibility, [section.id]: true }),
+  {},
+)
 
 const cells = [
   ['purchaseOrder', 'jobNumber', 'location', 'customerAddress'],
@@ -807,6 +815,18 @@ const isRepairCostSectionVisible = (
   costSectionId: string,
 ) => repairSectionVisibility[getRepairCostSectionVisibilityKey(repairSectionId, costSectionId)] !== false
 
+const getEstimateCostSectionVisibilityFromSections = (costSections: CostSection[]) => {
+  const sectionIds = new Set(costSections.map((section) => section.id))
+
+  return defaultCostSections.reduce<EstimateCostSectionVisibility>(
+    (visibility, section) => ({
+      ...visibility,
+      [section.id]: sectionIds.has(section.id),
+    }),
+    {},
+  )
+}
+
 const getVisibleRepairSections = (
   repairSections: RepairSection[],
   repairSectionVisibility: Record<string, boolean>,
@@ -836,6 +856,21 @@ const getPrintableRepairSections = (repairSections: RepairSection[]) =>
 
 const getPrintableCostSections = (costSections: CostSection[]) =>
   costSections.filter((section) => hasLineItems(section.lineItems))
+
+const getVisibleEstimateCostSections = (
+  costSections: CostSection[],
+  estimateCostSectionVisibility: EstimateCostSectionVisibility,
+) => costSections.filter((section) => estimateCostSectionVisibility[section.id] !== false)
+
+const getPayloadEstimateCostSectionVisibility = (
+  payload: EditableInspectionReportPayload,
+  costSections: CostSection[],
+) => ({
+  ...defaultEstimateCostSectionVisibility,
+  ...getEstimateCostSectionVisibilityFromSections(costSections),
+  ...payload.estimateCostSectionVisibility,
+  ...payload.pageLayoutVisibility?.estimateCostSectionVisibility,
+})
 
 const escapeHtml = (value: string | number) =>
   String(value)
@@ -943,7 +978,11 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
     normalizeRepairSections(payload.repairSections as RepairSection[]),
     payload.repairSectionVisibility,
   ))
-  const costSections = getPrintableCostSections(normalizeEstimateCostSections(payload.costSections as CostSection[]))
+  const normalizedCostSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
+  const costSections = getPrintableCostSections(getVisibleEstimateCostSections(
+    normalizedCostSections,
+    getPayloadEstimateCostSectionVisibility(payload, normalizedCostSections),
+  ))
   const equipmentSettings = {
     ...defaultEquipmentRentalSettings,
     ...payload.equipmentRentalSettings,
@@ -1096,7 +1135,11 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
       normalizeRepairSections(source.payload.repairSections as RepairSection[]),
       source.payload.repairSectionVisibility,
     ))
-    const costSections = getPrintableCostSections(normalizeEstimateCostSections(source.payload.costSections as CostSection[]))
+    const normalizedCostSections = normalizeEstimateCostSections(source.payload.costSections as CostSection[])
+    const costSections = getPrintableCostSections(getVisibleEstimateCostSections(
+      normalizedCostSections,
+      getPayloadEstimateCostSectionVisibility(source.payload, normalizedCostSections),
+    ))
     const equipmentSettings = {
       ...defaultEquipmentRentalSettings,
       ...source.payload.equipmentRentalSettings,
@@ -1711,19 +1754,41 @@ const normalizeReport = (report: ReportData) => {
   return nextReport
 }
 
-const getNormalizedReportPayload = (report: EditableInspectionReport): EditableInspectionReportPayload => ({
-  reportData: normalizeReport(report.reportData),
-  repairSections: normalizeRepairSections(report.repairSections as RepairSection[], report.reportData),
-  costSections: normalizeEstimateCostSections(report.costSections as CostSection[]),
-  blockVisibility: { ...defaultBlockVisibility, ...report.blockVisibility },
-  estimateNoteVisibility: { ...defaultEstimateNoteVisibility, ...report.estimateNoteVisibility },
-  repairSectionVisibility: report.repairSectionVisibility,
-  textBoxes: [],
-  equipmentRentalSettings: {
-    ...defaultEquipmentRentalSettings,
-    ...report.equipmentRentalSettings,
-  },
-})
+const getNormalizedReportPayload = (report: EditableInspectionReport): EditableInspectionReportPayload => {
+  const costSections = normalizeEstimateCostSections(report.costSections as CostSection[])
+  const blockVisibility = { ...defaultBlockVisibility, ...(report.pageLayoutVisibility?.blockVisibility ?? report.blockVisibility) }
+  const estimateNoteVisibility = {
+    ...defaultEstimateNoteVisibility,
+    ...(report.pageLayoutVisibility?.estimateNoteVisibility ?? report.estimateNoteVisibility),
+  }
+  const estimateCostSectionVisibility = {
+    ...defaultEstimateCostSectionVisibility,
+    ...getEstimateCostSectionVisibilityFromSections(costSections),
+    ...(report.pageLayoutVisibility?.estimateCostSectionVisibility ?? report.estimateCostSectionVisibility),
+  }
+  const repairSectionVisibility = report.pageLayoutVisibility?.repairSectionVisibility ?? report.repairSectionVisibility
+
+  return {
+    reportData: normalizeReport(report.reportData),
+    repairSections: normalizeRepairSections(report.repairSections as RepairSection[], report.reportData),
+    costSections,
+    blockVisibility,
+    estimateNoteVisibility,
+    estimateCostSectionVisibility,
+    repairSectionVisibility,
+    pageLayoutVisibility: {
+      blockVisibility,
+      estimateNoteVisibility,
+      estimateCostSectionVisibility,
+      repairSectionVisibility,
+    },
+    textBoxes: [],
+    equipmentRentalSettings: {
+      ...defaultEquipmentRentalSettings,
+      ...report.equipmentRentalSettings,
+    },
+  }
+}
 
 const hasSavedEditableReportPayload = (item: JobsQuotingItem) =>
   Boolean(item.reportName || Object.keys(item.reportData).length > 0 || item.repairSections.length > 0)
@@ -1733,6 +1798,12 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
     const repairSections = item.repairSections as RepairSection[]
     const legacyRepairCostSections = (item.costSections as CostSection[]).filter(isRepairScopedCostSection)
     const remainingCostSections = (item.costSections as CostSection[]).filter((section) => !isRepairScopedCostSection(section))
+    const costSections = normalizeEstimateCostSections(remainingCostSections)
+    const estimateCostSectionVisibility = {
+      ...defaultEstimateCostSectionVisibility,
+      ...getEstimateCostSectionVisibilityFromSections(costSections),
+      ...item.pageLayoutVisibility.estimateCostSectionVisibility,
+    }
     const shouldMoveLegacyCostsIntoFirstRepair =
       legacyRepairCostSections.length > 0
       && repairSections.length > 0
@@ -1745,10 +1816,15 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
             index === 0 ? { ...section, costSections: legacyRepairCostSections } : section,
           )
         : item.repairSections,
-      costSections: remainingCostSections.length > 0 ? remainingCostSections : defaultCostSections,
-      blockVisibility: item.blockVisibility,
-      estimateNoteVisibility: item.estimateNoteVisibility,
-      repairSectionVisibility: item.repairSectionVisibility,
+      costSections,
+      blockVisibility: item.pageLayoutVisibility.blockVisibility,
+      estimateNoteVisibility: item.pageLayoutVisibility.estimateNoteVisibility,
+      estimateCostSectionVisibility,
+      repairSectionVisibility: item.pageLayoutVisibility.repairSectionVisibility,
+      pageLayoutVisibility: {
+        ...item.pageLayoutVisibility,
+        estimateCostSectionVisibility,
+      },
       textBoxes: item.textBoxes,
       equipmentRentalSettings: item.equipmentRentalSettings,
     }
@@ -1760,7 +1836,14 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
     costSections: defaultCostSections,
     blockVisibility: defaultBlockVisibility,
     estimateNoteVisibility: defaultEstimateNoteVisibility,
+    estimateCostSectionVisibility: defaultEstimateCostSectionVisibility,
     repairSectionVisibility: {},
+    pageLayoutVisibility: {
+      blockVisibility: defaultBlockVisibility,
+      estimateNoteVisibility: defaultEstimateNoteVisibility,
+      estimateCostSectionVisibility: defaultEstimateCostSectionVisibility,
+      repairSectionVisibility: {},
+    },
     textBoxes: [],
     equipmentRentalSettings: defaultEquipmentRentalSettings,
   }
@@ -1796,6 +1879,7 @@ const saveEditableReportPayloadLocally = (payload: EditableInspectionReportPaylo
   window.localStorage.setItem(costStorageKey, JSON.stringify(payload.costSections))
   window.localStorage.setItem(blockVisibilityStorageKey, JSON.stringify(payload.blockVisibility))
   window.localStorage.setItem(estimateNoteVisibilityStorageKey, JSON.stringify(payload.estimateNoteVisibility))
+  window.localStorage.setItem(estimateCostSectionVisibilityStorageKey, JSON.stringify(payload.estimateCostSectionVisibility))
   window.localStorage.setItem(repairSectionVisibilityStorageKey, JSON.stringify(payload.repairSectionVisibility))
   window.localStorage.setItem(equipmentRentalSettingsStorageKey, JSON.stringify(payload.equipmentRentalSettings))
 }
@@ -2220,6 +2304,20 @@ export default function EditableInspectionReport() {
       return defaultEstimateNoteVisibility
     }
   })
+  const [estimateCostSectionVisibility, setEstimateCostSectionVisibility] = useState<EstimateCostSectionVisibility>(() => {
+    const savedVisibility = window.localStorage.getItem(estimateCostSectionVisibilityStorageKey)
+
+    if (!savedVisibility) return defaultEstimateCostSectionVisibility
+
+    try {
+      return {
+        ...defaultEstimateCostSectionVisibility,
+        ...(JSON.parse(savedVisibility) as EstimateCostSectionVisibility),
+      }
+    } catch {
+      return defaultEstimateCostSectionVisibility
+    }
+  })
   const [repairSectionVisibility, setRepairSectionVisibility] = useState<Record<string, boolean>>(() => {
     const savedVisibility = window.localStorage.getItem(repairSectionVisibilityStorageKey)
 
@@ -2262,7 +2360,14 @@ export default function EditableInspectionReport() {
         costSections,
         blockVisibility,
         estimateNoteVisibility,
+        estimateCostSectionVisibility,
         repairSectionVisibility,
+        pageLayoutVisibility: {
+          blockVisibility,
+          estimateNoteVisibility,
+          estimateCostSectionVisibility,
+          repairSectionVisibility,
+        },
         textBoxes: [],
         equipmentRentalSettings,
       } satisfies EditableInspectionReportPayload,
@@ -2293,6 +2398,7 @@ export default function EditableInspectionReport() {
     currentEditableReportId,
     currentReportName,
     equipmentRentalSettings,
+    estimateCostSectionVisibility,
     estimateNoteVisibility,
     jobReportPrintReports,
     repairSectionVisibility,
@@ -2344,7 +2450,14 @@ export default function EditableInspectionReport() {
       costSections,
       blockVisibility,
       estimateNoteVisibility,
+      estimateCostSectionVisibility,
       repairSectionVisibility,
+      pageLayoutVisibility: {
+        blockVisibility,
+        estimateNoteVisibility,
+        estimateCostSectionVisibility,
+        repairSectionVisibility,
+      },
       textBoxes: [],
       equipmentRentalSettings,
     }),
@@ -2352,6 +2465,7 @@ export default function EditableInspectionReport() {
       blockVisibility,
       costSections,
       equipmentRentalSettings,
+      estimateCostSectionVisibility,
       estimateNoteVisibility,
       repairSectionVisibility,
       repairSections,
@@ -2363,6 +2477,10 @@ export default function EditableInspectionReport() {
     () => getVisibleRepairSections(repairSections, repairSectionVisibility),
     [repairSections, repairSectionVisibility],
   )
+  const visibleCostSections = useMemo(
+    () => getVisibleEstimateCostSections(costSections, estimateCostSectionVisibility),
+    [costSections, estimateCostSectionVisibility],
+  )
   const repairTotal = useMemo(
     () =>
       visibleRepairSections.reduce(
@@ -2373,7 +2491,7 @@ export default function EditableInspectionReport() {
   )
   const costTotal = useMemo(
     () =>
-      costSections.reduce(
+      visibleCostSections.reduce(
         (total, section) =>
           total + section.lineItems.reduce(
             (sectionTotal, lineItem) =>
@@ -2382,7 +2500,7 @@ export default function EditableInspectionReport() {
           ),
         0,
       ),
-    [costSections, equipmentRentalSettings],
+    [equipmentRentalSettings, visibleCostSections],
   )
   const invoiceTotal = repairTotal + costTotal
   const grandTotalInternalCost = useMemo(
@@ -2391,12 +2509,12 @@ export default function EditableInspectionReport() {
         (total, section) => total + getRepairSectionInternalTotal(section),
         0,
       )
-      + costSections.reduce(
+      + visibleCostSections.reduce(
         (total, section) =>
           total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
         0,
       ),
-    [costSections, visibleRepairSections],
+    [visibleCostSections, visibleRepairSections],
   )
   const grandTotalProfit = invoiceTotal - grandTotalInternalCost
   const grandTotalMargin = getUnitMargin(grandTotalInternalCost, invoiceTotal)
@@ -2560,6 +2678,11 @@ export default function EditableInspectionReport() {
     const nextCostSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
     const nextBlockVisibility = { ...defaultBlockVisibility, ...payload.blockVisibility }
     const nextEstimateNoteVisibility = { ...defaultEstimateNoteVisibility, ...payload.estimateNoteVisibility }
+    const nextEstimateCostSectionVisibility = {
+      ...defaultEstimateCostSectionVisibility,
+      ...getEstimateCostSectionVisibilityFromSections(nextCostSections),
+      ...payload.estimateCostSectionVisibility,
+    }
     const nextRepairSectionVisibility = payload.repairSectionVisibility
     const nextEquipmentRentalSettings = {
       ...defaultEquipmentRentalSettings,
@@ -2572,7 +2695,14 @@ export default function EditableInspectionReport() {
       costSections: nextCostSections,
       blockVisibility: nextBlockVisibility,
       estimateNoteVisibility: nextEstimateNoteVisibility,
+      estimateCostSectionVisibility: nextEstimateCostSectionVisibility,
       repairSectionVisibility: nextRepairSectionVisibility,
+      pageLayoutVisibility: {
+        blockVisibility: nextBlockVisibility,
+        estimateNoteVisibility: nextEstimateNoteVisibility,
+        estimateCostSectionVisibility: nextEstimateCostSectionVisibility,
+        repairSectionVisibility: nextRepairSectionVisibility,
+      },
       textBoxes: [],
       equipmentRentalSettings: nextEquipmentRentalSettings,
     })
@@ -2581,6 +2711,7 @@ export default function EditableInspectionReport() {
     setCostSections(nextCostSections)
     setBlockVisibility(nextBlockVisibility)
     setEstimateNoteVisibility(nextEstimateNoteVisibility)
+    setEstimateCostSectionVisibility(nextEstimateCostSectionVisibility)
     setRepairSectionVisibility(nextRepairSectionVisibility)
     setEquipmentRentalSettings(nextEquipmentRentalSettings)
   }, [])
@@ -2770,6 +2901,7 @@ export default function EditableInspectionReport() {
   }, [
     blockVisibility,
     costSections,
+    estimateCostSectionVisibility,
     estimateNoteVisibility,
     equipmentRentalSettings,
     report,
@@ -3582,7 +3714,6 @@ export default function EditableInspectionReport() {
 
   const toggleCostSection = (sectionId: string, checked: boolean) => {
     setCostSections((currentSections) => {
-      if (!checked) return saveCostSections(currentSections.filter((section) => section.id !== sectionId))
       if (currentSections.some((section) => section.id === sectionId)) return currentSections
 
       const sectionToAdd = defaultCostSections.find((section) => section.id === sectionId)
@@ -3594,6 +3725,11 @@ export default function EditableInspectionReport() {
           - defaultCostSections.findIndex((section) => section.id === secondSection.id),
       )
       return saveCostSections(nextSections)
+    })
+    setEstimateCostSectionVisibility((currentVisibility) => {
+      const nextVisibility = { ...currentVisibility, [sectionId]: checked }
+      window.localStorage.setItem(estimateCostSectionVisibilityStorageKey, JSON.stringify(nextVisibility))
+      return nextVisibility
     })
   }
 
@@ -4612,7 +4748,7 @@ export default function EditableInspectionReport() {
                               <span>{section.title}</span>
                               <input
                                 type="checkbox"
-                                checked={costSections.some((costSection) => costSection.id === section.id)}
+                                checked={estimateCostSectionVisibility[section.id] !== false}
                                 onChange={(event) => toggleCostSection(section.id, event.currentTarget.checked)}
                                 className="h-4 w-4 accent-[#273f7a]"
                               />
@@ -5093,7 +5229,7 @@ export default function EditableInspectionReport() {
                     />
                   </div>
                 ) : null}
-                {costSections.map((section) => (
+                {visibleCostSections.map((section) => (
                   <section
                     key={section.id}
                     data-report-block-id={`cost-section-${section.id}`}

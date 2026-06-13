@@ -48,6 +48,7 @@ create table if not exists public.jobs_quoting_items (
   block_visibility jsonb not null default '{}'::jsonb,
   estimate_note_visibility jsonb not null default '{}'::jsonb,
   repair_section_visibility jsonb not null default '{}'::jsonb,
+  page_layout_visibility jsonb not null default '{}'::jsonb,
   equipment_rental_settings jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
@@ -78,7 +79,21 @@ alter table public.jobs_quoting_items
   add column if not exists block_visibility jsonb not null default '{}'::jsonb,
   add column if not exists estimate_note_visibility jsonb not null default '{}'::jsonb,
   add column if not exists repair_section_visibility jsonb not null default '{}'::jsonb,
+  add column if not exists page_layout_visibility jsonb not null default '{}'::jsonb,
   add column if not exists equipment_rental_settings jsonb not null default '{}'::jsonb;
+
+update public.jobs_quoting_items
+set page_layout_visibility = jsonb_build_object(
+  'blockVisibility', block_visibility,
+  'estimateNoteVisibility', estimate_note_visibility,
+  'repairSectionVisibility', repair_section_visibility
+)
+where page_layout_visibility = '{}'::jsonb
+  and (
+    block_visibility <> '{}'::jsonb
+    or estimate_note_visibility <> '{}'::jsonb
+    or repair_section_visibility <> '{}'::jsonb
+  );
 
 alter table public.jobs_quoting_runs
   alter column user_id drop not null;
