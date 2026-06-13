@@ -274,6 +274,12 @@ drop policy if exists "Authenticated users can read all inspection menu items"
 drop policy if exists "Authenticated users can read branch inspection menu items"
   on public.editable_inspection_menu_items;
 
+create policy "Authenticated users can read all inspection menu items"
+  on public.editable_inspection_menu_items
+  for select
+  to authenticated
+  using (true);
+
 create policy "Authenticated users can read branch inspection menu items"
   on public.editable_inspection_menu_items
   for select

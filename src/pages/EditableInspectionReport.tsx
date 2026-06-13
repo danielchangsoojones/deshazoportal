@@ -502,6 +502,13 @@ const getDNumberFromReport = (reportData: ReportData | Record<string, string>) =
 const getJobNumberDisplayFromReport = (reportData: ReportData | Record<string, string>) =>
   removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, '').trim() || '---'
 
+const formatBranchLabel = (branch: string) =>
+  branch
+    .trim()
+    .replace(/^branch[_\s-]*/i, 'Branch ')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+
 const getNormalizedColumnDNumber = (value: string) => {
   const withoutLabel = removeReportValueLabel(value)
   return withoutLabel ? ensureDNumberPrefix(withoutLabel).replace(/[\s-]+/g, '').toUpperCase() : ''
@@ -2348,6 +2355,13 @@ export default function EditableInspectionReport() {
   const currentCraneIdentifier = useMemo(() => getCraneIdentifierFromReport(report), [report])
   const currentMenuDNumber = useMemo(() => getDNumberFromReport(report), [report])
   const currentJobNumber = useMemo(() => getJobNumberDisplayFromReport(report), [report])
+  const menuSearchBranchesLabel = useMemo(
+    () =>
+      menuSearchBranches.length > 0
+        ? `Your Branches (${menuSearchBranches.map(formatBranchLabel).join(', ')})`
+        : 'Your Branches',
+    [menuSearchBranches],
+  )
   const normalizedCurrentJobNumber = useMemo(
     () => (currentJobNumber === '---' ? '' : currentJobNumber.trim()),
     [currentJobNumber],
@@ -4523,7 +4537,7 @@ export default function EditableInspectionReport() {
                     className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[12px] font-black normal-case tracking-normal text-[#1f2430] outline-none transition focus:border-[#273f7a]"
                   >
                     <option value="branches">
-                      {menuSearchBranches.length > 0 ? menuSearchBranches.join(', ') : 'My branches'}
+                      {menuSearchBranchesLabel}
                     </option>
                     <option value="all">All</option>
                   </select>
