@@ -2826,6 +2826,23 @@ export default function EditableInspectionReport() {
           setCurrentJobsQuotingItemId(quoteItem.id)
           setReportDatabaseStatus('saved')
         } else {
+          applyEditableReportPayload({
+            reportData: defaultReport,
+            repairSections: defaultRepairSections,
+            costSections: defaultCostSections,
+            blockVisibility: defaultBlockVisibility,
+            estimateNoteVisibility: defaultEstimateNoteVisibility,
+            estimateCostSectionVisibility: defaultEstimateCostSectionVisibility,
+            repairSectionVisibility: {},
+            pageLayoutVisibility: {
+              blockVisibility: defaultBlockVisibility,
+              estimateNoteVisibility: defaultEstimateNoteVisibility,
+              estimateCostSectionVisibility: defaultEstimateCostSectionVisibility,
+              repairSectionVisibility: {},
+            },
+            textBoxes: [],
+            equipmentRentalSettings: defaultEquipmentRentalSettings,
+          })
           setCurrentEditableReportId('')
           setCurrentReportName('Untitled quote report')
           setCurrentSourceDocumentName('Untitled quote report')
@@ -2838,6 +2855,29 @@ export default function EditableInspectionReport() {
         reportHydrationReady.current = true
       } catch {
         if (!active) return
+        applyEditableReportPayload({
+          reportData: defaultReport,
+          repairSections: defaultRepairSections,
+          costSections: defaultCostSections,
+          blockVisibility: defaultBlockVisibility,
+          estimateNoteVisibility: defaultEstimateNoteVisibility,
+          estimateCostSectionVisibility: defaultEstimateCostSectionVisibility,
+          repairSectionVisibility: {},
+          pageLayoutVisibility: {
+            blockVisibility: defaultBlockVisibility,
+            estimateNoteVisibility: defaultEstimateNoteVisibility,
+            estimateCostSectionVisibility: defaultEstimateCostSectionVisibility,
+            repairSectionVisibility: {},
+          },
+          textBoxes: [],
+          equipmentRentalSettings: defaultEquipmentRentalSettings,
+        })
+        setCurrentEditableReportId('')
+        setCurrentReportName('Quote report not found')
+        setCurrentSourceDocumentName('Quote report not found')
+        setCurrentJobsQuotingItemId(null)
+        skipNextReportDatabaseSave.current = true
+        pendingReportChanges.current = false
         reportHydrationReady.current = true
         setReportDatabaseStatus('error')
       }
