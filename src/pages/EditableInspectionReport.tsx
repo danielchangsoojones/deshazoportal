@@ -572,6 +572,14 @@ const formatMenuItemCreatedDate = (value?: string) => {
   }).format(parsedDate)
 }
 
+const formatSaveButtonTimestamp = () =>
+  new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date())
+
 const getMenuItemCreatedDateLabel = (item: MenuItem) =>
   formatMenuItemCreatedDate(item.createdAt ?? item.updatedAt)
 
@@ -2190,6 +2198,7 @@ export default function EditableInspectionReport() {
   const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
+  const saveButtonMessageTimeout = useRef<number | undefined>(undefined)
   const pagePdfDragDepth = useRef(0)
   const menuItemsRefreshRequestId = useRef(0)
   const reportContentRef = useRef<HTMLElement>(null)
@@ -2223,6 +2232,7 @@ export default function EditableInspectionReport() {
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
+  const [saveButtonMessage, setSaveButtonMessage] = useState('')
   const [currentEditableReportId, setCurrentEditableReportId] = useState(validEditableReportIdParam)
   const [currentReportName, setCurrentReportName] = useState('Untitled quote report')
   const [currentSourceDocumentName, setCurrentSourceDocumentName] = useState('Untitled quote report')
@@ -3104,6 +3114,15 @@ export default function EditableInspectionReport() {
 
   useEffect(() => () => clearMenuItemsUploadRefreshTimers(), [clearMenuItemsUploadRefreshTimers])
 
+  useEffect(
+    () => () => {
+      if (saveButtonMessageTimeout.current) {
+        window.clearTimeout(saveButtonMessageTimeout.current)
+      }
+    },
+    [],
+  )
+
   useEffect(() => {
     if (!isConfigured || !menuDatabaseSyncReady.current) return
     if (skipNextMenuDatabaseSave.current) {
@@ -3198,17 +3217,6 @@ export default function EditableInspectionReport() {
       active = false
     }
   }, [currentCraneIdentifier, jobsQuotingItemId])
-
-  const updatedAt = useMemo(
-    () =>
-      new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      }).format(new Date()),
-    [],
-  )
 
   const updateField = (id: string, value: string) => {
     setReport((currentReport) => {
@@ -3868,11 +3876,27 @@ export default function EditableInspectionReport() {
     navigate('/jobsquotinglist')
   }
 
+  const flashSaveButtonMessage = useCallback(() => {
+    if (saveButtonMessageTimeout.current) {
+      window.clearTimeout(saveButtonMessageTimeout.current)
+    }
+
+    setSaveButtonMessage(`Saved at ${formatSaveButtonTimestamp()}`)
+    saveButtonMessageTimeout.current = window.setTimeout(() => {
+      setSaveButtonMessage('')
+      saveButtonMessageTimeout.current = undefined
+    }, 1800)
+  }, [])
+
   const saveEditableReportFromButton = () => {
-    saveCurrentEditableReportNow().catch((error) => {
-      setReportDatabaseStatus('error')
-      console.error('Editable report could not be saved.', error)
-    })
+    saveCurrentEditableReportNow()
+      .then((savedReport) => {
+        if (savedReport) flashSaveButtonMessage()
+      })
+      .catch((error) => {
+        setReportDatabaseStatus('error')
+        console.error('Editable report could not be saved.', error)
+      })
   }
 
   const refreshJobReportPrintReports = useCallback(async () => {
@@ -4349,22 +4373,18 @@ export default function EditableInspectionReport() {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
-            {reportDatabaseStatus === 'saving'
-              ? 'Saving...'
-              : reportDatabaseStatus === 'error'
-                ? 'Save error'
-                : currentEditableReportId
-                  ? 'Saved report'
-                  : `Saved ${updatedAt}`}
-          </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={saveEditableReportFromButton}
-              className="rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
+              className={`min-w-[6.5rem] rounded-md border px-4 py-2 text-sm font-bold text-white transition-all duration-200 hover:bg-white/20 ${
+                saveButtonMessage
+                  ? 'border-emerald-200/70 bg-emerald-500/30'
+                  : 'border-white/30 bg-white/10'
+              }`}
+              aria-live="polite"
             >
-              Save
+              {reportDatabaseStatus === 'saving' ? 'Saving...' : saveButtonMessage || 'Save'}
             </button>
             {isUuid(currentJobsQuotingItemId || '') || isUuid(currentEditableReportId) ? (
               <button
