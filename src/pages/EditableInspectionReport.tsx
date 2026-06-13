@@ -4,6 +4,7 @@ import { isConfigured } from '../lib/supabase'
 import {
   deleteInspectionMenuItem,
   getInspectionMenuItems,
+  normalizeDNumbers,
   searchInspectionMenuItems,
   upsertInspectionMenuItems,
   type InspectionMenuItem,
@@ -76,6 +77,7 @@ type EditingMenuItem = {
   description: string
   internalCost: string
   customerPrice: string
+  dNumbers?: string[]
 }
 
 type PendingAddMenuLineItem = {
@@ -2341,6 +2343,7 @@ export default function EditableInspectionReport() {
     }
   })
   const currentCraneIdentifier = useMemo(() => getCraneIdentifierFromReport(report), [report])
+  const currentMenuDNumber = useMemo(() => getDNumberFromReport(report), [report])
   const currentJobNumber = useMemo(() => getJobNumberDisplayFromReport(report), [report])
   const normalizedCurrentJobNumber = useMemo(
     () => (currentJobNumber === '---' ? '' : currentJobNumber.trim()),
@@ -2936,7 +2939,7 @@ export default function EditableInspectionReport() {
       setMenuDatabaseMessage(loadingMessage)
 
       try {
-        const savedMenu = await getInspectionMenuItems()
+        const savedMenu = await getInspectionMenuItems(currentMenuDNumber)
         if (!shouldApply() || refreshRequestId !== menuItemsRefreshRequestId.current) return false
 
         if (savedMenu) {
@@ -2969,7 +2972,7 @@ export default function EditableInspectionReport() {
         return false
       }
     },
-    [],
+    [currentMenuDNumber],
   )
 
   const clearMenuItemsUploadRefreshTimers = useCallback(() => {
@@ -3076,7 +3079,7 @@ export default function EditableInspectionReport() {
       setMenuDatabaseStatus('saving')
       setMenuDatabaseMessage('Saving menu items to the server.')
 
-      upsertInspectionMenuItems(nextSections)
+      upsertInspectionMenuItems(nextSections, currentMenuDNumber)
         .then(() => {
           setMenuDatabaseStatus('saved')
           setMenuDatabaseMessage('Menu items saved to the server.')
@@ -3088,7 +3091,7 @@ export default function EditableInspectionReport() {
     }, databaseSyncIdleDelayMs)
 
     return () => window.clearTimeout(saveTimer)
-  }, [menuItemSections])
+  }, [currentMenuDNumber, menuItemSections])
 
   useEffect(() => {
     if (!isConfigured) {
@@ -3245,6 +3248,7 @@ export default function EditableInspectionReport() {
       customerPrice,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      dNumbers: normalizeDNumbers([currentMenuDNumber]),
     }
 
     setMenuItemSections((currentSections) =>
@@ -3267,6 +3271,7 @@ export default function EditableInspectionReport() {
       description: item.description,
       internalCost: item.internalCost ?? item.rate,
       customerPrice: item.customerPrice ?? item.rate,
+      dNumbers: item.dNumbers,
     })
   }
 
@@ -3296,6 +3301,7 @@ export default function EditableInspectionReport() {
                   rate: nextInternalCost,
                   internalCost: nextInternalCost,
                   customerPrice: nextCustomerPrice,
+                  dNumbers: editingMenuItem.dNumbers,
                   updatedAt,
                 }
               : item,
@@ -4499,6 +4505,14 @@ export default function EditableInspectionReport() {
                     </div>
                   ) : visibleMenuItemSections[0]?.items.length ? (
                       <div className="space-y-2">
+                        {!menuSearch.trim() && currentMenuDNumber ? (
+                          <div className="rounded-md border border-[#dfe4ef] bg-[#f4f7ff] px-3 py-2">
+                            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#747b8a]">
+                              D-number section
+                            </p>
+                            <p className="mt-0.5 text-[13px] font-black text-[#273f7a]">{currentMenuDNumber}</p>
+                          </div>
+                        ) : null}
                         {visibleMenuItemSections[0].items.map((item) => {
                           const createdDateLabel = getMenuItemCreatedDateLabel(item)
                           const decayed = isMenuItemDecayed(item)
