@@ -244,6 +244,47 @@ const defaultReport: ReportData = {
   notes: defaultAdditionalNotes,
 }
 
+const blankReport: ReportData = {
+  ...defaultReport,
+  branch: 'DESHAZO Branch: ---',
+  phone: 'Branch Contact Phone: ---',
+  summary: 'D',
+  type: 'Type: ---',
+  date: 'Date: ---',
+  structure: 'Structure: ---',
+  description: 'Description: ---',
+  customer: 'Customer: ---',
+  purchaseOrder: 'Purchase Order: ---',
+  jobNumber: 'Job #: ---',
+  location: 'Location: ---',
+  customerAddress: 'Customer Address: ---',
+  manufacturerCrane: 'Crane: ---',
+  serialCrane: 'Crane: ---',
+  capacityCrane: 'Crane: ---',
+  modelCrane: 'Crane: ---',
+  manufacturerHoist: 'Hoist 1: ---',
+  serialHoist: 'Hoist 1: ---',
+  capacityHoist: 'Hoist 1: ---',
+  modelHoist: 'Hoist 1: ---',
+  manufacturerHoist2: 'Hoist 2: ---',
+  serialHoist2: 'Hoist 2: ---',
+  capacityHoist2: 'Hoist 2: ---',
+  modelHoist2: 'Hoist 2: ---',
+  manufacturerHoist3: 'Hoist 3: ---',
+  serialHoist3: 'Hoist 3: ---',
+  capacityHoist3: 'Hoist 3: ---',
+  modelHoist3: 'Hoist 3: ---',
+  manufacturerHoist4: 'Hoist 4: ---',
+  serialHoist4: 'Hoist 4: ---',
+  capacityHoist4: 'Hoist 4: ---',
+  modelHoist4: 'Hoist 4: ---',
+  scopeOfWork: '',
+  contactName: '',
+  contactEmail: '',
+  contactPhone: '',
+  notes: '---',
+}
+
 const createDefaultRepairCostSections = (repairId: string): CostSection[] => [
   {
     id: `${repairId}-parts`,
@@ -1812,7 +1853,29 @@ const getNormalizedReportPayload = (report: EditableInspectionReport): EditableI
 const hasSavedEditableReportPayload = (item: JobsQuotingItem) =>
   Boolean(item.reportName || Object.keys(item.reportData).length > 0 || item.repairSections.length > 0)
 
+const isBlankQuoteItem = (item: JobsQuotingItem) => item.splitType === 'blank_quote'
+
 const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableInspectionReportPayload => {
+  if (isBlankQuoteItem(item)) {
+    return {
+      reportData: blankReport,
+      repairSections: [],
+      costSections: [],
+      blockVisibility: defaultBlockVisibility,
+      estimateNoteVisibility: defaultEstimateNoteVisibility,
+      estimateCostSectionVisibility: {},
+      repairSectionVisibility: {},
+      pageLayoutVisibility: {
+        blockVisibility: defaultBlockVisibility,
+        estimateNoteVisibility: defaultEstimateNoteVisibility,
+        estimateCostSectionVisibility: {},
+        repairSectionVisibility: {},
+      },
+      textBoxes: [],
+      equipmentRentalSettings: defaultEquipmentRentalSettings,
+    }
+  }
+
   if (hasSavedEditableReportPayload(item)) {
     const repairSections = item.repairSections as RepairSection[]
     const legacyRepairCostSections = (item.costSections as CostSection[]).filter(isRepairScopedCostSection)
