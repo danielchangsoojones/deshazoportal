@@ -606,6 +606,7 @@ export async function createJobQuotingItemFromExternalCraneDNumber(dNumber: stri
   }
 
   const url = new URL('/api/external/jobs-quoting/from-d-number', deshazoExternalApiBaseUrl)
+  url.searchParams.set('dNumber', normalizedDNumber)
   const response = await fetch(url.toString(), {
     method: 'POST',
     headers: {
