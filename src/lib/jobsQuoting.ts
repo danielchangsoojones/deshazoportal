@@ -36,6 +36,7 @@ export type JobsQuotingItem = {
   editableDocumentId: string | null
   documentName: string
   jobNumber: string
+  jobType: string
   dNumber: string
   deshazoExternalInspectionReportWorkOrderId: number | null
   splitType: string
@@ -92,6 +93,7 @@ export type JobsQuotingItemRow = {
   editable_document_id: string | null
   document_name: string
   job_number: string | null
+  job_type?: string | null
   d_number: string | null
   deshazo_external_inspection_report_work_order_id: number | null
   split_type: string | null
@@ -167,6 +169,26 @@ function mapRun(row: JobsQuotingRunRow): JobsQuotingRun {
   }
 }
 
+function getExtractedJobType(extractionData: Record<string, unknown> | null): string | null {
+  const candidates = [
+    extractionData?.job_type,
+    extractionData?.inspection_type,
+    extractionData?.jobType,
+    extractionData?.inspectionType,
+    extractionData?.type,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+    if (candidate && typeof candidate === 'object' && 'value' in candidate) {
+      const value = (candidate as { value?: unknown }).value
+      if (typeof value === 'string' && value.trim()) return value.trim()
+    }
+  }
+
+  return null
+}
+
 export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
   const repairCount = row.repair_count ?? 0
   const safetyCount = row.safety_count ?? 0
@@ -181,6 +203,7 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
     editableDocumentId: row.editable_document_id,
     documentName: row.document_name,
     jobNumber: row.job_number ?? '',
+    jobType: row.job_type ?? getExtractedJobType(row.extraction_data) ?? '',
     dNumber: row.d_number ?? '',
     deshazoExternalInspectionReportWorkOrderId: row.deshazo_external_inspection_report_work_order_id,
     splitType: row.split_type ?? '',

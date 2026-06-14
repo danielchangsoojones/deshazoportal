@@ -26,6 +26,7 @@ create table if not exists public.jobs_quoting_items (
   editable_document_id uuid references public.editable_inspection_documents (id) on delete set null,
   document_name text not null,
   job_number text,
+  job_type text,
   d_number text,
   deshazo_external_inspection_report_work_order_id bigint references public.deshazo_external_inspection_reports (work_order_id) on delete set null,
   split_type text,
@@ -64,6 +65,7 @@ create table if not exists public.jobs_quoting_items (
 
 alter table public.jobs_quoting_items
   add column if not exists job_number text,
+  add column if not exists job_type text,
   add column if not exists d_number text,
   add column if not exists deshazo_external_inspection_report_work_order_id bigint references public.deshazo_external_inspection_reports (work_order_id) on delete set null,
   add column if not exists pdf_bucket text not null default 'jobs-quoting-pdfs',
@@ -107,6 +109,21 @@ where job_number is null
   and nullif(btrim(coalesce(extraction_data #>> '{job_number,value}', extraction_data ->> 'job_number')), '') is not null;
 
 update public.jobs_quoting_items
+set job_type = nullif(btrim(coalesce(
+  extraction_data #>> '{job_type,value}',
+  extraction_data #>> '{inspection_type,value}',
+  extraction_data ->> 'job_type',
+  extraction_data ->> 'inspection_type'
+)), '')
+where job_type is null
+  and nullif(btrim(coalesce(
+    extraction_data #>> '{job_type,value}',
+    extraction_data #>> '{inspection_type,value}',
+    extraction_data ->> 'job_type',
+    extraction_data ->> 'inspection_type'
+  )), '') is not null;
+
+update public.jobs_quoting_items
 set d_number = nullif(btrim(coalesce(extraction_data #>> '{d_number,value}', extraction_data ->> 'd_number')), '')
 where d_number is null
   and nullif(btrim(coalesce(extraction_data #>> '{d_number,value}', extraction_data ->> 'd_number')), '') is not null;
@@ -124,6 +141,10 @@ create index if not exists jobs_quoting_items_user_priority_idx
 create index if not exists jobs_quoting_items_user_job_number_idx
   on public.jobs_quoting_items (user_id, job_number)
   where job_number is not null;
+
+create index if not exists jobs_quoting_items_user_job_type_idx
+  on public.jobs_quoting_items (user_id, job_type)
+  where job_type is not null;
 
 create index if not exists jobs_quoting_items_user_d_number_idx
   on public.jobs_quoting_items (user_id, d_number)
@@ -147,9 +168,26 @@ set search_path = public
 as $$
 declare
   extracted_d_number text;
+  extracted_job_type text;
 begin
   new.updated_at := timezone('utc', now());
   extracted_d_number := nullif(btrim(coalesce(new.extraction_data #>> '{d_number,value}', new.extraction_data ->> 'd_number')), '');
+  extracted_job_type := nullif(btrim(coalesce(
+    new.extraction_data #>> '{job_type,value}',
+    new.extraction_data #>> '{inspection_type,value}',
+    new.extraction_data ->> 'job_type',
+    new.extraction_data ->> 'inspection_type'
+  )), '');
+
+  if tg_op = 'UPDATE' and new.job_type is distinct from old.job_type then
+    new.job_type := nullif(btrim(new.job_type), '');
+  elsif nullif(btrim(new.job_type), '') is not null then
+    new.job_type := nullif(btrim(new.job_type), '');
+  elsif extracted_job_type is not null then
+    new.job_type := extracted_job_type;
+  else
+    new.job_type := null;
+  end if;
 
   if tg_op = 'UPDATE' and new.d_number is distinct from old.d_number then
     new.d_number := nullif(btrim(new.d_number), '');

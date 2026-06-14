@@ -531,6 +531,7 @@ const applyQuoteItemColumnIdentifiersToReport = (reportData: ReportData, item: J
   ...reportData,
   summary: item.dNumber ? replaceReportSummaryDNumber(reportData.summary, item.dNumber) : reportData.summary,
   jobNumber: item.jobNumber ? ensureJobNumberPrefix(item.jobNumber) : reportData.jobNumber,
+  type: item.jobType || reportData.type,
 })
 
 const getEditableReportDisplayName = (
@@ -603,7 +604,7 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
   const branchContactPhone = getTopLevelExtractedText(data, ['branch_contact_phone', 'branchContactPhone', 'Branch Contact Phone'])
   const jobNumber = getTopLevelExtractedText(data, ['job_number', 'jobNumber', 'Job Number', 'Job #'])
   const performedBy = getTopLevelExtractedText(data, ['performed_by', 'performedBy', 'inspector', 'technician'])
-  const inspectionType = getTopLevelExtractedText(data, ['inspection_type', 'inspectionType', 'type'])
+  const inspectionType = item.jobType || getTopLevelExtractedText(data, ['job_type', 'jobType', 'inspection_type', 'inspectionType', 'type'])
   const inspectionDate = getTopLevelExtractedText(data, ['inspection_date', 'inspectionDate', 'date'])
   const structure = getTopLevelExtractedText(data, ['structure', 'Structure'])
   const description = getTopLevelExtractedText(data, ['description', 'Description'])
