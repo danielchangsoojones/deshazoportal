@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
+  createBlankJobQuotingItem,
   createJobQuotingItemFromExternalCraneDNumber,
   createJobQuotingItemsFromExternalInspectionReports,
   deleteJobsQuotingItem,
@@ -324,6 +325,7 @@ export default function JobsQuotingList() {
   const [externalJobImporting, setExternalJobImporting] = useState(false)
   const [createDNumberInput, setCreateDNumberInput] = useState('')
   const [createDNumberSubmitting, setCreateDNumberSubmitting] = useState(false)
+  const [createBlankSubmitting, setCreateBlankSubmitting] = useState(false)
   const [pinnedImportedJobNumbers, setPinnedImportedJobNumbers] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -779,6 +781,23 @@ export default function JobsQuotingList() {
     }
   }
 
+  const createBlankQuoteItem = async () => {
+    setBusy(true)
+    setCreateBlankSubmitting(true)
+    setUploadMenuOpen(false)
+    setMessage('Creating blank quote report.')
+
+    try {
+      const result = await createBlankJobQuotingItem()
+      navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(result.itemId)}`)
+    } catch (error) {
+      setMessage(getFriendlyImportErrorMessage(error))
+    } finally {
+      setCreateBlankSubmitting(false)
+      setBusy(false)
+    }
+  }
+
   const toggleInspectionRunsCollapsed = () => {
     setInspectionRunsCollapsed((currentCollapsed) => {
       const nextCollapsed = !currentCollapsed
@@ -932,6 +951,17 @@ export default function JobsQuotingList() {
               <div className="rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
                 <div className="text-[12px] font-black uppercase text-[#273f7a]">Create New</div>
                 <div className={`mt-2 grid gap-2 ${canUseExtendControls ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={createBlankQuoteItem}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {createBlankSubmitting ? (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#d6cbed] border-t-[#273f7a]" />
+                    ) : null}
+                    <span>Create Blank</span>
+                  </button>
                   <button
                     type="button"
                     disabled={busy}
