@@ -247,6 +247,7 @@ export const jobsQuotingItemSelect = `
   editable_document_id,
   document_name,
   job_number,
+  job_type,
   d_number,
   deshazo_external_inspection_report_work_order_id,
   split_type,

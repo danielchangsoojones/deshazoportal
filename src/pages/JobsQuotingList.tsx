@@ -227,6 +227,17 @@ function getItemFileName(item: JobsQuotingItem) {
   return (item.pdfFileName || item.sourceDocumentName || item.documentName).trim()
 }
 
+function formatJobTypeTag(jobType: string) {
+  const normalizedJobType = jobType
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+
+  if (!normalizedJobType) return 'Inspection'
+
+  return normalizedJobType.replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
 function getItemJobGroupKey(item: JobsQuotingItem) {
   const jobNumber = getItemJobNumber(item)
   if (jobNumber) return `job:${jobNumber.toLowerCase()}`
@@ -1112,7 +1123,7 @@ export default function JobsQuotingList() {
                   <thead>
                     <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
                       <th className="w-[12%] px-3 py-3">D-number</th>
-                      <th className="w-[24%] px-3 py-3">File Name</th>
+                      <th className="w-[24%] px-3 py-3">Job Type</th>
                       <th className="w-[11%] px-2 py-3 text-center">Date Modified</th>
                       <th className="w-[10%] px-2 py-3 text-center">Uploaded By</th>
                       <th className="w-[7%] px-1 py-3 text-center">Repairs</th>
@@ -1172,16 +1183,9 @@ export default function JobsQuotingList() {
                               </span>
                             </td>
                             <td className="px-3 py-4 align-top">
-                              <div className="border-l-4 border-[#dfe6f5] pl-3">
-                                <p className="whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
-                                  {getItemFileName(item) || '-'}
-                                </p>
-                                {item.splitIdentifier ? (
-                                  <p className="mt-1 whitespace-normal break-words text-xs font-semibold leading-snug text-[#747b8a]">
-                                    {item.splitIdentifier}
-                                  </p>
-                                ) : null}
-                              </div>
+                              <span className="inline-flex max-w-full items-center rounded-sm border border-[#cfd9ee] bg-[#edf3ff] px-2.5 py-1 text-[12px] font-black leading-snug text-[#273f7a]">
+                                <span className="truncate">{formatJobTypeTag(item.jobType)}</span>
+                              </span>
                             </td>
                             <td className="px-2 py-4 text-center align-top text-xs font-bold leading-snug text-[#4d5360]">
                               {formatDate(item.updatedAt)}
