@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
+  createJobQuotingItemFromExternalCraneDNumber,
   createJobQuotingItemsFromExternalInspectionReports,
   deleteJobsQuotingItem,
   getJobsQuotingItemsForRuns,
@@ -316,10 +317,13 @@ export default function JobsQuotingList() {
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
+  const [createDNumberModalOpen, setCreateDNumberModalOpen] = useState(false)
   const [openItemSettingsId, setOpenItemSettingsId] = useState<string | null>(null)
   const [deletingItemIds, setDeletingItemIds] = useState<Set<string>>(() => new Set())
   const [externalJobNumberInput, setExternalJobNumberInput] = useState('')
   const [externalJobImporting, setExternalJobImporting] = useState(false)
+  const [createDNumberInput, setCreateDNumberInput] = useState('')
+  const [createDNumberSubmitting, setCreateDNumberSubmitting] = useState(false)
   const [pinnedImportedJobNumbers, setPinnedImportedJobNumbers] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -739,6 +743,42 @@ export default function JobsQuotingList() {
     }
   }
 
+  const openCreateDNumberModal = () => {
+    setUploadMenuOpen(false)
+    setCreateDNumberModalOpen(true)
+    setMessage('')
+  }
+
+  const closeCreateDNumberModal = () => {
+    if (createDNumberSubmitting) return
+    setCreateDNumberModalOpen(false)
+    setCreateDNumberInput('')
+  }
+
+  const createQuoteItemFromDNumber = async () => {
+    const normalizedDNumber = createDNumberInput.trim().toUpperCase().replace(/\s+/g, '')
+    if (!/^D[0-9]{6}$/.test(normalizedDNumber)) {
+      setMessage('Enter a D number in the format D123456.')
+      return
+    }
+
+    setBusy(true)
+    setCreateDNumberSubmitting(true)
+    setMessage(`Creating quote report for ${normalizedDNumber}.`)
+
+    try {
+      const result = await createJobQuotingItemFromExternalCraneDNumber(normalizedDNumber)
+      setCreateDNumberModalOpen(false)
+      setCreateDNumberInput('')
+      navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(result.itemId)}`)
+    } catch (error) {
+      setMessage(getFriendlyImportErrorMessage(error))
+    } finally {
+      setCreateDNumberSubmitting(false)
+      setBusy(false)
+    }
+  }
+
   const toggleInspectionRunsCollapsed = () => {
     setInspectionRunsCollapsed((currentCollapsed) => {
       const nextCollapsed = !currentCollapsed
@@ -852,7 +892,7 @@ export default function JobsQuotingList() {
             className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
             aria-expanded={uploadMenuOpen}
           >
-            Upload
+            Create New
           </button>
           {uploadMenuOpen ? (
             <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
@@ -890,8 +930,16 @@ export default function JobsQuotingList() {
                 </div>
               </form>
               <div className="rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
-                <div className="text-[12px] font-black uppercase text-[#273f7a]">Upload Inspection Reports</div>
+                <div className="text-[12px] font-black uppercase text-[#273f7a]">Create New</div>
                 <div className={`mt-2 grid gap-2 ${canUseExtendControls ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={openCreateDNumberModal}
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Create with D Number
+                  </button>
                   <button
                     type="button"
                     disabled={busy}
@@ -925,6 +973,72 @@ export default function JobsQuotingList() {
           ) : null}
         </div>
       </header>
+
+      {createDNumberModalOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#111827]/45 px-4">
+          <div className="w-full max-w-[420px] rounded-md border border-[#dfe4ef] bg-white p-5 text-[#111] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-[18px] font-black leading-tight text-[#1f2430]">Create with D Number</h2>
+                <p className="mt-1 text-[13px] font-semibold leading-5 text-[#5b606b]">
+                  Create a blank quote report with header details from Shazo external crane data.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={createDNumberSubmitting}
+                onClick={closeCreateDNumberModal}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#cfd6e5] bg-white text-[18px] font-black leading-none text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close create with D number"
+              >
+                ×
+              </button>
+            </div>
+
+            <form
+              className="mt-5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                createQuoteItemFromDNumber()
+              }}
+            >
+              <label className="text-[12px] font-black uppercase text-[#273f7a]" htmlFor="create-d-number-input">
+                D Number
+              </label>
+              <input
+                id="create-d-number-input"
+                type="text"
+                value={createDNumberInput}
+                onChange={(event) => setCreateDNumberInput(event.currentTarget.value.toUpperCase())}
+                disabled={createDNumberSubmitting}
+                placeholder="D123456"
+                autoFocus
+                className="mt-2 h-11 w-full rounded-md border border-[#cfd6e5] bg-white px-3 text-[14px] font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-[#273f7a] focus:ring-2 focus:ring-[#273f7a]/15 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={createDNumberSubmitting}
+                  onClick={closeCreateDNumberModal}
+                  className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createDNumberSubmitting || !createDNumberInput.trim()}
+                  className="inline-flex min-w-[92px] items-center justify-center gap-2 rounded-md bg-[#273f7a] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {createDNumberSubmitting ? (
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  ) : null}
+                  Submit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       <main className="flex h-[calc(100vh-56px)] overflow-hidden bg-[#f3f4f8]">
         <aside

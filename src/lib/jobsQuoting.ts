@@ -152,6 +152,14 @@ export type ExternalInspectionReportQuoteImportResult = {
   }>
 }
 
+export type ExternalCraneDNumberQuoteCreateResult = {
+  dNumber: string
+  runId: string
+  itemId: string
+  jobNumber: string | null
+  documentName: string
+}
+
 const supabasePageSize = 1000
 const runIdFilterChunkSize = 100
 
@@ -585,6 +593,46 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   }
 
   return body as ExternalInspectionReportQuoteImportResult
+}
+
+export async function createJobQuotingItemFromExternalCraneDNumber(dNumber: string): Promise<ExternalCraneDNumberQuoteCreateResult> {
+  const normalizedDNumber = dNumber.trim().toUpperCase().replace(/\s+/g, '')
+  if (!/^D[0-9]{6}$/.test(normalizedDNumber)) {
+    throw new Error('Enter a D number in the format D123456.')
+  }
+
+  if (!deshazoExternalApiKey) {
+    throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
+  }
+
+  const url = new URL('/api/external/jobs-quoting/from-d-number', deshazoExternalApiBaseUrl)
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-API-Key': deshazoExternalApiKey,
+    },
+    body: JSON.stringify({ dNumber: normalizedDNumber }),
+  })
+
+  const responseText = await response.text()
+  let body: unknown = responseText
+  try {
+    body = JSON.parse(responseText)
+  } catch {
+    // Keep non-JSON backend errors readable.
+  }
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `D-number quote creation failed with status ${response.status}.`
+    throw new Error(message)
+  }
+
+  return body as ExternalCraneDNumberQuoteCreateResult
 }
 
 function getJobNumberLookupValues(jobNumbers: string[]) {
