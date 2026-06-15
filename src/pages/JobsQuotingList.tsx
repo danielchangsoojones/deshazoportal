@@ -982,15 +982,12 @@ export default function JobsQuotingList() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate('/dashboard')}
-            className="text-[22px] font-black leading-none transition hover:text-white/80"
+            onClick={() => navigate('/deshazo-internal-dashboard')}
+            className="rounded-md border border-white/30 bg-white/10 px-3 py-2 text-xs font-black uppercase tracking-normal text-white transition hover:bg-white/20"
             aria-label="Home"
           >
-            ⌂
+            Home
           </button>
-          <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
-            Jobs Quoting
-          </div>
         </div>
 
         <div className="text-sm font-black tracking-wide">DESHAZO Quote Builder</div>
