@@ -15,6 +15,12 @@ const internalCards = [
     href: '/jobsquotinglist',
   },
   {
+    eyebrow: 'Reporting',
+    title: 'Quote Analytics',
+    description: 'Review won and lost quote results, quoted totals, and amount won across saved quote items.',
+    href: '/quote-analytics',
+  },
+  {
     eyebrow: 'AI Tools',
     title: 'Equipment LLM',
     description: 'Chat with quote context, inspection reports, and equipment manuals to build cited parts guidance.',
