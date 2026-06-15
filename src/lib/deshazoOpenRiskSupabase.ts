@@ -281,8 +281,6 @@ function buildIssueRowsFromView(rows: IssueViewRow[]) {
       safetyCategory,
       row.inspection_date ?? row.completed_at ?? '',
       componentType,
-      row.section_sort ?? '',
-      row.point_sort ?? '',
     ].join('|')
     const remarks = ensureSentencePunctuation(normalizeText(row.remarks))
     const existing = issuesByKey.get(key)
@@ -520,6 +518,119 @@ async function loadLatestAssetDetailFromTables(dNumber: string): Promise<AssetIn
   }
 }
 
+async function loadDatasetFromTables(): Promise<OpenRiskDataset> {
+  const workOrders = await fetchAll<WorkOrderRow>(
+    'deshazo_external_work_orders',
+    'work_order_id,bill_to_name,customer,customer_location_name,service_location_name',
+    undefined,
+    500,
+  )
+  const wabashWorkOrders = workOrders.filter(isWabashWorkOrder)
+  const workOrderById = new Map(wabashWorkOrders.map((workOrder) => [workOrder.work_order_id, workOrder]))
+  const wabashCranes = await fetchByInChunks<CraneRow>(
+    'deshazo_external_report_cranes',
+    'id,work_order_id,contact_code,description,location',
+    'work_order_id',
+    Array.from(workOrderById.keys()),
+  )
+  const wabashCranesWithDNumbers = wabashCranes.filter((crane) => normalizeText(crane.contact_code))
+  const craneById = new Map(wabashCranesWithDNumbers.map((crane) => [crane.id, crane]))
+  const wabashInspections = await fetchByInChunks<InspectionRow>(
+    'deshazo_external_report_inspections',
+    'id,crane_row_id,inspection_date,completed_at',
+    'crane_row_id',
+    Array.from(craneById.keys()),
+  )
+
+  const latestByDNumber = new Map<string, { inspection: InspectionRow; crane: CraneRow; sortIndex: number }>()
+  wabashInspections.forEach((inspection, sortIndex) => {
+    const crane = craneById.get(inspection.crane_row_id)
+    const dNumber = normalizeText(crane?.contact_code).toUpperCase()
+    if (!crane || !dNumber) return
+
+    const current = latestByDNumber.get(dNumber)
+    const nextTime = getDateTime(inspection.inspection_date ?? inspection.completed_at)
+    const currentTime = current ? getDateTime(current.inspection.inspection_date ?? current.inspection.completed_at) : -Infinity
+    if (!current || nextTime > currentTime || (nextTime === currentTime && sortIndex > current.sortIndex)) {
+      latestByDNumber.set(dNumber, { inspection, crane, sortIndex })
+    }
+  })
+
+  const latestInspections = Array.from(latestByDNumber.values()).map((record) => record.inspection)
+  const latestInspectionIds = latestInspections.map((inspection) => inspection.id)
+  const latestSections = await fetchByInChunks<SectionRow>(
+    'deshazo_external_report_sections',
+    'id,inspection_row_id,section_name,section_index,section_order',
+    'inspection_row_id',
+    latestInspectionIds,
+  )
+  const sectionById = new Map(latestSections.map((section) => [section.id, section]))
+  const sectionsByInspectionId = new Map<string, SectionRow[]>()
+
+  for (const section of latestSections) {
+    const group = sectionsByInspectionId.get(section.inspection_row_id) ?? []
+    group.push(section)
+    sectionsByInspectionId.set(section.inspection_row_id, group)
+  }
+
+  const actionablePoints = await fetchByInChunks<PointRow>(
+    'deshazo_external_report_points',
+    'id,section_row_id,point_name,condition,remarks,point_index',
+    'section_row_id',
+    Array.from(sectionById.keys()),
+    (query) => query.in('condition', actionableConditions),
+  )
+
+  const pointsByInspectionId = new Map<string, PointRow[]>()
+  for (const point of actionablePoints) {
+    const section = sectionById.get(point.section_row_id)
+    if (!section) continue
+    const group = pointsByInspectionId.get(section.inspection_row_id) ?? []
+    group.push(point)
+    pointsByInspectionId.set(section.inspection_row_id, group)
+  }
+
+  let totalSafetyIssues = 0
+  let totalMonitorIssues = 0
+
+  const assets = Array.from(latestByDNumber.entries()).map<AssetRecord>(([dNumber, record]) => {
+    const workOrder = workOrderById.get(record.crane.work_order_id)
+    const latestSectionsForInspection = sectionsByInspectionId.get(record.inspection.id) ?? []
+    const latestPoints = pointsByInspectionId.get(record.inspection.id) ?? []
+    const issues = buildIssueRows(record.inspection, latestSectionsForInspection, latestPoints)
+    const safetyIssueCount = issues.filter((issue) => issue.safety_category === 'safety').length
+    const monitorIssueCount = issues.filter((issue) => issue.safety_category === 'monitor').length
+
+    totalSafetyIssues += safetyIssueCount
+    totalMonitorIssues += monitorIssueCount
+
+    const unit: AssetUnit = {
+      unit_id: dNumber,
+      unit_name: buildAssetName(dNumber, record.crane.description),
+      warehouse_location: normalizeText(workOrder?.customer_location_name || workOrder?.service_location_name),
+      interior_location: normalizeText(record.crane.location),
+      inspection_date: formatDateLabel(record.inspection.inspection_date ?? record.inspection.completed_at),
+      safety_issue_count: safetyIssueCount,
+      monitor_issue_count: monitorIssueCount,
+    }
+
+    return { unit, issues, sortIndex: record.sortIndex }
+  })
+
+  assets.sort((left, right) => {
+    const leftTotal = left.unit.safety_issue_count + left.unit.monitor_issue_count
+    const rightTotal = right.unit.safety_issue_count + right.unit.monitor_issue_count
+    return rightTotal - leftTotal || left.sortIndex - right.sortIndex
+  })
+
+  return {
+    assets,
+    totalSafetyIssues,
+    totalMonitorIssues,
+    loadedAt: Date.now(),
+  }
+}
+
 async function loadDataset() {
   const now = Date.now()
   if (cachedDataset && now - cachedDataset.loadedAt < cacheTtlMs) {
@@ -533,125 +644,14 @@ async function loadDataset() {
     await requireAuthenticatedSession()
 
     try {
-      cachedDataset = await loadDatasetFromViews()
+      cachedDataset = await loadDatasetFromTables()
       pendingDataset = null
       return cachedDataset
-    } catch (error) {
-      if (!isMissingViewError(error)) {
-        throw error
-      }
+    } catch {
+      // Fall back to the compact views if direct report-table loading is unavailable.
     }
 
-    const workOrders = await fetchAll<WorkOrderRow>(
-      'deshazo_external_work_orders',
-      'work_order_id,bill_to_name,customer,customer_location_name,service_location_name',
-      undefined,
-      500,
-    )
-    const wabashWorkOrders = workOrders.filter(isWabashWorkOrder)
-    const workOrderById = new Map(wabashWorkOrders.map((workOrder) => [workOrder.work_order_id, workOrder]))
-    const wabashCranes = await fetchByInChunks<CraneRow>(
-      'deshazo_external_report_cranes',
-      'id,work_order_id,contact_code,description,location',
-      'work_order_id',
-      Array.from(workOrderById.keys()),
-    )
-    const wabashCranesWithDNumbers = wabashCranes.filter((crane) => normalizeText(crane.contact_code))
-    const craneById = new Map(wabashCranesWithDNumbers.map((crane) => [crane.id, crane]))
-    const wabashInspections = await fetchByInChunks<InspectionRow>(
-      'deshazo_external_report_inspections',
-      'id,crane_row_id,inspection_date,completed_at',
-      'crane_row_id',
-      Array.from(craneById.keys()),
-    )
-
-    const latestByDNumber = new Map<string, { inspection: InspectionRow; crane: CraneRow; sortIndex: number }>()
-    wabashInspections.forEach((inspection, sortIndex) => {
-      const crane = craneById.get(inspection.crane_row_id)
-      const dNumber = normalizeText(crane?.contact_code).toUpperCase()
-      if (!crane || !dNumber) return
-
-      const current = latestByDNumber.get(dNumber)
-      const nextTime = getDateTime(inspection.inspection_date ?? inspection.completed_at)
-      const currentTime = current ? getDateTime(current.inspection.inspection_date ?? current.inspection.completed_at) : -Infinity
-      if (!current || nextTime > currentTime || (nextTime === currentTime && sortIndex > current.sortIndex)) {
-        latestByDNumber.set(dNumber, { inspection, crane, sortIndex })
-      }
-    })
-
-    const latestInspections = Array.from(latestByDNumber.values()).map((record) => record.inspection)
-    const latestInspectionIds = latestInspections.map((inspection) => inspection.id)
-    const latestSections = await fetchByInChunks<SectionRow>(
-      'deshazo_external_report_sections',
-      'id,inspection_row_id,section_name,section_index,section_order',
-      'inspection_row_id',
-      latestInspectionIds,
-    )
-    const sectionById = new Map(latestSections.map((section) => [section.id, section]))
-    const sectionsByInspectionId = new Map<string, SectionRow[]>()
-
-    for (const section of latestSections) {
-      const group = sectionsByInspectionId.get(section.inspection_row_id) ?? []
-      group.push(section)
-      sectionsByInspectionId.set(section.inspection_row_id, group)
-    }
-
-    const actionablePoints = await fetchByInChunks<PointRow>(
-      'deshazo_external_report_points',
-      'id,section_row_id,point_name,condition,remarks,point_index',
-      'section_row_id',
-      Array.from(sectionById.keys()),
-      (query) => query.in('condition', actionableConditions),
-    )
-
-    const pointsByInspectionId = new Map<string, PointRow[]>()
-    for (const point of actionablePoints) {
-      const section = sectionById.get(point.section_row_id)
-      if (!section) continue
-      const group = pointsByInspectionId.get(section.inspection_row_id) ?? []
-      group.push(point)
-      pointsByInspectionId.set(section.inspection_row_id, group)
-    }
-
-    let totalSafetyIssues = 0
-    let totalMonitorIssues = 0
-
-    const assets = Array.from(latestByDNumber.entries()).map<AssetRecord>(([dNumber, record]) => {
-      const workOrder = workOrderById.get(record.crane.work_order_id)
-      const latestSections = sectionsByInspectionId.get(record.inspection.id) ?? []
-      const latestPoints = pointsByInspectionId.get(record.inspection.id) ?? []
-      const issues = buildIssueRows(record.inspection, latestSections, latestPoints)
-      const safetyIssueCount = issues.filter((issue) => issue.safety_category === 'safety').length
-      const monitorIssueCount = issues.filter((issue) => issue.safety_category === 'monitor').length
-
-      totalSafetyIssues += safetyIssueCount
-      totalMonitorIssues += monitorIssueCount
-
-      const unit: AssetUnit = {
-        unit_id: dNumber,
-        unit_name: buildAssetName(dNumber, record.crane.description),
-        warehouse_location: normalizeText(workOrder?.customer_location_name || workOrder?.service_location_name),
-        interior_location: normalizeText(record.crane.location),
-        inspection_date: formatDateLabel(record.inspection.inspection_date ?? record.inspection.completed_at),
-        safety_issue_count: safetyIssueCount,
-        monitor_issue_count: monitorIssueCount,
-      }
-
-      return { unit, issues, sortIndex: record.sortIndex }
-    })
-
-    assets.sort((left, right) => {
-      const leftTotal = left.unit.safety_issue_count + left.unit.monitor_issue_count
-      const rightTotal = right.unit.safety_issue_count + right.unit.monitor_issue_count
-      return rightTotal - leftTotal || left.sortIndex - right.sortIndex
-    })
-
-    cachedDataset = {
-      assets,
-      totalSafetyIssues,
-      totalMonitorIssues,
-      loadedAt: Date.now(),
-    }
+    cachedDataset = await loadDatasetFromViews()
     pendingDataset = null
     return cachedDataset
   })().catch((error) => {
