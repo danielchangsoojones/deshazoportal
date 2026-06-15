@@ -8,12 +8,16 @@ import {
   createJobQuotingItemFromExternalCraneDNumber,
   createJobQuotingItemsFromExternalInspectionReports,
   deleteJobsQuotingItem,
+  getJobsQuotingItemResults,
   getJobsQuotingItemsForRuns,
   getJobsQuotingRuns,
+  saveJobsQuotingItemResult,
   syncJobsQuotingRun,
   uploadExtractOnlyInspectionForQuoting,
   uploadInspectionForQuoting,
   type JobsQuotingItem,
+  type JobsQuotingItemResult,
+  type JobsQuotingItemResultStatus,
   type JobsQuotingRun,
 } from '../lib/jobsQuoting'
 import { getCurrentUserTag, getUserDisplayNames, type UserTag } from '../lib/userTags'
@@ -48,6 +52,24 @@ type JobsQuotingJobGroup = {
   modifiedAt: string
 }
 
+type QuoteLineItem = {
+  quantity?: unknown
+  customerPrice?: unknown
+  rate?: unknown
+  margin?: unknown
+}
+
+type QuoteCostSection = {
+  id?: unknown
+  title?: unknown
+  lineItems?: unknown
+}
+
+type QuoteRepairSection = {
+  id?: unknown
+  costSections?: unknown
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     month: 'short',
@@ -56,6 +78,67 @@ function formatDate(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(value))
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(value)
+}
+
+function parseMoney(value: unknown) {
+  const numericValue = Number(String(value ?? '').replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(numericValue) ? numericValue : 0
+}
+
+function getLegacyCustomerUnitPrice(lineItem: QuoteLineItem) {
+  return parseMoney(lineItem.rate) * (1 + parseMoney(lineItem.margin) / 100)
+}
+
+function getCustomerLineAmount(lineItem: QuoteLineItem) {
+  const quantity = parseMoney(lineItem.quantity ?? '1')
+  const unitPrice = lineItem.customerPrice == null || lineItem.customerPrice === ''
+    ? getLegacyCustomerUnitPrice(lineItem)
+    : parseMoney(lineItem.customerPrice)
+
+  return quantity * unitPrice
+}
+
+function getCostSectionTotal(section: QuoteCostSection) {
+  const lineItems = Array.isArray(section.lineItems) ? section.lineItems : []
+  return lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem as QuoteLineItem), 0)
+}
+
+function getSectionKey(section: QuoteCostSection | QuoteRepairSection) {
+  if (typeof section.id === 'string' && section.id.trim()) return section.id
+  if ('title' in section && typeof section.title === 'string' && section.title.trim()) return section.title
+  return ''
+}
+
+function isSectionVisible(sectionKey: string, visibility: Record<string, boolean>) {
+  return !sectionKey || visibility[sectionKey] !== false
+}
+
+function getQuoteTotalAmount(item: JobsQuotingItem) {
+  const repairTotal = item.repairSections.reduce<number>((total, repairSection) => {
+    const section = repairSection as QuoteRepairSection
+    const sectionKey = getSectionKey(section)
+    if (!isSectionVisible(sectionKey, item.repairSectionVisibility)) return total
+
+    const costSections = Array.isArray(section.costSections) ? section.costSections : []
+    return total + costSections.reduce<number>((sectionTotal, costSection) => sectionTotal + getCostSectionTotal(costSection as QuoteCostSection), 0)
+  }, 0)
+
+  const costTotal = item.costSections.reduce<number>((total, costSection) => {
+    const section = costSection as QuoteCostSection
+    const sectionKey = getSectionKey(section)
+    if (!isSectionVisible(sectionKey, item.estimateCostSectionVisibility)) return total
+
+    return total + getCostSectionTotal(section)
+  }, 0)
+
+  return Math.round((repairTotal + costTotal) * 100) / 100
 }
 
 function getFriendlyErrorMessage(error: unknown) {
@@ -312,6 +395,7 @@ export default function JobsQuotingList() {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [runs, setRuns] = useState<JobsQuotingRun[]>([])
   const [items, setItems] = useState<JobsQuotingItem[]>([])
+  const [itemResults, setItemResults] = useState<Record<string, JobsQuotingItemResult>>({})
   const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
   const [itemsLoading, setItemsLoading] = useState(false)
   const [selectedJobSectionId, setSelectedJobSectionId] = useState<string>(allJobsSectionId)
@@ -326,6 +410,10 @@ export default function JobsQuotingList() {
   const [createDNumberInput, setCreateDNumberInput] = useState('')
   const [createDNumberSubmitting, setCreateDNumberSubmitting] = useState(false)
   const [createBlankSubmitting, setCreateBlankSubmitting] = useState(false)
+  const [markResultItemId, setMarkResultItemId] = useState<string | null>(null)
+  const [markResultStatus, setMarkResultStatus] = useState<JobsQuotingItemResultStatus>('pending')
+  const [markResultAmountWon, setMarkResultAmountWon] = useState('')
+  const [markResultSubmitting, setMarkResultSubmitting] = useState(false)
   const [pinnedImportedJobNumbers, setPinnedImportedJobNumbers] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -400,6 +488,8 @@ export default function JobsQuotingList() {
   const paginatedJobGroups = sortedJobGroups.slice(pageStartIndex, pageStartIndex + reportsPerPage)
   const pageFirstJob = sortedJobGroups.length === 0 ? 0 : pageStartIndex + 1
   const pageLastJob = Math.min(pageStartIndex + paginatedJobGroups.length, sortedJobGroups.length)
+  const markResultItem = markResultItemId ? items.find((item) => item.id === markResultItemId) ?? null : null
+  const markResultQuoteTotal = markResultItem ? getQuoteTotalAmount(markResultItem) : 0
 
   useEffect(() => {
     setCurrentPage(1)
@@ -441,6 +531,7 @@ export default function JobsQuotingList() {
       const nextRunGroups = buildRunGroups(nextRuns)
       const nextRunIds = nextRunGroups.flatMap((group) => group.runIds)
       const nextItems = nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : []
+      const nextItemResults = nextItems.length > 0 ? await getJobsQuotingItemResults(nextItems.map((item) => item.id)) : []
       const nextJobSections = buildJobGroups(nextItems)
       const nextSelectedSectionId =
         sectionId && (sectionId === allJobsSectionId || nextJobSections.some((group) => group.id === sectionId))
@@ -450,6 +541,7 @@ export default function JobsQuotingList() {
       setRuns(nextRuns)
       setSelectedJobSectionId(nextSelectedSectionId)
       setItems(nextItems)
+      setItemResults(Object.fromEntries(nextItemResults.map((result) => [result.jobQuoteItemId, result])))
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
@@ -513,7 +605,10 @@ export default function JobsQuotingList() {
           setRuns(nextRuns)
 
           const nextRunIds = buildRunGroups(nextRuns).flatMap((group) => group.runIds)
-          setItems(nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : [])
+          const nextItems = nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : []
+          const nextItemResults = nextItems.length > 0 ? await getJobsQuotingItemResults(nextItems.map((item) => item.id)) : []
+          setItems(nextItems)
+          setItemResults(Object.fromEntries(nextItemResults.map((result) => [result.jobQuoteItemId, result])))
         }
 
         if (failedResult) {
@@ -553,6 +648,11 @@ export default function JobsQuotingList() {
     try {
       await deleteJobsQuotingItem(item.id)
       setItems((currentItems) => currentItems.filter((currentItem) => currentItem.id !== item.id))
+      setItemResults((currentResults) => {
+        const nextResults = { ...currentResults }
+        delete nextResults[item.id]
+        return nextResults
+      })
       setMessage(`Deleted ${itemLabel}.`)
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
@@ -795,6 +895,60 @@ export default function JobsQuotingList() {
     } finally {
       setCreateBlankSubmitting(false)
       setBusy(false)
+    }
+  }
+
+  const openMarkResultModal = (item: JobsQuotingItem) => {
+    const existingResult = itemResults[item.id]
+    const quoteTotalAmount = getQuoteTotalAmount(item)
+    setOpenItemSettingsId(null)
+    setMarkResultItemId(item.id)
+    setMarkResultStatus(existingResult?.winStatus ?? 'pending')
+    setMarkResultAmountWon(
+      existingResult?.amountWon != null
+        ? String(existingResult.amountWon)
+        : existingResult?.winStatus === 'won'
+          ? String(quoteTotalAmount)
+          : '',
+    )
+    setMessage('')
+  }
+
+  const closeMarkResultModal = () => {
+    if (markResultSubmitting) return
+    setMarkResultItemId(null)
+    setMarkResultStatus('pending')
+    setMarkResultAmountWon('')
+  }
+
+  const saveMarkResult = async () => {
+    if (!markResultItem) return
+
+    const normalizedAmountWon = markResultStatus === 'won' ? parseMoney(markResultAmountWon) : null
+    if (markResultStatus === 'won' && (!normalizedAmountWon || normalizedAmountWon <= 0)) {
+      setMessage('Enter an amount won greater than $0.')
+      return
+    }
+
+    setMarkResultSubmitting(true)
+    setMessage(`Saving result for ${getItemDNumber(markResultItem) || getItemFileName(markResultItem)}.`)
+
+    try {
+      const result = await saveJobsQuotingItemResult({
+        jobQuoteItemId: markResultItem.id,
+        quoteTotalAmount: markResultQuoteTotal,
+        winStatus: markResultStatus,
+        amountWon: normalizedAmountWon,
+      })
+      setItemResults((currentResults) => ({ ...currentResults, [result.jobQuoteItemId]: result }))
+      setMarkResultItemId(null)
+      setMarkResultStatus('pending')
+      setMarkResultAmountWon('')
+      setMessage(`Marked quote result as ${result.winStatus}.`)
+    } catch (error) {
+      setMessage(getFriendlyErrorMessage(error))
+    } finally {
+      setMarkResultSubmitting(false)
     }
   }
 
@@ -1063,6 +1217,102 @@ export default function JobsQuotingList() {
                     <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                   ) : null}
                   Submit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {markResultItem ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#111827]/45 px-4">
+          <div className="w-full max-w-[460px] rounded-md border border-[#dfe4ef] bg-white p-5 text-[#111] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h2 className="text-[18px] font-black leading-tight text-[#1f2430]">Mark Result</h2>
+                <p className="mt-1 truncate text-[13px] font-semibold leading-5 text-[#5b606b]">
+                  {getItemDNumber(markResultItem) || getItemFileName(markResultItem)}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={markResultSubmitting}
+                onClick={closeMarkResultModal}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#cfd6e5] bg-white text-[18px] font-black leading-none text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close mark result"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-md border border-[#dfe4ef] bg-[#fbfcff] px-3 py-3">
+              <div className="flex items-center justify-between gap-3 text-[13px] font-bold text-[#4d5360]">
+                <span>Quote Total Amount</span>
+                <span className="text-[16px] font-black text-[#273f7a]">{formatMoney(markResultQuoteTotal)}</span>
+              </div>
+            </div>
+
+            <form
+              className="mt-5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                saveMarkResult()
+              }}
+            >
+              <fieldset disabled={markResultSubmitting} className="space-y-3">
+                <legend className="text-[12px] font-black uppercase text-[#273f7a]">Win Status</legend>
+                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-[#cfd6e5] bg-white px-3 py-3 text-[13px] font-black text-[#1f2430] transition hover:bg-[#f5f7ff]">
+                  <input
+                    type="checkbox"
+                    checked={markResultStatus === 'won'}
+                    onChange={(event) => setMarkResultStatus(event.currentTarget.checked ? 'won' : 'pending')}
+                    className="h-4 w-4 accent-[#273f7a]"
+                  />
+                  Won
+                </label>
+                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-[#cfd6e5] bg-white px-3 py-3 text-[13px] font-black text-[#1f2430] transition hover:bg-[#f5f7ff]">
+                  <input
+                    type="checkbox"
+                    checked={markResultStatus === 'lost'}
+                    onChange={(event) => setMarkResultStatus(event.currentTarget.checked ? 'lost' : 'pending')}
+                    className="h-4 w-4 accent-[#a2472f]"
+                  />
+                  Lost
+                </label>
+              </fieldset>
+
+              <label className="mt-5 block text-[12px] font-black uppercase text-[#273f7a]" htmlFor="mark-result-amount-won">
+                Amount Won
+              </label>
+              <input
+                id="mark-result-amount-won"
+                type="text"
+                inputMode="decimal"
+                value={markResultAmountWon}
+                onChange={(event) => setMarkResultAmountWon(event.currentTarget.value)}
+                disabled={markResultSubmitting || markResultStatus !== 'won'}
+                placeholder={formatMoney(markResultQuoteTotal)}
+                className="mt-2 h-11 w-full rounded-md border border-[#cfd6e5] bg-white px-3 text-[14px] font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-[#273f7a] focus:ring-2 focus:ring-[#273f7a]/15 disabled:cursor-not-allowed disabled:bg-[#f3f4f8] disabled:opacity-70"
+              />
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={markResultSubmitting}
+                  onClick={closeMarkResultModal}
+                  className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={markResultSubmitting}
+                  className="inline-flex min-w-[92px] items-center justify-center gap-2 rounded-md bg-[#273f7a] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {markResultSubmitting ? (
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  ) : null}
+                  Save
                 </button>
               </div>
             </form>
@@ -1369,8 +1619,20 @@ export default function JobsQuotingList() {
                                     ⚙
                                   </button>
                                 </div>
+                                <div className="mt-1 text-[11px] font-black uppercase text-[#747b8a]">
+                                  {itemResults[item.id]?.winStatus ?? 'pending'}
+                                  {itemResults[item.id]?.amountWon != null ? ` • ${formatMoney(itemResults[item.id].amountWon ?? 0)}` : ''}
+                                </div>
                                 {openItemSettingsId === item.id ? (
-                                  <div className="mt-2 w-[140px] rounded-md border border-[#dfe4ef] bg-white p-2 text-left shadow-[0_14px_34px_-28px_rgba(15,23,42,0.5)]">
+                                  <div className="mt-2 w-[150px] rounded-md border border-[#dfe4ef] bg-white p-2 text-left shadow-[0_14px_34px_-28px_rgba(15,23,42,0.5)]">
+                                    <button
+                                      type="button"
+                                      onClick={() => openMarkResultModal(item)}
+                                      disabled={deletingItemIds.has(item.id)}
+                                      className="mb-2 w-full rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-left text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      Mark Result
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => deleteQuoteItem(item)}

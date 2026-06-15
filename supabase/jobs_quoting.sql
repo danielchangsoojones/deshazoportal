@@ -63,6 +63,27 @@ create table if not exists public.jobs_quoting_items (
     check (pdf_content_type = 'application/pdf')
 );
 
+create table if not exists public.jobs_quoting_item_results (
+  id uuid primary key default gen_random_uuid(),
+  job_quote_item_id uuid not null references public.jobs_quoting_items (id) on delete cascade,
+  user_id uuid references auth.users (id) on delete set null,
+  quote_total_amount numeric(12, 2) not null default 0,
+  win_status text not null default 'pending',
+  amount_won numeric(12, 2),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint jobs_quoting_item_results_item_key
+    unique (job_quote_item_id),
+  constraint jobs_quoting_item_results_quote_total_nonnegative
+    check (quote_total_amount >= 0),
+  constraint jobs_quoting_item_results_amount_won_nonnegative
+    check (amount_won is null or amount_won >= 0),
+  constraint jobs_quoting_item_results_win_status
+    check (win_status in ('won', 'lost', 'pending')),
+  constraint jobs_quoting_item_results_amount_won_for_won
+    check (win_status = 'won' or amount_won is null)
+);
+
 alter table public.jobs_quoting_items
   add column if not exists job_number text,
   add column if not exists job_type text,
@@ -150,6 +171,12 @@ create index if not exists jobs_quoting_items_user_d_number_idx
   on public.jobs_quoting_items (user_id, d_number)
   where d_number is not null;
 
+create index if not exists jobs_quoting_item_results_status_idx
+  on public.jobs_quoting_item_results (win_status, updated_at desc);
+
+create index if not exists jobs_quoting_item_results_user_idx
+  on public.jobs_quoting_item_results (user_id, updated_at desc);
+
 create or replace function public.set_jobs_quoting_updated_at()
 returns trigger
 language plpgsql
@@ -219,14 +246,25 @@ before insert or update on public.jobs_quoting_items
 for each row
 execute function public.set_jobs_quoting_item_defaults();
 
+drop trigger if exists jobs_quoting_item_results_updated_at_trigger
+  on public.jobs_quoting_item_results;
+
+create trigger jobs_quoting_item_results_updated_at_trigger
+before insert or update on public.jobs_quoting_item_results
+for each row
+execute function public.set_jobs_quoting_updated_at();
+
 alter table public.jobs_quoting_runs enable row level security;
 alter table public.jobs_quoting_items enable row level security;
+alter table public.jobs_quoting_item_results enable row level security;
 
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete on table public.jobs_quoting_runs to authenticated;
 grant select, insert, update, delete on table public.jobs_quoting_items to authenticated;
+grant select, insert, update, delete on table public.jobs_quoting_item_results to authenticated;
 grant select, insert, update, delete on table public.jobs_quoting_runs to service_role;
 grant select, insert, update, delete on table public.jobs_quoting_items to service_role;
+grant select, insert, update, delete on table public.jobs_quoting_item_results to service_role;
 grant select, insert, update, delete on table public.editable_inspection_documents to service_role;
 
 create or replace view public.user_tag_display_names as
@@ -316,6 +354,43 @@ begin
 
   create policy "Authenticated users can delete owned or shared quote items"
     on public.jobs_quoting_items
+    for delete
+    to authenticated
+    using (user_id is null or (select auth.uid()) = user_id);
+
+  drop policy if exists "Authenticated users can read all quote item results"
+    on public.jobs_quoting_item_results;
+
+  create policy "Authenticated users can read all quote item results"
+    on public.jobs_quoting_item_results
+    for select
+    to authenticated
+    using (true);
+
+  drop policy if exists "Authenticated users can insert quote item results"
+    on public.jobs_quoting_item_results;
+
+  create policy "Authenticated users can insert quote item results"
+    on public.jobs_quoting_item_results
+    for insert
+    to authenticated
+    with check (user_id is null or (select auth.uid()) = user_id);
+
+  drop policy if exists "Authenticated users can update quote item results"
+    on public.jobs_quoting_item_results;
+
+  create policy "Authenticated users can update quote item results"
+    on public.jobs_quoting_item_results
+    for update
+    to authenticated
+    using (user_id is null or (select auth.uid()) = user_id)
+    with check (user_id is null or (select auth.uid()) = user_id);
+
+  drop policy if exists "Authenticated users can delete quote item results"
+    on public.jobs_quoting_item_results;
+
+  create policy "Authenticated users can delete quote item results"
+    on public.jobs_quoting_item_results
     for delete
     to authenticated
     using (user_id is null or (select auth.uid()) = user_id);

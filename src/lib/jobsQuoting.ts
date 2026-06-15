@@ -68,6 +68,19 @@ export type JobsQuotingItem = {
   updatedAt: string
 }
 
+export type JobsQuotingItemResultStatus = 'won' | 'lost' | 'pending'
+
+export type JobsQuotingItemResult = {
+  id: string
+  jobQuoteItemId: string
+  userId: string | null
+  quoteTotalAmount: number
+  winStatus: JobsQuotingItemResultStatus
+  amountWon: number | null
+  createdAt: string
+  updatedAt: string
+}
+
 export type JobsQuotingPageLayoutVisibility = {
   blockVisibility: Record<string, boolean>
   estimateNoteVisibility: Record<string, boolean>
@@ -118,6 +131,17 @@ export type JobsQuotingItemRow = {
   repair_section_visibility: Record<string, boolean> | null
   page_layout_visibility: JobsQuotingPageLayoutVisibility | null
   equipment_rental_settings: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+type JobsQuotingItemResultRow = {
+  id: string
+  job_quote_item_id: string
+  user_id: string | null
+  quote_total_amount: number | string | null
+  win_status: JobsQuotingItemResultStatus | null
+  amount_won: number | string | null
   created_at: string
   updated_at: string
 }
@@ -250,6 +274,22 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
     },
     textBoxes: [],
     equipmentRentalSettings: row.equipment_rental_settings ?? {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapJobsQuotingItemResult(row: JobsQuotingItemResultRow): JobsQuotingItemResult {
+  const quoteTotalAmount = Number(row.quote_total_amount ?? 0)
+  const amountWon = row.amount_won == null ? null : Number(row.amount_won)
+
+  return {
+    id: row.id,
+    jobQuoteItemId: row.job_quote_item_id,
+    userId: row.user_id,
+    quoteTotalAmount: Number.isFinite(quoteTotalAmount) ? quoteTotalAmount : 0,
+    winStatus: row.win_status ?? 'pending',
+    amountWon: amountWon == null || !Number.isFinite(amountWon) ? null : amountWon,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -462,6 +502,60 @@ export async function deleteJobsQuotingItem(itemId: string) {
   if (!data || data.length === 0) {
     throw new Error('Quote item was not deleted. Supabase delete permissions may not be enabled for jobs quoting items.')
   }
+}
+
+export async function getJobsQuotingItemResults(itemIds: string[]): Promise<JobsQuotingItemResult[]> {
+  const uniqueItemIds = Array.from(new Set(itemIds.filter(Boolean)))
+  if (uniqueItemIds.length === 0) return []
+
+  const client = requireSupabase()
+  await getCurrentUserId()
+
+  const rows: JobsQuotingItemResultRow[] = []
+
+  for (const itemIdChunk of chunkValues(uniqueItemIds, runIdFilterChunkSize)) {
+    const chunkRows = await fetchAllPages<JobsQuotingItemResultRow>((from, to) =>
+      client
+        .from('jobs_quoting_item_results')
+        .select('id, job_quote_item_id, user_id, quote_total_amount, win_status, amount_won, created_at, updated_at')
+        .in('job_quote_item_id', itemIdChunk)
+        .range(from, to),
+    )
+
+    rows.push(...chunkRows)
+  }
+
+  return rows.map(mapJobsQuotingItemResult)
+}
+
+export async function saveJobsQuotingItemResult(input: {
+  jobQuoteItemId: string
+  quoteTotalAmount: number
+  winStatus: JobsQuotingItemResultStatus
+  amountWon: number | null
+}): Promise<JobsQuotingItemResult> {
+  const client = requireSupabase()
+  const userId = await getCurrentUserId()
+  const { data, error } = await client
+    .from('jobs_quoting_item_results')
+    .upsert(
+      {
+        job_quote_item_id: input.jobQuoteItemId,
+        user_id: userId,
+        quote_total_amount: input.quoteTotalAmount,
+        win_status: input.winStatus,
+        amount_won: input.amountWon,
+      },
+      { onConflict: 'job_quote_item_id' },
+    )
+    .select('id, job_quote_item_id, user_id, quote_total_amount, win_status, amount_won, created_at, updated_at')
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return mapJobsQuotingItemResult(data as JobsQuotingItemResultRow)
 }
 
 export async function getJobsQuotingItemPdfUrl(item: JobsQuotingItem): Promise<string | null> {
