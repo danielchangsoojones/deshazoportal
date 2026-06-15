@@ -91,6 +91,11 @@ type IssueViewRow = {
   remark_sort?: number | null
 }
 
+type SupabaseQueryBuilder = {
+  eq: (column: string, value: string) => SupabaseQueryBuilder
+  in: (column: string, values: readonly string[]) => SupabaseQueryBuilder
+}
+
 let cachedDataset: OpenRiskDataset | null = null
 let pendingDataset: Promise<OpenRiskDataset> | null = null
 
@@ -116,7 +121,7 @@ async function requireAuthenticatedSession() {
 async function fetchAll<T>(
   tableName: string,
   select: string,
-  buildQuery?: (query: any) => any,
+  buildQuery?: (query: SupabaseQueryBuilder) => SupabaseQueryBuilder,
   chunkSize = 250,
 ) {
   const client = requireSupabase()
@@ -131,7 +136,7 @@ async function fetchAll<T>(
       try {
         let query = client.from(tableName).select(select).range(from, from + chunkSize - 1)
         if (buildQuery) {
-          query = buildQuery(query) as typeof query
+          query = buildQuery(query as unknown as SupabaseQueryBuilder) as unknown as typeof query
         }
 
         const response = await query
@@ -166,7 +171,7 @@ async function fetchByInChunks<T>(
   select: string,
   columnName: string,
   values: string[],
-  buildQuery?: (query: any) => any,
+  buildQuery?: (query: SupabaseQueryBuilder) => SupabaseQueryBuilder,
   chunkSize = 200,
 ) {
   const uniqueValues = Array.from(new Set(values.filter(Boolean)))
@@ -258,6 +263,47 @@ function formatRemarks(value: unknown) {
   return parseRemarkTexts(value).map(ensureSentencePunctuation).join(' ')
 }
 
+function buildIssueRowsFromView(rows: IssueViewRow[]) {
+  const sortedRows = [...rows].sort((left, right) =>
+    (left.section_sort ?? 0) - (right.section_sort ?? 0) ||
+    (left.point_sort ?? 0) - (right.point_sort ?? 0) ||
+    (left.remark_sort ?? 0) - (right.remark_sort ?? 0),
+  )
+  const issuesByKey = new Map<string, AssetIssue>()
+
+  for (const row of sortedRows) {
+    const category = normalizeText(row.category).toLowerCase()
+    const safetyCategory = normalizeText(row.safety_category).toLowerCase()
+    const inspectionDate = formatDateLabel(row.inspection_date ?? row.completed_at) ?? ''
+    const componentType = normalizeText(row.component_type) || 'component_1'
+    const key = [
+      category,
+      safetyCategory,
+      row.inspection_date ?? row.completed_at ?? '',
+      componentType,
+      row.section_sort ?? '',
+      row.point_sort ?? '',
+    ].join('|')
+    const remarks = ensureSentencePunctuation(normalizeText(row.remarks))
+    const existing = issuesByKey.get(key)
+
+    if (existing) {
+      existing.remarks = [existing.remarks, remarks].filter(Boolean).join(' ')
+      continue
+    }
+
+    issuesByKey.set(key, {
+      category,
+      safety_category: safetyCategory,
+      inspection_date: inspectionDate,
+      component_type: componentType,
+      remarks,
+    })
+  }
+
+  return Array.from(issuesByKey.values())
+}
+
 function buildSectionComponentLabels(sections: SectionRow[]) {
   const sortedSections = [...sections].sort((left, right) => {
     const leftOrder = left.section_order ?? left.section_index ?? 0
@@ -332,25 +378,20 @@ async function loadDatasetFromViews(): Promise<OpenRiskDataset> {
     1000,
   )
 
-  const issuesByUnitId = new Map<string, AssetIssue[]>()
+  const issueRowsByUnitId = new Map<string, IssueViewRow[]>()
   for (const row of issueRows) {
     const unitId = normalizeText(row.unit_id).toUpperCase()
     if (!unitId) continue
-    const group = issuesByUnitId.get(unitId) ?? []
-    group.push({
-      category: normalizeText(row.category).toLowerCase(),
-      safety_category: normalizeText(row.safety_category),
-      inspection_date: formatDateLabel(row.inspection_date ?? row.completed_at) ?? '',
-      component_type: normalizeText(row.component_type) || 'component_1',
-      remarks: row.remarks ?? '',
-    })
-    issuesByUnitId.set(unitId, group)
+    const group = issueRowsByUnitId.get(unitId) ?? []
+    group.push(row)
+    issueRowsByUnitId.set(unitId, group)
   }
 
   const assets = summaries.map<AssetRecord>((summary, index) => {
     const unitId = normalizeText(summary.unit_id).toUpperCase()
-    const safetyIssueCount = Number(summary.safety_issue_count ?? 0)
-    const monitorIssueCount = Number(summary.monitor_issue_count ?? 0)
+    const issues = buildIssueRowsFromView(issueRowsByUnitId.get(unitId) ?? [])
+    const safetyIssueCount = issues.filter((issue) => issue.safety_category === 'safety').length
+    const monitorIssueCount = issues.filter((issue) => issue.safety_category === 'monitor').length
     return {
       unit: {
         unit_id: unitId,
@@ -361,7 +402,7 @@ async function loadDatasetFromViews(): Promise<OpenRiskDataset> {
         safety_issue_count: safetyIssueCount,
         monitor_issue_count: monitorIssueCount,
       },
-      issues: issuesByUnitId.get(unitId) ?? [],
+      issues,
       sortIndex: index,
     }
   })
