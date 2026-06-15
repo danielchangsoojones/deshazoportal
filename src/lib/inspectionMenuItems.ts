@@ -16,6 +16,7 @@ export type InspectionMenuItem = {
   sourceDocumentBucket?: string | null
   sourceDocumentFilePath?: string | null
   branches?: string[]
+  dNumbers?: string[]
 }
 
 export type InspectionMenuItemSection = {
@@ -42,6 +43,7 @@ type EditableInspectionMenuItemsRow = {
   source_document_bucket: string | null
   source_document_file_path: string | null
   branches: string[] | null
+  d_numbers: string[] | null
   display_order: number
   sync_token: string
   created_at: string
@@ -61,6 +63,7 @@ type EditableInspectionMenuItemsInsert = {
   source_document_bucket?: string | null
   source_document_file_path?: string | null
   branches: string[]
+  d_numbers: string[]
   display_order: number
   sync_token: string
 }
@@ -78,6 +81,7 @@ const inspectionMenuItemsSelect = `
   source_document_bucket,
   source_document_file_path,
   branches,
+  d_numbers,
   display_order,
   sync_token,
   created_at,
@@ -113,6 +117,7 @@ function mapMenuItemsRows(userId: string, rows: EditableInspectionMenuItemsRow[]
       sourceDocumentBucket: row.source_document_bucket,
       sourceDocumentFilePath: row.source_document_file_path,
       branches: row.branches ?? [],
+      dNumbers: row.d_numbers ?? [],
     })
 
     if (row.updated_at > updatedAt) updatedAt = row.updated_at
@@ -130,6 +135,7 @@ function flattenMenuSections(
   syncToken: string,
   branches: string[],
   menuSections: InspectionMenuItemSection[],
+  dNumbers: string[] = [],
 ) {
   return menuSections.flatMap((section) =>
     section.items.map((item) => {
@@ -137,6 +143,7 @@ function flattenMenuSections(
 
       const internalCost = item.internalCost ?? item.rate
       const customerPrice = item.customerPrice ?? item.rate
+      const itemDNumbers = normalizeDNumbers(item.dNumbers && item.dNumbers.length > 0 ? item.dNumbers : dNumbers)
 
       const row: EditableInspectionMenuItemsInsert = {
         user_id: userId,
@@ -150,6 +157,7 @@ function flattenMenuSections(
         source_document_bucket: item.sourceDocumentBucket ?? null,
         source_document_file_path: item.sourceDocumentFilePath ?? null,
         branches,
+        d_numbers: itemDNumbers,
         display_order: 0,
         sync_token: syncToken,
       }
@@ -163,6 +171,24 @@ function flattenMenuSections(
       return row
     }).filter((row): row is EditableInspectionMenuItemsInsert => Boolean(row)),
   ).map((row, displayOrder) => ({ ...row, display_order: displayOrder }))
+}
+
+export function normalizeDNumbers(values: Array<string | null | undefined>) {
+  const seen = new Set<string>()
+
+  return values
+    .map((value) => normalizeDNumber(value ?? ''))
+    .filter((value) => {
+      if (!value || seen.has(value)) return false
+      seen.add(value)
+      return true
+    })
+}
+
+export function normalizeDNumber(value: string) {
+  const normalized = value.trim().replace(/[\s-]+/g, '').toUpperCase()
+  if (!normalized) return ''
+  return normalized.startsWith('D') ? normalized : `D${normalized}`
 }
 
 async function getCurrentUserId() {
@@ -183,18 +209,25 @@ async function getCurrentUserId() {
   return data.user.id
 }
 
-export async function getInspectionMenuItems() {
+export async function getInspectionMenuItems(dNumber?: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
   const userId = await getCurrentUserId()
-  const { data, error } = await supabase
+  const normalizedDNumbers = normalizeDNumbers([dNumber])
+  let query = supabase
     .from('editable_inspection_menu_items')
     .select(inspectionMenuItemsSelect)
     .order('updated_at', { ascending: false })
     .order('display_order', { ascending: true })
     .order('label', { ascending: true })
+
+  if (normalizedDNumbers.length > 0) {
+    query = query.contains('d_numbers', normalizedDNumbers)
+  }
+
+  const { data, error } = await query
 
   if (error) {
     throw new Error(error.message)
@@ -226,7 +259,20 @@ function parseRateSearchValue(searchValue: string) {
   return Number(normalizedValue)
 }
 
-export async function searchInspectionMenuItems(searchValue: string) {
+export async function getInspectionMenuItemBranches() {
+  const userId = await getCurrentUserId()
+  return getCurrentUserBranches(userId)
+}
+
+function applyMenuItemBranchFilter<Query extends { overlaps: (column: string, values: string[]) => Query }>(
+  query: Query,
+  branches?: string[],
+) {
+  const normalizedBranches = Array.from(new Set((branches ?? []).map((branch) => branch.trim()).filter(Boolean)))
+  return normalizedBranches.length > 0 ? query.overlaps('branches', normalizedBranches) : query
+}
+
+export async function searchInspectionMenuItems(searchValue: string, branches?: string[]) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
@@ -239,19 +285,25 @@ export async function searchInspectionMenuItems(searchValue: string) {
   const rateSearchValue = parseRateSearchValue(normalizedSearchValue)
   const searchLimit = 100
 
-  const labelSearch = supabase
-    .from('editable_inspection_menu_items')
-    .select(inspectionMenuItemsSelect)
-    .ilike('label', likeSearchValue)
+  const labelSearch = applyMenuItemBranchFilter(
+    supabase
+      .from('editable_inspection_menu_items')
+      .select(inspectionMenuItemsSelect)
+      .ilike('label', likeSearchValue),
+    branches,
+  )
     .order('updated_at', { ascending: false })
     .order('display_order', { ascending: true })
     .order('label', { ascending: true })
     .limit(searchLimit)
 
-  const descriptionSearch = supabase
-    .from('editable_inspection_menu_items')
-    .select(inspectionMenuItemsSelect)
-    .ilike('description', likeSearchValue)
+  const descriptionSearch = applyMenuItemBranchFilter(
+    supabase
+      .from('editable_inspection_menu_items')
+      .select(inspectionMenuItemsSelect)
+      .ilike('description', likeSearchValue),
+    branches,
+  )
     .order('updated_at', { ascending: false })
     .order('display_order', { ascending: true })
     .order('label', { ascending: true })
@@ -259,10 +311,13 @@ export async function searchInspectionMenuItems(searchValue: string) {
 
   const rateSearch = rateSearchValue == null
     ? Promise.resolve({ data: [], error: null })
-    : supabase
-        .from('editable_inspection_menu_items')
-        .select(inspectionMenuItemsSelect)
-        .eq('rate', rateSearchValue)
+    : applyMenuItemBranchFilter(
+        supabase
+          .from('editable_inspection_menu_items')
+          .select(inspectionMenuItemsSelect)
+          .eq('rate', rateSearchValue),
+        branches,
+      )
         .order('updated_at', { ascending: false })
         .order('display_order', { ascending: true })
         .order('label', { ascending: true })
@@ -270,10 +325,13 @@ export async function searchInspectionMenuItems(searchValue: string) {
 
   const internalCostSearch = rateSearchValue == null
     ? Promise.resolve({ data: [], error: null })
-    : supabase
-        .from('editable_inspection_menu_items')
-        .select(inspectionMenuItemsSelect)
-        .eq('internal_cost', rateSearchValue)
+    : applyMenuItemBranchFilter(
+        supabase
+          .from('editable_inspection_menu_items')
+          .select(inspectionMenuItemsSelect)
+          .eq('internal_cost', rateSearchValue),
+        branches,
+      )
         .order('updated_at', { ascending: false })
         .order('display_order', { ascending: true })
         .order('label', { ascending: true })
@@ -281,10 +339,13 @@ export async function searchInspectionMenuItems(searchValue: string) {
 
   const customerPriceSearch = rateSearchValue == null
     ? Promise.resolve({ data: [], error: null })
-    : supabase
-        .from('editable_inspection_menu_items')
-        .select(inspectionMenuItemsSelect)
-        .eq('customer_price', rateSearchValue)
+    : applyMenuItemBranchFilter(
+        supabase
+          .from('editable_inspection_menu_items')
+          .select(inspectionMenuItemsSelect)
+          .eq('customer_price', rateSearchValue),
+        branches,
+      )
         .order('updated_at', { ascending: false })
         .order('display_order', { ascending: true })
         .order('label', { ascending: true })
@@ -307,24 +368,31 @@ export async function searchInspectionMenuItems(searchValue: string) {
   }
 }
 
-export async function upsertInspectionMenuItems(menuSections: InspectionMenuItemSection[]) {
+export async function upsertInspectionMenuItems(menuSections: InspectionMenuItemSection[], dNumber?: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
   const userId = await getCurrentUserId()
   const branches = await getCurrentUserBranches(userId)
+  const normalizedDNumbers = normalizeDNumbers([dNumber])
   const syncToken = createMenuItemId()
   if (!syncToken) {
     throw new Error('Menu items could not be saved because this browser could not create a sync id.')
   }
-  const rows = flattenMenuSections(userId, syncToken, branches, menuSections)
+  const rows = flattenMenuSections(userId, syncToken, branches, menuSections, normalizedDNumbers)
 
   if (rows.length === 0) {
-    const { error: deleteAllError } = await supabase
+    let deleteQuery = supabase
       .from('editable_inspection_menu_items')
       .delete()
       .eq('user_id', userId)
+
+    if (normalizedDNumbers.length > 0) {
+      deleteQuery = deleteQuery.contains('d_numbers', normalizedDNumbers)
+    }
+
+    const { error: deleteAllError } = await deleteQuery
 
     if (deleteAllError) {
       throw new Error(deleteAllError.message)
@@ -349,11 +417,17 @@ export async function upsertInspectionMenuItems(menuSections: InspectionMenuItem
     throw new Error(error.message)
   }
 
-  const { error: deleteStaleError } = await supabase
+  let deleteStaleQuery = supabase
     .from('editable_inspection_menu_items')
     .delete()
     .eq('user_id', userId)
     .neq('sync_token', syncToken)
+
+  if (normalizedDNumbers.length > 0) {
+    deleteStaleQuery = deleteStaleQuery.contains('d_numbers', normalizedDNumbers)
+  }
+
+  const { error: deleteStaleError } = await deleteStaleQuery
 
   if (deleteStaleError) {
     throw new Error(deleteStaleError.message)

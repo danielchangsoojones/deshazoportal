@@ -26,6 +26,7 @@ create table if not exists public.jobs_quoting_items (
   editable_document_id uuid references public.editable_inspection_documents (id) on delete set null,
   document_name text not null,
   job_number text,
+  job_type text,
   d_number text,
   deshazo_external_inspection_report_work_order_id bigint references public.deshazo_external_inspection_reports (work_order_id) on delete set null,
   split_type text,
@@ -48,6 +49,7 @@ create table if not exists public.jobs_quoting_items (
   block_visibility jsonb not null default '{}'::jsonb,
   estimate_note_visibility jsonb not null default '{}'::jsonb,
   repair_section_visibility jsonb not null default '{}'::jsonb,
+  page_layout_visibility jsonb not null default '{}'::jsonb,
   equipment_rental_settings jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
@@ -61,8 +63,30 @@ create table if not exists public.jobs_quoting_items (
     check (pdf_content_type = 'application/pdf')
 );
 
+create table if not exists public.jobs_quoting_item_results (
+  id uuid primary key default gen_random_uuid(),
+  job_quote_item_id uuid not null references public.jobs_quoting_items (id) on delete cascade,
+  user_id uuid references auth.users (id) on delete set null,
+  quote_total_amount numeric(12, 2) not null default 0,
+  win_status text not null default 'pending',
+  amount_won numeric(12, 2),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint jobs_quoting_item_results_item_key
+    unique (job_quote_item_id),
+  constraint jobs_quoting_item_results_quote_total_nonnegative
+    check (quote_total_amount >= 0),
+  constraint jobs_quoting_item_results_amount_won_nonnegative
+    check (amount_won is null or amount_won >= 0),
+  constraint jobs_quoting_item_results_win_status
+    check (win_status in ('won', 'lost', 'pending')),
+  constraint jobs_quoting_item_results_amount_won_for_won
+    check (win_status = 'won' or amount_won is null)
+);
+
 alter table public.jobs_quoting_items
   add column if not exists job_number text,
+  add column if not exists job_type text,
   add column if not exists d_number text,
   add column if not exists deshazo_external_inspection_report_work_order_id bigint references public.deshazo_external_inspection_reports (work_order_id) on delete set null,
   add column if not exists pdf_bucket text not null default 'jobs-quoting-pdfs',
@@ -78,7 +102,21 @@ alter table public.jobs_quoting_items
   add column if not exists block_visibility jsonb not null default '{}'::jsonb,
   add column if not exists estimate_note_visibility jsonb not null default '{}'::jsonb,
   add column if not exists repair_section_visibility jsonb not null default '{}'::jsonb,
+  add column if not exists page_layout_visibility jsonb not null default '{}'::jsonb,
   add column if not exists equipment_rental_settings jsonb not null default '{}'::jsonb;
+
+update public.jobs_quoting_items
+set page_layout_visibility = jsonb_build_object(
+  'blockVisibility', block_visibility,
+  'estimateNoteVisibility', estimate_note_visibility,
+  'repairSectionVisibility', repair_section_visibility
+)
+where page_layout_visibility = '{}'::jsonb
+  and (
+    block_visibility <> '{}'::jsonb
+    or estimate_note_visibility <> '{}'::jsonb
+    or repair_section_visibility <> '{}'::jsonb
+  );
 
 alter table public.jobs_quoting_runs
   alter column user_id drop not null;
@@ -90,6 +128,21 @@ update public.jobs_quoting_items
 set job_number = nullif(btrim(coalesce(extraction_data #>> '{job_number,value}', extraction_data ->> 'job_number')), '')
 where job_number is null
   and nullif(btrim(coalesce(extraction_data #>> '{job_number,value}', extraction_data ->> 'job_number')), '') is not null;
+
+update public.jobs_quoting_items
+set job_type = nullif(btrim(coalesce(
+  extraction_data #>> '{job_type,value}',
+  extraction_data #>> '{inspection_type,value}',
+  extraction_data ->> 'job_type',
+  extraction_data ->> 'inspection_type'
+)), '')
+where job_type is null
+  and nullif(btrim(coalesce(
+    extraction_data #>> '{job_type,value}',
+    extraction_data #>> '{inspection_type,value}',
+    extraction_data ->> 'job_type',
+    extraction_data ->> 'inspection_type'
+  )), '') is not null;
 
 update public.jobs_quoting_items
 set d_number = nullif(btrim(coalesce(extraction_data #>> '{d_number,value}', extraction_data ->> 'd_number')), '')
@@ -110,9 +163,19 @@ create index if not exists jobs_quoting_items_user_job_number_idx
   on public.jobs_quoting_items (user_id, job_number)
   where job_number is not null;
 
+create index if not exists jobs_quoting_items_user_job_type_idx
+  on public.jobs_quoting_items (user_id, job_type)
+  where job_type is not null;
+
 create index if not exists jobs_quoting_items_user_d_number_idx
   on public.jobs_quoting_items (user_id, d_number)
   where d_number is not null;
+
+create index if not exists jobs_quoting_item_results_status_idx
+  on public.jobs_quoting_item_results (win_status, updated_at desc);
+
+create index if not exists jobs_quoting_item_results_user_idx
+  on public.jobs_quoting_item_results (user_id, updated_at desc);
 
 create or replace function public.set_jobs_quoting_updated_at()
 returns trigger
@@ -132,14 +195,35 @@ set search_path = public
 as $$
 declare
   extracted_d_number text;
+  extracted_job_type text;
 begin
   new.updated_at := timezone('utc', now());
   extracted_d_number := nullif(btrim(coalesce(new.extraction_data #>> '{d_number,value}', new.extraction_data ->> 'd_number')), '');
+  extracted_job_type := nullif(btrim(coalesce(
+    new.extraction_data #>> '{job_type,value}',
+    new.extraction_data #>> '{inspection_type,value}',
+    new.extraction_data ->> 'job_type',
+    new.extraction_data ->> 'inspection_type'
+  )), '');
 
-  if extracted_d_number is not null then
+  if tg_op = 'UPDATE' and new.job_type is distinct from old.job_type then
+    new.job_type := nullif(btrim(new.job_type), '');
+  elsif nullif(btrim(new.job_type), '') is not null then
+    new.job_type := nullif(btrim(new.job_type), '');
+  elsif extracted_job_type is not null then
+    new.job_type := extracted_job_type;
+  else
+    new.job_type := null;
+  end if;
+
+  if tg_op = 'UPDATE' and new.d_number is distinct from old.d_number then
+    new.d_number := nullif(btrim(new.d_number), '');
+  elsif nullif(btrim(new.d_number), '') is not null then
+    new.d_number := nullif(btrim(new.d_number), '');
+  elsif extracted_d_number is not null then
     new.d_number := extracted_d_number;
   else
-    new.d_number := nullif(btrim(new.d_number), '');
+    new.d_number := null;
   end if;
 
   return new;
@@ -162,14 +246,25 @@ before insert or update on public.jobs_quoting_items
 for each row
 execute function public.set_jobs_quoting_item_defaults();
 
+drop trigger if exists jobs_quoting_item_results_updated_at_trigger
+  on public.jobs_quoting_item_results;
+
+create trigger jobs_quoting_item_results_updated_at_trigger
+before insert or update on public.jobs_quoting_item_results
+for each row
+execute function public.set_jobs_quoting_updated_at();
+
 alter table public.jobs_quoting_runs enable row level security;
 alter table public.jobs_quoting_items enable row level security;
+alter table public.jobs_quoting_item_results enable row level security;
 
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete on table public.jobs_quoting_runs to authenticated;
 grant select, insert, update, delete on table public.jobs_quoting_items to authenticated;
+grant select, insert, update, delete on table public.jobs_quoting_item_results to authenticated;
 grant select, insert, update, delete on table public.jobs_quoting_runs to service_role;
 grant select, insert, update, delete on table public.jobs_quoting_items to service_role;
+grant select, insert, update, delete on table public.jobs_quoting_item_results to service_role;
 grant select, insert, update, delete on table public.editable_inspection_documents to service_role;
 
 create or replace view public.user_tag_display_names as
@@ -253,6 +348,52 @@ begin
     to authenticated
     using (user_id is null or (select auth.uid()) = user_id)
     with check (user_id is null or (select auth.uid()) = user_id);
+
+  drop policy if exists "Authenticated users can delete owned or shared quote items"
+    on public.jobs_quoting_items;
+
+  create policy "Authenticated users can delete owned or shared quote items"
+    on public.jobs_quoting_items
+    for delete
+    to authenticated
+    using (user_id is null or (select auth.uid()) = user_id);
+
+  drop policy if exists "Authenticated users can read all quote item results"
+    on public.jobs_quoting_item_results;
+
+  create policy "Authenticated users can read all quote item results"
+    on public.jobs_quoting_item_results
+    for select
+    to authenticated
+    using (true);
+
+  drop policy if exists "Authenticated users can insert quote item results"
+    on public.jobs_quoting_item_results;
+
+  create policy "Authenticated users can insert quote item results"
+    on public.jobs_quoting_item_results
+    for insert
+    to authenticated
+    with check (user_id is null or (select auth.uid()) = user_id);
+
+  drop policy if exists "Authenticated users can update quote item results"
+    on public.jobs_quoting_item_results;
+
+  create policy "Authenticated users can update quote item results"
+    on public.jobs_quoting_item_results
+    for update
+    to authenticated
+    using (user_id is null or (select auth.uid()) = user_id)
+    with check (user_id is null or (select auth.uid()) = user_id);
+
+  drop policy if exists "Authenticated users can delete quote item results"
+    on public.jobs_quoting_item_results;
+
+  create policy "Authenticated users can delete quote item results"
+    on public.jobs_quoting_item_results
+    for delete
+    to authenticated
+    using (user_id is null or (select auth.uid()) = user_id);
 end
 $$;
 
