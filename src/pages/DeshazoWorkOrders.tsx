@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
@@ -118,9 +118,13 @@ export default function DeshazoWorkOrders() {
   const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState('')
   const [userTag, setUserTag] = useState<UserTag | null>(null)
+  const userRef = useRef<User | null>(null)
+  const userTagRef = useRef<UserTag | null>(null)
+  const lastSyncAtRef = useRef('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
   const canFetchAll = userTag === 'developer'
+  const searchIsPending = search !== submittedSearch || (loading && submittedSearch.trim().length > 0)
 
   const activeMenuItems = useMemo(
     () =>
@@ -141,8 +145,12 @@ export default function DeshazoWorkOrders() {
 
     try {
       setLoading(true)
-      const { data } = await client.auth.getUser()
-      const nextUser = data.user
+      let nextUser = userRef.current
+      if (!nextUser) {
+        const { data } = await client.auth.getUser()
+        nextUser = data.user
+      }
+
       if (!nextUser) {
         navigate('/login')
         return
@@ -151,8 +159,8 @@ export default function DeshazoWorkOrders() {
       const offset = (currentPage - 1) * WORK_ORDERS_PAGE_SIZE
       const [result, latestSyncAt, nextUserTag] = await Promise.all([
         getSavedDeshazoWorkOrders(WORK_ORDERS_PAGE_SIZE, submittedSearch, offset),
-        getDeshazoExternalWorkOrdersLastSync(),
-        getCurrentUserTag(nextUser.id),
+        lastSyncAtRef.current ? Promise.resolve(lastSyncAtRef.current) : getDeshazoExternalWorkOrdersLastSync(),
+        userTagRef.current ? Promise.resolve(userTagRef.current) : getCurrentUserTag(nextUser.id),
       ])
       if (cancelledRef?.cancelled) return
 
@@ -165,6 +173,9 @@ export default function DeshazoWorkOrders() {
       const firstVisibleRow = result.totalCount > 0 ? offset + 1 : 0
       const lastVisibleRow = Math.min(offset + result.workOrders.length, result.totalCount)
 
+      userRef.current = nextUser
+      userTagRef.current = nextUserTag
+      lastSyncAtRef.current = latestSyncAt
       setUser(nextUser)
       setUserTag(nextUserTag)
       setWorkOrders(result.workOrders)
@@ -172,8 +183,8 @@ export default function DeshazoWorkOrders() {
       setLastSyncAt(latestSyncAt)
       setMessage(
         result.totalCount > 0
-          ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved Wabash work orders from Supabase.`
-          : 'No saved Wabash work orders found yet.',
+          ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved work orders from Supabase.`
+          : 'No saved work orders found yet.',
       )
     } catch (error) {
       if (cancelledRef?.cancelled) return
@@ -214,11 +225,15 @@ export default function DeshazoWorkOrders() {
     navigate('/login')
   }
 
-  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setCurrentPage(1)
-    setSubmittedSearch(search)
-  }
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setCurrentPage(1)
+      setSubmittedSearch(search)
+    }, 300)
+
+    return () => window.clearTimeout(timer)
+  }, [search])
+
 
   const clearSearch = () => {
     setSearch('')
@@ -417,13 +432,13 @@ export default function DeshazoWorkOrders() {
                     </button>
                   </div>
                 )}
-                <form onSubmit={handleSearchSubmit} className="flex w-full max-w-[440px] items-stretch">
-                  <div className="relative min-w-0 flex-1">
+                <div className="w-full max-w-[440px]">
+                  <div className="relative min-w-0">
                     <input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder="Search D-number or job number..."
-                      className="h-full w-full min-w-0 border border-[#bfc7d8] px-3 py-2 pr-9 text-sm font-semibold outline-none focus:border-[var(--deshazo-blue)]"
+                      className="w-full min-w-0 border border-[#bfc7d8] px-3 py-2 pr-9 text-sm font-semibold outline-none focus:border-[var(--deshazo-blue)]"
                     />
                     {search || submittedSearch ? (
                       <button
@@ -437,10 +452,13 @@ export default function DeshazoWorkOrders() {
                       </button>
                     ) : null}
                   </div>
-                  <button type="submit" className="bg-[#f4b331] px-4 text-lg font-black text-white">
-                    ⌕
-                  </button>
-                </form>
+                  {searchIsPending ? (
+                    <div className="mt-1 flex items-center gap-2 text-[12px] font-bold text-[#5f6675]" role="status">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-[#f4b331]" aria-hidden="true" />
+                      Searching...
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
 

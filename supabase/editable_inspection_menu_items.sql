@@ -30,6 +30,7 @@ create table if not exists public.editable_inspection_menu_items (
   source_document_bucket text,
   source_document_file_path text,
   branches text[] not null default '{}'::text[],
+  d_numbers text[] not null default '{}'::text[],
   display_order integer not null default 0,
   sync_token uuid not null default gen_random_uuid(),
   created_at timestamptz not null default timezone('utc', now()),
@@ -50,6 +51,9 @@ alter table public.editable_inspection_menu_items
   add column if not exists source_document_bucket text,
   add column if not exists source_document_file_path text,
   add column if not exists branches text[] not null default '{}'::text[];
+
+alter table public.editable_inspection_menu_items
+  add column if not exists d_numbers text[] not null default '{}'::text[];
 
 alter table public.editable_inspection_menu_items
   drop constraint if exists editable_inspection_menu_items_section_title_not_blank,
@@ -177,6 +181,9 @@ create index if not exists editable_inspection_menu_items_user_source_document_i
 create index if not exists editable_inspection_menu_items_branches_idx
   on public.editable_inspection_menu_items using gin (branches);
 
+create index if not exists editable_inspection_menu_items_d_numbers_idx
+  on public.editable_inspection_menu_items using gin (d_numbers);
+
 update public.editable_inspection_menu_items menu_item
 set branches = coalesce(user_tag.deshazo_branches, '{}'::text[])
 from public.user_tags user_tag
@@ -266,6 +273,12 @@ drop policy if exists "Authenticated users can read all inspection menu items"
 
 drop policy if exists "Authenticated users can read branch inspection menu items"
   on public.editable_inspection_menu_items;
+
+create policy "Authenticated users can read all inspection menu items"
+  on public.editable_inspection_menu_items
+  for select
+  to authenticated
+  using (true);
 
 create policy "Authenticated users can read branch inspection menu items"
   on public.editable_inspection_menu_items

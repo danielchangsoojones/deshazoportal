@@ -273,6 +273,38 @@ export async function getSavedDeshazoInspectionReports(limit = 20) {
   return reportRows.map((row) => normalizeSavedReport(row, summariesById.get(row.work_order_id)))
 }
 
+export async function getSavedDeshazoInspectionReport(workOrderId: number) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const { data, error } = await supabase
+    .from('deshazo_external_inspection_reports')
+    .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .eq('work_order_id', workOrderId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  if (!data) return null
+
+  const { data: summaryData, error: summaryError } = await supabase
+    .from('deshazo_external_work_orders')
+    .select(
+      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
+    )
+    .eq('work_order_id', workOrderId)
+    .maybeSingle()
+
+  if (summaryError) {
+    throw new Error(summaryError.message)
+  }
+
+  return normalizeSavedReport(data as DeshazoInspectionReportRow, summaryData as DeshazoExternalWorkOrderRow | undefined)
+}
+
 export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset = 0) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')

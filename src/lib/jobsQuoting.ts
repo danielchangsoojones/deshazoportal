@@ -36,6 +36,7 @@ export type JobsQuotingItem = {
   editableDocumentId: string | null
   documentName: string
   jobNumber: string
+  jobType: string
   dNumber: string
   deshazoExternalInspectionReportWorkOrderId: number | null
   splitType: string
@@ -58,11 +59,33 @@ export type JobsQuotingItem = {
   costSections: unknown[]
   blockVisibility: Record<string, boolean>
   estimateNoteVisibility: Record<string, boolean>
+  estimateCostSectionVisibility: Record<string, boolean>
   repairSectionVisibility: Record<string, boolean>
+  pageLayoutVisibility: JobsQuotingPageLayoutVisibility
   textBoxes: unknown[]
   equipmentRentalSettings: Record<string, unknown>
   createdAt: string
   updatedAt: string
+}
+
+export type JobsQuotingItemResultStatus = 'won' | 'lost' | 'pending'
+
+export type JobsQuotingItemResult = {
+  id: string
+  jobQuoteItemId: string
+  userId: string | null
+  quoteTotalAmount: number
+  winStatus: JobsQuotingItemResultStatus
+  amountWon: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type JobsQuotingPageLayoutVisibility = {
+  blockVisibility: Record<string, boolean>
+  estimateNoteVisibility: Record<string, boolean>
+  estimateCostSectionVisibility?: Record<string, boolean>
+  repairSectionVisibility: Record<string, boolean>
 }
 
 type JobsQuotingRunRow = {
@@ -83,6 +106,7 @@ export type JobsQuotingItemRow = {
   editable_document_id: string | null
   document_name: string
   job_number: string | null
+  job_type?: string | null
   d_number: string | null
   deshazo_external_inspection_report_work_order_id: number | null
   split_type: string | null
@@ -105,7 +129,19 @@ export type JobsQuotingItemRow = {
   block_visibility: Record<string, boolean> | null
   estimate_note_visibility: Record<string, boolean> | null
   repair_section_visibility: Record<string, boolean> | null
+  page_layout_visibility: JobsQuotingPageLayoutVisibility | null
   equipment_rental_settings: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+type JobsQuotingItemResultRow = {
+  id: string
+  job_quote_item_id: string
+  user_id: string | null
+  quote_total_amount: number | string | null
+  win_status: JobsQuotingItemResultStatus | null
+  amount_won: number | string | null
   created_at: string
   updated_at: string
 }
@@ -140,6 +176,20 @@ export type ExternalInspectionReportQuoteImportResult = {
   }>
 }
 
+export type ExternalCraneDNumberQuoteCreateResult = {
+  dNumber: string
+  runId: string
+  itemId: string
+  jobNumber: string | null
+  documentName: string
+}
+
+export type BlankQuoteCreateResult = {
+  runId: string
+  itemId: string
+  documentName: string
+}
+
 const supabasePageSize = 1000
 const runIdFilterChunkSize = 100
 
@@ -157,9 +207,33 @@ function mapRun(row: JobsQuotingRunRow): JobsQuotingRun {
   }
 }
 
+function getExtractedJobType(extractionData: Record<string, unknown> | null): string | null {
+  const candidates = [
+    extractionData?.job_type,
+    extractionData?.inspection_type,
+    extractionData?.jobType,
+    extractionData?.inspectionType,
+    extractionData?.type,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+    if (candidate && typeof candidate === 'object' && 'value' in candidate) {
+      const value = (candidate as { value?: unknown }).value
+      if (typeof value === 'string' && value.trim()) return value.trim()
+    }
+  }
+
+  return null
+}
+
 export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
   const repairCount = row.repair_count ?? 0
   const safetyCount = row.safety_count ?? 0
+  const blockVisibility = row.page_layout_visibility?.blockVisibility ?? row.block_visibility ?? {}
+  const estimateNoteVisibility = row.page_layout_visibility?.estimateNoteVisibility ?? row.estimate_note_visibility ?? {}
+  const estimateCostSectionVisibility = row.page_layout_visibility?.estimateCostSectionVisibility ?? {}
+  const repairSectionVisibility = row.page_layout_visibility?.repairSectionVisibility ?? row.repair_section_visibility ?? {}
 
   return {
     id: row.id,
@@ -167,6 +241,7 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
     editableDocumentId: row.editable_document_id,
     documentName: row.document_name,
     jobNumber: row.job_number ?? '',
+    jobType: row.job_type ?? getExtractedJobType(row.extraction_data) ?? '',
     dNumber: row.d_number ?? '',
     deshazoExternalInspectionReportWorkOrderId: row.deshazo_external_inspection_report_work_order_id,
     splitType: row.split_type ?? '',
@@ -187,11 +262,34 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
     reportData: row.report_data ?? {},
     repairSections: row.repair_sections ?? [],
     costSections: row.cost_sections ?? [],
-    blockVisibility: row.block_visibility ?? {},
-    estimateNoteVisibility: row.estimate_note_visibility ?? {},
-    repairSectionVisibility: row.repair_section_visibility ?? {},
+    blockVisibility,
+    estimateNoteVisibility,
+    estimateCostSectionVisibility,
+    repairSectionVisibility,
+    pageLayoutVisibility: {
+      blockVisibility,
+      estimateNoteVisibility,
+      estimateCostSectionVisibility,
+      repairSectionVisibility,
+    },
     textBoxes: [],
     equipmentRentalSettings: row.equipment_rental_settings ?? {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapJobsQuotingItemResult(row: JobsQuotingItemResultRow): JobsQuotingItemResult {
+  const quoteTotalAmount = Number(row.quote_total_amount ?? 0)
+  const amountWon = row.amount_won == null ? null : Number(row.amount_won)
+
+  return {
+    id: row.id,
+    jobQuoteItemId: row.job_quote_item_id,
+    userId: row.user_id,
+    quoteTotalAmount: Number.isFinite(quoteTotalAmount) ? quoteTotalAmount : 0,
+    winStatus: row.win_status ?? 'pending',
+    amountWon: amountWon == null || !Number.isFinite(amountWon) ? null : amountWon,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -203,6 +301,7 @@ export const jobsQuotingItemSelect = `
   editable_document_id,
   document_name,
   job_number,
+  job_type,
   d_number,
   deshazo_external_inspection_report_work_order_id,
   split_type,
@@ -225,6 +324,7 @@ export const jobsQuotingItemSelect = `
   block_visibility,
   estimate_note_visibility,
   repair_section_visibility,
+  page_layout_visibility,
   equipment_rental_settings,
   created_at,
   updated_at
@@ -386,6 +486,78 @@ export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingIte
   return mapJobsQuotingItem(data as JobsQuotingItemRow)
 }
 
+export async function deleteJobsQuotingItem(itemId: string) {
+  const client = requireSupabase()
+  await getCurrentUserId()
+  const { data, error } = await client
+    .from('jobs_quoting_items')
+    .delete()
+    .eq('id', itemId)
+    .select('id')
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Quote item was not deleted. Supabase delete permissions may not be enabled for jobs quoting items.')
+  }
+}
+
+export async function getJobsQuotingItemResults(itemIds: string[]): Promise<JobsQuotingItemResult[]> {
+  const uniqueItemIds = Array.from(new Set(itemIds.filter(Boolean)))
+  if (uniqueItemIds.length === 0) return []
+
+  const client = requireSupabase()
+  await getCurrentUserId()
+
+  const rows: JobsQuotingItemResultRow[] = []
+
+  for (const itemIdChunk of chunkValues(uniqueItemIds, runIdFilterChunkSize)) {
+    const chunkRows = await fetchAllPages<JobsQuotingItemResultRow>((from, to) =>
+      client
+        .from('jobs_quoting_item_results')
+        .select('id, job_quote_item_id, user_id, quote_total_amount, win_status, amount_won, created_at, updated_at')
+        .in('job_quote_item_id', itemIdChunk)
+        .range(from, to),
+    )
+
+    rows.push(...chunkRows)
+  }
+
+  return rows.map(mapJobsQuotingItemResult)
+}
+
+export async function saveJobsQuotingItemResult(input: {
+  jobQuoteItemId: string
+  quoteTotalAmount: number
+  winStatus: JobsQuotingItemResultStatus
+  amountWon: number | null
+}): Promise<JobsQuotingItemResult> {
+  const client = requireSupabase()
+  const userId = await getCurrentUserId()
+  const { data, error } = await client
+    .from('jobs_quoting_item_results')
+    .upsert(
+      {
+        job_quote_item_id: input.jobQuoteItemId,
+        user_id: userId,
+        quote_total_amount: input.quoteTotalAmount,
+        win_status: input.winStatus,
+        amount_won: input.amountWon,
+      },
+      { onConflict: 'job_quote_item_id' },
+    )
+    .select('id, job_quote_item_id, user_id, quote_total_amount, win_status, amount_won, created_at, updated_at')
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return mapJobsQuotingItemResult(data as JobsQuotingItemResultRow)
+}
+
 export async function getJobsQuotingItemPdfUrl(item: JobsQuotingItem): Promise<string | null> {
   const client = requireSupabase()
 
@@ -483,6 +655,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   jobNumbers: string[],
 ): Promise<ExternalInspectionReportQuoteImportResult> {
   const normalizedJobNumbers = jobNumbers.map((jobNumber) => jobNumber.trim()).filter(Boolean)
+  const lookupJobNumbers = getJobNumberLookupValues(normalizedJobNumbers)
   if (normalizedJobNumbers.length === 0) {
     throw new Error('Enter at least one job number.')
   }
@@ -492,7 +665,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   }
 
   const url = new URL('/api/external/jobs-quoting/from-inspection-reports', deshazoExternalApiBaseUrl)
-  url.searchParams.set('jobNumbers', normalizedJobNumbers.join(','))
+  url.searchParams.set('jobNumbers', lookupJobNumbers.join(','))
   const response = await fetch(url.toString(), {
     method: 'POST',
     headers: {
@@ -500,7 +673,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
       'Content-Type': 'application/json',
       'X-API-Key': deshazoExternalApiKey,
     },
-    body: JSON.stringify({ jobNumbers: normalizedJobNumbers }),
+    body: JSON.stringify({ jobNumbers: lookupJobNumbers }),
   })
 
   const responseText = await response.text()
@@ -520,4 +693,104 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   }
 
   return body as ExternalInspectionReportQuoteImportResult
+}
+
+export async function createJobQuotingItemFromExternalCraneDNumber(dNumber: string): Promise<ExternalCraneDNumberQuoteCreateResult> {
+  const normalizedDNumber = dNumber.trim().toUpperCase().replace(/\s+/g, '')
+  if (!/^D[0-9]{6}$/.test(normalizedDNumber)) {
+    throw new Error('Enter a D number in the format D123456.')
+  }
+
+  if (!deshazoExternalApiKey) {
+    throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
+  }
+
+  const url = new URL('/api/external/jobs-quoting/from-d-number', deshazoExternalApiBaseUrl)
+  url.searchParams.set('dNumber', normalizedDNumber)
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-API-Key': deshazoExternalApiKey,
+    },
+    body: JSON.stringify({ dNumber: normalizedDNumber }),
+  })
+
+  const responseText = await response.text()
+  let body: unknown = responseText
+  try {
+    body = JSON.parse(responseText)
+  } catch {
+    // Keep non-JSON backend errors readable.
+  }
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `D-number quote creation failed with status ${response.status}.`
+    throw new Error(message)
+  }
+
+  return body as ExternalCraneDNumberQuoteCreateResult
+}
+
+export async function createBlankJobQuotingItem(): Promise<BlankQuoteCreateResult> {
+  if (!deshazoExternalApiKey) {
+    throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
+  }
+
+  const url = new URL('/api/external/jobs-quoting/from-blank', deshazoExternalApiBaseUrl)
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-API-Key': deshazoExternalApiKey,
+    },
+    body: JSON.stringify({}),
+  })
+
+  const responseText = await response.text()
+  let body: unknown = responseText
+  try {
+    body = JSON.parse(responseText)
+  } catch {
+    // Keep non-JSON backend errors readable.
+  }
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `Blank quote creation failed with status ${response.status}.`
+    throw new Error(message)
+  }
+
+  return body as BlankQuoteCreateResult
+}
+
+function getJobNumberLookupValues(jobNumbers: string[]) {
+  const seen = new Set<string>()
+  const values: string[] = []
+
+  jobNumbers.forEach((jobNumber) => {
+    const normalizedJobNumber = jobNumber.trim()
+    const withoutLeadingZeroes = normalizedJobNumber.replace(/^0+(?=\d)/, '')
+    const variants = [normalizedJobNumber, withoutLeadingZeroes]
+
+    if (/^\d+$/.test(withoutLeadingZeroes) && !withoutLeadingZeroes.startsWith('0')) {
+      variants.push(`0${withoutLeadingZeroes}`)
+    }
+
+    variants.forEach((variant) => {
+      if (variant && !seen.has(variant)) {
+        seen.add(variant)
+        values.push(variant)
+      }
+    })
+  })
+
+  return values
 }

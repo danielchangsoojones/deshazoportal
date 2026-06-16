@@ -4,13 +4,20 @@ import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
+  createBlankJobQuotingItem,
+  createJobQuotingItemFromExternalCraneDNumber,
   createJobQuotingItemsFromExternalInspectionReports,
+  deleteJobsQuotingItem,
+  getJobsQuotingItemResults,
   getJobsQuotingItemsForRuns,
   getJobsQuotingRuns,
+  saveJobsQuotingItemResult,
   syncJobsQuotingRun,
   uploadExtractOnlyInspectionForQuoting,
   uploadInspectionForQuoting,
   type JobsQuotingItem,
+  type JobsQuotingItemResult,
+  type JobsQuotingItemResultStatus,
   type JobsQuotingRun,
 } from '../lib/jobsQuoting'
 import { getCurrentUserTag, getUserDisplayNames, type UserTag } from '../lib/userTags'
@@ -20,7 +27,7 @@ const inspectionRunsCollapsedStorageKey = 'deshazo-jobs-quoting-inspection-runs-
 const extractOnlyUploadMaxFilesPerRequest = 25
 const extractOnlyUploadMaxBytesPerRequest = 60 * 1024 * 1024
 const runGroupWindowMs = 10 * 60 * 1000
-const allReportsRunId = 'all-reports'
+const allJobsSectionId = 'all-jobs'
 const reportsPerPage = 50
 
 type JobsQuotingListProps = {
@@ -52,6 +59,24 @@ type JobsQuotingJobGroup = {
   modifiedAt: string
 }
 
+type QuoteLineItem = {
+  quantity?: unknown
+  customerPrice?: unknown
+  rate?: unknown
+  margin?: unknown
+}
+
+type QuoteCostSection = {
+  id?: unknown
+  title?: unknown
+  lineItems?: unknown
+}
+
+type QuoteRepairSection = {
+  id?: unknown
+  costSections?: unknown
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     month: 'short',
@@ -62,8 +87,65 @@ function formatDate(value: string) {
   }).format(new Date(value))
 }
 
-function formatStatus(status: string) {
-  return status.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(value)
+}
+
+function parseMoney(value: unknown) {
+  const numericValue = Number(String(value ?? '').replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(numericValue) ? numericValue : 0
+}
+
+function getLegacyCustomerUnitPrice(lineItem: QuoteLineItem) {
+  return parseMoney(lineItem.rate) * (1 + parseMoney(lineItem.margin) / 100)
+}
+
+function getCustomerLineAmount(lineItem: QuoteLineItem) {
+  const quantity = parseMoney(lineItem.quantity ?? '1')
+  const unitPrice = lineItem.customerPrice == null || lineItem.customerPrice === ''
+    ? getLegacyCustomerUnitPrice(lineItem)
+    : parseMoney(lineItem.customerPrice)
+
+  return quantity * unitPrice
+}
+
+function getCostSectionTotal(section: QuoteCostSection) {
+  const lineItems = Array.isArray(section.lineItems) ? section.lineItems : []
+  return lineItems.reduce((total, lineItem) => total + getCustomerLineAmount(lineItem as QuoteLineItem), 0)
+}
+
+function getSectionKey(section: QuoteCostSection | QuoteRepairSection) {
+  if (typeof section.id === 'string' && section.id.trim()) return section.id
+  if ('title' in section && typeof section.title === 'string' && section.title.trim()) return section.title
+  return ''
+}
+
+function isSectionVisible(sectionKey: string, visibility: Record<string, boolean>) {
+  return !sectionKey || visibility[sectionKey] !== false
+}
+
+function getQuoteTotalAmount(item: JobsQuotingItem) {
+  const repairTotal = item.repairSections.reduce<number>((total, repairSection) => {
+    const section = repairSection as QuoteRepairSection
+    const sectionKey = getSectionKey(section)
+    if (!isSectionVisible(sectionKey, item.repairSectionVisibility)) return total
+
+    const costSections = Array.isArray(section.costSections) ? section.costSections : []
+    return total + costSections.reduce<number>((sectionTotal, costSection) => sectionTotal + getCostSectionTotal(costSection as QuoteCostSection), 0)
+  }, 0)
+
+  const costTotal = item.costSections.reduce<number>((total, costSection) => {
+    const section = costSection as QuoteCostSection
+    const sectionKey = getSectionKey(section)
+    if (!isSectionVisible(sectionKey, item.estimateCostSectionVisibility)) return total
+
+    return total + getCostSectionTotal(section)
+  }, 0)
+
+  return Math.round((repairTotal + costTotal) * 100) / 100
 }
 
 function getFriendlyErrorMessage(error: unknown) {
@@ -91,6 +173,17 @@ function getFriendlyErrorMessage(error: unknown) {
   }
 
   return message
+}
+
+function getFriendlyImportErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : 'Job import could not be completed.'
+  const lowerMessage = message.toLowerCase()
+
+  if (lowerMessage === 'load failed' || lowerMessage.includes('failed to fetch')) {
+    return 'Job import request could not reach the backend. Confirm the external inspection report import route is deployed and reachable.'
+  }
+
+  return getFriendlyErrorMessage(error)
 }
 
 function chunkFilesForUpload(files: File[]) {
@@ -123,10 +216,6 @@ function chunkFilesForUpload(files: File[]) {
 function getFileListFolderName(files: File[]) {
   const relativePath = files[0]?.webkitRelativePath || ''
   return relativePath.includes('/') ? relativePath.split('/')[0] : ''
-}
-
-function getRunGroupPdfCount(group: JobsQuotingRunGroup) {
-  return group.runs.length
 }
 
 function renameRunsForDisplay(runs: JobsQuotingRun[], sourceFileName: string) {
@@ -188,17 +277,38 @@ function getExtractionValue(data: Record<string, unknown>, key: string) {
   return field == null ? '' : String(field)
 }
 
+function getSearchVariants(value: string) {
+  const normalizedValue = value.trim().toLowerCase()
+  if (!normalizedValue) return []
+
+  const variants = new Set([normalizedValue])
+  normalizedValue
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .forEach((token) => {
+      variants.add(token)
+      if (/^0+\d+$/.test(token)) {
+        variants.add(token.replace(/^0+/, '') || '0')
+      }
+    })
+
+  return Array.from(variants)
+}
+
 function getItemSearchText(item: JobsQuotingItem) {
   return [
-    getItemDNumber(item),
-    getItemJobNumber(item),
+    ...getSearchVariants(getItemDNumber(item)),
+    ...getSearchVariants(getItemJobNumber(item)),
   ]
     .join(' ')
-    .toLowerCase()
 }
 
 function getItemJobNumber(item: JobsQuotingItem) {
   return (item.jobNumber || getExtractionValue(item.extractionData, 'job_number')).trim()
+}
+
+function normalizeJobNumberForMatch(jobNumber: string) {
+  return jobNumber.trim().toLowerCase()
 }
 
 function getItemDNumber(item: JobsQuotingItem) {
@@ -207,6 +317,17 @@ function getItemDNumber(item: JobsQuotingItem) {
 
 function getItemFileName(item: JobsQuotingItem) {
   return (item.pdfFileName || item.sourceDocumentName || item.documentName).trim()
+}
+
+function formatJobTypeTag(jobType: string) {
+  const normalizedJobType = jobType
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+
+  if (!normalizedJobType) return 'Inspection'
+
+  return normalizedJobType.replace(/\b\w/g, (character) => character.toUpperCase())
 }
 
 function getItemJobGroupKey(item: JobsQuotingItem) {
@@ -276,7 +397,7 @@ function buildJobGroups(items: JobsQuotingItem[]) {
 }
 
 export default function JobsQuotingList({
-  homePath = '/dashboard',
+  homePath = '/deshazo-internal-dashboard',
   headerLabel = 'Jobs Quoting',
   pageTitle = 'Jobs Quoting List',
   loadingLabel = 'Loading jobs quoting...',
@@ -286,14 +407,26 @@ export default function JobsQuotingList({
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [runs, setRuns] = useState<JobsQuotingRun[]>([])
   const [items, setItems] = useState<JobsQuotingItem[]>([])
+  const [itemResults, setItemResults] = useState<Record<string, JobsQuotingItemResult>>({})
   const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
   const [itemsLoading, setItemsLoading] = useState(false)
-  const [selectedRunId, setSelectedRunId] = useState<string>(allReportsRunId)
+  const [selectedJobSectionId, setSelectedJobSectionId] = useState<string>(allJobsSectionId)
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
+  const [createDNumberModalOpen, setCreateDNumberModalOpen] = useState(false)
+  const [openItemSettingsId, setOpenItemSettingsId] = useState<string | null>(null)
+  const [deletingItemIds, setDeletingItemIds] = useState<Set<string>>(() => new Set())
   const [externalJobNumberInput, setExternalJobNumberInput] = useState('')
   const [externalJobImporting, setExternalJobImporting] = useState(false)
+  const [createDNumberInput, setCreateDNumberInput] = useState('')
+  const [createDNumberSubmitting, setCreateDNumberSubmitting] = useState(false)
+  const [createBlankSubmitting, setCreateBlankSubmitting] = useState(false)
+  const [markResultItemId, setMarkResultItemId] = useState<string | null>(null)
+  const [markResultStatus, setMarkResultStatus] = useState<JobsQuotingItemResultStatus>('pending')
+  const [markResultAmountWon, setMarkResultAmountWon] = useState('')
+  const [markResultSubmitting, setMarkResultSubmitting] = useState(false)
+  const [pinnedImportedJobNumbers, setPinnedImportedJobNumbers] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -305,51 +438,80 @@ export default function JobsQuotingList({
   const giantPdfInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
-  const runGroups = useMemo(() => buildRunGroups(runs), [runs])
   const runsById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs])
-  const selectedRunGroup = runGroups.find((group) => group.id === selectedRunId)
+  const jobSectionGroups = useMemo(
+    () => buildJobGroups(items).sort((firstGroup, secondGroup) => new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime()),
+    [items],
+  )
+  const selectedJobSection = jobSectionGroups.find((group) => group.id === selectedJobSectionId)
   const canUseExtendControls = userTag === 'developer'
   const getRunUploaderName = useCallback(
     (run: JobsQuotingRun | undefined) => (run?.userId ? userDisplayNames[run.userId] || '' : 'Shared'),
     [userDisplayNames],
   )
   const visibleItems = useMemo(() => {
-    if (selectedRunId === allReportsRunId || !selectedRunGroup) return sortItemsByNewest(items)
+    if (selectedJobSectionId === allJobsSectionId || !selectedJobSection) return sortItemsByNewest(items)
 
-    const selectedRunIds = new Set(selectedRunGroup.runIds)
-    return sortItemsByPriority(items.filter((item) => selectedRunIds.has(item.runId)))
-  }, [items, selectedRunGroup, selectedRunId])
+    return sortItemsByPriority(selectedJobSection.items)
+  }, [items, selectedJobSection, selectedJobSectionId])
   const filteredItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
     if (!normalizedQuery) return visibleItems
-    return visibleItems.filter((item) => getItemSearchText(item).includes(normalizedQuery))
+    const queryVariants = getSearchVariants(normalizedQuery)
+    return visibleItems.filter((item) => {
+      const itemSearchText = getItemSearchText(item)
+      return queryVariants.some((queryVariant) => itemSearchText.includes(queryVariant))
+    })
   }, [searchQuery, visibleItems])
   const jobGroups = useMemo(() => buildJobGroups(filteredItems), [filteredItems])
   const sortedJobGroups = useMemo(() => {
-    if (selectedRunId === allReportsRunId) {
-      return [...jobGroups].sort(
-        (firstGroup, secondGroup) =>
-          new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime(),
-      )
+    const pinnedJobNumbers = new Set(pinnedImportedJobNumbers.map(normalizeJobNumberForMatch))
+    const comparePinnedGroups = (firstGroup: JobsQuotingJobGroup, secondGroup: JobsQuotingJobGroup) => {
+      const firstGroupPinned = firstGroup.jobNumber ? pinnedJobNumbers.has(normalizeJobNumberForMatch(firstGroup.jobNumber)) : false
+      const secondGroupPinned = secondGroup.jobNumber ? pinnedJobNumbers.has(normalizeJobNumberForMatch(secondGroup.jobNumber)) : false
+
+      if (firstGroupPinned !== secondGroupPinned) {
+        return firstGroupPinned ? -1 : 1
+      }
+
+      return null
+    }
+
+    if (selectedJobSectionId === allJobsSectionId) {
+      return [...jobGroups].sort((firstGroup, secondGroup) => {
+        const pinnedComparison = comparePinnedGroups(firstGroup, secondGroup)
+        if (pinnedComparison !== null) return pinnedComparison
+        return new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime()
+      })
     }
 
     return [...jobGroups].sort((firstGroup, secondGroup) => {
+      const pinnedComparison = comparePinnedGroups(firstGroup, secondGroup)
+      if (pinnedComparison !== null) return pinnedComparison
       if (secondGroup.priorityCount !== firstGroup.priorityCount) return secondGroup.priorityCount - firstGroup.priorityCount
       if (secondGroup.repairCount !== firstGroup.repairCount) return secondGroup.repairCount - firstGroup.repairCount
       if (secondGroup.safetyCount !== firstGroup.safetyCount) return secondGroup.safetyCount - firstGroup.safetyCount
       return new Date(secondGroup.modifiedAt).getTime() - new Date(firstGroup.modifiedAt).getTime()
     })
-  }, [jobGroups, selectedRunId])
+  }, [jobGroups, pinnedImportedJobNumbers, selectedJobSectionId])
   const pageCount = Math.max(1, Math.ceil(sortedJobGroups.length / reportsPerPage))
   const safeCurrentPage = Math.min(currentPage, pageCount)
   const pageStartIndex = (safeCurrentPage - 1) * reportsPerPage
   const paginatedJobGroups = sortedJobGroups.slice(pageStartIndex, pageStartIndex + reportsPerPage)
   const pageFirstJob = sortedJobGroups.length === 0 ? 0 : pageStartIndex + 1
   const pageLastJob = Math.min(pageStartIndex + paginatedJobGroups.length, sortedJobGroups.length)
+  const markResultItem = markResultItemId ? items.find((item) => item.id === markResultItemId) ?? null : null
+  const markResultQuoteTotal = markResultItem ? getQuoteTotalAmount(markResultItem) : 0
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, selectedRunId])
+  }, [searchQuery, selectedJobSectionId])
+
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      setPinnedImportedJobNumbers([])
+    }
+  }, [searchQuery])
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, pageCount))
@@ -371,7 +533,7 @@ export default function JobsQuotingList({
     })
   }, [navigate])
 
-  const loadQuotingData = useCallback(async (runId?: string) => {
+  const loadQuotingData = useCallback(async (sectionId?: string) => {
     setLoading(true)
     setItemsLoading(true)
     setMessage('')
@@ -379,16 +541,19 @@ export default function JobsQuotingList({
     try {
       const nextRuns = await getJobsQuotingRuns()
       const nextRunGroups = buildRunGroups(nextRuns)
-      const nextSelectedRunId =
-        runId && (runId === allReportsRunId || nextRunGroups.some((group) => group.id === runId))
-          ? runId
-          : allReportsRunId
       const nextRunIds = nextRunGroups.flatMap((group) => group.runIds)
       const nextItems = nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : []
+      const nextItemResults = nextItems.length > 0 ? await getJobsQuotingItemResults(nextItems.map((item) => item.id)) : []
+      const nextJobSections = buildJobGroups(nextItems)
+      const nextSelectedSectionId =
+        sectionId && (sectionId === allJobsSectionId || nextJobSections.some((group) => group.id === sectionId))
+          ? sectionId
+          : allJobsSectionId
 
       setRuns(nextRuns)
-      setSelectedRunId(nextSelectedRunId)
+      setSelectedJobSectionId(nextSelectedSectionId)
       setItems(nextItems)
+      setItemResults(Object.fromEntries(nextItemResults.map((result) => [result.jobQuoteItemId, result])))
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
@@ -452,7 +617,10 @@ export default function JobsQuotingList({
           setRuns(nextRuns)
 
           const nextRunIds = buildRunGroups(nextRuns).flatMap((group) => group.runIds)
-          setItems(nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : [])
+          const nextItems = nextRunIds.length > 0 ? await getJobsQuotingItemsForRuns(nextRunIds) : []
+          const nextItemResults = nextItems.length > 0 ? await getJobsQuotingItemResults(nextItems.map((item) => item.id)) : []
+          setItems(nextItems)
+          setItemResults(Object.fromEntries(nextItemResults.map((result) => [result.jobQuoteItemId, result])))
         }
 
         if (failedResult) {
@@ -480,10 +648,39 @@ export default function JobsQuotingList({
     ])
   }
 
+  const deleteQuoteItem = async (item: JobsQuotingItem) => {
+    const itemLabel = getItemDNumber(item) ? `D-number ${getItemDNumber(item)}` : getItemFileName(item) || 'this quote item'
+    const confirmed = window.confirm(`Delete ${itemLabel}? This will remove only this quote item from the jobs quoting list.`)
+    if (!confirmed) return
+
+    setDeletingItemIds((currentIds) => new Set(currentIds).add(item.id))
+    setOpenItemSettingsId(null)
+    setMessage(`Deleting ${itemLabel}.`)
+
+    try {
+      await deleteJobsQuotingItem(item.id)
+      setItems((currentItems) => currentItems.filter((currentItem) => currentItem.id !== item.id))
+      setItemResults((currentResults) => {
+        const nextResults = { ...currentResults }
+        delete nextResults[item.id]
+        return nextResults
+      })
+      setMessage(`Deleted ${itemLabel}.`)
+    } catch (error) {
+      setMessage(getFriendlyErrorMessage(error))
+    } finally {
+      setDeletingItemIds((currentIds) => {
+        const nextIds = new Set(currentIds)
+        nextIds.delete(item.id)
+        return nextIds
+      })
+    }
+  }
+
   const applyUploadResult = (result: Awaited<ReturnType<typeof uploadInspectionForQuoting>>) => {
     const uploadedRuns = result.runs && result.runs.length > 0 ? result.runs : [result.run]
     mergeUploadedRuns(uploadedRuns)
-    setSelectedRunId(result.run.id)
+    setSelectedJobSectionId(allJobsSectionId)
     setItems((currentItems) => sortItemsByNewest([...result.items, ...currentItems.filter((item) => !result.items.some((nextItem) => nextItem.id === item.id))]))
     setMessage(result.message ?? 'Inspection report sent to Extend.')
   }
@@ -529,7 +726,7 @@ export default function JobsQuotingList({
         const result = await uploadInspectionForQuoting(file, folderName)
         const uploadedRuns = renameRunsForDisplay(result.runs && result.runs.length > 0 ? result.runs : [result.run], folderName)
         mergeUploadedRuns(uploadedRuns)
-        setSelectedRunId(result.run.id)
+        setSelectedJobSectionId(allJobsSectionId)
 
         if (!firstResult) {
           firstResult = result
@@ -565,8 +762,6 @@ export default function JobsQuotingList({
 
     try {
       let firstResult: Awaited<ReturnType<typeof uploadExtractOnlyInspectionForQuoting>> | null = null
-      let latestRunId = ''
-
       for (const [batchIndex, batch] of batches.entries()) {
         setMessage(`Uploading batch ${batchIndex + 1} of ${batches.length} (${batch.length} PDF${batch.length === 1 ? '' : 's'}).`)
         const result = await uploadExtractOnlyInspectionForQuoting(batch, sourceFileName)
@@ -576,7 +771,6 @@ export default function JobsQuotingList({
             ? result.runs
             : [result.run]
         mergeUploadedRuns(uploadedRuns)
-        latestRunId = result.run.id
 
         if (!firstResult) {
           firstResult = result
@@ -584,9 +778,7 @@ export default function JobsQuotingList({
         }
       }
 
-      if (latestRunId) {
-        setSelectedRunId(latestRunId)
-      }
+      setSelectedJobSectionId(allJobsSectionId)
 
       if (firstResult) {
         setMessage(
@@ -621,6 +813,11 @@ export default function JobsQuotingList({
     try {
       const result = await createJobQuotingItemsFromExternalInspectionReports(jobNumbers)
       const createdCount = result.results.reduce((total, item) => total + (item.createdOrUpdated ?? 0), 0)
+      const existingCount = result.results.reduce((total, item) => total + (item.existingQuoteItems?.length ?? 0), 0)
+      const importedJobNumbers = result.results
+        .filter((item) => (item.createdOrUpdated ?? 0) > 0 || (item.existingQuoteItems?.length ?? 0) > 0)
+        .map((item) => item.jobNumber || '')
+        .filter(Boolean)
       const importErrors = result.results
         .filter((item) => item.error)
         .map((item) => `${item.jobNumber || item.workOrderId || 'Report'}: ${item.error}`)
@@ -633,42 +830,137 @@ export default function JobsQuotingList({
           : importWarnings.length > 0
           ? importWarnings.join(' ')
           : createdCount > 0
-          ? `Imported ${createdCount} quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}.`
+          ? `Imported ${createdCount} created quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}${existingCount > 0 ? `; ${existingCount} existing quote item${existingCount === 1 ? '' : 's'} moved to the top.` : '.'}`
+          : existingCount > 0
+          ? `That job has already been imported. See the section below.`
           : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have at least one repair or safety issue.`
 
-      if (createdCount > 0) {
-        setMessage(`Created or updated ${createdCount} quote item${createdCount === 1 ? '' : 's'}. Refreshing jobs...`)
-        await new Promise((resolve) => window.setTimeout(resolve, 3000))
-        setSelectedRunId(allReportsRunId)
-        await loadQuotingData(allReportsRunId)
+      if (createdCount > 0 || existingCount > 0) {
+        setMessage(`Imported ${createdCount + existingCount} quote item${createdCount + existingCount === 1 ? '' : 's'}. Refreshing jobs...`)
+        if (createdCount > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, 3000))
+        }
+        setPinnedImportedJobNumbers(importedJobNumbers.length > 0 ? importedJobNumbers : jobNumbers)
+        setSelectedJobSectionId(allJobsSectionId)
+        setSearchQuery('')
+        setCurrentPage(1)
+        await loadQuotingData(allJobsSectionId)
       }
 
       setExternalJobNumberInput('')
       setMessage(finalImportMessage)
     } catch (error) {
-      setMessage(getFriendlyErrorMessage(error))
+      setMessage(getFriendlyImportErrorMessage(error))
     } finally {
       setExternalJobImporting(false)
       setBusy(false)
     }
   }
 
-  const syncRunGroup = async (group: JobsQuotingRunGroup) => {
+  const openCreateDNumberModal = () => {
+    setUploadMenuOpen(false)
+    setCreateDNumberModalOpen(true)
+    setMessage('')
+  }
+
+  const closeCreateDNumberModal = () => {
+    if (createDNumberSubmitting) return
+    setCreateDNumberModalOpen(false)
+    setCreateDNumberInput('')
+  }
+
+  const createQuoteItemFromDNumber = async () => {
+    const normalizedDNumber = createDNumberInput.trim().toUpperCase().replace(/\s+/g, '')
+    if (!/^D[0-9]{6}$/.test(normalizedDNumber)) {
+      setMessage('Enter a D number in the format D123456.')
+      return
+    }
+
     setBusy(true)
-    setMessage('Checking Extend for extracted repair items.')
+    setCreateDNumberSubmitting(true)
+    setMessage(`Creating quote report for ${normalizedDNumber}.`)
 
     try {
-      const results = await Promise.all(group.runIds.map((runId) => syncJobsQuotingRun(runId)))
-      const syncedRunsById = new Map(results.map((result) => [result.run.id, result.run]))
-      setRuns((currentRuns) =>
-        currentRuns.map((run) => syncedRunsById.get(run.id) ?? run),
-      )
-      await loadQuotingData(group.id)
-      setMessage(results.map((result) => result.message).filter(Boolean).join(' ') || 'Quote jobs refreshed.')
+      const result = await createJobQuotingItemFromExternalCraneDNumber(normalizedDNumber)
+      setCreateDNumberModalOpen(false)
+      setCreateDNumberInput('')
+      navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(result.itemId)}`)
+    } catch (error) {
+      setMessage(getFriendlyImportErrorMessage(error))
+    } finally {
+      setCreateDNumberSubmitting(false)
+      setBusy(false)
+    }
+  }
+
+  const createBlankQuoteItem = async () => {
+    setBusy(true)
+    setCreateBlankSubmitting(true)
+    setUploadMenuOpen(false)
+    setMessage('Creating blank quote report.')
+
+    try {
+      const result = await createBlankJobQuotingItem()
+      navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(result.itemId)}`)
+    } catch (error) {
+      setMessage(getFriendlyImportErrorMessage(error))
+    } finally {
+      setCreateBlankSubmitting(false)
+      setBusy(false)
+    }
+  }
+
+  const openMarkResultModal = (item: JobsQuotingItem) => {
+    const existingResult = itemResults[item.id]
+    const quoteTotalAmount = getQuoteTotalAmount(item)
+    setOpenItemSettingsId(null)
+    setMarkResultItemId(item.id)
+    setMarkResultStatus(existingResult?.winStatus ?? 'pending')
+    setMarkResultAmountWon(
+      existingResult?.amountWon != null
+        ? String(existingResult.amountWon)
+        : existingResult?.winStatus === 'won'
+          ? String(quoteTotalAmount)
+          : '',
+    )
+    setMessage('')
+  }
+
+  const closeMarkResultModal = () => {
+    if (markResultSubmitting) return
+    setMarkResultItemId(null)
+    setMarkResultStatus('pending')
+    setMarkResultAmountWon('')
+  }
+
+  const saveMarkResult = async () => {
+    if (!markResultItem) return
+
+    const normalizedAmountWon = markResultStatus === 'won' ? parseMoney(markResultAmountWon) : null
+    if (markResultStatus === 'won' && (!normalizedAmountWon || normalizedAmountWon <= 0)) {
+      setMessage('Enter an amount won greater than $0.')
+      return
+    }
+
+    setMarkResultSubmitting(true)
+    setMessage(`Saving result for ${getItemDNumber(markResultItem) || getItemFileName(markResultItem)}.`)
+
+    try {
+      const result = await saveJobsQuotingItemResult({
+        jobQuoteItemId: markResultItem.id,
+        quoteTotalAmount: markResultQuoteTotal,
+        winStatus: markResultStatus,
+        amountWon: normalizedAmountWon,
+      })
+      setItemResults((currentResults) => ({ ...currentResults, [result.jobQuoteItemId]: result }))
+      setMarkResultItemId(null)
+      setMarkResultStatus('pending')
+      setMarkResultAmountWon('')
+      setMessage(`Marked quote result as ${result.winStatus}.`)
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
-      setBusy(false)
+      setMarkResultSubmitting(false)
     }
   }
 
@@ -703,10 +995,10 @@ export default function JobsQuotingList({
           <button
             type="button"
             onClick={() => navigate(homePath)}
-            className="text-[22px] font-black leading-none transition hover:text-white/80"
+            className="rounded-md border border-white/30 bg-white/10 px-3 py-2 text-xs font-black uppercase tracking-normal text-white transition hover:bg-white/20"
             aria-label="Home"
           >
-            ⌂
+            Home
           </button>
           <div className="hidden rounded-md border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold md:block">
             {headerLabel}
@@ -785,7 +1077,7 @@ export default function JobsQuotingList({
             className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
             aria-expanded={uploadMenuOpen}
           >
-            Upload
+            Create New
           </button>
           {uploadMenuOpen ? (
             <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
@@ -823,8 +1115,27 @@ export default function JobsQuotingList({
                 </div>
               </form>
               <div className="rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
-                <div className="text-[12px] font-black uppercase text-[#273f7a]">Upload Inspection Reports</div>
+                <div className="text-[12px] font-black uppercase text-[#273f7a]">Create New</div>
                 <div className={`mt-2 grid gap-2 ${canUseExtendControls ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={createBlankQuoteItem}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {createBlankSubmitting ? (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#d6cbed] border-t-[#273f7a]" />
+                    ) : null}
+                    <span>Create Blank</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={openCreateDNumberModal}
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Create with D Number
+                  </button>
                   <button
                     type="button"
                     disabled={busy}
@@ -859,6 +1170,168 @@ export default function JobsQuotingList({
         </div>
       </header>
 
+      {createDNumberModalOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#111827]/45 px-4">
+          <div className="w-full max-w-[420px] rounded-md border border-[#dfe4ef] bg-white p-5 text-[#111] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-[18px] font-black leading-tight text-[#1f2430]">Create with D Number</h2>
+                <p className="mt-1 text-[13px] font-semibold leading-5 text-[#5b606b]">
+                  Create a blank quote report with header details from Shazo external crane data.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={createDNumberSubmitting}
+                onClick={closeCreateDNumberModal}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#cfd6e5] bg-white text-[18px] font-black leading-none text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close create with D number"
+              >
+                ×
+              </button>
+            </div>
+
+            <form
+              className="mt-5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                createQuoteItemFromDNumber()
+              }}
+            >
+              <label className="text-[12px] font-black uppercase text-[#273f7a]" htmlFor="create-d-number-input">
+                D Number
+              </label>
+              <input
+                id="create-d-number-input"
+                type="text"
+                value={createDNumberInput}
+                onChange={(event) => setCreateDNumberInput(event.currentTarget.value.toUpperCase())}
+                disabled={createDNumberSubmitting}
+                placeholder="D123456"
+                autoFocus
+                className="mt-2 h-11 w-full rounded-md border border-[#cfd6e5] bg-white px-3 text-[14px] font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-[#273f7a] focus:ring-2 focus:ring-[#273f7a]/15 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={createDNumberSubmitting}
+                  onClick={closeCreateDNumberModal}
+                  className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createDNumberSubmitting || !createDNumberInput.trim()}
+                  className="inline-flex min-w-[92px] items-center justify-center gap-2 rounded-md bg-[#273f7a] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {createDNumberSubmitting ? (
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  ) : null}
+                  Submit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {markResultItem ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#111827]/45 px-4">
+          <div className="w-full max-w-[460px] rounded-md border border-[#dfe4ef] bg-white p-5 text-[#111] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h2 className="text-[18px] font-black leading-tight text-[#1f2430]">Mark Result</h2>
+                <p className="mt-1 truncate text-[13px] font-semibold leading-5 text-[#5b606b]">
+                  {getItemDNumber(markResultItem) || getItemFileName(markResultItem)}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={markResultSubmitting}
+                onClick={closeMarkResultModal}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#cfd6e5] bg-white text-[18px] font-black leading-none text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close mark result"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-md border border-[#dfe4ef] bg-[#fbfcff] px-3 py-3">
+              <div className="flex items-center justify-between gap-3 text-[13px] font-bold text-[#4d5360]">
+                <span>Quote Total Amount</span>
+                <span className="text-[16px] font-black text-[#273f7a]">{formatMoney(markResultQuoteTotal)}</span>
+              </div>
+            </div>
+
+            <form
+              className="mt-5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                saveMarkResult()
+              }}
+            >
+              <fieldset disabled={markResultSubmitting} className="space-y-3">
+                <legend className="text-[12px] font-black uppercase text-[#273f7a]">Win Status</legend>
+                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-[#cfd6e5] bg-white px-3 py-3 text-[13px] font-black text-[#1f2430] transition hover:bg-[#f5f7ff]">
+                  <input
+                    type="checkbox"
+                    checked={markResultStatus === 'won'}
+                    onChange={(event) => setMarkResultStatus(event.currentTarget.checked ? 'won' : 'pending')}
+                    className="h-4 w-4 accent-[#273f7a]"
+                  />
+                  Won
+                </label>
+                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-[#cfd6e5] bg-white px-3 py-3 text-[13px] font-black text-[#1f2430] transition hover:bg-[#f5f7ff]">
+                  <input
+                    type="checkbox"
+                    checked={markResultStatus === 'lost'}
+                    onChange={(event) => setMarkResultStatus(event.currentTarget.checked ? 'lost' : 'pending')}
+                    className="h-4 w-4 accent-[#a2472f]"
+                  />
+                  Lost
+                </label>
+              </fieldset>
+
+              <label className="mt-5 block text-[12px] font-black uppercase text-[#273f7a]" htmlFor="mark-result-amount-won">
+                Amount Won
+              </label>
+              <input
+                id="mark-result-amount-won"
+                type="text"
+                inputMode="decimal"
+                value={markResultAmountWon}
+                onChange={(event) => setMarkResultAmountWon(event.currentTarget.value)}
+                disabled={markResultSubmitting || markResultStatus !== 'won'}
+                placeholder={formatMoney(markResultQuoteTotal)}
+                className="mt-2 h-11 w-full rounded-md border border-[#cfd6e5] bg-white px-3 text-[14px] font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-[#273f7a] focus:ring-2 focus:ring-[#273f7a]/15 disabled:cursor-not-allowed disabled:bg-[#f3f4f8] disabled:opacity-70"
+              />
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={markResultSubmitting}
+                  onClick={closeMarkResultModal}
+                  className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={markResultSubmitting}
+                  className="inline-flex min-w-[92px] items-center justify-center gap-2 rounded-md bg-[#273f7a] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {markResultSubmitting ? (
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  ) : null}
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
       <main className="flex h-[calc(100vh-56px)] overflow-hidden bg-[#f3f4f8]">
         <aside
           className={`relative hidden shrink-0 flex-col border-r border-[#d9dce5] bg-[#fbfcff] shadow-sm transition-[width] duration-200 lg:flex ${
@@ -870,11 +1343,11 @@ export default function JobsQuotingList({
               type="button"
               onClick={toggleInspectionRunsCollapsed}
               className="flex h-full w-full items-center justify-center bg-white text-[#273f7a] transition hover:bg-[#f5f7ff]"
-              aria-label="Open inspection runs"
-              title="Open inspection runs"
+              aria-label="Open job sections"
+              title="Open job sections"
             >
               <span className="[writing-mode:vertical-rl] rotate-180 text-[12px] font-black uppercase tracking-[0.12em]">
-                Inspection Runs
+                Job Sections
               </span>
             </button>
           ) : (
@@ -883,23 +1356,23 @@ export default function JobsQuotingList({
                 type="button"
                 onClick={toggleInspectionRunsCollapsed}
                 className="absolute right-[-15px] top-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[#d4dbea] bg-white text-[17px] font-black text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
-                aria-label="Hide inspection runs"
-                title="Hide inspection runs"
+                aria-label="Hide job sections"
+                title="Hide job sections"
               >
                 ‹
               </button>
               <div className="border-b border-[#d9dce5] px-4 py-5">
-                <p className="text-[16px] font-black text-[#1f2430]">Inspection Runs</p>
+                <p className="text-[16px] font-black text-[#1f2430]">Job Sections</p>
                 <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
-                  Select a report to review extracted quote jobs.
+                  Select all jobs or one job section.
                 </p>
                 <button
                   type="button"
                   disabled={busy || loading}
-                  onClick={() => loadQuotingData(selectedRunId)}
+                  onClick={() => loadQuotingData(selectedJobSectionId)}
                   className="mt-4 flex w-full items-center justify-center rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Reload Runs
+                  Reload Jobs
                 </button>
               </div>
 
@@ -907,53 +1380,53 @@ export default function JobsQuotingList({
                 <div className="space-y-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedRunId(allReportsRunId)}
+                    onClick={() => setSelectedJobSectionId(allJobsSectionId)}
                     className={`w-full rounded-md border px-3 py-3 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition ${
-                      selectedRunId === allReportsRunId
+                      selectedJobSectionId === allJobsSectionId
                         ? 'border-[#9bb0dc] bg-[#f5f7ff]'
                         : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]'
                     }`}
                   >
                     <span className="block text-[13px] font-black leading-tight text-[#273f7a]">
-                      All Reports
+                      All Jobs
                     </span>
                     <span className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold text-[#747b8a]">
                       <span>Recently changed first</span>
                       <span className="rounded-sm bg-[#eef3ff] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a]">
-                        {items.length}
+                        {jobSectionGroups.length}
                       </span>
                     </span>
                   </button>
 
-                  {runGroups.map((runGroup) => (
+                  {jobSectionGroups.map((jobSection) => (
                     <button
-                      key={runGroup.id}
+                      key={jobSection.id}
                       type="button"
-                      onClick={() => setSelectedRunId(runGroup.id)}
+                      onClick={() => setSelectedJobSectionId(jobSection.id)}
                       className={`w-full rounded-md border px-3 py-3 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition ${
-                        selectedRunId === runGroup.id
+                        selectedJobSectionId === jobSection.id
                           ? 'border-[#9bb0dc] bg-[#f5f7ff]'
                           : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]'
                       }`}
                     >
                       <span className="block truncate text-[13px] font-black leading-tight text-[#273f7a]">
-                        {runGroup.sourceFileName}
+                        {jobSection.jobNumber ? `Job ${jobSection.jobNumber}` : 'Job number not found'}
                       </span>
                       <span className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold text-[#747b8a]">
                         <span>
-                          {formatDate(runGroup.createdAt)}
-                          {getRunGroupPdfCount(runGroup) > 1 ? ` • ${getRunGroupPdfCount(runGroup)} PDFs` : ''}
+                          {jobSection.items.length} report{jobSection.items.length === 1 ? '' : 's'}
+                          {jobSection.dNumber ? ` • ${jobSection.dNumber}` : ''}
                         </span>
                         <span className="rounded-sm bg-[#eef3ff] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a]">
-                          {formatStatus(runGroup.status)}
+                          {jobSection.repairCount + jobSection.safetyCount}
                         </span>
                       </span>
                     </button>
                   ))}
 
-                  {!loading && runGroups.length === 0 ? (
+                  {!loading && jobSectionGroups.length === 0 ? (
                     <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-8 text-center text-[12px] font-bold text-[#747b8a]">
-                      No inspection reports uploaded yet.
+                      No quote jobs yet.
                     </div>
                   ) : null}
                 </div>
@@ -994,25 +1467,25 @@ export default function JobsQuotingList({
           <div className="lg:hidden">
             <section className="mb-4 rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-3 shadow-[0_16px_44px_-36px_rgba(15,23,42,0.45)]">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="text-[15px] font-black text-[#1f2430]">Inspection Runs</h2>
+                <h2 className="text-[15px] font-black text-[#1f2430]">Job Sections</h2>
                 <button
                   type="button"
                   disabled={busy || loading}
-                  onClick={() => loadQuotingData(selectedRunId)}
+                  onClick={() => loadQuotingData(selectedJobSectionId)}
                   className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:opacity-60"
                 >
                   Reload
                 </button>
               </div>
               <select
-                value={selectedRunId}
-                onChange={(event) => setSelectedRunId(event.currentTarget.value)}
+                value={selectedJobSectionId}
+                onChange={(event) => setSelectedJobSectionId(event.currentTarget.value)}
                 className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none focus:border-[#273f7a]"
               >
-                <option value={allReportsRunId}>All Reports - Recently changed first</option>
-                {runGroups.map((runGroup) => (
-                  <option key={runGroup.id} value={runGroup.id}>
-                    {runGroup.sourceFileName} - {formatStatus(runGroup.status)}
+                <option value={allJobsSectionId}>All Jobs - Recently changed first</option>
+                {jobSectionGroups.map((jobSection) => (
+                  <option key={jobSection.id} value={jobSection.id}>
+                    {jobSection.jobNumber ? `Job ${jobSection.jobNumber}` : 'Job number not found'} - {jobSection.items.length} report{jobSection.items.length === 1 ? '' : 's'}
                   </option>
                 ))}
               </select>
@@ -1023,12 +1496,16 @@ export default function JobsQuotingList({
               <div className="flex flex-col justify-between gap-3 border-b border-[#dfe4ef] bg-[#fbfcff] px-5 py-4 lg:flex-row lg:items-center">
                 <div className="min-w-0">
                   <h2 className="text-[20px] font-black tracking-normal text-[#1f2430]">
-                    {selectedRunId === allReportsRunId ? 'All Quote Reports' : selectedRunGroup?.sourceFileName ?? 'Quote Reports'}
+                    {selectedJobSectionId === allJobsSectionId
+                      ? 'All Quote Jobs'
+                      : selectedJobSection?.jobNumber
+                        ? `Job ${selectedJobSection.jobNumber}`
+                        : 'Job number not found'}
                   </h2>
                   <p className="mt-1 text-[13px] font-semibold text-[#747b8a]">
-                    {selectedRunId === allReportsRunId
-                      ? 'All uploaded quote reports, sorted by newest changed first.'
-                      : 'Showing reports from the selected inspection run, sorted by highest repair and safety count first.'}
+                    {selectedJobSectionId === allJobsSectionId
+                      ? 'All quote jobs, sorted by newest changed first.'
+                      : 'Showing quote reports from the selected job section.'}
                   </p>
                 </div>
 
@@ -1044,30 +1521,6 @@ export default function JobsQuotingList({
                     placeholder="Search D-number or job number..."
                     className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none transition placeholder:text-[#8b91a1] focus:border-[#273f7a] focus:ring-2 focus:ring-[#dbe5ff]"
                   />
-                  {selectedRunGroup && canUseExtendControls ? (
-                    <div className="flex flex-wrap justify-end gap-2">
-                      {selectedRunGroup.extendWorkflowUrl ? (
-                        <a
-                          href={selectedRunGroup.extendWorkflowUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-2 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-xs font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
-                        >
-                          <span>Open Extend</span>
-                          <DeveloperBadge />
-                        </a>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => syncRunGroup(selectedRunGroup)}
-                        className="inline-flex items-center gap-2 rounded-md bg-[#273f7a] px-3 py-2 text-xs font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <span>{activeStatuses.has(selectedRunGroup.status) ? 'Check Extend' : 'Refresh Selected'}</span>
-                        <DeveloperBadge />
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
               </div>
 
@@ -1076,7 +1529,7 @@ export default function JobsQuotingList({
                   <thead>
                     <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
                       <th className="w-[12%] px-3 py-3">D-number</th>
-                      <th className="w-[24%] px-3 py-3">File Name</th>
+                      <th className="w-[24%] px-3 py-3">Job Type</th>
                       <th className="w-[11%] px-2 py-3 text-center">Date Modified</th>
                       <th className="w-[10%] px-2 py-3 text-center">Uploaded By</th>
                       <th className="w-[7%] px-1 py-3 text-center">Repairs</th>
@@ -1136,16 +1589,9 @@ export default function JobsQuotingList({
                               </span>
                             </td>
                             <td className="px-3 py-4 align-top">
-                              <div className="border-l-4 border-[#dfe6f5] pl-3">
-                                <p className="whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
-                                  {getItemFileName(item) || '-'}
-                                </p>
-                                {item.splitIdentifier ? (
-                                  <p className="mt-1 whitespace-normal break-words text-xs font-semibold leading-snug text-[#747b8a]">
-                                    {item.splitIdentifier}
-                                  </p>
-                                ) : null}
-                              </div>
+                              <span className="inline-flex max-w-full items-center rounded-sm border border-[#cfd9ee] bg-[#edf3ff] px-2.5 py-1 text-[12px] font-black leading-snug text-[#273f7a]">
+                                <span className="truncate">{formatJobTypeTag(item.jobType)}</span>
+                              </span>
                             </td>
                             <td className="px-2 py-4 text-center align-top text-xs font-bold leading-snug text-[#4d5360]">
                               {formatDate(item.updatedAt)}
@@ -1165,13 +1611,51 @@ export default function JobsQuotingList({
                               {item.priorityCount}
                             </td>
                             <td className="px-3 py-4 text-center align-top">
-                              <button
-                                type="button"
-                                onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
-                                className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
-                              >
-                                Edit Quote
-                              </button>
+                              <div className="inline-flex flex-col items-center justify-center">
+                                <div className="inline-flex items-center justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
+                                    className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
+                                  >
+                                    Edit Quote
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenItemSettingsId((currentId) => currentId === item.id ? null : item.id)}
+                                    disabled={deletingItemIds.has(item.id)}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-[15px] font-black leading-none text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                                    aria-label="Quote settings"
+                                    title="Quote settings"
+                                  >
+                                    ⚙
+                                  </button>
+                                </div>
+                                <div className="mt-1 text-[11px] font-black uppercase text-[#747b8a]">
+                                  {itemResults[item.id]?.winStatus ?? 'pending'}
+                                  {itemResults[item.id]?.amountWon != null ? ` • ${formatMoney(itemResults[item.id].amountWon ?? 0)}` : ''}
+                                </div>
+                                {openItemSettingsId === item.id ? (
+                                  <div className="mt-2 w-[150px] rounded-md border border-[#dfe4ef] bg-white p-2 text-left shadow-[0_14px_34px_-28px_rgba(15,23,42,0.5)]">
+                                    <button
+                                      type="button"
+                                      onClick={() => openMarkResultModal(item)}
+                                      disabled={deletingItemIds.has(item.id)}
+                                      className="mb-2 w-full rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-left text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      Mark Result
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteQuoteItem(item)}
+                                      disabled={deletingItemIds.has(item.id)}
+                                      className="w-full rounded-md border border-[#f0c4bd] bg-[#fff7f5] px-3 py-2 text-left text-[12px] font-black text-[#a2472f] transition hover:bg-[#ffece8] disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {deletingItemIds.has(item.id) ? 'Deleting...' : 'Delete Quote'}
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
                             </td>
                           </tr>
                         ))}
