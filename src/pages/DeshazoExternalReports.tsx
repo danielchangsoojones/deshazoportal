@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js'
 import JSZip from 'jszip'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   DESHAZO_PDF_PAGE_HEIGHT_PX,
@@ -230,14 +231,7 @@ export default function DeshazoExternalReports() {
   const [searchParams] = useSearchParams()
   const requestedDNumber = useMemo(() => getRequestedDNumber(searchParams), [searchParams])
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.href === '/deshazo-work-orders',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, '/deshazo-work-orders')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {

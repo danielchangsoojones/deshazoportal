@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   type DeshazoSavedWorkOrderListItem,
@@ -126,14 +127,7 @@ export default function DeshazoWorkOrders() {
   const canFetchAll = userTag === 'developer'
   const searchIsPending = search !== submittedSearch || (loading && submittedSearch.trim().length > 0)
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.href === '/deshazo-work-orders',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, '/deshazo-work-orders')
 
   const loadWorkOrders = useCallback(async (cancelledRef?: { cancelled: boolean }) => {
     if (!isConfigured || !supabase) {

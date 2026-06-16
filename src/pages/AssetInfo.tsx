@@ -7,6 +7,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import { createAssetNote, listAssetNotes, type AssetNoteRecord } from '../lib/assetNotes'
 import { getAssetCompanyInternalId, upsertAssetCompanyInternalId } from '../lib/assetCompanyInternalId'
@@ -458,16 +460,9 @@ export default function AssetInfo() {
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
   const usesSupabaseAssetData = currentView === 'open-risk' || currentView === 'asset-fleet'
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active:
-          currentView === 'open-risk'
-            ? item.label === 'Open Risk Items'
-            : item.label === 'Asset Fleet',
-      })),
-    [currentView],
+  const activeMenuItems = useDeveloperMenuItems(
+    menuItems,
+    currentView === 'open-risk' ? 'Open Risk Items' : 'Asset Fleet',
   )
 
   const analytics = useMemo(() => {
@@ -1341,7 +1336,10 @@ export default function AssetInfo() {
                             : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                         }`}
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </Link>
                     ) : (
@@ -1350,7 +1348,10 @@ export default function AssetInfo() {
                         type="button"
                         className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium text-[rgba(21,24,33,0.7)] transition hover:bg-white"
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </button>
                     ),

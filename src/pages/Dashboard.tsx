@@ -4,7 +4,9 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 import type { User } from '@supabase/supabase-js'
 
 const portalCards = [
@@ -37,6 +39,7 @@ const portalCards = [
     title: 'Documents',
     description: 'Download maintenance reports, summaries, and supporting PDFs from one place.',
     href: '/documents-reports',
+    developerOnly: true,
   },
   {
     eyebrow: 'Documents',
@@ -72,21 +75,23 @@ const portalCards = [
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
   const visiblePortalCards = useMemo(
-    () => portalCards,
-    [],
+    () => portalCards.filter((card) => userTag === 'developer' || !card.developerOnly),
+    [userTag],
   )
 
   const menuItems = useMemo(
     () => [
-      { label: 'Home', active: true, href: '/dashboard' },
+      { label: 'Home', active: true, href: '/dashboard', developerOnly: false },
       ...visiblePortalCards.map((card) => ({
         label: card.title,
         active: false,
         href: card.href,
+        developerOnly: card.developerOnly,
       })),
     ],
     [visiblePortalCards],
@@ -97,10 +102,12 @@ export default function Dashboard() {
       navigate('/login')
       return
     }
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
         navigate('/login')
       } else {
+        const nextUserTag = await getCurrentUserTag(data.user.id)
+        setUserTag(nextUserTag)
         setUser(data.user)
       }
     })
@@ -154,7 +161,10 @@ export default function Dashboard() {
                             : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                         }`}
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </Link>
                     ) : (
@@ -163,7 +173,10 @@ export default function Dashboard() {
                         type="button"
                         className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium text-[rgba(21,24,33,0.7)] transition hover:bg-white"
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </button>
                     ),
@@ -213,8 +226,11 @@ export default function Dashboard() {
                 <div className="absolute inset-x-0 top-0 h-1.5 bg-[linear-gradient(90deg,var(--deshazo-blue)_0%,var(--deshazo-blue-soft)_100%)] opacity-90" />
                 <div className="mb-4 flex items-center justify-between gap-3 pt-1">
                   <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{card.eyebrow}</p>
-                  <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]">
-                  </span>
+                  {card.developerOnly ? (
+                    <DeveloperBadge />
+                  ) : (
+                    <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]" />
+                  )}
                 </div>
                 <h2 className="text-[clamp(28px,2.3vw,32px)] font-extrabold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
                   {card.title}

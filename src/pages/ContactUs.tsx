@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -40,14 +42,7 @@ export default function ContactUs() {
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.label === 'Contact Us',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Contact Us')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -120,7 +115,10 @@ export default function ContactUs() {
                             : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                         }`}
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </Link>
                     ) : (
@@ -129,7 +127,10 @@ export default function ContactUs() {
                         type="button"
                         className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium text-[rgba(21,24,33,0.7)] transition hover:bg-white"
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </button>
                     ),

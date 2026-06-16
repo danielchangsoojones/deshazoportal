@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { portalLocationOptions } from '../lib/portalLocations'
@@ -7,6 +7,8 @@ import {
   isPortalApiConfigured,
 } from '../lib/portalApi'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -30,14 +32,7 @@ export default function CustomReports() {
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.label === 'Custom Reports',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Custom Reports')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -146,8 +141,11 @@ export default function CustomReports() {
                           : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                       }`}
                     >
-                      <span>{item.label}</span>
-                      <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
+                        <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                     </Link>
                   ))}
                 </nav>

@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getEditableInspectionReport, type EditableInspectionReport } from '../lib/editableInspectionReports'
 import {
   askNotebook,
@@ -319,14 +321,7 @@ export default function EquipmentNotebookLLM() {
   const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
   const editableReportId = searchParams.get('editableReportId')?.trim() || ''
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.label === 'Equipment Notebook LLM',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Equipment Notebook LLM')
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
@@ -787,7 +782,10 @@ export default function EquipmentNotebookLLM() {
                           : 'text-[#647084] hover:bg-[#f4f7fb] hover:text-[#253241]'
                       }`}
                     >
-                      <span>{item.label}</span>
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <span className="truncate">{item.label}</span>
+                        {item.developerOnly ? <DeveloperBadge /> : null}
+                      </span>
                     </Link>
                   ))}
                 </nav>
