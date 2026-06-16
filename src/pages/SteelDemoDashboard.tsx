@@ -15,6 +15,12 @@ const steelCards = [
     href: '/steel-quoting-list',
   },
   {
+    eyebrow: 'Analytics',
+    title: 'Steel Quote Analytics',
+    description: 'Review dummy won, lost, and pending steel quote performance.',
+    href: '/steel-quote-analytics',
+  },
+  {
     eyebrow: 'AI Portal',
     title: 'AI Portal Integration',
     description: 'Watch the AI portal workflow connect quoting context with the steel dashboard.',
@@ -128,8 +134,8 @@ export default function SteelDemoDashboard() {
           <div className="mb-8">
             <div className="flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
               <div>
-                <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
-                  DESHA<span className="text-[#f2b43f]">Z</span>O
+                <div className="text-[36px] font-black uppercase tracking-normal text-[#b8bcc8]">
+                  BrandCo
                 </div>
                 <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
                   Steel Demo Dashboard
