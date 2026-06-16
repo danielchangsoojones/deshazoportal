@@ -1049,7 +1049,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
 
   const estimateDetailSectionHeight = (section: ResolvedSection) => {
     const visualRows = Math.ceil(section.points.length / 3)
-    return 44 + visualRows * 22
+    return 44 + visualRows * 24
   }
 
   const packPageBlocks = (blocks: Array<{ html: string; estimatedHeight: number }>) => {
@@ -1154,6 +1154,134 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     html: `<div class="page2-continuation">${renderDetailSections([section])}</div>`,
     estimatedHeight: estimateDetailSectionHeight(section) + 22,
   }))
+  const defaultBridgePointNames = [
+    'Motors',
+    'Bridge Brakes',
+    'Control Panels',
+    'Wheels',
+    'Disconnect Switch/Power Supply',
+    'Conductors/Festoon System',
+    'Gear Box',
+    'Fluid Levels/Gaskets/Seals',
+    'Travel Limits/Stops',
+    'Rated Load Marking',
+    'Alignment & Tracking',
+    'Runway Beams/Rail',
+    'Bridge Girders',
+    'End Trucks',
+  ]
+  const defaultHoistPointNames = [
+    'Motors',
+    'Brakes',
+    'Control Panel',
+    'Mechanical Brake',
+    'Limit Switches/Stops',
+    'Gear Box',
+    'Fluid Levels/Gaskets/Seals',
+    'Upper Sheaves',
+    'Rope Drum',
+    'Lower Block',
+    'Rope/Chain',
+    'Rope/Chain Guides',
+    'Hook',
+    'Couplings',
+    'Wheels/Pinions',
+    'Push Button Station/Radio',
+    'Festoons',
+    'Hoist Brake Operation',
+    'Clearances',
+  ]
+  const zeroCountSections: ResolvedSection[] = sections.some((section) => section.points.length > 0)
+    ? sections
+    : [
+        {
+          name: getStructureSectionName(selectedCrane),
+          points: defaultBridgePointNames.map((name) => ({ name })),
+        },
+        ...Array.from(
+          { length: Math.max(1, selectedCrane.crane?.hoists?.length ?? 1) },
+          (_, hoistIndex) => ({
+            name: `Hoist ${hoistIndex + 1}`,
+            points: defaultHoistPointNames.map((name) => ({ name })),
+          }),
+        ),
+      ]
+  const hasZeroInspectionCounts =
+    stats.repairCount === 0 &&
+    stats.satisfactoryPointCount === 0 &&
+    stats.safetyMonitorCount === 0 &&
+    stats.naPointCount === 0
+
+  const renderZeroCountSection = (section: ResolvedSection) => `
+    <section class="zero-section">
+      <div class="zero-section-title">${escapeHtml(section.name)}</div>
+      <div class="zero-grid">
+        ${section.points
+          .map(
+            (point) => `
+              <div class="zero-point">
+                <span>${escapeHtml(point.name ?? 'Inspection point')}</span>
+                <span>-</span>
+              </div>
+            `,
+          )
+          .join('')}
+      </div>
+    </section>
+  `
+
+  if (hasZeroInspectionCounts) {
+    return `
+      <div class="pdf-page">
+        <div class="hero zero-hero">
+          <div>
+            <div class="brand">DESHAZO</div>
+            <div class="brand-sub">Cranes / Service / Automation</div>
+          </div>
+          <div class="hero-meta">
+            <div>DESHAZO Branch: <strong>${escapeHtml(report.summary?.serviceLocationName || '001 California')}</strong></div>
+            <div>Branch Contact Phone: —</div>
+          </div>
+          <div class="hero-title">Inspection Report</div>
+        </div>
+
+        <div class="body body-zero">
+          <div class="zero-top">
+            <div><strong>${escapeHtml(getReportIdentifier(report, selectedCrane))}</strong> performed by: <strong>${escapeHtml(getLeadTechnician(report, selectedCrane))}</strong></div>
+            <div>Type: <strong>${escapeHtml(toTitleCase(selectedCrane.inspections?.[0]?.type || report.jobType || 'Inspection'))}</strong></div>
+            <div>Date: <strong>${escapeHtml(formatDate(selectedCrane.inspections?.[0]?.date || report.summary?.endDate || report.rawPayload.inspectionDate))}</strong></div>
+          </div>
+
+          <div class="zero-info-grid">
+            <div><span>Structure:</span> <strong>${escapeHtml(primaryCrane?.structure?.type || primaryCrane?.description || 'Not available')}</strong></div>
+            <div><span>Description:</span> <strong>${escapeHtml(primaryCrane?.description || 'Not available')}</strong></div>
+            <div><span>Customer:</span> <strong>${escapeHtml(report.summary?.customerName || 'Wabash')}</strong></div>
+            <div><span>Purchase Order:</span> <strong>${escapeHtml(report.summary?.customerPoNo || 'UNAVAILABLE')}</strong></div>
+            <div><span>Job #:</span> <strong>${escapeHtml(report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId))}</strong></div>
+            <div><span>Location:</span> <strong>${escapeHtml(primaryCrane?.location || report.summary?.customerLocationName || 'N/A')}</strong></div>
+            <div><span>Customer Address:</span> <strong>${escapeHtml(report.summary?.customerLocationAddress || report.summary?.customerAddress || 'N/A')}</strong></div>
+            <div><span>Manufacturer:</span> ${buildEquipmentLines(selectedCrane, (crane) => crane.crane?.structure?.manufacturer || 'Unknown', (hoist) => hoist.manufacturer || 'Unknown').map((line) => `<strong>${escapeHtml(line)}</strong>`).join('<br />')}</div>
+            <div><span>Serial Number:</span> ${buildEquipmentLines(selectedCrane, (crane) => crane.crane?.structure?.serialNumber || 'Unknown', (hoist) => hoist.serialNumber || 'Unknown').map((line) => `<strong>${escapeHtml(line)}</strong>`).join('<br />')}</div>
+            <div><span>Capacity:</span> ${buildEquipmentLines(selectedCrane, (crane) => crane.crane?.structure?.capacity || 'Unknown', (hoist) => hoist.capacity || 'Unknown').map((line) => `<strong>${escapeHtml(line)}</strong>`).join('<br />')}</div>
+            <div><span>Model #:</span> ${buildEquipmentLines(selectedCrane, (crane) => crane.crane?.structure?.model || 'Unknown', (hoist) => hoist.model || 'Unknown').map((line) => `<strong>${escapeHtml(line)}</strong>`).join('<br />')}</div>
+          </div>
+
+          <div class="stats-grid zero-stats">
+            <div class="stat-card"><div class="stat-value danger-text">0</div><div class="stat-label danger-text">Repair</div></div>
+            <div class="stat-card"><div class="stat-value">0</div><div class="stat-label">Satisfactory Items</div></div>
+            <div class="stat-card"><div class="stat-value">0</div><div class="stat-label">Safety and Monitor Items</div></div>
+            <div class="stat-card"><div class="stat-value">0</div><div class="stat-label">N/A Items</div></div>
+          </div>
+
+          <div class="zero-sections">
+            ${zeroCountSections.map(renderZeroCountSection).join('')}
+          </div>
+
+          <div class="footer">Page 1/1</div>
+        </div>
+      </div>
+    `
+  }
 
   const firstPageActions = actionItems
     .slice(0, 6)
@@ -1323,11 +1451,30 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     }
     ${pageSpacing}
     .hero { display: grid; grid-template-columns: 1.25fr 1fr .9fr; gap: 14px; height: 82px; padding: 14px 24px 10px; background: #f6b23b; color: #000; }
+    .zero-hero { height: 86px; align-items: start; }
     .brand { font-size: 38px; font-weight: 900; letter-spacing: -1.5px; line-height: .9; }
     .brand-sub { margin-top: 4px; font-size: 9.5px; font-weight: 900; text-transform: uppercase; }
     .hero-meta { padding-top: 2px; font-size: 12px; font-weight: 400; line-height: 1.45; }
     .hero-title { display: flex; justify-content: flex-end; align-items: center; font-size: 28px; line-height: 1.05; font-weight: 900; text-transform: uppercase; }
     .body { padding: 14px 24px 16px; }
+    .body-zero { padding: 18px 24px 16px; }
+    .zero-top { display: grid; grid-template-columns: 1.5fr .7fr .7fr; gap: 0; border-bottom: 1px solid #bdbdbd; font-size: 12px; }
+    .zero-top > div { min-height: 42px; padding: 12px 8px 8px 6px; border-right: 1px solid #bdbdbd; box-sizing: border-box; }
+    .zero-top > div:last-child { border-right: 0; }
+    .zero-info-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid #bdbdbd; font-size: 11px; }
+    .zero-info-grid > div { min-height: 31px; padding: 6px 8px 4px 6px; border-right: 1px solid #bdbdbd; box-sizing: border-box; line-height: 1.18; }
+    .zero-info-grid > div:nth-child(4n) { border-right: 0; }
+    .zero-info-grid span { font-weight: 400; }
+    .zero-stats { margin: 0; border: 0; }
+    .zero-stats .stat-card { min-height: 66px; padding-top: 8px; background: #f0f0f0; }
+    .zero-stats .stat-value { font-size: 34px; }
+    .zero-sections { margin-top: 15px; }
+    .zero-section { margin-top: 14px; padding-bottom: 13px; border-bottom: 3px solid #e0e0e0; }
+    .zero-section-title { margin: 0 0 9px 5px; font-size: 12px; font-weight: 800; line-height: 1.1; }
+    .zero-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px 10px; }
+    .zero-point { display: grid; grid-template-columns: minmax(0, 1fr) 14px; gap: 5px; align-items: baseline; min-height: 14px; font-size: 11px; line-height: 1.12; }
+    .zero-point span:first-child { min-width: 0; }
+    .zero-point span:last-child { text-align: right; }
     .body-full { height: ${DESHAZO_PDF_PAGE_HEIGHT_PX - 2}px; }
     .body-page2 { position: relative; padding: 25px 24px 18px; }
     .summary-top { display: grid; grid-template-columns: 1.7fr 1fr 1fr; gap: 12px; padding-bottom: 9px; border-bottom: 1px solid #cfcfcf; font-size: 12px; }
@@ -1353,16 +1500,17 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .mini-action-row:nth-last-child(-n+3) { border-bottom: 0; }
     .mini-action-label { min-width: 0; line-height: 1.15; }
     .mini-action-status { display: flex; align-items: center; justify-content: flex-end; }
-    .action-pill { display: inline-flex; box-sizing: border-box; width: 104px; height: 18px; padding: 0 8px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: middle; overflow: hidden; }
+    .action-pill { display: inline-grid; grid-auto-flow: column; align-items: center; justify-content: center; box-sizing: border-box; width: 104px; min-height: 22px; padding: 3px 8px 2px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; overflow: visible; }
     .overview-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; font-size: 12px; }
     .detail-section { padding-top: 11px; margin-top: 11px; border-top: 1px solid #dadada; break-inside: avoid; }
     .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 6px; font-size: 12px; font-weight: 700; }
     .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 14px; }
-    .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 7px; min-height: 17px; font-size: 12px; }
+    .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 7px; min-height: 21px; font-size: 12px; }
     .detail-label { min-width: 0; line-height: 1.18; }
-    .status { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 92px; height: 17px; padding: 0 6px; text-align: center; font-size: 11px; font-weight: 700; line-height: 17px; white-space: nowrap; overflow: hidden; }
+    .status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; width: 92px; min-height: 22px; padding: 3px 6px 2px; text-align: center; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; overflow: visible; }
     .status-with-icons { justify-content: space-between; gap: 4px; }
-    .status-with-icons > span:nth-child(2) { flex: 1; min-width: 0; text-align: center; }
+    .status-with-icons { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
+    .status-with-icons > span:nth-child(2) { min-width: 0; text-align: center; align-self: center; }
     .status-icon { position: relative; display: inline-block; flex: 0 0 auto; width: 11px; height: 11px; }
     .status-icon-repair { background: currentColor; clip-path: polygon(50% 0, 90% 15%, 86% 62%, 50% 100%, 14% 62%, 10% 15%); }
     .status-icon-repair::after { content: "i"; position: absolute; inset: 0; color: #fff; font-family: Georgia, serif; font-size: 8px; font-weight: 900; font-style: italic; line-height: 11px; text-align: center; }
@@ -1397,7 +1545,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-point { margin: 0; font-size: 12px; }
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
-    .page2-point-status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; height: 18px; margin: 7px 0 0 18px; padding: 0 8px; font-size: 10px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: middle; white-space: nowrap; overflow: hidden; }
+    .page2-point-status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; min-height: 22px; margin: 7px 0 0 18px; padding: 3px 8px 2px; font-size: 10px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; white-space: nowrap; overflow: visible; }
     .page2-status-success { background: #bff2be; color: #1f6a2e; }
     .page2-status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .page2-status-danger { background: #e8c7c9; color: #9d1c1c; }
@@ -1549,8 +1697,13 @@ export function getDeshazoInspectionPdfFileName(report: DeshazoSavedInspectionRe
   ].filter(Boolean).join('-') + '.pdf'
 }
 
-export async function createDeshazoInspectionPdfBlob(report: DeshazoSavedInspectionReport, selectedCraneIndex = 0) {
+export async function createDeshazoInspectionPdfBlob(
+  report: DeshazoSavedInspectionReport,
+  selectedCraneIndex = 0,
+  options: { canvasScale?: number } = {},
+) {
   const root = createRenderRoot(report, selectedCraneIndex)
+  const canvasScale = options.canvasScale ?? 3
 
   try {
     await waitForImages(root)
@@ -1560,7 +1713,7 @@ export async function createDeshazoInspectionPdfBlob(report: DeshazoSavedInspect
     for (let index = 0; index < pages.length; index += 1) {
       const canvas = await html2canvas(pages[index], {
         backgroundColor: '#ffffff',
-        scale: 3,
+        scale: canvasScale,
         useCORS: true,
         allowTaint: false,
         logging: false,

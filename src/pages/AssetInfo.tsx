@@ -18,9 +18,7 @@ import {
 } from '../lib/assetNotificationSubscribers'
 import {
   getAssetInfo,
-  getAssetPDF,
   getRecurringIssues,
-  searchAssetByDNumber,
   type AssetPdfDocument,
   type AssetPdfResponse,
   type AssetInfoAnalytics,
@@ -61,6 +59,7 @@ const menuItems = [
 type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'notes' | 'analytics'
 
 const ANALYTICS_COLORS = ['#2f56a6', '#f2b43f', '#e05c3a', '#4a9960', '#7b44c7', '#355fb4']
+const PREVENTATIVE_REPORTS_PAGE_SIZE = 10
 
 
 type AssetNote = {
@@ -93,9 +92,21 @@ type RepairPdfDocument = AssetPdfDocument & {
   pdfError?: string
 }
 
+type GeneratedInspectionPdfDocument = AssetPdfDocument & {
+  documentKey: string
+  report: DeshazoSavedInspectionReport
+  craneIndex: number
+  pdfLoading?: boolean
+  pdfError?: string
+}
+
 const isRepairPdfDocument = (
   document: AssetPdfDocument | RepairPdfDocument | null,
 ): document is RepairPdfDocument => Boolean(document && 'documentKey' in document)
+
+const isGeneratedInspectionPdfDocument = (
+  document: AssetPdfDocument | RepairPdfDocument | GeneratedInspectionPdfDocument | null,
+): document is GeneratedInspectionPdfDocument => Boolean(document && 'craneIndex' in document)
 
 const defaultAssetInfo: AssetInfoAnalytics = {
   unit_location: '',
@@ -248,9 +259,21 @@ function AssetIssueRow({
 function GeneratedInspectionReportPreview({
   report,
   selectedCraneIndex,
+  zoom,
+  onZoomOut,
+  onZoomIn,
+  onOpenReportPage,
+  onDownload,
+  downloadBusy = false,
 }: {
   report: DeshazoSavedInspectionReport
   selectedCraneIndex: number
+  zoom: number
+  onZoomOut?: () => void
+  onZoomIn?: () => void
+  onOpenReportPage?: () => void
+  onDownload?: () => void
+  downloadBusy?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
@@ -271,10 +294,8 @@ function GeneratedInspectionReportPreview({
 
     const updateScale = () => {
       const availableWidth = Math.max(0, node.clientWidth - 32)
-      const availableHeight = Math.max(0, node.clientHeight - 76)
       const widthScale = availableWidth / DESHAZO_PDF_PAGE_WIDTH_PX
-      const heightScale = availableHeight / DESHAZO_PDF_PAGE_HEIGHT_PX
-      setScale(Math.max(0.35, Math.min(1, widthScale, heightScale)))
+      setScale(Math.max(0.45, Math.min(1.75, widthScale * zoom)))
     }
 
     updateScale()
@@ -285,7 +306,7 @@ function GeneratedInspectionReportPreview({
       observer.disconnect()
       window.removeEventListener('resize', updateScale)
     }
-  }, [])
+  }, [zoom])
 
   const pageGap = 24
   const scaledWidth = DESHAZO_PDF_PAGE_WIDTH_PX * scale
@@ -293,7 +314,7 @@ function GeneratedInspectionReportPreview({
   const pageOffset = currentPage * (DESHAZO_PDF_PAGE_HEIGHT_PX + pageGap) * scale
 
   return (
-    <section ref={containerRef} className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#e9eef8]">
+    <section ref={containerRef} className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#777]">
       <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto px-4 py-5">
         <div className="overflow-hidden bg-white shadow-[0_16px_40px_-34px_rgba(0,0,0,0.4)]" style={{ width: scaledWidth, height: scaledHeight }}>
           <div
@@ -307,6 +328,51 @@ function GeneratedInspectionReportPreview({
           />
         </div>
       </div>
+      {(onZoomOut || onZoomIn || onOpenReportPage || onDownload) ? (
+        <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center overflow-hidden rounded-[12px] bg-[#323232] px-3 py-2 text-white shadow-[0_18px_34px_-18px_rgba(0,0,0,0.6)]">
+          <button
+            type="button"
+            onClick={onZoomOut}
+            disabled={!onZoomOut}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[28px] font-light leading-none text-white/90 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            aria-label="Zoom out"
+            title="Zoom out"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={onZoomIn}
+            disabled={!onZoomIn}
+            className="ml-2 flex h-10 w-10 items-center justify-center rounded-full text-[25px] font-light leading-none text-white/90 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            aria-label="Zoom in"
+            title="Zoom in"
+          >
+            +
+          </button>
+          <div className="mx-3 h-9 w-px bg-white/35" />
+          <button
+            type="button"
+            onClick={onOpenReportPage}
+            disabled={!onOpenReportPage}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[22px] font-semibold leading-none text-white/90 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            aria-label="Open report preview"
+            title="Open report preview"
+          >
+            ▣
+          </button>
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={!onDownload || downloadBusy}
+            className="ml-2 flex h-10 w-10 items-center justify-center rounded-full text-[28px] font-light leading-none text-white/90 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            aria-label="Download report"
+            title="Download report"
+          >
+            {downloadBusy ? '…' : '↓'}
+          </button>
+        </div>
+      ) : null}
       <div className="border-t border-[var(--deshazo-border)] bg-white px-4 py-3">
         <div className="grid grid-cols-[44px_1fr_44px] items-center gap-3 rounded-sm border border-[var(--deshazo-border)] bg-white px-2 py-2">
           <button
@@ -347,11 +413,14 @@ export default function AssetInfo() {
   const [filterValue, setFilterValue] = useState('')
   const [assetInfo, setAssetInfo] = useState<AssetInfoAnalytics>(defaultAssetInfo)
   const [assetDocuments, setAssetDocuments] = useState<AssetPdfResponse>(defaultAssetDocuments)
+  const [inspectionDocuments, setInspectionDocuments] = useState<GeneratedInspectionPdfDocument[]>([])
   const [repairDocuments, setRepairDocuments] = useState<RepairPdfDocument[]>([])
   const repairDocumentUrlsRef = useRef<string[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState('')
   const [documentsPage, setDocumentsPage] = useState(1)
+  const [inspectionPreviewZoom, setInspectionPreviewZoom] = useState(1)
+  const [inspectionDownloadBusy, setInspectionDownloadBusy] = useState(false)
   const [selectedDocumentUrl, setSelectedDocumentUrl] = useState('')
   const [notes, setNotes] = useState<AssetNote[]>([])
   const [noteInput, setNoteInput] = useState('')
@@ -716,24 +785,41 @@ export default function AssetInfo() {
         setDocumentsLoading(true)
         setDocumentsError('')
         const docNumber = extractDocumentNumber(assetInfo.unit_name, unitId)
-        if (usesSupabaseAssetData && !docNumber) {
-          setDocumentsError('No D number was found for this asset, so legacy PM reports could not be loaded.')
+        if (!docNumber) {
+          setDocumentsError('No D number was found for this asset, so preventative maintenance reports could not be loaded.')
           setAssetDocuments(defaultAssetDocuments)
+          setInspectionDocuments([])
           setSelectedDocumentUrl('')
           return
         }
-        const legacyUnitId = usesSupabaseAssetData
-          ? (await searchAssetByDNumber(docNumber, controller.signal)).unit_id
-          : unitId
-        const data = await getAssetPDF(legacyUnitId, documentsPage, controller.signal)
-        setAssetDocuments(data)
+
+        const matchedReports = await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber)
+        const mappedDocuments: GeneratedInspectionPdfDocument[] = matchedReports.map((match) => ({
+          documentKey: `inspection:${match.report.workOrderId}:${match.craneIndex}`,
+          report: match.report,
+          craneIndex: match.craneIndex,
+          inspection_date: match.inspectionDate || match.report.summary?.endDate || match.report.syncedAt,
+          pdf: '',
+          type: match.report.jobType || match.report.summary?.jobType || 'Inspection',
+          display_name: getDeshazoInspectionPdfFileName(match.report).replace(/\.pdf$/i, ''),
+        }))
+
+        setAssetDocuments({
+          ...defaultAssetDocuments,
+          page_size: PREVENTATIVE_REPORTS_PAGE_SIZE,
+          total_invoice_count: mappedDocuments.length,
+          total_pages: Math.max(1, Math.ceil(mappedDocuments.length / PREVENTATIVE_REPORTS_PAGE_SIZE)),
+        })
+        setInspectionDocuments(mappedDocuments)
+        setDocumentsPage(1)
         setSelectedDocumentUrl((current) =>
-          data.results.some((document) => document.pdf === current) ? current : (data.results[0]?.pdf ?? ''),
+          mappedDocuments.some((document) => document.documentKey === current) ? current : (mappedDocuments[0]?.documentKey ?? ''),
         )
       } catch (err) {
         if (controller.signal.aborted) return
         setDocumentsError(err instanceof Error ? err.message : 'Unable to load asset documents.')
         setAssetDocuments(defaultAssetDocuments)
+        setInspectionDocuments([])
         setSelectedDocumentUrl('')
       } finally {
         if (!controller.signal.aborted) {
@@ -744,8 +830,27 @@ export default function AssetInfo() {
 
     loadDocuments()
 
-    return () => controller.abort()
-  }, [activeTab, unitId, documentsPage, usesSupabaseAssetData, assetInfo.unit_name])
+    return () => {
+      controller.abort()
+    }
+  }, [activeTab, unitId, assetInfo.unit_name])
+
+  useEffect(() => {
+    if (activeTab !== 'documents') return
+
+    const totalPages = Math.max(1, Math.ceil(inspectionDocuments.length / PREVENTATIVE_REPORTS_PAGE_SIZE))
+    if (documentsPage > totalPages) {
+      setDocumentsPage(totalPages)
+      return
+    }
+
+    const startIndex = (documentsPage - 1) * PREVENTATIVE_REPORTS_PAGE_SIZE
+    const currentPageDocuments = inspectionDocuments.slice(startIndex, startIndex + PREVENTATIVE_REPORTS_PAGE_SIZE)
+    if (currentPageDocuments.length === 0) return
+    if (!currentPageDocuments.some((document) => document.documentKey === selectedDocumentUrl)) {
+      setSelectedDocumentUrl(currentPageDocuments[0].documentKey)
+    }
+  }, [activeTab, documentsPage, inspectionDocuments, selectedDocumentUrl])
 
   useEffect(() => {
     if (activeTab !== 'repair') {
@@ -1157,19 +1262,44 @@ export default function AssetInfo() {
   const currentDocumentList =
     activeTab === 'repair'
       ? repairDocuments
-      : assetDocuments.results
+      : inspectionDocuments
   const getDocumentKey = (document: AssetPdfDocument | RepairPdfDocument) =>
     'documentKey' in document ? document.documentKey : document.pdf
-  const documentsTotalPages = Math.max(1, assetDocuments.total_pages || 1)
+  const documentsTotalPages = activeTab === 'documents'
+    ? Math.max(1, Math.ceil(inspectionDocuments.length / PREVENTATIVE_REPORTS_PAGE_SIZE))
+    : Math.max(1, assetDocuments.total_pages || 1)
   const visibleDocumentPages = buildVisiblePages(documentsPage, documentsTotalPages)
+  const pagedDocumentList = activeTab === 'documents'
+    ? currentDocumentList.slice(
+        (documentsPage - 1) * PREVENTATIVE_REPORTS_PAGE_SIZE,
+        documentsPage * PREVENTATIVE_REPORTS_PAGE_SIZE,
+      )
+    : currentDocumentList
   const selectedDocument =
     currentDocumentList.find((document) => getDocumentKey(document) === selectedDocumentUrl) ||
     currentDocumentList[0] ||
     null
   const selectedRepairDocument = isRepairPdfDocument(selectedDocument) ? selectedDocument : null
+  const selectedInspectionDocument = isGeneratedInspectionPdfDocument(selectedDocument) ? selectedDocument : null
   const selectedDocumentDownloadName = selectedDocument
     ? `${selectedDocument.display_name.replace(/\.pdf$/i, '')}.pdf`
     : 'report.pdf'
+  const handleDownloadSelectedInspectionReport = async () => {
+    if (!selectedInspectionDocument) return
+
+    try {
+      setInspectionDownloadBusy(true)
+      const blob = await createDeshazoInspectionPdfBlob(selectedInspectionDocument.report, selectedInspectionDocument.craneIndex)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = getDeshazoInspectionPdfFileName(selectedInspectionDocument.report, selectedInspectionDocument.craneIndex)
+      anchor.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } finally {
+      setInspectionDownloadBusy(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -1252,7 +1382,7 @@ export default function AssetInfo() {
           </aside>
         )}
 
-        <section className="min-w-0 flex-1 px-5 py-5 sm:px-8 lg:px-10">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:h-[calc(100vh-60px)] lg:px-10">
           <div className="mb-6">
             <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
               DESHA<span className="text-[#f2b43f]">Z</span>O
@@ -1324,7 +1454,7 @@ export default function AssetInfo() {
             </button>
           </div>
 
-          <section className="overflow-hidden rounded-[14px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
+          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
             <div className="border-b border-[var(--deshazo-border)] px-4 pt-3">
               <div className="flex flex-wrap gap-2">
                 {tabs.map((tab) => (
@@ -1344,7 +1474,7 @@ export default function AssetInfo() {
               </div>
             </div>
 
-            <div className="min-h-[640px] px-4 py-4">
+            <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
               {loading ? (
                 <div className="space-y-3">
                   <div className="h-12 animate-pulse rounded bg-[var(--deshazo-surface)]" />
@@ -1551,7 +1681,7 @@ export default function AssetInfo() {
                   </table>
                 </div>
               ) : activeTab === 'documents' || activeTab === 'repair' ? (
-                <section className="rounded-[18px] border border-[var(--deshazo-border)] bg-white/75 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.16)] sm:p-5">
+                <section className="flex h-full min-h-0 flex-col rounded-[18px] border border-[var(--deshazo-border)] bg-white/75 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.16)] sm:p-5">
                   {documentsError ? (
                     <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                       {documentsError}
@@ -1598,16 +1728,19 @@ export default function AssetInfo() {
                         >
                           ›
                         </button>
+                        <span className="ml-2 text-[13px] font-bold text-[rgba(21,24,33,0.55)]">
+                          {inspectionDocuments.length} reports
+                        </span>
                       </div>
                     ) : null}
 
                     <div />
                   </div>
 
-                  <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
-                    <div className="max-h-[720px] space-y-4 overflow-y-auto pr-2">
+                  <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(320px,430px)_minmax(0,1fr)]">
+                    <div className="min-h-0 space-y-4 overflow-y-auto pr-2">
                       {documentsLoading ? (
-                        Array.from({ length: assetDocuments.page_size || defaultAssetDocuments.page_size }).map((_, index) => (
+                        Array.from({ length: activeTab === 'documents' ? PREVENTATIVE_REPORTS_PAGE_SIZE : (assetDocuments.page_size || defaultAssetDocuments.page_size) }).map((_, index) => (
                           <div
                             key={index}
                             className="rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]"
@@ -1622,7 +1755,7 @@ export default function AssetInfo() {
                           No reports available
                         </div>
                       ) : (
-                        currentDocumentList.map((document) => {
+                        pagedDocumentList.map((document) => {
                           const documentKey = getDocumentKey(document)
                           const isActive = selectedDocument ? getDocumentKey(selectedDocument) === documentKey : false
                           const repairPdfLoading = 'pdfLoading' in document && document.pdfLoading
@@ -1662,14 +1795,55 @@ export default function AssetInfo() {
                       )}
                     </div>
 
-                    <div className="relative overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
+                    <div className="relative flex min-h-0 flex-col overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
                       {selectedDocument ? (
                         <>
-                          <div className="flex items-center justify-between gap-3 border-b border-[var(--deshazo-border)] bg-white px-4 py-3">
+                          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--deshazo-border)] bg-white px-4 py-3">
                             <p className="min-w-0 truncate text-sm font-bold text-[var(--deshazo-text)]">
                               {selectedDocument.display_name}
                             </p>
-                            {selectedDocument.pdf ? (
+                            {activeTab === 'documents' && selectedInspectionDocument ? (
+                              <div className="flex shrink-0 items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setInspectionPreviewZoom((zoom) => Math.max(0.7, Number((zoom - 0.1).toFixed(2))))}
+                                  disabled={inspectionPreviewZoom <= 0.7}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[16px] font-black text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)] disabled:cursor-not-allowed disabled:opacity-40"
+                                  aria-label="Zoom out"
+                                  title="Zoom out"
+                                >
+                                  −
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setInspectionPreviewZoom((zoom) => Math.min(1.6, Number((zoom + 0.1).toFixed(2))))}
+                                  disabled={inspectionPreviewZoom >= 1.6}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[16px] font-black text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)] disabled:cursor-not-allowed disabled:opacity-40"
+                                  aria-label="Zoom in"
+                                  title="Zoom in"
+                                >
+                                  +
+                                </button>
+                                <a
+                                  href={`/deshazo-external-reports?workOrderId=${encodeURIComponent(selectedInspectionDocument.report.workOrderId)}&dNumber=${encodeURIComponent(
+                                    extractDocumentNumber(assetInfo.unit_name, unitId) || unitId,
+                                  )}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex h-8 items-center rounded-lg border border-[var(--deshazo-border)] bg-white px-3 text-xs font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
+                                >
+                                  Open report page
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={() => { void handleDownloadSelectedInspectionReport() }}
+                                  disabled={inspectionDownloadBusy}
+                                  className="inline-flex h-8 items-center rounded-md bg-[var(--deshazo-blue)] px-3 text-xs font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  {inspectionDownloadBusy ? 'Downloading' : 'Download'}
+                                </button>
+                              </div>
+                            ) : selectedDocument.pdf ? (
                               <a
                                 href={selectedDocument.pdf}
                                 download={selectedDocumentDownloadName}
@@ -1679,15 +1853,24 @@ export default function AssetInfo() {
                               </a>
                             ) : null}
                           </div>
-                          {selectedDocument.pdf ? (
+                          {activeTab === 'documents' && selectedInspectionDocument ? (
+                            <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                              <GeneratedInspectionReportPreview
+                                key={`${selectedInspectionDocument.report.workOrderId}-${selectedInspectionDocument.craneIndex}`}
+                                report={selectedInspectionDocument.report}
+                                selectedCraneIndex={selectedInspectionDocument.craneIndex}
+                                zoom={inspectionPreviewZoom}
+                              />
+                            </div>
+                          ) : selectedDocument.pdf ? (
                             <iframe
                               key={selectedDocument.pdf}
                               src={selectedDocument.pdf}
                               title={selectedDocument.display_name}
-                              className="h-[652px] w-full border-0"
+                              className="h-full min-h-[420px] w-full border-0"
                             />
                           ) : (
-                            <div className="flex h-[652px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                            <div className="flex h-full min-h-[420px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
                               {selectedRepairDocument?.pdfError
                                 ? selectedRepairDocument.pdfError
                                 : 'Drafting PDF preview...'}
@@ -1695,7 +1878,7 @@ export default function AssetInfo() {
                           )}
                         </>
                       ) : (
-                        <div className="flex h-[700px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                        <div className="flex h-full min-h-[460px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
                           Select a report to preview the PDF.
                         </div>
                       )}
@@ -1999,6 +2182,7 @@ export default function AssetInfo() {
                   key={`${selectedIssueMatch.report.workOrderId}-${selectedIssueMatch.craneIndex}`}
                   report={selectedIssueMatch.report}
                   selectedCraneIndex={selectedIssueMatch.craneIndex}
+                  zoom={1}
                 />
               </div>
             ) : (

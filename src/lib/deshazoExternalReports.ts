@@ -371,6 +371,7 @@ export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: 
       'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
     )
     .in('work_order_id', workOrderIds)
+    .ilike('bill_to_name', wabashCustomerNameFilter)
 
   if (summaryError) {
     throw new Error(summaryError.message)
@@ -384,6 +385,7 @@ export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: 
   const matches: DeshazoSavedInspectionReportMatch[] = []
 
   ;((reportData ?? []) as DeshazoInspectionReportRow[]).forEach((row) => {
+    if (!summariesById.has(row.work_order_id)) return
     const report = normalizeSavedReport(row, summariesById.get(row.work_order_id))
     ;(report.rawPayload.cranes ?? []).forEach((craneReport, craneIndex) => {
       const contactCode = normalizeDNumber(craneReport.crane?.contactCode)
