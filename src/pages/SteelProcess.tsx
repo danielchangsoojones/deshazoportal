@@ -267,9 +267,9 @@ export default function SteelProcess() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate('/steel-quoting-list')}
+            onClick={() => navigate('/steel-photo-upload')}
             className="text-[22px] font-black leading-none transition hover:text-white/80"
-            aria-label="Back to steel quoting list"
+            aria-label="Back to steel photo upload"
           >
             ‹
           </button>

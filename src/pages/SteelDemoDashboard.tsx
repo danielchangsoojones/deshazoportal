@@ -11,7 +11,7 @@ const steelCards = [
   {
     eyebrow: 'Quotes',
     title: 'Steel Quoting List',
-    description: 'Upload steel drawing PDFs, preview them, and pull out measurements for quoting.',
+    description: 'Review mock steel quotes, grouped by job, and open the steel quote input page.',
     href: '/steel-quoting-list',
   },
   {

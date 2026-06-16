@@ -33,8 +33,16 @@ const reportsPerPage = 50
 type JobsQuotingListProps = {
   homePath?: string
   headerLabel?: string
+  headerTitle?: string
   pageTitle?: string
   loadingLabel?: string
+  mockRuns?: JobsQuotingRun[]
+  mockItems?: JobsQuotingItem[]
+  mockItemResults?: JobsQuotingItemResult[]
+  editQuotePath?: string
+  includeItemIdInEditPath?: boolean
+  showIssueCounts?: boolean
+  showHeaderActions?: boolean
 }
 
 type JobsQuotingRunGroup = {
@@ -399,15 +407,26 @@ function buildJobGroups(items: JobsQuotingItem[]) {
 export default function JobsQuotingList({
   homePath = '/deshazo-internal-dashboard',
   headerLabel = 'Jobs Quoting',
+  headerTitle = 'DESHAZO Quote Builder',
   pageTitle = 'Jobs Quoting List',
   loadingLabel = 'Loading jobs quoting...',
+  mockRuns,
+  mockItems,
+  mockItemResults = [],
+  editQuotePath = '/editable-inspection-report',
+  includeItemIdInEditPath = true,
+  showIssueCounts = true,
+  showHeaderActions = true,
 }: JobsQuotingListProps = {}) {
+  const hasMockData = Boolean(mockItems)
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [userTag, setUserTag] = useState<UserTag | null>(null)
-  const [runs, setRuns] = useState<JobsQuotingRun[]>([])
-  const [items, setItems] = useState<JobsQuotingItem[]>([])
-  const [itemResults, setItemResults] = useState<Record<string, JobsQuotingItemResult>>({})
+  const [runs, setRuns] = useState<JobsQuotingRun[]>(() => mockRuns ?? [])
+  const [items, setItems] = useState<JobsQuotingItem[]>(() => mockItems ?? [])
+  const [itemResults, setItemResults] = useState<Record<string, JobsQuotingItemResult>>(() =>
+    Object.fromEntries(mockItemResults.map((result) => [result.jobQuoteItemId, result])),
+  )
   const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
   const [itemsLoading, setItemsLoading] = useState(false)
   const [selectedJobSectionId, setSelectedJobSectionId] = useState<string>(allJobsSectionId)
@@ -427,7 +446,7 @@ export default function JobsQuotingList({
   const [markResultAmountWon, setMarkResultAmountWon] = useState('')
   const [markResultSubmitting, setMarkResultSubmitting] = useState(false)
   const [pinnedImportedJobNumbers, setPinnedImportedJobNumbers] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!hasMockData)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [inspectionRunsCollapsed, setInspectionRunsCollapsed] = useState(
@@ -502,6 +521,13 @@ export default function JobsQuotingList({
   const pageLastJob = Math.min(pageStartIndex + paginatedJobGroups.length, sortedJobGroups.length)
   const markResultItem = markResultItemId ? items.find((item) => item.id === markResultItemId) ?? null : null
   const markResultQuoteTotal = markResultItem ? getQuoteTotalAmount(markResultItem) : 0
+  const getEditQuotePath = useCallback(
+    (item: JobsQuotingItem) =>
+      includeItemIdInEditPath
+        ? `${editQuotePath}?jobsQuotingItemId=${encodeURIComponent(item.id)}`
+        : editQuotePath,
+    [editQuotePath, includeItemIdInEditPath],
+  )
 
   useEffect(() => {
     setCurrentPage(1)
@@ -534,6 +560,23 @@ export default function JobsQuotingList({
   }, [navigate])
 
   const loadQuotingData = useCallback(async (sectionId?: string) => {
+    if (mockItems) {
+      const nextJobSections = buildJobGroups(mockItems)
+      const nextSelectedSectionId =
+        sectionId && (sectionId === allJobsSectionId || nextJobSections.some((group) => group.id === sectionId))
+          ? sectionId
+          : allJobsSectionId
+
+      setRuns(mockRuns ?? [])
+      setSelectedJobSectionId(nextSelectedSectionId)
+      setItems(mockItems)
+      setItemResults(Object.fromEntries(mockItemResults.map((result) => [result.jobQuoteItemId, result])))
+      setLoading(false)
+      setItemsLoading(false)
+      setMessage('')
+      return
+    }
+
     setLoading(true)
     setItemsLoading(true)
     setMessage('')
@@ -560,7 +603,7 @@ export default function JobsQuotingList({
       setLoading(false)
       setItemsLoading(false)
     }
-  }, [])
+  }, [mockItemResults, mockItems, mockRuns])
 
   useEffect(() => {
     if (user) {
@@ -572,6 +615,11 @@ export default function JobsQuotingList({
   }, [loadQuotingData, user])
 
   useEffect(() => {
+    if (hasMockData) {
+      setUserDisplayNames({})
+      return
+    }
+
     if (runs.length === 0) {
       setUserDisplayNames({})
       return
@@ -589,11 +637,11 @@ export default function JobsQuotingList({
     return () => {
       cancelled = true
     }
-  }, [runs])
+  }, [hasMockData, runs])
 
   useEffect(() => {
     const activeRuns = runs.filter((run) => activeStatuses.has(run.status))
-    if (!user || activeRuns.length === 0 || busy) return
+    if (hasMockData || !user || activeRuns.length === 0 || busy) return
 
     let syncing = false
     let cancelled = false
@@ -638,7 +686,7 @@ export default function JobsQuotingList({
       cancelled = true
       window.clearInterval(refreshInterval)
     }
-  }, [busy, runs, user])
+  }, [busy, hasMockData, runs, user])
 
   const mergeUploadedRuns = (uploadedRuns: JobsQuotingRun[]) => {
     const uploadedRunIds = new Set(uploadedRuns.map((run) => run.id))
@@ -1005,39 +1053,41 @@ export default function JobsQuotingList({
           </div>
         </div>
 
-        <div className="text-sm font-black tracking-wide">DESHAZO Quote Builder</div>
+        <div className="text-sm font-black tracking-wide">{headerTitle}</div>
 
         <div className="relative flex items-center gap-2">
-          <form
-            className="hidden items-center gap-2 md:flex"
-            onSubmit={(event) => {
-              event.preventDefault()
-              importExternalInspectionReportsForJob()
-            }}
-          >
-            <label className="sr-only" htmlFor="external-job-number-import">
-              Job number
-            </label>
-            <input
-              id="external-job-number-import"
-              type="text"
-              value={externalJobNumberInput}
-              onChange={(event) => setExternalJobNumberInput(event.currentTarget.value)}
-              disabled={busy}
-              placeholder="Job #"
-              className="h-9 w-[132px] rounded-md border border-white/30 bg-white/95 px-3 text-xs font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-white focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-            <button
-              type="submit"
-              disabled={busy || !externalJobNumberInput.trim()}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-white/30 bg-white px-3 text-xs font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
+          {showHeaderActions ? (
+            <form
+              className="hidden items-center gap-2 md:flex"
+              onSubmit={(event) => {
+                event.preventDefault()
+                importExternalInspectionReportsForJob()
+              }}
             >
-              {externalJobImporting ? (
-                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#d6cbed] border-t-[#35245f]" />
-              ) : null}
-              <span>{externalJobImporting ? 'Importing' : 'Import Job'}</span>
-            </button>
-          </form>
+              <label className="sr-only" htmlFor="external-job-number-import">
+                Job number
+              </label>
+              <input
+                id="external-job-number-import"
+                type="text"
+                value={externalJobNumberInput}
+                onChange={(event) => setExternalJobNumberInput(event.currentTarget.value)}
+                disabled={busy}
+                placeholder="Job #"
+                className="h-9 w-[132px] rounded-md border border-white/30 bg-white/95 px-3 text-xs font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-white focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <button
+                type="submit"
+                disabled={busy || !externalJobNumberInput.trim()}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-white/30 bg-white px-3 text-xs font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {externalJobImporting ? (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#d6cbed] border-t-[#35245f]" />
+                ) : null}
+                <span>{externalJobImporting ? 'Importing' : 'Import Job'}</span>
+              </button>
+            </form>
+          ) : null}
           <input
             ref={extractPdfInputRef}
             type="file"
@@ -1070,16 +1120,18 @@ export default function JobsQuotingList({
               event.currentTarget.value = ''
             }}
           />
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setUploadMenuOpen((currentOpen) => !currentOpen)}
-            className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
-            aria-expanded={uploadMenuOpen}
-          >
-            Create New
-          </button>
-          {uploadMenuOpen ? (
+          {showHeaderActions ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setUploadMenuOpen((currentOpen) => !currentOpen)}
+              className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
+              aria-expanded={uploadMenuOpen}
+            >
+              Create New
+            </button>
+          ) : null}
+          {showHeaderActions && uploadMenuOpen ? (
             <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
               <form
                 className="mb-2 rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2 md:hidden"
@@ -1446,16 +1498,18 @@ export default function JobsQuotingList({
               </p>
             </div>
 
-            <div className="grid min-w-[280px] grid-cols-2 overflow-hidden rounded-md border border-[#dfe4ef] bg-white shadow-[0_16px_44px_-36px_rgba(15,23,42,0.55)]">
-              <div className="border-r border-[#dfe4ef] px-4 py-3">
-                <p className="text-[11px] font-black uppercase text-[#747b8a]">Repairs</p>
-                <p className="mt-1 text-2xl font-black text-[#273f7a]">{jobsListLoading ? '...' : totalRepairItems}</p>
+            {showIssueCounts ? (
+              <div className="grid min-w-[280px] grid-cols-2 overflow-hidden rounded-md border border-[#dfe4ef] bg-white shadow-[0_16px_44px_-36px_rgba(15,23,42,0.55)]">
+                <div className="border-r border-[#dfe4ef] px-4 py-3">
+                  <p className="text-[11px] font-black uppercase text-[#747b8a]">Repairs</p>
+                  <p className="mt-1 text-2xl font-black text-[#273f7a]">{jobsListLoading ? '...' : totalRepairItems}</p>
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-[11px] font-black uppercase text-[#747b8a]">Safety</p>
+                  <p className="mt-1 text-2xl font-black text-[#a2472f]">{jobsListLoading ? '...' : totalSafetyItems}</p>
+                </div>
               </div>
-              <div className="px-4 py-3">
-                <p className="text-[11px] font-black uppercase text-[#747b8a]">Safety</p>
-                <p className="mt-1 text-2xl font-black text-[#a2472f]">{jobsListLoading ? '...' : totalSafetyItems}</p>
-              </div>
-            </div>
+            ) : null}
           </div>
 
           {message ? (
@@ -1528,20 +1582,24 @@ export default function JobsQuotingList({
                 <table className="w-full table-fixed border-collapse text-left">
                   <thead>
                     <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
-                      <th className="w-[12%] px-3 py-3">D-number</th>
-                      <th className="w-[24%] px-3 py-3">Job Type</th>
-                      <th className="w-[11%] px-2 py-3 text-center">Date Modified</th>
-                      <th className="w-[10%] px-2 py-3 text-center">Uploaded By</th>
-                      <th className="w-[7%] px-1 py-3 text-center">Repairs</th>
-                      <th className="w-[7%] px-1 py-3 text-center">Safety</th>
-                      <th className="w-[7%] px-1 py-3 text-center">Total</th>
+                      <th className={`${showIssueCounts ? 'w-[12%]' : 'w-[16%]'} px-3 py-3`}>D-number</th>
+                      <th className={`${showIssueCounts ? 'w-[24%]' : 'w-[32%]'} px-3 py-3`}>Job Type</th>
+                      <th className={`${showIssueCounts ? 'w-[11%]' : 'w-[16%]'} px-2 py-3 text-center`}>Date Modified</th>
+                      <th className={`${showIssueCounts ? 'w-[10%]' : 'w-[14%]'} px-2 py-3 text-center`}>Uploaded By</th>
+                      {showIssueCounts ? (
+                        <>
+                          <th className="w-[7%] px-1 py-3 text-center">Repairs</th>
+                          <th className="w-[7%] px-1 py-3 text-center">Safety</th>
+                          <th className="w-[7%] px-1 py-3 text-center">Total</th>
+                        </>
+                      ) : null}
                       <th className="w-[22%] px-3 py-3 text-center">PDF</th>
                     </tr>
                   </thead>
                   <tbody>
                     {jobsListLoading ? (
                       <tr>
-                        <td colSpan={8} className="px-5 py-16">
+                        <td colSpan={showIssueCounts ? 8 : 5} className="px-5 py-16">
                           <div className="mx-auto flex max-w-xs flex-col items-center justify-center text-center">
                             <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#dfe4ef] border-t-[#273f7a]" />
                             <p className="mt-4 text-sm font-black text-[#1f2430]">Loading quote jobs...</p>
@@ -1554,7 +1612,7 @@ export default function JobsQuotingList({
                     ) : paginatedJobGroups.map((jobGroup) => (
                       <Fragment key={jobGroup.id}>
                         <tr className="border-y border-[#d7deeb] bg-[#f7f9fd]">
-                          <td className="px-3 py-3 align-middle" colSpan={4}>
+                          <td className="px-3 py-3 align-middle" colSpan={showIssueCounts ? 4 : 4}>
                             <div className="min-w-0">
                               <p className="text-[15px] font-black leading-tight text-[#1f2430]">
                                 {jobGroup.jobNumber ? `Job ${jobGroup.jobNumber}` : 'Job number not found'}
@@ -1565,15 +1623,19 @@ export default function JobsQuotingList({
                               </p>
                             </div>
                           </td>
-                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#273f7a]">
-                            {jobGroup.repairCount}
-                          </td>
-                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#a2472f]">
-                            {jobGroup.safetyCount}
-                          </td>
-                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#111]">
-                            {jobGroup.priorityCount}
-                          </td>
+                          {showIssueCounts ? (
+                            <>
+                              <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#273f7a]">
+                                {jobGroup.repairCount}
+                              </td>
+                              <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#a2472f]">
+                                {jobGroup.safetyCount}
+                              </td>
+                              <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#111]">
+                                {jobGroup.priorityCount}
+                              </td>
+                            </>
+                          ) : null}
                           <td className="px-3 py-3 text-center align-middle text-[12px] font-bold text-[#4d5360]">
                             Modified {formatDate(jobGroup.modifiedAt)}
                           </td>
@@ -1601,21 +1663,25 @@ export default function JobsQuotingList({
                                 {getRunUploaderName(runsById.get(item.runId)) || '-'}
                               </span>
                             </td>
-                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[#273f7a]">
-                              {item.repairCount}
-                            </td>
-                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[#a2472f]">
-                              {item.safetyCount}
-                            </td>
-                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[#111]">
-                              {item.priorityCount}
-                            </td>
+                            {showIssueCounts ? (
+                              <>
+                                <td className="px-1 py-4 text-center align-top text-lg font-black text-[#273f7a]">
+                                  {item.repairCount}
+                                </td>
+                                <td className="px-1 py-4 text-center align-top text-lg font-black text-[#a2472f]">
+                                  {item.safetyCount}
+                                </td>
+                                <td className="px-1 py-4 text-center align-top text-lg font-black text-[#111]">
+                                  {item.priorityCount}
+                                </td>
+                              </>
+                            ) : null}
                             <td className="px-3 py-4 text-center align-top">
                               <div className="inline-flex flex-col items-center justify-center">
                                 <div className="inline-flex items-center justify-center gap-2">
                                   <button
                                     type="button"
-                                    onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
+                                    onClick={() => navigate(getEditQuotePath(item))}
                                     className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
                                   >
                                     Edit Quote
