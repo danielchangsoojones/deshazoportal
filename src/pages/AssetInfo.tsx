@@ -16,7 +16,6 @@ import {
   upsertAssetNotificationSubscriber,
   type AssetNotificationSubscriberRecord,
 } from '../lib/assetNotificationSubscribers'
-import { listRepairReportsByCity } from '../lib/repairReports'
 import {
   getAssetInfo,
   getAssetPDF,
@@ -31,10 +30,13 @@ import {
 import {
   DESHAZO_PDF_PAGE_HEIGHT_PX,
   DESHAZO_PDF_PAGE_WIDTH_PX,
+  createDeshazoInspectionPdfBlob,
+  getDeshazoInspectionPdfFileName,
   getDeshazoInspectionReportHtml,
   getDeshazoInspectionReportStyles,
 } from '../lib/deshazoExternalPdf'
 import {
+  getSavedDeshazoRepairReportsByCity,
   getSavedDeshazoInspectionReportMatchesForDNumber,
   type DeshazoSavedInspectionReport,
 } from '../lib/deshazoExternalReports'
@@ -83,6 +85,17 @@ type GeneratedIssueReportMatch = {
   report: DeshazoSavedInspectionReport
   craneIndex: number
 }
+
+type RepairPdfDocument = AssetPdfDocument & {
+  documentKey: string
+  report: DeshazoSavedInspectionReport
+  pdfLoading?: boolean
+  pdfError?: string
+}
+
+const isRepairPdfDocument = (
+  document: AssetPdfDocument | RepairPdfDocument | null,
+): document is RepairPdfDocument => Boolean(document && 'documentKey' in document)
 
 const defaultAssetInfo: AssetInfoAnalytics = {
   unit_location: '',
@@ -153,13 +166,6 @@ const extractDocumentNumber = (...values: Array<string | undefined>) => {
 
   return ''
 }
-
-const formatRepairReportType = (value: string) =>
-  value
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
 
 const getSafetyBadgeClass = (value: string) => {
   const normalized = value.toLowerCase()
@@ -260,10 +266,6 @@ function GeneratedInspectionReportPreview({
   const pageCount = useMemo(() => Math.max(1, reportMarkup.match(/class="pdf-page"/g)?.length ?? 1), [reportMarkup])
 
   useEffect(() => {
-    setCurrentPage(0)
-  }, [report, selectedCraneIndex])
-
-  useEffect(() => {
     const node = containerRef.current
     if (!node) return undefined
 
@@ -345,7 +347,8 @@ export default function AssetInfo() {
   const [filterValue, setFilterValue] = useState('')
   const [assetInfo, setAssetInfo] = useState<AssetInfoAnalytics>(defaultAssetInfo)
   const [assetDocuments, setAssetDocuments] = useState<AssetPdfResponse>(defaultAssetDocuments)
-  const [repairDocuments, setRepairDocuments] = useState<AssetPdfDocument[]>([])
+  const [repairDocuments, setRepairDocuments] = useState<RepairPdfDocument[]>([])
+  const repairDocumentUrlsRef = useRef<string[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState('')
   const [documentsPage, setDocumentsPage] = useState(1)
@@ -377,6 +380,10 @@ export default function AssetInfo() {
   const [error, setError] = useState('')
   const [recurringIssues, setRecurringIssues] = useState<RecurringIssue[]>([])
   const [recurringIssuesLoading, setRecurringIssuesLoading] = useState(false)
+  const selectedRepairDocumentToDraft = useMemo(
+    () => repairDocuments.find((document) => document.documentKey === selectedDocumentUrl) ?? null,
+    [repairDocuments, selectedDocumentUrl],
+  )
   const navigate = useNavigate()
   const unitId = searchParams.get('unit_id')?.trim() || ''
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
@@ -761,19 +768,27 @@ export default function AssetInfo() {
       try {
         setDocumentsLoading(true)
         setDocumentsError('')
-        const data = await listRepairReportsByCity(city)
+        repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+        repairDocumentUrlsRef.current = []
 
         if (!cancelled) {
-          const mappedDocuments: AssetPdfDocument[] = data.map((report) => ({
-            inspection_date: report.dateStart ?? report.uploadedAt,
-            pdf: report.signedUrl,
-            type: formatRepairReportType(report.reportType),
-            display_name: report.displayName || `${report.workOrderNumber} ${formatRepairReportType(report.reportType)}`,
+          const reports = await getSavedDeshazoRepairReportsByCity(city)
+          const mappedDocuments: RepairPdfDocument[] = reports.map((report) => ({
+            documentKey: `repair:${report.workOrderId}`,
+            report,
+            inspection_date: report.summary?.startDate || report.summary?.endDate || report.syncedAt,
+            pdf: '',
+            type: report.jobType || 'Repair',
+            display_name: getDeshazoInspectionPdfFileName(report).replace(/\.pdf$/i, ''),
           }))
+
+          if (cancelled) {
+            return
+          }
 
           setRepairDocuments(mappedDocuments)
           setSelectedDocumentUrl((current) =>
-            mappedDocuments.some((document) => document.pdf === current) ? current : (mappedDocuments[0]?.pdf ?? ''),
+            mappedDocuments.some((document) => document.documentKey === current) ? current : (mappedDocuments[0]?.documentKey ?? ''),
           )
         }
       } catch (err) {
@@ -793,8 +808,65 @@ export default function AssetInfo() {
 
     return () => {
       cancelled = true
+      repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+      repairDocumentUrlsRef.current = []
     }
   }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location])
+
+  useEffect(() => {
+    return () => {
+      repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+      repairDocumentUrlsRef.current = []
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab !== 'repair' || !selectedDocumentUrl) {
+      return
+    }
+
+    const selectedRepairDocument = selectedRepairDocumentToDraft
+    if (!selectedRepairDocument || selectedRepairDocument.pdf || selectedRepairDocument.pdfLoading) {
+      return
+    }
+
+    let cancelled = false
+
+    const loadSelectedRepairPdf = async () => {
+      try {
+        const blob = await createDeshazoInspectionPdfBlob(selectedRepairDocument.report)
+        if (cancelled) return
+
+        const pdfUrl = URL.createObjectURL(blob)
+        repairDocumentUrlsRef.current.push(pdfUrl)
+        setRepairDocuments((documents) =>
+          documents.map((document) =>
+            document.documentKey === selectedRepairDocument.documentKey
+              ? { ...document, pdf: pdfUrl, pdfError: '' }
+              : document,
+          ),
+        )
+      } catch (err) {
+        if (cancelled) return
+        setRepairDocuments((documents) =>
+          documents.map((document) =>
+            document.documentKey === selectedRepairDocument.documentKey
+              ? {
+                  ...document,
+                  pdfError: err instanceof Error ? err.message : 'Unable to draft repair PDF.',
+                }
+              : document,
+          ),
+        )
+      }
+    }
+
+    void loadSelectedRepairPdf()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, selectedDocumentUrl, selectedRepairDocumentToDraft])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -1086,12 +1158,18 @@ export default function AssetInfo() {
     activeTab === 'repair'
       ? repairDocuments
       : assetDocuments.results
+  const getDocumentKey = (document: AssetPdfDocument | RepairPdfDocument) =>
+    'documentKey' in document ? document.documentKey : document.pdf
   const documentsTotalPages = Math.max(1, assetDocuments.total_pages || 1)
   const visibleDocumentPages = buildVisiblePages(documentsPage, documentsTotalPages)
   const selectedDocument =
-    currentDocumentList.find((document) => document.pdf === selectedDocumentUrl) ||
+    currentDocumentList.find((document) => getDocumentKey(document) === selectedDocumentUrl) ||
     currentDocumentList[0] ||
     null
+  const selectedRepairDocument = isRepairPdfDocument(selectedDocument) ? selectedDocument : null
+  const selectedDocumentDownloadName = selectedDocument
+    ? `${selectedDocument.display_name.replace(/\.pdf$/i, '')}.pdf`
+    : 'report.pdf'
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -1545,13 +1623,15 @@ export default function AssetInfo() {
                         </div>
                       ) : (
                         currentDocumentList.map((document) => {
-                          const isActive = selectedDocument?.pdf === document.pdf
+                          const documentKey = getDocumentKey(document)
+                          const isActive = selectedDocument ? getDocumentKey(selectedDocument) === documentKey : false
+                          const repairPdfLoading = 'pdfLoading' in document && document.pdfLoading
 
                           return (
                             <button
-                              key={document.pdf}
+                              key={documentKey}
                               type="button"
-                              onClick={() => setSelectedDocumentUrl(document.pdf)}
+                              onClick={() => setSelectedDocumentUrl(documentKey)}
                               className={`w-full rounded-[18px] border bg-white px-4 py-4 text-left shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)] transition ${
                                 isActive
                                   ? 'border-[var(--deshazo-blue)] shadow-[0_18px_32px_-24px_rgba(47,86,166,0.36)]'
@@ -1566,6 +1646,11 @@ export default function AssetInfo() {
                                   <span className="mt-3 inline-flex rounded-full bg-[#dff6e6] px-2.5 py-1 text-[12px] font-semibold text-[#4a9960]">
                                     {formatTitleCase(document.type)}
                                   </span>
+                                  {repairPdfLoading ? (
+                                    <span className="ml-2 mt-3 inline-flex rounded-full bg-[var(--deshazo-surface)] px-2.5 py-1 text-[12px] font-semibold text-[rgba(21,24,33,0.55)]">
+                                      Drafting PDF
+                                    </span>
+                                  ) : null}
                                 </div>
                                 <p className="w-[92px] shrink-0 text-right text-sm font-semibold text-[rgba(21,24,33,0.72)]">
                                   {formatDisplayDate(document.inspection_date)}
@@ -1579,12 +1664,36 @@ export default function AssetInfo() {
 
                     <div className="relative overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
                       {selectedDocument ? (
-                        <iframe
-                          key={selectedDocument.pdf}
-                          src={selectedDocument.pdf}
-                          title={selectedDocument.display_name}
-                          className="h-[700px] w-full border-0"
-                        />
+                        <>
+                          <div className="flex items-center justify-between gap-3 border-b border-[var(--deshazo-border)] bg-white px-4 py-3">
+                            <p className="min-w-0 truncate text-sm font-bold text-[var(--deshazo-text)]">
+                              {selectedDocument.display_name}
+                            </p>
+                            {selectedDocument.pdf ? (
+                              <a
+                                href={selectedDocument.pdf}
+                                download={selectedDocumentDownloadName}
+                                className="shrink-0 rounded-md bg-[var(--deshazo-blue)] px-3 py-2 text-xs font-bold text-white transition hover:opacity-90"
+                              >
+                                Download
+                              </a>
+                            ) : null}
+                          </div>
+                          {selectedDocument.pdf ? (
+                            <iframe
+                              key={selectedDocument.pdf}
+                              src={selectedDocument.pdf}
+                              title={selectedDocument.display_name}
+                              className="h-[652px] w-full border-0"
+                            />
+                          ) : (
+                            <div className="flex h-[652px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                              {selectedRepairDocument?.pdfError
+                                ? selectedRepairDocument.pdfError
+                                : 'Drafting PDF preview...'}
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <div className="flex h-[700px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
                           Select a report to preview the PDF.
@@ -1887,6 +1996,7 @@ export default function AssetInfo() {
                   </a>
                 </div>
                 <GeneratedInspectionReportPreview
+                  key={`${selectedIssueMatch.report.workOrderId}-${selectedIssueMatch.craneIndex}`}
                   report={selectedIssueMatch.report}
                   selectedCraneIndex={selectedIssueMatch.craneIndex}
                 />

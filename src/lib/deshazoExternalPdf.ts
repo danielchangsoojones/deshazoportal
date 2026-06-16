@@ -2,6 +2,7 @@ import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import type {
   DeshazoCraneReport,
+  DeshazoGeneralWorkItem,
   DeshazoHoist,
   DeshazoInspectionPhoto,
   DeshazoInspectionPoint,
@@ -23,6 +24,27 @@ type ResolvedSection = {
 
 type SectionedItem = ActionItem
 
+type ServiceContactInfo = {
+  customer: string
+  contact: string
+  location: string
+  phone: string
+  email: string
+}
+
+type ServiceTechnicianTime = {
+  name: string
+  start: string
+  end: string
+  total: string
+}
+
+type ServiceTicketPage = {
+  kind: 'work' | 'attachments'
+  item: DeshazoGeneralWorkItem
+  itemIndex: number
+}
+
 export const DESHAZO_PDF_PAGE_WIDTH_PX = 816
 export const DESHAZO_PDF_PAGE_HEIGHT_PX = 1056
 const pdfPageWidthPt = 612
@@ -41,17 +63,33 @@ function safeFilePart(value: string) {
   return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '')
 }
 
+function formatFileDatePart(value?: string | null) {
+  if (!value) return ''
+  const dateOnlyMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (dateOnlyMatch) return `${dateOnlyMatch[1]}-${dateOnlyMatch[2]}-${dateOnlyMatch[3]}`
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return safeFilePart(value)
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function formatDate(value?: string) {
   if (!value) return 'N/A'
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value))
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(parsed)
 }
 
 function formatTime(value?: string) {
   if (!value) return 'N/A'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return 'N/A'
   return new Intl.DateTimeFormat(undefined, {
     hour: 'numeric',
     minute: '2-digit',
-  }).format(new Date(value))
+  }).format(parsed)
 }
 
 function toTitleCase(value?: string) {
@@ -396,6 +434,518 @@ function getInspectionStats(craneReport: DeshazoCraneReport) {
   }
 }
 
+function asArray<T>(value: T | T[] | undefined | null) {
+  if (Array.isArray(value)) return value
+  return value ? [value] : []
+}
+
+function normalizeGeneralWorkItems(report: DeshazoSavedInspectionReport) {
+  return asArray(report.rawPayload.generalWork as DeshazoGeneralWorkItem | DeshazoGeneralWorkItem[] | undefined)
+}
+
+function getUnknownString(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number') return String(value)
+  }
+  return ''
+}
+
+function getNoteText(note: unknown) {
+  if (typeof note === 'string') return note.trim()
+  if (!note || typeof note !== 'object') return ''
+  return getUnknownString(note as Record<string, unknown>, ['note', 'content', 'text', 'value', 'description'])
+}
+
+function getServiceNoteTexts(item: DeshazoGeneralWorkItem) {
+  const record = item as Record<string, unknown>
+  return [
+    ...asArray(record.serviceNotes).map(getNoteText),
+    ...asArray(record.notes).map(getNoteText),
+  ].filter(Boolean)
+}
+
+function getMaterialTexts(item: DeshazoGeneralWorkItem) {
+  const record = item as Record<string, unknown>
+  const directMaterials = asArray(record.materialsOrdered).length > 0
+    ? asArray(record.materialsOrdered)
+    : asArray(record.materials)
+  const batchMaterials = asArray(record.materialBatches)
+    .flatMap((batch) => batch && typeof batch === 'object' ? asArray((batch as Record<string, unknown>).materials) : [])
+
+  return [...directMaterials, ...batchMaterials]
+    .map((material) => {
+      if (typeof material === 'string') return material.trim()
+      if (!material || typeof material !== 'object') return ''
+      const materialRecord = material as Record<string, unknown>
+      const title = getUnknownString(materialRecord, ['title', 'name', 'partNumber', 'part_number'])
+      const description = getUnknownString(materialRecord, ['description', 'desc'])
+      const quantity = getUnknownString(materialRecord, ['quantity', 'qty'])
+      return [quantity ? `${quantity}x` : '', title, description].filter(Boolean).join(' - ')
+    })
+    .filter(Boolean)
+}
+
+function getGeneralWorkPhotos(item: DeshazoGeneralWorkItem) {
+  return asArray((item as Record<string, unknown>).photos) as DeshazoInspectionPhoto[]
+}
+
+function getPhotoContent(photo: DeshazoInspectionPhoto) {
+  const record = photo as Record<string, unknown>
+  return getUnknownString(record, ['content', 'contentUrl', 'url', 'src'])
+}
+
+function getNestedRecord(record: Record<string, unknown> | null | undefined, key: string) {
+  const value = record?.[key]
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function joinAddressParts(parts: Array<string | undefined>) {
+  return parts.map((part) => part?.trim()).filter(Boolean).join(' - ')
+}
+
+function getServiceContactInfo(report: DeshazoSavedInspectionReport): ServiceContactInfo {
+  const rawPayload = report.summary?.rawPayload
+  const customerLocation = getNestedRecord(rawPayload, 'customerLocation')
+  const customer = report.summary?.customerName || getUnknownString(rawPayload ?? {}, ['customerName', 'billToName']) || 'Wabash'
+  const contact = getUnknownString(rawPayload ?? {}, ['confirmTo', 'contactName', 'contact']) || '--'
+  const phone = getUnknownString(customerLocation ?? rawPayload ?? {}, ['telephoneNo', 'phone', 'contactPhone']) || '--'
+  const email = getUnknownString(rawPayload ?? {}, ['emailAddress', 'email']) || '--'
+  const customerLocationAddress = customerLocation
+    ? joinAddressParts([
+        getUnknownString(customerLocation, ['shipToAddress1']),
+        getUnknownString(customerLocation, ['shipToAddress2']),
+        getUnknownString(customerLocation, ['shipToAddress3']),
+        [
+          getUnknownString(customerLocation, ['shipToCity']),
+          getUnknownString(customerLocation, ['shipToState']),
+          getUnknownString(customerLocation, ['shipToZipCode']),
+        ].filter(Boolean).join(', '),
+      ])
+    : ''
+  const locationAddress = customerLocationAddress || report.summary?.customerLocationAddress || [
+      getUnknownString(customerLocation ?? {}, ['shipToCity']),
+      getUnknownString(customerLocation ?? {}, ['shipToState']),
+      getUnknownString(customerLocation ?? {}, ['shipToZipCode']),
+    ].filter(Boolean).join(', ')
+
+  return {
+    customer: customerLocation
+      ? `${customer} @ ${getUnknownString(customerLocation, ['shipToName', 'shipToCity']) || report.summary?.customerLocationName || 'Location'}`
+      : customer,
+    contact,
+    location: locationAddress || report.summary?.customerLocationAddress || report.summary?.customerLocationName || 'N/A',
+    phone,
+    email,
+  }
+}
+
+function getBranchName(report: DeshazoSavedInspectionReport) {
+  const rawPayload = report.summary?.rawPayload
+  const serviceLocation = getNestedRecord(rawPayload, 'serviceLocation')
+  return report.summary?.serviceLocationName || getUnknownString(serviceLocation ?? {}, ['name']) || 'N/A'
+}
+
+function formatServiceDate(value?: string) {
+  if (!value) return 'N/A'
+  const dateOnlyMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (dateOnlyMatch) return `${dateOnlyMatch[2]}/${dateOnlyMatch[3]}/${dateOnlyMatch[1]}`
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).format(parsed)
+}
+
+function formatShortTime(value?: string) {
+  if (!value) return ''
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(parsed)
+}
+
+function getServiceTechnicianTime(report: DeshazoSavedInspectionReport, item: DeshazoGeneralWorkItem): ServiceTechnicianTime[] {
+  const rawPayload = report.summary?.rawPayload
+  const trips = rawPayload && Array.isArray(rawPayload.workOrderTrips)
+    ? rawPayload.workOrderTrips as Array<Record<string, unknown>>
+    : []
+  const trip = trips.find((entry) => String(entry.tripNumber ?? '') === String(item.tripNumber ?? '')) ?? trips[0]
+  const employees = trip && Array.isArray(trip.workOrderEmployees)
+    ? trip.workOrderEmployees as Array<Record<string, unknown>>
+    : []
+  const names = employees
+    .map((entry) => {
+      const employee = getNestedRecord(entry, 'employee')
+      return [getUnknownString(employee ?? {}, ['firstName']), getUnknownString(employee ?? {}, ['lastName'])]
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+    })
+    .filter(Boolean)
+
+  const technician = item.technician || names[0] || 'Unknown technician'
+  const record = item as Record<string, unknown>
+  const start = getUnknownString(record, ['startTime', 'startedAt', 'start'])
+  const end = getUnknownString(record, ['endTime', 'endedAt', 'end'])
+  const total = getUnknownString(record, ['totalHours', 'hours', 'total'])
+
+  return [{
+    name: technician,
+    start: formatShortTime(start) || '--',
+    end: formatShortTime(end) || '--',
+    total: total || '--',
+  }]
+}
+
+function getServiceTicketRequestedText(report: DeshazoSavedInspectionReport) {
+  const rawPayload = report.summary?.rawPayload
+  if (!rawPayload || typeof rawPayload !== 'object') return report.summary?.comment || ''
+  return getUnknownString(rawPayload, ['svcCommentText', 'dispatchNotes', 'comment'])
+}
+
+function getServiceSafetyRecord(item: DeshazoGeneralWorkItem) {
+  const record = item as Record<string, unknown>
+  return getNestedRecord(record, 'jsa') ||
+    getNestedRecord(record, 'jobSafetyAnalysis') ||
+    getNestedRecord(record, 'safetyAnalysis') ||
+    getNestedRecord(record, 'safety')
+}
+
+function getSelectedLabels(record: Record<string, unknown> | null, keys: string[]) {
+  if (!record) return []
+  for (const key of keys) {
+    const value = record[key]
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => {
+          if (typeof entry === 'string') return entry
+          if (entry && typeof entry === 'object') {
+            return getUnknownString(entry as Record<string, unknown>, ['label', 'name', 'title', 'value'])
+          }
+          return ''
+        })
+        .filter(Boolean)
+    }
+  }
+  return []
+}
+
+function getSafetyAnswer(record: Record<string, unknown> | null, keys: string[], fallback = 'YES') {
+  if (!record) return fallback
+  const value = getUnknownString(record, keys)
+  if (!value) return fallback
+  return value.toUpperCase() === 'TRUE' ? 'YES' : value.toUpperCase() === 'FALSE' ? 'NO' : value
+}
+
+function renderCheckList(labels: string[], selectedLabels: string[]) {
+  const selected = new Set(selectedLabels.map((label) => label.toLowerCase()))
+  return labels.map((label) => {
+    const checked = selected.size === 0 ? false : selected.has(label.toLowerCase())
+    return `<div class="service-check-row">${checked ? '<span class="service-check">✓</span>' : '<span class="service-check-space"></span>'}<span>${escapeHtml(label)}</span></div>`
+  }).join('')
+}
+
+function renderServiceJsa(report: DeshazoSavedInspectionReport, item: DeshazoGeneralWorkItem) {
+  const safety = getServiceSafetyRecord(item)
+  const hazardLabels = [
+    'FALLING DEBRIS',
+    'FALL HAZARD',
+    'FIRE / EXPLOSION',
+    'ARCING',
+    'ELECTROCUTION',
+    'OVERHEAD HAZARDS',
+    'HEAT / COLD',
+    'AIRBORNE PARTICLES',
+    'CHEMICALS',
+    'UTILITIES',
+    'MOBILE EQUIPMENT',
+    'MOVING HAZARDS',
+    'ENVIRONMENTAL',
+    'PINCHING / CRUSHING',
+    'PRESSURIZED SYSTEMS',
+    'RIGGED LOADS',
+    'SLIPPING / TRIPPING',
+    'FLYING DEBRIS',
+    'FLOOR OPENINGS',
+    'SUBFLOORS',
+  ]
+  const ppeLabels = [
+    'SAFETY GLASSES',
+    'HARD HATS',
+    'STEEL TOED SHOES',
+    'FALL PROTECTION',
+    'HEARING PROTECTION',
+    'FACE SHIELD',
+    'GLOVES',
+    'RESPIRATORS',
+    'LONG SLEEVES',
+    'FIRE RETARDANT',
+    'BARRICADES',
+    'TAPE / WARNING SIGNS',
+    'FIRE EXTINGUISHER',
+    'LOCKOUT/TAGOUT',
+    'TAG LINES',
+    'HOUSE KEEPING',
+    'VENT OR FAN',
+    'HOLE COVERS',
+    'MSDS/CHEM PROTECTION',
+    'FIRE BLANKETS',
+  ]
+  const hazards = getSelectedLabels(safety, ['hazards', 'hazardRecognition', 'selectedHazards'])
+  const ppe = getSelectedLabels(safety, ['ppe', 'safeguards', 'selectedPpe', 'selectedSafeguards'])
+  const otherHazards = safety
+    ? getUnknownString(safety, ['otherHazards', 'otherHazardsPresent', 'hazardsDescription'])
+    : ''
+  const safeguards = safety
+    ? getUnknownString(safety, ['additionalSafeguards', 'safeguardsDescription'])
+    : ''
+  const date = item.date || report.summary?.startDate || report.summary?.endDate || report.rawPayload.inspectionDate
+  const technician = item.technician || getLeadTechnician(report)
+
+  return `
+    <section class="service-jsa">
+      <div class="service-date-bar"><span>DATE: ${escapeHtml(formatServiceDate(date))}</span><span>LEAD: ${escapeHtml(technician)}</span></div>
+      <div class="service-jsa-body">
+        <div class="service-jsa-title">JOB SAFETY ANALYSIS (JSA)</div>
+        <div class="service-jsa-columns">
+          <div>
+            <div class="service-jsa-subtitle">HAZARD RECOGNITION</div>
+            <div class="service-check-grid">${renderCheckList(hazardLabels, hazards)}</div>
+          </div>
+          <div>
+            <div class="service-jsa-subtitle">PPE &amp; SAFEGUARDS</div>
+            <div class="service-check-grid">${renderCheckList(ppeLabels, ppe)}</div>
+          </div>
+        </div>
+        <div class="service-jsa-question">
+          <strong>DESCRIBE ANY OTHER HAZARDS PRESENT FOR THIS WORK:</strong>
+          <span>${escapeHtml(otherHazards || 'None')}</span>
+          <em>By ${escapeHtml(technician)}</em>
+        </div>
+        <div class="service-jsa-question">
+          <strong>DESCRIBE SAFEGUARDS TO ADDRESS THESE ADDITIONAL HAZARDS:</strong>
+          <span>${escapeHtml(safeguards || 'None')}</span>
+          <em>By ${escapeHtml(technician)}</em>
+        </div>
+        <div class="service-jsa-question service-jsa-line"><strong>HAVE ALL EQUIPMENT, PRE-SHIFT INSPECTIONS AND SAFETY CHECKS BEEN COMPLETED?:</strong> ${escapeHtml(getSafetyAnswer(safety, ['equipmentChecksCompleted', 'preShiftCompleted']))}</div>
+        <div class="service-jsa-question service-jsa-line"><strong>HAVE ALL TECHNICIANS REVIEWED THE JSA AND VERIFIED THE PROPER PPE AND SAFEGUARDS?:</strong> ${escapeHtml(getSafetyAnswer(safety, ['techniciansReviewed', 'ppeVerified']))}</div>
+      </div>
+    </section>
+  `
+}
+
+function renderServiceHeader(report: DeshazoSavedInspectionReport, compact: boolean) {
+  const branchName = getBranchName(report)
+  const jobNo = report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId)
+  const customer = report.summary?.customerName || 'Wabash'
+  const po = report.summary?.customerPoNo || 'UNAVAILABLE'
+
+  if (compact) {
+    return `
+      <div class="service-header service-header-compact">
+        <div>
+          <div class="service-brand">DESHA<span>Z</span>O</div>
+          <div class="service-brand-sub">Cranes / Service / Automation</div>
+        </div>
+        <div class="service-compact-meta">
+          <div>Purchase Order: <strong>${escapeHtml(po)}</strong></div>
+          <div>Job #: <strong>${escapeHtml(jobNo)}</strong></div>
+          <div>Service Location: <strong>${escapeHtml(branchName)}</strong></div>
+          <div>Customer Name: <strong>${escapeHtml(customer)}</strong></div>
+        </div>
+      </div>
+    `
+  }
+
+  const contactPhone = getNestedRecord(report.summary?.rawPayload, 'serviceLocation')
+    ? getUnknownString(getNestedRecord(report.summary?.rawPayload, 'serviceLocation') ?? {}, ['contactPhone'])
+    : ''
+
+  return `
+    <div class="service-header service-header-hero">
+      <div>
+        <div class="service-brand">DESHA<span>Z</span>O</div>
+        <div class="service-brand-sub">Cranes / Service / Automation</div>
+      </div>
+      <div class="service-branch">
+        <div>DESHAZO Branch: <strong>${escapeHtml(branchName)}</strong></div>
+        <div>Branch Contact Phone: <strong>${escapeHtml(contactPhone || '---')}</strong></div>
+      </div>
+      <div class="service-report-title">SERVICE REPORT</div>
+    </div>
+  `
+}
+
+function renderServiceInfo(report: DeshazoSavedInspectionReport) {
+  const contact = getServiceContactInfo(report)
+  const jobNo = report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId)
+
+  return `
+    <section class="service-box">
+      <div class="service-box-title">SERVICE INFORMATION</div>
+      <div class="service-box-grid">
+        <div>Customer: <strong>${escapeHtml(contact.customer)}</strong></div>
+        <div>Contact: <strong>${escapeHtml(contact.contact)}</strong></div>
+        <div>Location: <strong>${escapeHtml(contact.location)}</strong></div>
+        <div>Phone: <strong>${escapeHtml(contact.phone)}</strong></div>
+        <div>Job #: <strong>${escapeHtml(jobNo)}</strong></div>
+        <div>Email: <strong>${escapeHtml(contact.email)}</strong></div>
+      </div>
+    </section>
+  `
+}
+
+function renderRequestedSection(report: DeshazoSavedInspectionReport) {
+  const requestedText = getServiceTicketRequestedText(report)
+  if (!requestedText) return ''
+
+  return `
+    <section class="service-box service-box-requested">
+      <div class="service-box-title">SERVICE REQUESTED</div>
+      <div class="service-box-body">${escapeHtml(requestedText)}</div>
+    </section>
+  `
+}
+
+function renderMaterials(item: DeshazoGeneralWorkItem) {
+  const materials = getMaterialTexts(item)
+
+  return `
+    <div class="service-work-heading">Materials</div>
+    ${
+      materials.length > 0
+        ? `<ul class="service-list">${materials.map((material) => `<li>${escapeHtml(material)}</li>`).join('')}</ul>`
+        : '<p class="service-note muted">No information to show</p>'
+    }
+  `
+}
+
+function renderGeneralServiceWork(item: DeshazoGeneralWorkItem, includeMaterials: boolean) {
+  const notes = getServiceNoteTexts(item)
+  const technician = item.technician || 'Unknown technician'
+
+  return `
+    <section class="service-work">
+      <div class="service-work-title">GENERAL SERVICE WORK</div>
+      <div class="service-work-body">
+        <div class="service-work-heading">Service Performed</div>
+        ${
+          notes.length > 0
+            ? notes.map((note) => `<div class="service-work-note"><span>${escapeHtml(note)}</span><strong>By ${escapeHtml(technician)}</strong></div>`).join('')
+            : '<p class="service-note muted">No service notes entered.</p>'
+        }
+        ${
+          includeMaterials
+            ? `<div class="service-divider"></div>${renderMaterials(item)}`
+            : ''
+        }
+      </div>
+    </section>
+  `
+}
+
+function renderAttachmentPage(report: DeshazoSavedInspectionReport, item: DeshazoGeneralWorkItem) {
+  const photos = getGeneralWorkPhotos(item).filter((photo) => getPhotoContent(photo))
+  const technician = item.technician || 'Unknown technician'
+  const timeRows = getServiceTechnicianTime(report, item)
+
+  return `
+    <section class="service-ticket-section service-materials">${renderMaterials(item)}</section>
+    <section class="service-ticket-section service-attachments">
+      <div class="service-section-heading">Attachments</div>
+      ${
+        photos.length > 0
+          ? `<div class="service-photo-grid">${
+              photos.slice(0, 6).map((photo) => `
+                <figure class="service-photo">
+                  <img src="${escapeHtml(getPhotoContent(photo))}" alt="Service attachment" />
+                  <figcaption>By ${escapeHtml(technician)}</figcaption>
+                </figure>
+              `).join('')
+            }</div>`
+          : '<p class="service-note muted">No attachments to show</p>'
+      }
+    </section>
+    <table class="service-time-table">
+      <thead><tr><th>TECHNICIAN(S)</th><th>START TIME</th><th>END TIME</th><th>TOTAL</th></tr></thead>
+      <tbody>
+        ${timeRows.map((row) => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.start)}</td><td>${escapeHtml(row.end)}</td><td>${escapeHtml(row.total)}</td></tr>`).join('')}
+        <tr class="service-time-total"><td></td><td></td><td>TOTALS</td><td>${escapeHtml(timeRows[0]?.total || '--')}</td></tr>
+      </tbody>
+    </table>
+  `
+}
+
+function buildServiceTicketPages(items: DeshazoGeneralWorkItem[]): ServiceTicketPage[] {
+  return items.flatMap((item, itemIndex) => {
+    const pages: ServiceTicketPage[] = [{ kind: 'work', item, itemIndex }]
+    if (getGeneralWorkPhotos(item).some((photo) => getPhotoContent(photo))) {
+      pages.push({ kind: 'attachments', item, itemIndex })
+    }
+    return pages
+  })
+}
+
+function getHasSummaryOnlyServiceTicketData(report: DeshazoSavedInspectionReport) {
+  return Boolean(
+    report.summary ||
+    getServiceTicketRequestedText(report) ||
+    report.jobNo ||
+    report.workOrderId,
+  )
+}
+
+function getSummaryOnlyServiceTicketHtml(report: DeshazoSavedInspectionReport) {
+  if (!getHasSummaryOnlyServiceTicketData(report)) {
+    return '<div class="pdf-page"><div class="body"><div class="empty-note">No crane inspection or service ticket data found.</div></div></div>'
+  }
+
+  return `
+    <div class="pdf-page">
+      <div class="body-service body-service-first">
+        ${renderServiceHeader(report, false)}
+        ${renderServiceInfo(report)}
+        ${renderRequestedSection(report)}
+        <div class="service-unsigned">WORK ORDER NOT SIGNED.</div>
+        <div class="footer footer-page2">Page 1/1</div>
+      </div>
+    </div>
+  `
+}
+
+function getServiceTicketHtml(report: DeshazoSavedInspectionReport) {
+  const generalWorkItems = normalizeGeneralWorkItems(report)
+
+  if (generalWorkItems.length === 0) {
+    return getSummaryOnlyServiceTicketHtml(report)
+  }
+
+  const pages = buildServiceTicketPages(generalWorkItems)
+  const totalPages = pages.length
+
+  return pages.map((page, index) => {
+    const isFirstPage = index === 0
+    const compactHeader = !isFirstPage
+
+    return `
+      <div class="pdf-page">
+        <div class="body-service ${isFirstPage ? 'body-service-first' : 'body-service-continuation'}">
+          ${renderServiceHeader(report, compactHeader)}
+          ${isFirstPage ? `${renderServiceInfo(report)}${renderRequestedSection(report)}` : ''}
+          ${
+            page.kind === 'work'
+              ? `${renderServiceJsa(report, page.item)}${renderGeneralServiceWork(page.item, !getGeneralWorkPhotos(page.item).some((photo) => getPhotoContent(photo)))}`
+              : renderAttachmentPage(report, page.item)
+          }
+          <div class="footer footer-page2">Page ${index + 1}/${totalPages}</div>
+        </div>
+      </div>
+    `
+  }).join('')
+}
+
 function toneClass(point: DeshazoInspectionPoint) {
   const tone = getConditionTone(point)
   const normalizedStatus = getPointDisplayValue(point).toUpperCase()
@@ -461,7 +1011,7 @@ function getOverviewNote(report: DeshazoSavedInspectionReport, craneReport: Desh
 
 export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionReport, selectedCraneIndex = 0) {
   const selectedCrane = report.rawPayload.cranes?.[selectedCraneIndex] ?? report.rawPayload.cranes?.[0] ?? null
-  if (!selectedCrane) return '<div class="pdf-page"><div class="body">No crane inspection data found.</div></div>'
+  if (!selectedCrane) return getServiceTicketHtml(report)
 
   const stats = getInspectionStats(selectedCrane)
   const actionItems = getActionItems(selectedCrane)
@@ -859,6 +1409,60 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-note { margin-top: 7px; font-size: 10px; line-height: 1.35; }
     .page2-note span { font-weight: 700; }
     .page2-dot { position: absolute; left: 18px; top: 470px; font-size: 10px; line-height: 1; }
+    .body-service { position: relative; box-sizing: border-box; height: ${DESHAZO_PDF_PAGE_HEIGHT_PX - 2}px; padding: 0 18px 58px; font-size: 12px; color: #000; }
+    .body-service-continuation { padding-top: 25px; }
+    .service-header { display: grid; align-items: start; color: #000; }
+    .service-header-hero { grid-template-columns: 1.15fr .9fr .8fr; gap: 20px; margin: 0 -18px 14px; padding: 16px 25px 20px; background: #f9b636; }
+    .service-header-compact { grid-template-columns: 1fr 1.55fr; gap: 22px; padding: 0 6px 10px; border-bottom: 3px solid #f9b636; }
+    .service-brand { font-size: 34px; font-weight: 900; letter-spacing: -1.1px; line-height: .86; }
+    .service-brand span { color: #f9b636; }
+    .service-header-hero .service-brand span { color: #000; background: #f9b636; }
+    .service-brand-sub { margin-top: 8px; font-size: 10px; font-weight: 900; line-height: 1; text-transform: uppercase; }
+    .service-branch { padding-top: 5px; font-size: 14px; line-height: 1.75; }
+    .service-report-title { justify-self: end; padding-top: 16px; font-size: 20px; font-weight: 900; text-transform: uppercase; }
+    .service-compact-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 24px; justify-self: end; width: 360px; padding-top: 5px; font-size: 12px; line-height: 1.25; }
+    .service-box { margin: 10px 0 0; border: 1px solid #f9b636; }
+    .service-box-title { display: flex; align-items: flex-start; box-sizing: border-box; min-height: 24px; padding: 5px 6px 3px; background: #f9b636; font-size: 11px; font-weight: 900; line-height: 1; text-transform: uppercase; overflow: hidden; }
+    .service-box-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px 42px; padding: 12px 20px; font-size: 11px; line-height: 1.25; }
+    .service-box-body { padding: 11px 20px; font-size: 11px; line-height: 1.2; }
+    .service-box-requested { margin-top: 10px; }
+    .service-date-bar { display: flex; align-items: flex-start; justify-content: space-between; box-sizing: border-box; min-height: 24px; margin-top: 20px; padding: 5px 6px 3px; background: #f9b636; font-size: 11px; font-weight: 900; line-height: 1; overflow: hidden; }
+    .service-jsa-body { padding: 10px 24px 13px; background: #f0f0f0; }
+    .service-jsa-title { text-align: center; font-size: 13px; font-weight: 900; }
+    .service-jsa-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 42px; margin-top: 7px; }
+    .service-jsa-subtitle { margin-bottom: 8px; text-align: center; font-size: 11px; font-weight: 900; }
+    .service-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; }
+    .service-check-row { display: grid; grid-template-columns: 18px 1fr; align-items: center; min-height: 15px; font-size: 10.5px; line-height: 1; }
+    .service-check, .service-check-space { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 3px; font-size: 11px; font-weight: 900; }
+    .service-check { background: #b9f7bf; color: #08751c; }
+    .service-jsa-question { display: grid; grid-template-columns: minmax(0, 1fr) 112px 120px; gap: 12px; margin-top: 11px; font-size: 10.5px; line-height: 1.18; }
+    .service-jsa-question strong { grid-column: 1 / -1; font-size: 11px; }
+    .service-jsa-question em { font-style: normal; }
+    .service-jsa-line { display: block; margin-top: 12px; }
+    .service-work { margin-top: 16px; }
+    .service-work-title { padding: 5px 8px; background: #f0f0f0; font-size: 12px; font-weight: 900; text-align: center; text-transform: uppercase; }
+    .service-work-body { padding: 12px 16px 0; }
+    .service-work-heading { margin-bottom: 12px; font-size: 11px; font-weight: 900; }
+    .service-work-note { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 18px; margin-bottom: 10px; font-size: 11px; line-height: 1.18; }
+    .service-work-note strong { align-self: end; font-size: 10.5px; font-weight: 500; text-align: right; }
+    .service-divider { margin: 10px 0 10px; border-top: 1px solid #cfcfcf; }
+    .service-ticket-section { margin-top: 20px; break-inside: avoid; }
+    .service-materials { margin-top: 20px; padding: 0 8px 8px; border-bottom: 1px solid #cfcfcf; }
+    .service-section-heading { margin: 0 0 12px 8px; font-size: 11px; font-weight: 900; }
+    .service-note { margin: 0 0 8px; font-size: 11px; line-height: 1.35; color: #000; }
+    .service-note.muted { color: #333; }
+    .service-list { margin: 0; padding-left: 18px; font-size: 11px; line-height: 1.35; }
+    .service-list li + li { margin-top: 5px; }
+    .service-photo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; }
+    .service-photo { position: relative; display: flex; align-items: center; justify-content: center; height: 188px; margin: 0; border: 1px solid #c9c9c9; background: #fff; overflow: hidden; }
+    .service-photo img { display: block; max-width: 100%; max-height: 178px; object-fit: contain; }
+    .service-photo figcaption { position: absolute; right: 16px; bottom: 14px; padding: 6px 8px; border-radius: 4px; background: #f9b636; color: #fff; font-size: 10px; }
+    .service-time-table { position: absolute; left: 18px; right: 18px; bottom: 74px; width: calc(100% - 36px); border-collapse: collapse; font-size: 10.5px; text-align: center; }
+    .service-time-table th { background: #cfcfcf; font-weight: 500; }
+    .service-time-table th, .service-time-table td { height: 17px; border: 1px solid #fff; padding: 0 4px; }
+    .service-time-total td { background: #cfcfcf; }
+    .service-time-total td:nth-child(3) { background: #f9b636; }
+    .service-unsigned { margin: 28px 0 0 28px; color: #e2173f; font-size: 12px; font-weight: 900; text-transform: uppercase; }
     .photos-section { padding-top: 18px; margin-top: 12px; }
     .photo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
     .photo-card { margin: 0; border: 1px solid #d8d8d8; background: #f7f7f7; break-inside: avoid; }
@@ -923,11 +1527,26 @@ async function waitForImages(root: HTMLElement) {
 
 export function getDeshazoInspectionPdfFileName(report: DeshazoSavedInspectionReport, selectedCraneIndex = 0) {
   const selectedCrane = report.rawPayload.cranes?.[selectedCraneIndex] ?? report.rawPayload.cranes?.[0] ?? null
-  const identifier = getReportIdentifier(report, selectedCrane)
   const jobNo = report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId)
   const customer = report.summary?.customerName || 'Wabash'
   const type = toTitleCase(selectedCrane?.inspections?.[0]?.type || report.jobType || 'Inspection')
-  return `${safeFilePart(identifier)}-job#${safeFilePart(jobNo)}-${safeFilePart(customer)}-${safeFilePart(type)}.pdf`
+  const date = formatFileDatePart(
+    selectedCrane?.inspections?.[0]?.date ||
+    selectedCrane?.inspections?.[0]?.completedAt ||
+    report.summary?.startDate ||
+    report.summary?.endDate ||
+    report.summary?.completedAt ||
+    report.rawPayload.inspectionDate ||
+    report.syncedAt,
+  )
+
+  return [
+    'job',
+    safeFilePart(jobNo),
+    safeFilePart(customer),
+    safeFilePart(type),
+    date,
+  ].filter(Boolean).join('-') + '.pdf'
 }
 
 export async function createDeshazoInspectionPdfBlob(report: DeshazoSavedInspectionReport, selectedCraneIndex = 0) {

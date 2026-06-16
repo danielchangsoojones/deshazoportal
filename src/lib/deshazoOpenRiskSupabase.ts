@@ -644,14 +644,14 @@ async function loadDataset() {
     await requireAuthenticatedSession()
 
     try {
-      cachedDataset = await loadDatasetFromTables()
+      cachedDataset = await loadDatasetFromViews()
       pendingDataset = null
       return cachedDataset
     } catch {
-      // Fall back to the compact views if direct report-table loading is unavailable.
+      // Fall back to direct report-table loading if the compact views are unavailable.
     }
 
-    cachedDataset = await loadDatasetFromViews()
+    cachedDataset = await loadDatasetFromTables()
     pendingDataset = null
     return cachedDataset
   })().catch((error) => {
