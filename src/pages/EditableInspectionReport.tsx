@@ -1672,8 +1672,13 @@ const formatMoney = (value: number) =>
     currency: 'USD',
   }).format(value)
 
+const getCustomerUnitPriceFromMargin = (internalUnitCost: number, margin: number) => {
+  const customerCostRatio = 1 - margin / 100
+  return customerCostRatio > 0 ? internalUnitCost / customerCostRatio : 0
+}
+
 const getLegacyCustomerUnitPrice = (lineItem: RepairLineItem) =>
-  parseMoney(lineItem.rate) * (1 + parseMoney(lineItem.margin) / 100)
+  getCustomerUnitPriceFromMargin(parseMoney(lineItem.rate), parseMoney(lineItem.margin))
 
 const getInternalUnitCost = (lineItem: RepairLineItem) =>
   parseMoney(lineItem.internalCost ?? lineItem.rate)
@@ -1694,7 +1699,7 @@ const getUnitProfit = (internalUnitCost: number, customerUnitPrice: number) =>
   customerUnitPrice - internalUnitCost
 
 const getUnitMargin = (internalUnitCost: number, customerUnitPrice: number) =>
-  internalUnitCost > 0 ? ((customerUnitPrice - internalUnitCost) / internalUnitCost) * 100 : 0
+  customerUnitPrice > 0 ? 100 - (internalUnitCost / customerUnitPrice) * 100 : 0
 
 const getLineItemMargin = (lineItem: RepairLineItem) => {
   if (lineItem.margin !== undefined && lineItem.margin !== null && lineItem.margin !== '') {
@@ -3777,7 +3782,10 @@ export default function EditableInspectionReport() {
                             return {
                               ...lineItem,
                               margin: value,
-                              customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                              customerPrice: getCustomerUnitPriceFromMargin(
+                                getInternalUnitCost(lineItem),
+                                parseMoney(value),
+                              ).toFixed(2),
                             }
                           }
                           return { ...lineItem, [field]: value }
@@ -3929,7 +3937,10 @@ export default function EditableInspectionReport() {
                     return {
                       ...lineItem,
                       margin: value,
-                      customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                      customerPrice: getCustomerUnitPriceFromMargin(
+                        getInternalUnitCost(lineItem),
+                        parseMoney(value),
+                      ).toFixed(2),
                     }
                   }
                   return { ...lineItem, [field]: value }
