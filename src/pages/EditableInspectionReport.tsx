@@ -1672,8 +1672,13 @@ const formatMoney = (value: number) =>
     currency: 'USD',
   }).format(value)
 
+const getCustomerUnitPriceFromMargin = (internalUnitCost: number, margin: number) => {
+  const customerCostRatio = 1 - margin / 100
+  return customerCostRatio > 0 ? internalUnitCost / customerCostRatio : 0
+}
+
 const getLegacyCustomerUnitPrice = (lineItem: RepairLineItem) =>
-  parseMoney(lineItem.rate) * (1 + parseMoney(lineItem.margin) / 100)
+  getCustomerUnitPriceFromMargin(parseMoney(lineItem.rate), parseMoney(lineItem.margin))
 
 const getInternalUnitCost = (lineItem: RepairLineItem) =>
   parseMoney(lineItem.internalCost ?? lineItem.rate)
@@ -1694,7 +1699,7 @@ const getUnitProfit = (internalUnitCost: number, customerUnitPrice: number) =>
   customerUnitPrice - internalUnitCost
 
 const getUnitMargin = (internalUnitCost: number, customerUnitPrice: number) =>
-  internalUnitCost > 0 ? ((customerUnitPrice - internalUnitCost) / internalUnitCost) * 100 : 0
+  customerUnitPrice > 0 ? 100 - (internalUnitCost / customerUnitPrice) * 100 : 0
 
 const getLineItemMargin = (lineItem: RepairLineItem) => {
   if (lineItem.margin !== undefined && lineItem.margin !== null && lineItem.margin !== '') {
@@ -3777,7 +3782,10 @@ export default function EditableInspectionReport() {
                             return {
                               ...lineItem,
                               margin: value,
-                              customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                              customerPrice: getCustomerUnitPriceFromMargin(
+                                getInternalUnitCost(lineItem),
+                                parseMoney(value),
+                              ).toFixed(2),
                             }
                           }
                           return { ...lineItem, [field]: value }
@@ -3929,7 +3937,10 @@ export default function EditableInspectionReport() {
                     return {
                       ...lineItem,
                       margin: value,
-                      customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                      customerPrice: getCustomerUnitPriceFromMargin(
+                        getInternalUnitCost(lineItem),
+                        parseMoney(value),
+                      ).toFixed(2),
                     }
                   }
                   return { ...lineItem, [field]: value }
@@ -5184,7 +5195,7 @@ export default function EditableInspectionReport() {
                               <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                               <div className="report-inline-action border-l border-[#d8d8d8]" />
                               <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
-                                <div className="px-3 py-2">Margin</div>
+                                <div className="px-3 py-2">Gross Margin</div>
                                 <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
                                 <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
                               </div>
@@ -5261,25 +5272,25 @@ export default function EditableInspectionReport() {
                                         )
                                       }}
                                       className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
-                                      aria-label={`Open margin settings for ${section.title} ${costSection.title} line item ${lineIndex + 1}`}
+                                      aria-label={`Open gross margin settings for ${section.title} ${costSection.title} line item ${lineIndex + 1}`}
                                     >
                                       {Math.round(parseMoney(lineItem.margin))}%
                                     </button>
                                     {activeMarginMenu === `repair-cost-${section.id}-${costSection.id}-${lineItem.id}` ? (
                                       <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
                                         <div className="mb-2 flex items-center justify-between gap-2">
-                                          <span className="text-[11px] font-black uppercase text-[#555b66]">Margin</span>
+                                          <span className="text-[11px] font-black uppercase text-[#555b66]">Gross Margin</span>
                                           <button
                                             type="button"
                                             onClick={() => setActiveMarginMenu('')}
                                             className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                                            aria-label="Close margin settings"
+                                            aria-label="Close gross margin settings"
                                           >
                                             x
                                           </button>
                                         </div>
                                         <label className="block text-[11px] font-black uppercase text-[#555b66]">
-                                          Margin: {Math.round(parseMoney(lineItem.margin))}%
+                                          Gross Margin: {Math.round(parseMoney(lineItem.margin))}%
                                         </label>
                                         <input
                                           type="range"
@@ -5453,7 +5464,7 @@ export default function EditableInspectionReport() {
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
                       <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
-                        <div className="px-3 py-2">Margin</div>
+                        <div className="px-3 py-2">Gross Margin</div>
                         <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
                         <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
                       </div>
@@ -5551,25 +5562,25 @@ export default function EditableInspectionReport() {
                                 )
                               }}
                               className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
-                              aria-label={`Open margin settings for ${section.title} line item ${lineIndex + 1}`}
+                              aria-label={`Open gross margin settings for ${section.title} line item ${lineIndex + 1}`}
                             >
                               {Math.round(parseMoney(lineItem.margin))}%
                             </button>
                             {activeMarginMenu === `cost-${section.id}-${lineItem.id}` ? (
                               <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
                                 <div className="mb-2 flex items-center justify-between gap-2">
-                                  <span className="text-[11px] font-black uppercase text-[#555b66]">Margin</span>
+                                  <span className="text-[11px] font-black uppercase text-[#555b66]">Gross Margin</span>
                                   <button
                                     type="button"
                                     onClick={() => setActiveMarginMenu('')}
                                     className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                                    aria-label="Close margin settings"
+                                    aria-label="Close gross margin settings"
                                   >
                                     x
                                   </button>
                                 </div>
                                 <label className="block text-[11px] font-black uppercase text-[#555b66]">
-                                  Margin: {Math.round(parseMoney(lineItem.margin))}%
+                                  Gross Margin: {Math.round(parseMoney(lineItem.margin))}%
                                 </label>
                                 <input
                                   type="range"
@@ -5701,7 +5712,7 @@ export default function EditableInspectionReport() {
               </div>
               <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid min-h-[70px] w-[252px] grid-cols-3 overflow-hidden border border-[#111] bg-white text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
                 <div className={`flex flex-col justify-center px-3 py-2.5 ${getMarginCellClassName(String(grandTotalMargin))}`}>
-                  <span className="text-[9px] font-black uppercase leading-tight">Margin</span>
+                  <span className="text-[9px] font-black uppercase leading-tight">Gross Margin</span>
                   <span className="mt-0.5 text-[13px] font-black">{Math.round(grandTotalMargin)}%</span>
                 </div>
                 <div className="flex flex-col justify-center border-l border-[#cfcfcf] px-3 py-2.5 text-right">
