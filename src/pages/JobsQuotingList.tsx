@@ -874,8 +874,8 @@ export default function JobsQuotingList() {
       if (firstResult) {
         setMessage(
           batches.length === 1
-            ? `${firstResult.message ?? 'Inspection report sent to Extend.'} ${uploadProcessingNote}`
-            : `${files.length} PDFs uploaded in ${batches.length} batches. ${uploadProcessingNote}`,
+            ? firstResult.message ?? 'Inspection report sent to Extend.'
+            : `${files.length} PDFs uploaded in ${batches.length} batches. Runs will refresh as Extend finishes.`,
         )
       }
     } catch (error) {
