@@ -282,7 +282,7 @@ const blankReport: ReportData = {
   contactName: '',
   contactEmail: '',
   contactPhone: '',
-  notes: '---',
+  notes: defaultAdditionalNotes,
 }
 
 const createDefaultRepairCostSections = (repairId: string): CostSection[] => [
