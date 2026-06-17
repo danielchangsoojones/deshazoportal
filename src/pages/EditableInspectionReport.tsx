@@ -1335,9 +1335,9 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
         </div>
 
         <section class="contact-row">
-          <div>Contact Name: ${getTemplateValue(reportData.contactName)}</div>
-          <div>Email: ${getTemplateValue(reportData.contactEmail)}</div>
-          <div>Phone: ${getTemplateValue(reportData.contactPhone)}</div>
+          <div><span class="contact-label">Contact Name:</span> <span class="contact-value">${getTemplateValue(reportData.contactName)}</span></div>
+          <div><span class="contact-label">Email:</span> <span class="contact-value contact-email">${getTemplateValue(reportData.contactEmail)}</span></div>
+          <div><span class="contact-label">Phone:</span> <span class="contact-value">${getTemplateValue(reportData.contactPhone)}</span></div>
         </section>
 
         <section class="scope">
@@ -1461,8 +1461,11 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             border: 1px solid #d4d4d4;
             background: #fafafa;
           }
-          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; }
           .contact-row div:last-child { border-right: 0; }
+          .contact-label { text-transform: uppercase; }
+          .contact-value { text-transform: none; }
+          .contact-email { text-transform: lowercase; }
           .scope {
             margin-top: 12px;
             border: 1px solid #d4d4d4;
