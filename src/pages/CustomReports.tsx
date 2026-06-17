@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { portalLocationOptions } from '../lib/portalLocations'
-import {
-  getIssuesLocationCsv,
-  isPortalApiConfigured,
-} from '../lib/portalApi'
+import { getSavedDeshazoWorkOrdersCsv } from '../lib/deshazoExternalReports'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
@@ -73,18 +70,18 @@ export default function CustomReports() {
     try {
       setCsvLoading(true)
       setError('')
-      const result = await getIssuesLocationCsv(selectedLocations)
-      const blob = new Blob([result.csv], { type: result.content_type || 'text/csv' })
+      const result = await getSavedDeshazoWorkOrdersCsv(selectedLocations)
+      const blob = new Blob([result.csv], { type: result.contentType })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = result.filename || 'issues-by-location.csv'
+      link.download = result.filename
       document.body.appendChild(link)
       link.click()
       link.remove()
       URL.revokeObjectURL(url)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to download issues CSV.')
+      setError(err instanceof Error ? err.message : 'Unable to download work orders CSV.')
     } finally {
       setCsvLoading(false)
     }
@@ -196,12 +193,6 @@ export default function CustomReports() {
           </div>
 
           <section className="rounded-[26px] border border-[var(--deshazo-border)] bg-white/75 p-5 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] sm:p-6">
-            {!isPortalApiConfigured && (
-              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                Add `VITE_PORTAL_PARSE_REST_API_KEY` to download live issue CSV reports.
-              </div>
-            )}
-
             {error && (
               <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {error}
@@ -234,7 +225,7 @@ export default function CustomReports() {
                 <button
                   type="button"
                   onClick={downloadCsv}
-                  disabled={selectedLocations.length === 0 || csvLoading || !isPortalApiConfigured}
+                  disabled={selectedLocations.length === 0 || csvLoading}
                   className="inline-flex items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-5 py-2.5 text-sm font-bold text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.65)] transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   {csvLoading ? 'Downloading CSV' : 'Download CSV'}

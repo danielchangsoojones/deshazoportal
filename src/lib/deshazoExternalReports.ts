@@ -172,6 +172,13 @@ export type DeshazoSavedInspectionReportMatch = {
   inspectionDate: string
 }
 
+export type DeshazoWorkOrdersCsvResult = {
+  filename: string
+  contentType: string
+  rowCount: number
+  csv: string
+}
+
 export type DeshazoExternalSyncResult = {
   saved: boolean
   pagesProcessed: number
@@ -416,6 +423,117 @@ function buildLocationSearchTerms(city: string) {
     withoutTrailingState,
     withoutCustomerPrefix,
   ].filter((value) => value.length >= 2)))
+}
+
+function getLocationTermsFromOptionValues(locationValues: string[]) {
+  return locationValues.flatMap((value) => buildLocationSearchTerms(value.replace(/_/g, ' ')))
+}
+
+function buildWorkOrderLocationFilter(locationValues: string[]) {
+  const locationTerms = Array.from(new Set(getLocationTermsFromOptionValues(locationValues)))
+  if (locationTerms.length === 0) return ''
+
+  return locationTerms
+    .flatMap((term) => {
+      const escapedTerm = term.replaceAll('%', '\\%').replaceAll('_', '\\_')
+      return [
+        `customer_location_name.ilike.%${escapedTerm}%`,
+        `service_location_name.ilike.%${escapedTerm}%`,
+        `bill_to_city.ilike.%${escapedTerm}%`,
+      ]
+    })
+    .join(',')
+}
+
+function escapeCsvValue(value: unknown) {
+  if (value === null || value === undefined) return ''
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function buildCsv(rows: Array<Record<string, unknown>>, columns: string[]) {
+  return [
+    columns.join(','),
+    ...rows.map((row) => columns.map((column) => escapeCsvValue(row[column])).join(',')),
+  ].join('\n')
+}
+
+export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = []): Promise<DeshazoWorkOrdersCsvResult> {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  if (locationValues.length === 0) {
+    throw new Error('Select at least one city to download a CSV.')
+  }
+
+  const columns = [
+    'work_order_id',
+    'job_no',
+    'sales_order_no',
+    'job_type',
+    'status_id',
+    'status_name',
+    'order_status',
+    'customer_id',
+    'customer_location_id',
+    'service_location_id',
+    'bill_to_name',
+    'bill_to_city',
+    'bill_to_state',
+    'bill_to_zip_code',
+    'customer_location_name',
+    'service_location_name',
+    'customer_po_no',
+    'customer_work_order',
+    'comment',
+    'dispatch_notes',
+    'svc_comment_text',
+    'start_date',
+    'end_date',
+    'order_date',
+    'svc_request_date',
+    'completed_at',
+    'source_created_at',
+    'source_updated_at',
+    'created_at',
+    'updated_at',
+    'synced_at',
+    'raw_payload',
+  ]
+  const locationFilter = buildWorkOrderLocationFilter(locationValues)
+  const rows: Array<Record<string, unknown>> = []
+  const batchSize = 1000
+
+  for (let offset = 0; ; offset += batchSize) {
+    let query = supabase
+      .from('deshazo_external_work_orders')
+      .select(columns.join(', '))
+      .ilike('bill_to_name', wabashCustomerNameFilter)
+      .order('start_date', { ascending: false, nullsFirst: false })
+      .order('end_date', { ascending: false, nullsFirst: false })
+      .order('work_order_id', { ascending: false })
+      .range(offset, offset + batchSize - 1)
+
+    if (locationFilter) query = query.or(locationFilter)
+
+    const { data, error } = await query
+    if (error) throw new Error(error.message)
+
+    const nextRows = ((data ?? []) as unknown) as Array<Record<string, unknown>>
+    rows.push(...nextRows)
+    if (nextRows.length < batchSize) break
+  }
+
+  const cityPart = locationValues.length === 1 ? locationValues[0] : `${locationValues.length}-cities`
+  const datePart = new Date().toISOString().slice(0, 10)
+
+  return {
+    filename: `deshazo-work-orders-${cityPart}-${datePart}.csv`,
+    contentType: 'text/csv;charset=utf-8;',
+    rowCount: rows.length,
+    csv: buildCsv(rows, columns),
+  }
 }
 
 export async function getSavedDeshazoRepairReportsByCity(city: string) {
