@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isConfigured } from '../lib/supabase'
 import {
@@ -90,6 +90,9 @@ type PendingAddMenuLineItem = {
 type RelatedDocument = EditableInspectionDocument
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ')
+
+const getPdfFiles = (files: Iterable<File>) =>
+  Array.from(files).filter((file) => file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf')
 
 type QuoteBlockVisibility = {
   contact: boolean
@@ -3526,6 +3529,8 @@ export default function EditableInspectionReport() {
           ? 'No PDFs were found in that folder.'
           : source === 'Dropped PDF'
             ? 'No PDFs were dropped.'
+          : source === 'Pasted PDF'
+            ? 'No PDFs were pasted.'
           : 'No PDF was selected.',
       )
       return
@@ -3604,13 +3609,13 @@ export default function EditableInspectionReport() {
 
   const uploadRelatedFolder = async (fileList: FileList | null) => {
     const files = Array.from(fileList ?? []) as Array<File & { webkitRelativePath?: string }>
-    const pdfs = files.filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    const pdfs = getPdfFiles(files) as Array<File & { webkitRelativePath?: string }>
 
     await addRelatedDocuments(pdfs, 'Folder upload')
   }
 
   const uploadRelatedPdfs = async (fileList: FileList | null) => {
-    const pdfs = Array.from(fileList ?? []).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    const pdfs = getPdfFiles(fileList ?? [])
     await addRelatedDocuments(pdfs, 'Uploaded PDF')
   }
 
@@ -3649,9 +3654,39 @@ export default function EditableInspectionReport() {
     pagePdfDragDepth.current = 0
     setPagePdfDragActive(false)
 
-    const pdfs = Array.from(event.dataTransfer.files).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    const pdfs = getPdfFiles(event.dataTransfer.files)
     setRelatedDocumentsOpen(true)
     await addRelatedDocuments(pdfs, 'Dropped PDF')
+  }
+
+  const handlePagePdfPaste = async (event: ClipboardEvent<HTMLElement>) => {
+    const hasClipboardFiles =
+      event.clipboardData.files.length > 0 ||
+      Array.from(event.clipboardData.items).some((item) => item.kind === 'file')
+
+    if (!hasClipboardFiles) return
+
+    const files = event.clipboardData.files.length > 0
+      ? getPdfFiles(event.clipboardData.files)
+      : getPdfFiles(
+          Array.from(event.clipboardData.items)
+            .filter((item) => item.kind === 'file')
+            .map((item) => item.getAsFile())
+            .filter((file): file is File => Boolean(file)),
+        )
+
+    if (files.length === 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      setRelatedDocumentsOpen(true)
+      await addRelatedDocuments(files, 'Pasted PDF')
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    setRelatedDocumentsOpen(true)
+    await addRelatedDocuments(files, 'Pasted PDF')
   }
 
   const openMenuItemSourceDocument = async (item: MenuItem) => {
@@ -4157,6 +4192,7 @@ export default function EditableInspectionReport() {
       onDragOver={handlePagePdfDragOver}
       onDragLeave={handlePagePdfDragLeave}
       onDrop={handlePagePdfDrop}
+      onPaste={handlePagePdfPaste}
     >
       <style>
         {`
