@@ -1335,9 +1335,9 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
         </div>
 
         <section class="contact-row">
-          <div><span class="contact-label">Contact Name:</span> <span class="contact-value">${getTemplateValue(reportData.contactName)}</span></div>
-          <div><span class="contact-label">Email:</span> <span class="contact-value contact-email">${getTemplateValue(reportData.contactEmail)}</span></div>
-          <div><span class="contact-label">Phone:</span> <span class="contact-value">${getTemplateValue(reportData.contactPhone)}</span></div>
+          <div><span class="contact-label">Contact Name</span> <span class="contact-value">${getTemplateValue(reportData.contactName)}</span></div>
+          <div><span class="contact-label">Email</span> <span class="contact-value contact-email">${getTemplateValue(reportData.contactEmail)}</span></div>
+          <div><span class="contact-label">Phone Number</span> <span class="contact-value">${getTemplateValue(reportData.contactPhone)}</span></div>
         </section>
 
         <section class="scope">
