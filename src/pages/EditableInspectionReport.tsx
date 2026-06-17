@@ -1335,9 +1335,9 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
         </div>
 
         <section class="contact-row">
-          <div>Contact Name: ${getTemplateValue(reportData.contactName)}</div>
-          <div>Email: ${getTemplateValue(reportData.contactEmail)}</div>
-          <div>Phone: ${getTemplateValue(reportData.contactPhone)}</div>
+          <div><span class="contact-label">Contact Name</span> <span class="contact-value">${getTemplateValue(reportData.contactName)}</span></div>
+          <div><span class="contact-label">Email</span> <span class="contact-value contact-email">${getTemplateValue(reportData.contactEmail)}</span></div>
+          <div><span class="contact-label">Phone Number</span> <span class="contact-value">${getTemplateValue(reportData.contactPhone)}</span></div>
         </section>
 
         <section class="scope">
@@ -1461,8 +1461,11 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             border: 1px solid #d4d4d4;
             background: #fafafa;
           }
-          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; }
           .contact-row div:last-child { border-right: 0; }
+          .contact-label { text-transform: none; }
+          .contact-value { text-transform: none; }
+          .contact-email { text-transform: lowercase; }
           .scope {
             margin-top: 12px;
             border: 1px solid #d4d4d4;
@@ -5056,7 +5059,7 @@ export default function EditableInspectionReport() {
               style={getRuntimePageBreakStyle('contact')}
               className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('contact')}`}
             >
-              <div className="grid grid-cols-[1fr_1fr_1fr] border-b border-[#d4d4d4] bg-[#f7f7f7] text-[11px] font-black uppercase text-[#555b66]">
+              <div className="grid grid-cols-[1fr_1fr_1fr] border-b border-[#d4d4d4] bg-[#f7f7f7] text-[11px] font-black text-[#555b66]">
                 <div className="px-2 py-1">Contact Name</div>
                 <div className="border-l border-[#d4d4d4] px-2 py-1">Email</div>
                 <div className="border-l border-[#d4d4d4] px-2 py-1">Phone Number</div>
