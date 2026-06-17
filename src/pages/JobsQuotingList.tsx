@@ -2,7 +2,6 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
-import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   createBlankJobQuotingItem,
   createJobQuotingItemFromExternalCraneDNumber,
@@ -20,7 +19,7 @@ import {
   type JobsQuotingItemResultStatus,
   type JobsQuotingRun,
 } from '../lib/jobsQuoting'
-import { getCurrentUserTag, getUserDisplayNames, type UserTag } from '../lib/userTags'
+import { getUserDisplayNames } from '../lib/userTags'
 
 const activeStatuses = new Set(['uploading', 'pending', 'processing', 'needs_review'])
 const inspectionRunsCollapsedStorageKey = 'deshazo-jobs-quoting-inspection-runs-collapsed'
@@ -30,6 +29,7 @@ const extractOnlyUploadMaxBytesPerRequest = 60 * 1024 * 1024
 const runGroupWindowMs = 10 * 60 * 1000
 const allJobsSectionId = 'all-jobs'
 const reportsPerPage = 50
+const uploadProcessingNote = 'This can take 5 to 15 minutes to load in the report. Please refresh the page.'
 
 type JobsQuotingRunGroup = {
   id: string
@@ -439,7 +439,6 @@ export default function JobsQuotingList() {
   const [storedCurrentQuoteJobs] = useState(getStoredCurrentQuoteJobs)
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [runs, setRuns] = useState<JobsQuotingRun[]>([])
   const [items, setItems] = useState<JobsQuotingItem[]>([])
   const [itemResults, setItemResults] = useState<Record<string, JobsQuotingItemResult>>({})
@@ -482,7 +481,6 @@ export default function JobsQuotingList() {
     [items],
   )
   const selectedJobSection = jobSectionGroups.find((group) => group.id === selectedJobSectionId)
-  const canUseExtendControls = userTag === 'developer'
   const getRunUploaderName = useCallback(
     (run: JobsQuotingRun | undefined) => (run?.userId ? userDisplayNames[run.userId] || '' : 'Shared'),
     [userDisplayNames],
@@ -657,9 +655,6 @@ export default function JobsQuotingList() {
   useEffect(() => {
     if (user) {
       loadQuotingData()
-      getCurrentUserTag(user.id)
-        .then(setUserTag)
-        .catch(() => setUserTag(null))
     }
   }, [loadQuotingData, user])
 
@@ -774,7 +769,7 @@ export default function JobsQuotingList() {
     mergeUploadedRuns(uploadedRuns)
     setCurrentQuoteJobsFromItems(result.items)
     setItems((currentItems) => sortItemsByNewest([...result.items, ...currentItems.filter((item) => !result.items.some((nextItem) => nextItem.id === item.id))]))
-    setMessage(result.message ?? 'Inspection report sent to Extend.')
+    setMessage(`${result.message ?? 'Inspection report sent to Extend.'} ${uploadProcessingNote}`)
   }
 
   const uploadGiantPdf = async (fileList: FileList | null) => {
@@ -828,7 +823,7 @@ export default function JobsQuotingList() {
       }
 
       setCurrentQuoteJobsFromItems(uploadedItems)
-      setMessage(`${files.length} PDFs from ${folderName} sent through the split workflow. Runs will refresh as Extend finishes.`)
+      setMessage(`${files.length} PDFs from ${folderName} sent through the split workflow. ${uploadProcessingNote}`)
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
@@ -879,8 +874,8 @@ export default function JobsQuotingList() {
       if (firstResult) {
         setMessage(
           batches.length === 1
-            ? firstResult.message ?? 'Inspection report sent to Extend.'
-            : `${files.length} PDFs uploaded in ${batches.length} batches. Runs will refresh as Extend finishes.`,
+            ? `${firstResult.message ?? 'Inspection report sent to Extend.'} ${uploadProcessingNote}`
+            : `${files.length} PDFs uploaded in ${batches.length} batches. ${uploadProcessingNote}`,
         )
       }
     } catch (error) {
@@ -1211,7 +1206,7 @@ export default function JobsQuotingList() {
               </form>
               <div className="rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
                 <div className="text-[12px] font-black uppercase text-[#273f7a]">Create New</div>
-                <div className={`mt-2 grid gap-2 ${canUseExtendControls ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <button
                     type="button"
                     disabled={busy}
@@ -1247,17 +1242,14 @@ export default function JobsQuotingList() {
                   >
                     Choose Folder
                   </button>
-                  {canUseExtendControls ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => giantPdfInputRef.current?.click()}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <span>Giant PDF</span>
-                      <DeveloperBadge />
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => giantPdfInputRef.current?.click()}
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Giant PDF
+                  </button>
                 </div>
               </div>
             </div>

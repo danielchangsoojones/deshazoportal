@@ -123,8 +123,9 @@ const printedPageHeightIn = 11
 const printedPageMarginIn = 0.45
 const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
-const menuItemsUploadRefreshDurationMs = 60 * 1000
+const menuItemsUploadRefreshDurationMs = 15 * 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
+const uploadedPdfLoadingNote = 'This can take 5 to 15 minutes to load in the report. Please refresh the page.'
 const menuSearchDebounceMs = 300
 const defaultCraneIdentifier = 'D200235'
 const masterServiceAgreementStableKey = 'built-in:master-service-agreement'
@@ -4417,6 +4418,7 @@ export default function EditableInspectionReport() {
                           style={{ width: `${menuItemsRefreshProgress.percent}%` }}
                         />
                       </div>
+                      <div className="mt-2 text-[11px] font-bold leading-snug text-[#747b8a]">{uploadedPdfLoadingNote}</div>
                     </div>
                   ) : null}
                 </div>
@@ -4794,6 +4796,7 @@ export default function EditableInspectionReport() {
                         style={{ width: `${menuItemsRefreshProgress.percent}%` }}
                       />
                     </div>
+                    <div className="mt-2 text-[11px] font-bold leading-snug text-[#747b8a]">{uploadedPdfLoadingNote}</div>
                   </div>
                 ) : null}
                 <div
