@@ -291,6 +291,23 @@ function sortPoints(points: DeshazoInspectionPoint[]) {
   })
 }
 
+function getTextLength(value?: string | null) {
+  return (value ?? '').trim().replace(/\s+/g, ' ').length
+}
+
+function hasLongCategoryText(value?: string | null) {
+  const text = (value ?? '').trim()
+  return getTextLength(text) > 54 || /[.!?].{10,}/.test(text)
+}
+
+function hasLongDetailRows(section: ResolvedSection) {
+  return section.points.some((point) => hasLongCategoryText(point.name))
+}
+
+function hasLongActionItems(items: SectionedItem[]) {
+  return items.some((item) => hasLongCategoryText(item.label))
+}
+
 function getStructureSectionName(craneReport: DeshazoCraneReport) {
   const structureType = craneReport.crane?.structure?.type || 'Structure'
   return structureType.split('-')[0]?.trim() || structureType
@@ -416,6 +433,7 @@ function renderSectionedItemGroup(
 ) {
   const showHeader = options.showHeader ?? true
   const totalCount = options.totalCount ?? group.items.length
+  const longTextLayout = hasLongActionItems(group.items)
   return `
         <section class="page2-item-section">
           ${
@@ -426,7 +444,7 @@ function renderSectionedItemGroup(
                 </div>`
               : ''
           }
-          <div class="page2-points-box">
+          <div class="page2-points-box ${longTextLayout ? 'page2-points-box-long' : ''}">
             ${group.items
               .map(
                 (item) => `
@@ -1107,10 +1125,11 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     detailSections
       .map((section) => {
         const satisfactoryCount = section.points.filter((point) => getConditionTone(point) === 'success').length
+        const longTextLayout = hasLongDetailRows(section)
         return `
           <section class="detail-section">
             <div class="detail-header">${escapeHtml(section.name)} <span>${satisfactoryCount}/${section.points.length || 0} Satisfactory</span></div>
-            <div class="detail-grid">
+            <div class="detail-grid ${longTextLayout ? 'detail-grid-long' : ''}">
               ${section.points
                 .map(
                   (point) => `
@@ -1128,6 +1147,12 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
       .join('')
 
   const estimateDetailSectionHeight = (section: ResolvedSection) => {
+    if (hasLongDetailRows(section)) {
+      return 38 + section.points.reduce((total, point) => {
+        const labelHeight = Math.ceil(getTextLength(point.name ?? 'Inspection point') / 92) * 13
+        return total + Math.max(26, labelHeight + 10)
+      }, 0)
+    }
     const visualRows = Math.ceil(section.points.length / 3)
     return 44 + visualRows * 24
   }
@@ -1157,7 +1182,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   }
 
   const estimateSectionedItemHeight = (item: SectionedItem, includePhotos = false) => {
-    let height = 34
+    let height = hasLongCategoryText(item.label) ? Math.max(42, Math.ceil(getTextLength(item.label) / 95) * 14 + 18) : 34
     if (includePhotos && item.photos.length > 0) height += Math.ceil(item.photos.length / 3) * 145 + 12
     if (item.notes) height += Math.max(22, Math.ceil(item.notes.length / 95) * 14)
     return height
@@ -1257,8 +1282,9 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     return blocks
   }
 
-  const firstPageActionRows = Math.ceil(actionItems.length / 3)
-  const firstPageActionPanelHeight = actionItems.length > 0 ? 32 + firstPageActionRows * 36 : 0
+  const usesLongFirstPageActionLayout = hasLongActionItems(actionItems)
+  const firstPageActionRows = usesLongFirstPageActionLayout ? actionItems.length : Math.ceil(actionItems.length / 3)
+  const firstPageActionPanelHeight = actionItems.length > 0 ? 32 + firstPageActionRows * (usesLongFirstPageActionLayout ? 45 : 36) : 0
   const firstPageFixedContentHeight = 345 + firstPageActionPanelHeight
   const firstPageAvailableSectionHeight = Math.max(0, 870 - firstPageFixedContentHeight)
   let firstPageSectionCount = 0
@@ -1425,7 +1451,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     ? `
       <div class="panel panel-danger">
         <div class="panel-title">Action Items ${actionItems.length}</div>
-        <div class="panel-body panel-body-actions"><div class="mini-action-grid">${firstPageActions}</div></div>
+        <div class="panel-body panel-body-actions"><div class="mini-action-grid ${usesLongFirstPageActionLayout ? 'mini-action-grid-long' : ''}">${firstPageActions}</div></div>
       </div>
     `
     : ''
@@ -1628,6 +1654,12 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .mini-action-row:nth-last-child(-n+3) { border-bottom: 0; }
     .mini-action-label { min-width: 0; line-height: 1.08; }
     .mini-action-status { display: flex; align-items: center; justify-content: flex-end; }
+    .mini-action-grid-long { display: block; }
+    .mini-action-grid-long .mini-action-row { grid-template-columns: minmax(0, 1fr) 118px; min-height: 45px; padding: 8px 10px; border-right: 0; font-size: 11.5px; }
+    .mini-action-grid-long .mini-action-row:last-child { border-bottom: 0; }
+    .mini-action-grid-long .mini-action-label { line-height: 1.12; }
+    .mini-action-grid-long .mini-action-status { justify-content: flex-end; }
+    .mini-action-grid-long .action-pill { width: 102px; min-height: 19px; font-size: 10px; }
     .action-pill { display: inline-grid; grid-auto-flow: column; align-items: center; justify-content: center; box-sizing: border-box; width: 82px; min-height: 18px; padding: 2px 5px; background: #f7d4d4; color: #8d1111; font-size: 9.5px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; overflow: visible; }
     .overview-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; font-size: 12px; }
     .detail-section { padding-top: 11px; margin-top: 11px; border-top: 1px solid #dadada; break-inside: avoid; }
@@ -1635,6 +1667,11 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 14px; }
     .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 7px; min-height: 21px; font-size: 12px; }
     .detail-label { min-width: 0; line-height: 1.18; }
+    .detail-grid-long { display: block; }
+    .detail-grid-long .detail-row { grid-template-columns: minmax(0, 1fr) 118px; min-height: 35px; gap: 14px; padding: 7px 10px; border-bottom: 1px solid #dadada; font-size: 11.5px; }
+    .detail-grid-long .detail-row:last-child { border-bottom: 0; }
+    .detail-grid-long .detail-label { line-height: 1.14; }
+    .detail-grid-long .status { width: 112px; min-height: 21px; }
     .status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; width: 92px; min-height: 22px; padding: 3px 6px 2px; text-align: center; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; overflow: visible; }
     .status-with-icons { justify-content: space-between; gap: 4px; }
     .status-with-icons { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
@@ -1674,6 +1711,10 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
     .page2-point-status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; min-height: 22px; margin: 7px 0 0 18px; padding: 3px 8px 2px; font-size: 10px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; white-space: nowrap; overflow: visible; }
+    .page2-points-box-long .page2-point { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 14px; align-items: center; }
+    .page2-points-box-long .page2-point-status { margin: 0; justify-self: end; }
+    .page2-points-box-long .page2-action-photos,
+    .page2-points-box-long .page2-note { grid-column: 1 / -1; }
     .page2-status-success { background: #bff2be; color: #1f6a2e; }
     .page2-status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .page2-status-danger { background: #e8c7c9; color: #9d1c1c; }
