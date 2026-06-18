@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './customerRouting'
 
 const portalParseBaseUrl = (import.meta.env.VITE_PORTAL_PARSE_BASE_URL as string | undefined)?.trim() || ''
 const deshazoExternalApiBaseUrl =
@@ -6,7 +7,6 @@ const deshazoExternalApiBaseUrl =
   (portalParseBaseUrl ? new URL(portalParseBaseUrl).origin : '') ||
   'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com'
 const deshazoExternalApiKey = (import.meta.env.VITE_DESHAZO_EXTERNAL_API_KEY as string | undefined)?.trim() || ''
-const wabashCustomerNameFilter = '%Wabash%'
 
 export type DeshazoInspectionPhoto = {
   id?: string
@@ -107,12 +107,14 @@ type DeshazoInspectionReportRow = {
   work_order_id: number
   job_no: string | null
   job_type: string | null
+  customer?: string | null
   raw_payload: DeshazoInspectionReportPayload
   synced_at: string
 }
 
 type DeshazoExternalWorkOrderRow = {
   work_order_id: number
+  customer?: string | null
   job_no: string | null
   sales_order_no: string | null
   job_type: string | null
@@ -190,6 +192,10 @@ export type DeshazoExternalSyncResult = {
   failures: Array<Record<string, unknown>>
 }
 
+function resolveSelectedCustomer(customer?: string) {
+  return getCustomerFilterValue(normalizeCustomer(customer) || getStoredCustomer())
+}
+
 function normalizeSavedReport(
   row: DeshazoInspectionReportRow,
   summary: DeshazoExternalWorkOrderRow | undefined,
@@ -247,14 +253,16 @@ function getCustomerLocationAddress(rawPayload: Record<string, unknown> | null) 
     .replace(', ,', ',')
 }
 
-export async function getSavedDeshazoInspectionReports(limit = 20) {
+export async function getSavedDeshazoInspectionReports(limit = 20, customer?: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const { data, error } = await supabase
     .from('deshazo_external_inspection_reports')
     .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .eq('customer', selectedCustomer)
     .order('synced_at', { ascending: false })
     .limit(limit)
 
@@ -272,6 +280,7 @@ export async function getSavedDeshazoInspectionReports(limit = 20) {
       .select(
         'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
       )
+      .eq('customer', selectedCustomer)
       .in('work_order_id', workOrderIds)
 
     if (summaryError) {
@@ -286,14 +295,16 @@ export async function getSavedDeshazoInspectionReports(limit = 20) {
   return reportRows.map((row) => normalizeSavedReport(row, summariesById.get(row.work_order_id)))
 }
 
-export async function getSavedDeshazoInspectionReport(workOrderId: number) {
+export async function getSavedDeshazoInspectionReport(workOrderId: number, customer?: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const { data, error } = await supabase
     .from('deshazo_external_inspection_reports')
     .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .eq('customer', selectedCustomer)
     .eq('work_order_id', workOrderId)
     .maybeSingle()
 
@@ -308,6 +319,7 @@ export async function getSavedDeshazoInspectionReport(workOrderId: number) {
     .select(
       'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
     )
+    .eq('customer', selectedCustomer)
     .eq('work_order_id', workOrderId)
     .maybeSingle()
 
@@ -335,17 +347,19 @@ function dateScore(value: string) {
   return Number.isNaN(parsed) ? -Infinity : parsed
 }
 
-export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: string) {
+export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: string, customer?: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const normalizedDNumber = normalizeDNumber(dNumber)
   if (!normalizedDNumber) return []
 
   const { data: craneRows, error: craneError } = await supabase
     .from('deshazo_external_report_cranes')
     .select('work_order_id')
+    .eq('customer', selectedCustomer)
     .ilike('contact_code', dNumber)
     .limit(500)
 
@@ -366,6 +380,7 @@ export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: 
   const { data: reportData, error: reportError } = await supabase
     .from('deshazo_external_inspection_reports')
     .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .eq('customer', selectedCustomer)
     .in('work_order_id', workOrderIds)
 
   if (reportError) {
@@ -377,8 +392,8 @@ export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: 
     .select(
       'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
     )
+    .eq('customer', selectedCustomer)
     .in('work_order_id', workOrderIds)
-    .ilike('bill_to_name', wabashCustomerNameFilter)
 
   if (summaryError) {
     throw new Error(summaryError.message)
@@ -416,12 +431,9 @@ function buildLocationSearchTerms(city: string) {
   if (!trimmed) return []
 
   const withoutTrailingState = trimmed.replace(/\s+[A-Z]{2}$/i, '').trim()
-  const withoutCustomerPrefix = withoutTrailingState.replace(/^wabash\s+/i, '').trim()
-
   return Array.from(new Set([
     trimmed,
     withoutTrailingState,
-    withoutCustomerPrefix,
   ].filter((value) => value.length >= 2)))
 }
 
@@ -458,7 +470,10 @@ function buildCsv(rows: Array<Record<string, unknown>>, columns: string[]) {
   ].join('\n')
 }
 
-export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = []): Promise<DeshazoWorkOrdersCsvResult> {
+export async function getSavedDeshazoWorkOrdersCsv(
+  locationValues: string[] = [],
+  customer?: string,
+): Promise<DeshazoWorkOrdersCsvResult> {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
@@ -467,8 +482,10 @@ export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = []
     throw new Error('Select at least one city to download a CSV.')
   }
 
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const columns = [
     'work_order_id',
+    'customer',
     'job_no',
     'sales_order_no',
     'job_type',
@@ -509,7 +526,7 @@ export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = []
     let query = supabase
       .from('deshazo_external_work_orders')
       .select(columns.join(', '))
-      .ilike('bill_to_name', wabashCustomerNameFilter)
+      .eq('customer', selectedCustomer)
       .order('start_date', { ascending: false, nullsFirst: false })
       .order('end_date', { ascending: false, nullsFirst: false })
       .order('work_order_id', { ascending: false })
@@ -536,11 +553,12 @@ export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = []
   }
 }
 
-export async function getSavedDeshazoRepairReportsByCity(city: string) {
+export async function getSavedDeshazoRepairReportsByCity(city: string, customer?: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const searchTerms = buildLocationSearchTerms(city)
   if (searchTerms.length === 0) return []
 
@@ -557,6 +575,7 @@ export async function getSavedDeshazoRepairReportsByCity(city: string) {
     .select(
       'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
     )
+    .eq('customer', selectedCustomer)
     .ilike('job_type', '%repair%')
     .or(locationFilters.join(','))
     .order('start_date', { ascending: false, nullsFirst: false })
@@ -575,6 +594,7 @@ export async function getSavedDeshazoRepairReportsByCity(city: string) {
   const { data: reportData, error: reportError } = await supabase
     .from('deshazo_external_inspection_reports')
     .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .eq('customer', selectedCustomer)
     .in('work_order_id', workOrderIds)
 
   if (reportError) {
@@ -593,14 +613,17 @@ export async function getSavedDeshazoRepairReportsByCity(city: string) {
     )
 }
 
-export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset = 0) {
+export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset = 0, customer?: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const trimmedSearch = search.trim()
   const escapedSearch = trimmedSearch.replaceAll('%', '\\%').replaceAll('_', '\\_')
-  const matchingDNumberWorkOrderIds = trimmedSearch ? await getWorkOrderIdsMatchingDNumberSearch(escapedSearch) : []
+  const matchingDNumberWorkOrderIds = trimmedSearch
+    ? await getWorkOrderIdsMatchingDNumberSearch(escapedSearch, selectedCustomer)
+    : []
 
   let query = supabase
     .from('deshazo_external_work_orders')
@@ -608,7 +631,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
       'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload, synced_at, created_at',
       { count: 'exact' },
     )
-    .ilike('bill_to_name', wabashCustomerNameFilter)
+    .eq('customer', selectedCustomer)
     .order('start_date', { ascending: false, nullsFirst: false })
     .order('end_date', { ascending: false, nullsFirst: false })
     .order('work_order_id', { ascending: false })
@@ -641,6 +664,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
     const { data: reportData, error: reportError } = await supabase
       .from('deshazo_external_inspection_reports')
       .select('work_order_id')
+      .eq('customer', selectedCustomer)
       .in('work_order_id', workOrderIds)
 
     if (reportError) {
@@ -661,12 +685,13 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
   }
 }
 
-async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string) {
+async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string, customer: string) {
   if (!supabase) return []
 
   const { data, error } = await supabase
     .from('deshazo_external_report_cranes')
     .select('work_order_id')
+    .eq('customer', customer)
     .ilike('contact_code', `%${escapedSearch}%`)
     .limit(500)
 
@@ -683,11 +708,12 @@ async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string) {
   )
 }
 
-export async function getDeshazoExternalWorkOrdersLastSync() {
+export async function getDeshazoExternalWorkOrdersLastSync(customer?: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const { data: syncRunData, error: syncRunError } = await supabase
     .from('deshazo_external_sync_runs')
     .select('finished_at, started_at')
@@ -719,6 +745,7 @@ export async function getDeshazoExternalWorkOrdersLastSync() {
   const { data, error } = await supabase
     .from('deshazo_external_work_orders')
     .select('synced_at')
+    .eq('customer', selectedCustomer)
     .order('synced_at', { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle()
@@ -783,6 +810,13 @@ export function getInspectionStats(report: DeshazoInspectionReportPayload) {
   let naPoints = 0
   let photos = 0
 
+  const normalizeStatus = (value?: string | null) => (value ?? '').trim().toUpperCase()
+  const isNaStatus = (value: string) => value === 'N/A' || value === 'NA' || value === 'NOT APPLICABLE'
+  const isRepairStatus = (value: string) =>
+    value === 'REPAIR' || /^REPAIRS?\b/.test(value) || /REPAIR (REQUIRED|NEEDED)/.test(value)
+  const isMonitorStatus = (value: string) => value === 'MONITOR' || value === 'MONITORING' || /^MONITOR\b/.test(value)
+  const isSafetyStatus = (value: string) => value === 'SAFETY' || value.includes('DO NOT OPERATE') || value.includes('UNSAFE')
+
   cranes.forEach((craneReport) => {
     ;(craneReport.inspections ?? []).forEach((inspection) => {
       inspections += 1
@@ -792,12 +826,12 @@ export function getInspectionStats(report: DeshazoInspectionReportPayload) {
         ;(section.points ?? []).forEach((point) => {
           points += 1
           photos += point.photos?.length ?? 0
-          const condition = point.condition?.toUpperCase() ?? ''
+          const condition = normalizeStatus(point.condition)
           if (condition === 'SATISFACTORY') {
             satisfactoryPoints += 1
-          } else if (condition === 'N/A') {
+          } else if (isNaStatus(condition)) {
             naPoints += 1
-          } else if (condition) {
+          } else if (isRepairStatus(condition) || isMonitorStatus(condition) || isSafetyStatus(condition)) {
             flaggedPoints += 1
           }
         })

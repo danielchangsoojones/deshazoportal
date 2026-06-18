@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './customerRouting'
 import type {
   AssetInfoAnalytics,
   AssetIssue,
@@ -7,7 +8,7 @@ import type {
   AssetUnit,
   RecurringIssue,
 } from './portalApi'
-import { portalLocationOptions } from './portalLocations'
+import { getCustomerLocationLookup, getLocationOptionFromLabel, normalizeLocationValue } from './portalLocations'
 
 const pageSize = 24
 const cacheTtlMs = 5 * 60 * 1000
@@ -97,7 +98,13 @@ type SupabaseQueryBuilder = {
 }
 
 let cachedDataset: OpenRiskDataset | null = null
+let cachedDatasetCustomer = ''
 let pendingDataset: Promise<OpenRiskDataset> | null = null
+let pendingDatasetCustomer = ''
+
+function resolveSelectedCustomer(customer?: string) {
+  return getCustomerFilterValue(normalizeCustomer(customer) || getStoredCustomer())
+}
 
 function requireSupabase() {
   if (!supabase) {
@@ -333,22 +340,19 @@ function isHoistSection(section?: SectionRow) {
 }
 
 function getLocationValue(unit: AssetUnit) {
-  return normalizeKey(unit.warehouse_location)
+  return normalizeLocationValue(unit.warehouse_location)
+}
+
+function getCanonicalLocationOption(label: string | null | undefined, aliases: Map<string, { label: string; value: string }>) {
+  const alias = aliases.get(normalizeLocationValue(label))
+  if (alias) return alias
+  return getLocationOptionFromLabel(normalizeText(label))
 }
 
 function matchesLocations(unit: AssetUnit, locations: string[]) {
   if (locations.length === 0) return true
   const value = getLocationValue(unit)
   return locations.some((location) => value.includes(location.replace(/_([a-z]{2})$/, '')) || value === location)
-}
-
-function isWabashWorkOrder(workOrder: WorkOrderRow) {
-  return /wabash/i.test([
-    workOrder.bill_to_name,
-    workOrder.customer,
-    workOrder.customer_location_name,
-    workOrder.service_location_name,
-  ].filter(Boolean).join(' '))
 }
 
 function buildAssetName(dNumber: string, description?: string | null) {
@@ -358,23 +362,55 @@ function buildAssetName(dNumber: string, description?: string | null) {
 
 function isMissingViewError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
-  return /does not exist|schema cache|Could not find|PGRST205|permission denied for view/i.test(message)
+  return /does not exist|schema cache|Could not find|PGRST202|PGRST205|permission denied for view|function/i.test(message)
 }
 
-async function loadDatasetFromViews(): Promise<OpenRiskDataset> {
-  const summaries = await fetchAll<SummaryViewRow>(
-    'deshazo_open_risk_asset_summaries',
-    'unit_id,unit_name,warehouse_location,interior_location,inspection_date,safety_issue_count,monitor_issue_count,total_issue_count',
-    undefined,
-    1000,
-  )
+async function fetchOpenRiskRpcRows<T>(functionName: string, customer: string) {
+  const client = requireSupabase()
+  const { data, error } = await client.rpc(functionName, { p_customer: customer })
+  if (error) {
+    throw new Error(error.message)
+  }
+  return (data ?? []) as T[]
+}
 
-  const issueRows = await fetchAll<IssueViewRow>(
-    'deshazo_open_risk_latest_issue_rows',
-    'unit_id,category,safety_category,inspection_date,completed_at,component_type,remarks,section_sort,point_sort,remark_sort',
-    undefined,
-    1000,
-  )
+async function fetchOpenRiskViewRows(customer: string) {
+  const [summaries, issueRows] = await Promise.all([
+    fetchAll<SummaryViewRow>(
+      'deshazo_open_risk_asset_summaries',
+      'unit_id,unit_name,warehouse_location,interior_location,inspection_date,safety_issue_count,monitor_issue_count,total_issue_count',
+      (query) => query.eq('customer', customer),
+      1000,
+    ),
+    fetchAll<IssueViewRow>(
+      'deshazo_open_risk_latest_issue_rows',
+      'unit_id,category,safety_category,inspection_date,completed_at,component_type,remarks,section_sort,point_sort,remark_sort',
+      (query) => query.eq('customer', customer),
+      1000,
+    ),
+  ])
+
+  return { summaries, issueRows }
+}
+
+async function loadDatasetFromViews(customer: string): Promise<OpenRiskDataset> {
+  const locationLookupPromise = getCustomerLocationLookup(customer)
+  let summaries: SummaryViewRow[] = []
+  let issueRows: IssueViewRow[] = []
+
+  try {
+    ;[summaries, issueRows] = await Promise.all([
+      fetchOpenRiskRpcRows<SummaryViewRow>('get_deshazo_open_risk_asset_summaries', customer),
+      fetchOpenRiskRpcRows<IssueViewRow>('get_deshazo_open_risk_latest_issue_rows', customer),
+    ])
+  } catch (error) {
+    if (!isMissingViewError(error)) {
+      throw error
+    }
+    ;({ summaries, issueRows } = await fetchOpenRiskViewRows(customer))
+  }
+
+  const locationLookup = await locationLookupPromise
 
   const issueRowsByUnitId = new Map<string, IssueViewRow[]>()
   for (const row of issueRows) {
@@ -387,6 +423,7 @@ async function loadDatasetFromViews(): Promise<OpenRiskDataset> {
 
   const assets = summaries.map<AssetRecord>((summary, index) => {
     const unitId = normalizeText(summary.unit_id).toUpperCase()
+    const locationOption = getCanonicalLocationOption(summary.warehouse_location, locationLookup.aliases)
     const issues = buildIssueRowsFromView(issueRowsByUnitId.get(unitId) ?? [])
     const safetyIssueCount = issues.filter((issue) => issue.safety_category === 'safety').length
     const monitorIssueCount = issues.filter((issue) => issue.safety_category === 'monitor').length
@@ -394,7 +431,7 @@ async function loadDatasetFromViews(): Promise<OpenRiskDataset> {
       unit: {
         unit_id: unitId,
         unit_name: normalizeText(summary.unit_name) || unitId,
-        warehouse_location: normalizeText(summary.warehouse_location),
+        warehouse_location: locationOption?.label ?? normalizeText(summary.warehouse_location),
         interior_location: normalizeText(summary.interior_location),
         inspection_date: formatDateLabel(summary.inspection_date),
         safety_issue_count: safetyIssueCount,
@@ -460,11 +497,11 @@ function buildIssueRows(
   return issues
 }
 
-async function loadLatestAssetDetailFromTables(dNumber: string): Promise<AssetInfoAnalytics | null> {
+async function loadLatestAssetDetailFromTables(dNumber: string, customer: string): Promise<AssetInfoAnalytics | null> {
   const cranes = await fetchAll<CraneRow>(
     'deshazo_external_report_cranes',
     'id,work_order_id,contact_code,description,location',
-    (query) => query.eq('contact_code', dNumber),
+    (query) => query.eq('customer', customer).eq('contact_code', dNumber),
   )
   if (cranes.length === 0) return null
 
@@ -473,17 +510,19 @@ async function loadLatestAssetDetailFromTables(dNumber: string): Promise<AssetIn
     'work_order_id,bill_to_name,customer,customer_location_name,service_location_name',
     'work_order_id',
     cranes.map((crane) => crane.work_order_id),
+    (query) => query.eq('customer', customer),
   )
-  const workOrderById = new Map(workOrders.filter(isWabashWorkOrder).map((workOrder) => [workOrder.work_order_id, workOrder]))
-  const wabashCranes = cranes.filter((crane) => workOrderById.has(crane.work_order_id))
-  if (wabashCranes.length === 0) return null
+  const workOrderById = new Map(workOrders.map((workOrder) => [workOrder.work_order_id, workOrder]))
+  const customerCranes = cranes.filter((crane) => workOrderById.has(crane.work_order_id))
+  if (customerCranes.length === 0) return null
 
-  const craneById = new Map(wabashCranes.map((crane) => [crane.id, crane]))
+  const craneById = new Map(customerCranes.map((crane) => [crane.id, crane]))
   const inspections = await fetchByInChunks<InspectionRow>(
     'deshazo_external_report_inspections',
     'id,crane_row_id,inspection_date,completed_at',
     'crane_row_id',
     Array.from(craneById.keys()),
+    (query) => query.eq('customer', customer),
   )
   if (inspections.length === 0) return null
 
@@ -497,7 +536,7 @@ async function loadLatestAssetDetailFromTables(dNumber: string): Promise<AssetIn
   const sections = await fetchAll<SectionRow>(
     'deshazo_external_report_sections',
     'id,inspection_row_id,section_name,section_index,section_order',
-    (query) => query.eq('inspection_row_id', latestInspection.id),
+    (query) => query.eq('customer', customer).eq('inspection_row_id', latestInspection.id),
     500,
   )
   const points = await fetchByInChunks<PointRow>(
@@ -505,7 +544,7 @@ async function loadLatestAssetDetailFromTables(dNumber: string): Promise<AssetIn
     'id,section_row_id,point_name,condition,remarks,point_index',
     'section_row_id',
     sections.map((section) => section.id),
-    (query) => query.in('condition', actionableConditions),
+    (query) => query.eq('customer', customer).in('condition', actionableConditions),
     200,
   )
   const workOrder = workOrderById.get(latestCrane.work_order_id)
@@ -518,32 +557,34 @@ async function loadLatestAssetDetailFromTables(dNumber: string): Promise<AssetIn
   }
 }
 
-async function loadDatasetFromTables(): Promise<OpenRiskDataset> {
+async function loadDatasetFromTables(customer: string): Promise<OpenRiskDataset> {
+  const locationLookup = await getCustomerLocationLookup(customer)
   const workOrders = await fetchAll<WorkOrderRow>(
     'deshazo_external_work_orders',
     'work_order_id,bill_to_name,customer,customer_location_name,service_location_name',
-    undefined,
+    (query) => query.eq('customer', customer),
     500,
   )
-  const wabashWorkOrders = workOrders.filter(isWabashWorkOrder)
-  const workOrderById = new Map(wabashWorkOrders.map((workOrder) => [workOrder.work_order_id, workOrder]))
-  const wabashCranes = await fetchByInChunks<CraneRow>(
+  const workOrderById = new Map(workOrders.map((workOrder) => [workOrder.work_order_id, workOrder]))
+  const customerCranes = await fetchByInChunks<CraneRow>(
     'deshazo_external_report_cranes',
     'id,work_order_id,contact_code,description,location',
     'work_order_id',
     Array.from(workOrderById.keys()),
+    (query) => query.eq('customer', customer),
   )
-  const wabashCranesWithDNumbers = wabashCranes.filter((crane) => normalizeText(crane.contact_code))
-  const craneById = new Map(wabashCranesWithDNumbers.map((crane) => [crane.id, crane]))
-  const wabashInspections = await fetchByInChunks<InspectionRow>(
+  const customerCranesWithDNumbers = customerCranes.filter((crane) => normalizeText(crane.contact_code))
+  const craneById = new Map(customerCranesWithDNumbers.map((crane) => [crane.id, crane]))
+  const customerInspections = await fetchByInChunks<InspectionRow>(
     'deshazo_external_report_inspections',
     'id,crane_row_id,inspection_date,completed_at',
     'crane_row_id',
     Array.from(craneById.keys()),
+    (query) => query.eq('customer', customer),
   )
 
   const latestByDNumber = new Map<string, { inspection: InspectionRow; crane: CraneRow; sortIndex: number }>()
-  wabashInspections.forEach((inspection, sortIndex) => {
+  customerInspections.forEach((inspection, sortIndex) => {
     const crane = craneById.get(inspection.crane_row_id)
     const dNumber = normalizeText(crane?.contact_code).toUpperCase()
     if (!crane || !dNumber) return
@@ -563,6 +604,7 @@ async function loadDatasetFromTables(): Promise<OpenRiskDataset> {
     'id,inspection_row_id,section_name,section_index,section_order',
     'inspection_row_id',
     latestInspectionIds,
+    (query) => query.eq('customer', customer),
   )
   const sectionById = new Map(latestSections.map((section) => [section.id, section]))
   const sectionsByInspectionId = new Map<string, SectionRow[]>()
@@ -578,7 +620,7 @@ async function loadDatasetFromTables(): Promise<OpenRiskDataset> {
     'id,section_row_id,point_name,condition,remarks,point_index',
     'section_row_id',
     Array.from(sectionById.keys()),
-    (query) => query.in('condition', actionableConditions),
+    (query) => query.eq('customer', customer).in('condition', actionableConditions),
   )
 
   const pointsByInspectionId = new Map<string, PointRow[]>()
@@ -603,11 +645,15 @@ async function loadDatasetFromTables(): Promise<OpenRiskDataset> {
 
     totalSafetyIssues += safetyIssueCount
     totalMonitorIssues += monitorIssueCount
+    const locationOption = getCanonicalLocationOption(
+      workOrder?.customer_location_name || workOrder?.service_location_name,
+      locationLookup.aliases,
+    )
 
     const unit: AssetUnit = {
       unit_id: dNumber,
       unit_name: buildAssetName(dNumber, record.crane.description),
-      warehouse_location: normalizeText(workOrder?.customer_location_name || workOrder?.service_location_name),
+      warehouse_location: locationOption?.label ?? normalizeText(workOrder?.customer_location_name || workOrder?.service_location_name),
       interior_location: normalizeText(record.crane.location),
       inspection_date: formatDateLabel(record.inspection.inspection_date ?? record.inspection.completed_at),
       safety_issue_count: safetyIssueCount,
@@ -631,31 +677,38 @@ async function loadDatasetFromTables(): Promise<OpenRiskDataset> {
   }
 }
 
-async function loadDataset() {
+async function loadDataset(customer?: string) {
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const now = Date.now()
-  if (cachedDataset && now - cachedDataset.loadedAt < cacheTtlMs) {
+  if (cachedDataset && cachedDatasetCustomer === selectedCustomer && now - cachedDataset.loadedAt < cacheTtlMs) {
     return cachedDataset
   }
-  if (pendingDataset) {
+  if (pendingDataset && pendingDatasetCustomer === selectedCustomer) {
     return pendingDataset
   }
 
+  pendingDatasetCustomer = selectedCustomer
   pendingDataset = (async () => {
     await requireAuthenticatedSession()
 
     try {
-      cachedDataset = await loadDatasetFromViews()
+      cachedDataset = await loadDatasetFromViews(selectedCustomer)
+      cachedDatasetCustomer = selectedCustomer
       pendingDataset = null
+      pendingDatasetCustomer = ''
       return cachedDataset
     } catch {
       // Fall back to direct report-table loading if the compact views are unavailable.
     }
 
-    cachedDataset = await loadDatasetFromTables()
+    cachedDataset = await loadDatasetFromTables(selectedCustomer)
+    cachedDatasetCustomer = selectedCustomer
     pendingDataset = null
+    pendingDatasetCustomer = ''
     return cachedDataset
   })().catch((error) => {
     pendingDataset = null
+    pendingDatasetCustomer = ''
     throw error
   })
 
@@ -665,8 +718,9 @@ async function loadDataset() {
 export async function getSupabaseOpenRiskAssets(
   locations: string[] = [],
   currentPage = 0,
+  customer?: string,
 ): Promise<AssetsPageAnalytics> {
-  const dataset = await loadDataset()
+  const dataset = await loadDataset(customer)
   const filteredAssets = dataset.assets.filter((asset) => matchesLocations(asset.unit, locations))
   const pageStart = Math.max(0, currentPage) * pageSize
   const pageAssets = filteredAssets.slice(pageStart, pageStart + pageSize)
@@ -681,31 +735,37 @@ export async function getSupabaseOpenRiskAssets(
   }
 }
 
-export async function getSupabaseAssetFleetServiced(): Promise<AssetsServicedAnalytics> {
-  const dataset = await loadDataset()
+export async function getSupabaseAssetFleetServiced(customer?: string): Promise<AssetsServicedAnalytics> {
+  const dataset = await loadDataset(customer)
+  const locationLookup = await getCustomerLocationLookup(customer)
   const assetsByLocation = new Map<string, AssetRecord[]>()
+  const locationLabelsByValue = new Map<string, string>()
 
   for (const asset of dataset.assets) {
-    const locationValue = getLocationValue(asset.unit)
-    const matchedLocation = portalLocationOptions.find((location) =>
-      locationValue.includes(location.value.replace(/_([a-z]{2})$/, '')) || locationValue === location.value,
-    )
-    const key = matchedLocation?.value ?? locationValue
-    const group = assetsByLocation.get(key) ?? []
+    const locationOption = getCanonicalLocationOption(asset.unit.warehouse_location, locationLookup.aliases)
+    if (!locationOption) continue
+    const group = assetsByLocation.get(locationOption.value) ?? []
     group.push(asset)
-    assetsByLocation.set(key, group)
+    assetsByLocation.set(locationOption.value, group)
+    locationLabelsByValue.set(locationOption.value, locationOption.label)
   }
 
-  const servicedAssets = portalLocationOptions.map((location) => {
-    const group = assetsByLocation.get(location.value) ?? []
+  const knownLocationValues = new Set(locationLookup.options.map((location) => location.value))
+  const assetOnlyLocations = Array.from(locationLabelsByValue.entries())
+    .filter(([locationValue]) => !knownLocationValues.has(locationValue))
+    .map(([value, label]) => ({ value, label }))
+
+  const servicedAssets = [...locationLookup.options, ...assetOnlyLocations].map((locationOption) => {
+    const locationValue = locationOption.value
+    const group = assetsByLocation.get(locationValue) ?? []
     const assetCount = group.length
     const safetyIssueCount = group.reduce((sum, asset) => sum + asset.unit.safety_issue_count, 0)
     const monitorIssueCount = group.reduce((sum, asset) => sum + asset.unit.monitor_issue_count, 0)
     const totalOpenIssues = safetyIssueCount + monitorIssueCount
 
     return {
-      location: location.label,
-      location_value: location.value,
+      location: locationOption.label,
+      location_value: locationValue,
       total_units: assetCount,
       serviced_units: assetCount,
       checked_in_display: `${assetCount} Assets`,
@@ -713,7 +773,7 @@ export async function getSupabaseAssetFleetServiced(): Promise<AssetsServicedAna
       safety_issue_count: safetyIssueCount,
       monitor_issue_count: monitorIssueCount,
     }
-  })
+  }).sort((left, right) => left.location.localeCompare(right.location))
 
   const totalAssets = servicedAssets.reduce((sum, location) => sum + location.total_units, 0)
   const totalSafetyIssues = servicedAssets.reduce((sum, location) => sum + (location.safety_issue_count ?? 0), 0)
@@ -734,20 +794,22 @@ export async function getSupabaseAssetFleetServiced(): Promise<AssetsServicedAna
 export async function getSupabaseAssetFleetAssets(
   locations: string[] = [],
   currentPage = 0,
+  customer?: string,
 ): Promise<AssetsPageAnalytics> {
-  return getSupabaseOpenRiskAssets(locations, currentPage)
+  return getSupabaseOpenRiskAssets(locations, currentPage, customer)
 }
 
-export async function getSupabaseOpenRiskAssetInfo(unitId: string): Promise<AssetInfoAnalytics> {
+export async function getSupabaseOpenRiskAssetInfo(unitId: string, customer?: string): Promise<AssetInfoAnalytics> {
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const dNumber = normalizeText(unitId).toUpperCase()
-  const tableDetail = await loadLatestAssetDetailFromTables(dNumber)
+  const tableDetail = await loadLatestAssetDetailFromTables(dNumber, selectedCustomer)
   if (tableDetail) return tableDetail
 
-  const dataset = await loadDataset()
+  const dataset = await loadDataset(selectedCustomer)
   const asset = dataset.assets.find((item) => item.unit.unit_id.toUpperCase() === dNumber)
 
   if (!asset) {
-    throw new Error(`No Supabase Wabash asset was found for ${unitId}.`)
+    throw new Error(`No Supabase ${selectedCustomer} asset was found for ${unitId}.`)
   }
 
   return {
@@ -758,8 +820,9 @@ export async function getSupabaseOpenRiskAssetInfo(unitId: string): Promise<Asse
   }
 }
 
-export async function getSupabaseOpenRiskRecurringIssues(unitId: string): Promise<RecurringIssue[]> {
+export async function getSupabaseOpenRiskRecurringIssues(unitId: string, customer?: string): Promise<RecurringIssue[]> {
   await requireAuthenticatedSession()
+  const selectedCustomer = resolveSelectedCustomer(customer)
   const dNumber = normalizeText(unitId).toUpperCase()
   if (!dNumber) return []
 
@@ -767,7 +830,7 @@ export async function getSupabaseOpenRiskRecurringIssues(unitId: string): Promis
     const rows = await fetchAll<IssueViewRow>(
       'deshazo_open_risk_issue_rows',
       'unit_id,category,inspection_date,completed_at',
-      (query) => query.eq('unit_id', dNumber),
+      (query) => query.eq('customer', selectedCustomer).eq('unit_id', dNumber),
       1000,
     )
     const cutoff = Date.now() - recurringWindowMs
@@ -793,7 +856,7 @@ export async function getSupabaseOpenRiskRecurringIssues(unitId: string): Promis
   const cranes = await fetchAll<CraneRow>(
     'deshazo_external_report_cranes',
     'id,work_order_id,contact_code,description,location',
-    (query) => query.eq('contact_code', dNumber),
+    (query) => query.eq('customer', selectedCustomer).eq('contact_code', dNumber),
   )
   if (cranes.length === 0) return []
 
@@ -802,22 +865,25 @@ export async function getSupabaseOpenRiskRecurringIssues(unitId: string): Promis
     'work_order_id,bill_to_name,customer,customer_location_name,service_location_name',
     'work_order_id',
     cranes.map((crane) => crane.work_order_id),
+    (query) => query.eq('customer', selectedCustomer),
   )
-  const wabashWorkOrderIds = new Set(workOrders.filter(isWabashWorkOrder).map((workOrder) => workOrder.work_order_id))
-  const wabashCranes = cranes.filter((crane) => wabashWorkOrderIds.has(crane.work_order_id))
-  if (wabashCranes.length === 0) return []
+  const customerWorkOrderIds = new Set(workOrders.map((workOrder) => workOrder.work_order_id))
+  const customerCranes = cranes.filter((crane) => customerWorkOrderIds.has(crane.work_order_id))
+  if (customerCranes.length === 0) return []
 
   const inspections = await fetchByInChunks<InspectionRow>(
     'deshazo_external_report_inspections',
     'id,crane_row_id,inspection_date,completed_at',
     'crane_row_id',
-    wabashCranes.map((crane) => crane.id),
+    customerCranes.map((crane) => crane.id),
+    (query) => query.eq('customer', selectedCustomer),
   )
   const sections = await fetchByInChunks<SectionRow>(
     'deshazo_external_report_sections',
     'id,inspection_row_id,section_name,section_index,section_order',
     'inspection_row_id',
     inspections.map((inspection) => inspection.id),
+    (query) => query.eq('customer', selectedCustomer),
   )
   const sectionById = new Map(sections.map((section) => [section.id, section]))
   const sectionsByInspectionId = new Map<string, SectionRow[]>()
@@ -831,7 +897,7 @@ export async function getSupabaseOpenRiskRecurringIssues(unitId: string): Promis
     'id,section_row_id,point_name,condition,remarks,point_index',
     'section_row_id',
     Array.from(sectionById.keys()),
-    (query) => query.in('condition', actionableConditions),
+    (query) => query.eq('customer', selectedCustomer).in('condition', actionableConditions),
   )
   const pointsByInspectionId = new Map<string, PointRow[]>()
   for (const point of points) {

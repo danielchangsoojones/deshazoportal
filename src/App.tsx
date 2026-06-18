@@ -35,35 +35,43 @@ function PageLoader() {
 }
 
 function App() {
+  const portalRoutes = (
+    <>
+      <Route path="login" element={<Login />} />
+      <Route path="signup" element={<Signup />} />
+      <Route path="forgot-password" element={<ForgotPassword />} />
+      <Route path="reset-password" element={<ResetPassword />} />
+      <Route path="dashboard" element={<Dashboard />} />
+      <Route path="contact-us" element={<ContactUs />} />
+      <Route path="add-user" element={<AddNewUser />} />
+      <Route path="location-comparison" element={<LocationComparison />} />
+      <Route path="spend" element={<Spend />} />
+      <Route path="documents-reports" element={<DocumentsReports />} />
+      <Route path="equipment-notebook-llm" element={<EquipmentNotebookLLM />} />
+      <Route path="quote-analytics" element={<QuoteAnalytics />} />
+      <Route path="custom-reports" element={<CustomReports />} />
+      <Route path="deshazo-work-orders" element={<DeshazoWorkOrders />} />
+      <Route path="deshazo-external-reports" element={<DeshazoExternalReports />} />
+      <Route path="asset-fleet" element={<AssetFleet />} />
+      <Route path="asset-fleet-assets" element={<AssetFleetAssets />} />
+      <Route path="asset-info" element={<AssetInfo />} />
+    </>
+  )
+
   return (
     <BrowserRouter>
       <Suspense fallback={<PageLoader />}>
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/:customer">
+            {portalRoutes}
+          </Route>
           <Route path="/quotelogin" element={<QuoteLogin />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/contact-us" element={<ContactUs />} />
-          <Route path="/add-user" element={<AddNewUser />} />
-          <Route path="/location-comparison" element={<LocationComparison />} />
-          <Route path="/spend" element={<Spend />} />
-          <Route path="/documents-reports" element={<DocumentsReports />} />
-          <Route path="/equipment-notebook-llm" element={<EquipmentNotebookLLM />} />
           <Route path="/deshazo-internal-dashboard" element={<DeshazoInternalDashboard />} />
           <Route path="/dashazo-internal-dashboard" element={<Navigate to="/deshazo-internal-dashboard" replace />} />
-          <Route path="/quote-analytics" element={<QuoteAnalytics />} />
-          <Route path="/custom-reports" element={<CustomReports />} />
-          <Route path="/deshazo-work-orders" element={<DeshazoWorkOrders />} />
-          <Route path="/deshazo-external-reports" element={<DeshazoExternalReports />} />
           <Route path="/jobsquotinglist" element={<JobsQuotingList />} />
           <Route path="/inspection-report-template" element={<EditableInspectionReport />} />
           <Route path="/editable-inspection-report" element={<EditableInspectionReport />} />
-          <Route path="/asset-fleet" element={<AssetFleet />} />
-          <Route path="/asset-fleet-assets" element={<AssetFleetAssets />} />
-          <Route path="/asset-info" element={<AssetInfo />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to="/wabash/login" replace />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

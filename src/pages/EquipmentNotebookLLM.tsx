@@ -6,6 +6,7 @@ import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getEditableInspectionReport, type EditableInspectionReport } from '../lib/editableInspectionReports'
+import { useCustomerPath } from '../lib/customerRouting'
 import {
   askNotebook,
   deleteNotebookSource,
@@ -135,7 +136,7 @@ const rankInspections = (query: string, inspections: JobsQuotingItem[]): RankedI
         score += 20
         reasons.push(`${inspection.repairCount} repair item${inspection.repairCount === 1 ? '' : 's'}`)
       }
-      if (/wabash|3nf005|harrington|hoist|cf4|chain|monorail/i.test(getInspectionSearchText(inspection))) {
+      if (/3nf005|harrington|hoist|cf4|chain|monorail/i.test(getInspectionSearchText(inspection))) {
         score += 18
         reasons.push('equipment match')
       }
@@ -317,6 +318,7 @@ export default function EquipmentNotebookLLM() {
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const launchedQuoteIdRef = useRef<string | null>(null)
   const navigate = useNavigate()
+  const customerPath = useCustomerPath()
   const [searchParams] = useSearchParams()
   const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
   const editableReportId = searchParams.get('editableReportId')?.trim() || ''
@@ -402,18 +404,18 @@ export default function EquipmentNotebookLLM() {
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight })

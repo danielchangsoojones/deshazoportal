@@ -203,7 +203,7 @@ const defaultReport: ReportData = {
   date: 'Date: Mar 24, 2026',
   structure: 'Structure: Gantry',
   description: 'Description: Portable Gantry',
-  customer: 'Customer: Wabash',
+  customer: 'Customer',
   purchaseOrder: 'Purchase Order: S2P1215028',
   jobNumber: 'Job #: 0270357',
   location: 'Location: Building 2',
@@ -1631,7 +1631,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
 const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifier) =>
   createSimplePdfFile('master-service-agreement.pdf', 'Master Service Agreement', [
     'DESHAZO service pricing reference for quote proposal preparation.',
-    'Customer: Wabash',
+    'Customer',
     `Covered Equipment: Crane ${craneIdentifier}`,
     'Regular technician labor: $145.00/hr',
     'Overtime technician labor: $217.50/hr',
@@ -5985,7 +5985,7 @@ export default function EditableInspectionReport() {
           <div className="flex items-center justify-between border-b border-[#dfe4ef] px-5 py-3">
             <div>
               <h2 className="text-[18px] font-black text-[#1f2430]">Master Service Agreement</h2>
-              <p className="mt-0.5 text-[12px] font-semibold text-[#747b8a]">Example pricing schedule for Wabash service work</p>
+              <p className="mt-0.5 text-[12px] font-semibold text-[#747b8a]">Example pricing schedule for service work</p>
             </div>
             <button
               type="button"
@@ -6010,7 +6010,7 @@ export default function EditableInspectionReport() {
               <section className="mt-6 grid grid-cols-2 gap-4 text-[13px] font-semibold">
                 <div className="rounded-md border border-[#dfe4ef] p-4">
                   <p className="text-[11px] font-black uppercase text-[#747b8a]">Customer</p>
-                  <p className="mt-1 text-[16px] font-black">Wabash</p>
+                  <p className="mt-1 text-[16px] font-black">Customer</p>
                 </div>
                 <div className="rounded-md border border-[#dfe4ef] p-4">
                   <p className="text-[11px] font-black uppercase text-[#747b8a]">Covered Equipment</p>

@@ -22,6 +22,7 @@ import {
   getSavedDeshazoInspectionReports,
 } from '../lib/deshazoExternalReports'
 import { getCurrentUserTag } from '../lib/userTags'
+import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -228,6 +229,8 @@ export default function DeshazoExternalReports() {
   const [message, setMessage] = useState('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerPath = useCustomerPath()
   const [searchParams] = useSearchParams()
   const requestedDNumber = useMemo(() => getRequestedDNumber(searchParams), [searchParams])
 
@@ -235,7 +238,7 @@ export default function DeshazoExternalReports() {
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
 
@@ -247,13 +250,13 @@ export default function DeshazoExternalReports() {
         const { data } = await client.auth.getUser()
         const nextUser = data.user
         if (!nextUser) {
-          navigate('/login')
+          navigate(customerPath('/login'))
           return
         }
 
         const userTag = await getCurrentUserTag(nextUser.id)
         if (userTag !== 'developer') {
-          navigate('/dashboard')
+          navigate(customerPath('/dashboard'))
           return
         }
 
@@ -262,7 +265,7 @@ export default function DeshazoExternalReports() {
         setUser(nextUser)
 
         if (hasRequestedWorkOrderId) {
-          const requestedReport = await getSavedDeshazoInspectionReport(requestedWorkOrderId)
+          const requestedReport = await getSavedDeshazoInspectionReport(requestedWorkOrderId, selectedCustomer)
           if (cancelled) return
 
           if (requestedReport) {
@@ -283,7 +286,7 @@ export default function DeshazoExternalReports() {
           setLoading(false)
 
           try {
-            const recentReports = await getSavedDeshazoInspectionReports(100)
+            const recentReports = await getSavedDeshazoInspectionReports(100, selectedCustomer)
             if (cancelled) return
 
             const nextReports = requestedReport
@@ -296,7 +299,7 @@ export default function DeshazoExternalReports() {
           return
         }
 
-        const nextReports = await getSavedDeshazoInspectionReports(100)
+        const nextReports = await getSavedDeshazoInspectionReports(100, selectedCustomer)
         if (cancelled) return
 
         setReports(nextReports)
@@ -318,7 +321,7 @@ export default function DeshazoExternalReports() {
     return () => {
       cancelled = true
     }
-  }, [navigate, searchParams])
+  }, [customerPath, navigate, searchParams, selectedCustomer])
 
   const selectedReport = reports.find((report) => report.workOrderId === selectedWorkOrderId) ?? reports[0] ?? null
   const craneTickets: CraneTicketEntry[] = useMemo(
@@ -356,7 +359,7 @@ export default function DeshazoExternalReports() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   const downloadBlob = (blob: Blob, filename: string) => {

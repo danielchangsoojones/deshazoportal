@@ -4,6 +4,7 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
+import { useCustomerPath } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -41,26 +42,27 @@ export default function ContactUs() {
   const [user, setUser] = useState<User | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const customerPath = useCustomerPath()
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Contact Us')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (!user) return null

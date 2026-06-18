@@ -10,6 +10,7 @@ import {
   isPortalApiConfigured,
   type LocationAnalytics,
 } from '../lib/portalApi'
+import { useCustomerPath } from '../lib/customerRouting'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -35,23 +36,24 @@ export default function LocationComparison() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const customerPath = useCustomerPath()
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Location Comparison')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -79,7 +81,7 @@ export default function LocationComparison() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (authLoading) {

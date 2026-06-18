@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
-import { portalLocationOptions } from '../lib/portalLocations'
+import { getCustomerLocationOptions, type PortalLocationOption } from '../lib/portalLocations'
 import { getSavedDeshazoWorkOrdersCsv } from '../lib/deshazoExternalReports'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
+import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -23,31 +24,64 @@ const menuItems = [
 
 export default function CustomReports() {
   const [user, setUser] = useState<User | null>(null)
+  const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
+  const [locationsLoading, setLocationsLoading] = useState(true)
   const [selectedLocations, setSelectedLocations] = useState<string[]>([])
   const [csvLoading, setCsvLoading] = useState(false)
   const [error, setError] = useState('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerPath = useCustomerPath()
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Custom Reports')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
     })
-  }, [navigate])
+  }, [customerPath, navigate])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadLocations() {
+      try {
+        setLocationsLoading(true)
+        const nextLocations = await getCustomerLocationOptions(selectedCustomer)
+        if (cancelled) return
+        setLocationOptions(nextLocations)
+        setSelectedLocations((current) =>
+          current.filter((locationValue) => nextLocations.some((location) => location.value === locationValue)),
+        )
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Unable to load customer locations.')
+          setLocationOptions([])
+          setSelectedLocations([])
+        }
+      } finally {
+        if (!cancelled) setLocationsLoading(false)
+      }
+    }
+
+    void loadLocations()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCustomer])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   const toggleLocation = (locationValue: string) => {
@@ -59,7 +93,7 @@ export default function CustomReports() {
   }
 
   const selectAllLocations = () => {
-    setSelectedLocations(portalLocationOptions.map((location) => location.value))
+    setSelectedLocations(locationOptions.map((location) => location.value))
   }
 
   const clearLocations = () => {
@@ -70,7 +104,7 @@ export default function CustomReports() {
     try {
       setCsvLoading(true)
       setError('')
-      const result = await getSavedDeshazoWorkOrdersCsv(selectedLocations)
+      const result = await getSavedDeshazoWorkOrdersCsv(selectedLocations, selectedCustomer)
       const blob = new Blob([result.csv], { type: result.contentType })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -187,7 +221,7 @@ export default function CustomReports() {
 
               <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
                 <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
-                <span>{selectedLocations.length} of {portalLocationOptions.length} locations selected</span>
+                <span>{selectedLocations.length} of {locationOptions.length} locations selected</span>
               </div>
             </div>
           </div>
@@ -211,6 +245,7 @@ export default function CustomReports() {
                 <button
                   type="button"
                   onClick={selectAllLocations}
+                  disabled={locationsLoading || locationOptions.length === 0}
                   className="inline-flex items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-2.5 text-sm font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
                 >
                   Select all
@@ -225,7 +260,7 @@ export default function CustomReports() {
                 <button
                   type="button"
                   onClick={downloadCsv}
-                  disabled={selectedLocations.length === 0 || csvLoading}
+                  disabled={selectedLocations.length === 0 || csvLoading || locationsLoading}
                   className="inline-flex items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-5 py-2.5 text-sm font-bold text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.65)] transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   {csvLoading ? 'Downloading CSV' : 'Download CSV'}
@@ -234,7 +269,15 @@ export default function CustomReports() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {portalLocationOptions.map((location) => {
+              {locationsLoading ? (
+                <div className="rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-4 text-sm font-semibold text-[rgba(21,24,33,0.62)]">
+                  Loading locations...
+                </div>
+              ) : locationOptions.length === 0 ? (
+                <div className="rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-4 text-sm font-semibold text-[rgba(21,24,33,0.62)]">
+                  No locations found for this customer.
+                </div>
+              ) : locationOptions.map((location) => {
                 const checked = selectedLocations.includes(location.value)
 
                 return (

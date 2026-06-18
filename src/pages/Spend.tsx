@@ -18,6 +18,7 @@ import {
   type TopIssueAnalytics,
   type TopLineSpendAnalytics,
 } from '../lib/portalApi'
+import { useCustomerPath } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -124,23 +125,24 @@ export default function Spend() {
   const [topIssueLoading, setTopIssueLoading] = useState(true)
   const [topIssueError, setTopIssueError] = useState('')
   const navigate = useNavigate()
+  const customerPath = useCustomerPath()
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Spend')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -312,7 +314,7 @@ export default function Spend() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (authLoading) {
