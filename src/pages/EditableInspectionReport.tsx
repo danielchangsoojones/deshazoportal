@@ -554,8 +554,8 @@ const getMeaningfulReportValue = (value: string | undefined) => {
 
 const getReportSummaryCraneContextParts = (reportData: ReportData | Record<string, string>) =>
   [
-    getMeaningfulReportValue(reportData.description),
     getMeaningfulReportValue(reportData.location),
+    getMeaningfulReportValue(reportData.description),
   ].filter(Boolean)
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
