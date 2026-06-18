@@ -278,6 +278,47 @@ function getExtractionValue(data: Record<string, unknown>, key: string) {
   return field == null ? '' : String(field)
 }
 
+function getFirstExtractionValue(data: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = getExtractionValue(data, key).trim()
+    if (value) return value
+  }
+
+  return ''
+}
+
+function removeReportValueLabel(value: string) {
+  return value.includes(':') ? value.split(':').slice(1).join(':').trim() : value.trim()
+}
+
+function getMeaningfulReportValue(value: string | undefined) {
+  const normalizedValue = removeReportValueLabel(value ?? '')
+  if (!normalizedValue || /^[-–—]+$/.test(normalizedValue) || /^n\/?a$/i.test(normalizedValue)) return ''
+  return normalizedValue
+}
+
+function getItemLocation(item: JobsQuotingItem) {
+  return getMeaningfulReportValue(
+    item.reportData.location ||
+    getFirstExtractionValue(item.extractionData, ['location', 'Location', 'service_location', 'serviceLocation', 'Service Location']),
+  )
+}
+
+function getItemDescription(item: JobsQuotingItem) {
+  return getMeaningfulReportValue(
+    item.reportData.description ||
+    getFirstExtractionValue(item.extractionData, ['description', 'Description']),
+  )
+}
+
+function getItemDNumberDisplay(item: JobsQuotingItem) {
+  return [
+    getItemDNumber(item) || '-',
+    getItemLocation(item),
+    getItemDescription(item),
+  ].filter(Boolean).join(' - ')
+}
+
 function getSearchVariants(value: string) {
   const normalizedValue = value.trim().toLowerCase()
   if (!normalizedValue) return []
@@ -299,6 +340,8 @@ function getSearchVariants(value: string) {
 function getItemSearchText(item: JobsQuotingItem) {
   return [
     ...getSearchVariants(getItemDNumber(item)),
+    ...getSearchVariants(getItemLocation(item)),
+    ...getSearchVariants(getItemDescription(item)),
     ...getSearchVariants(getItemJobNumber(item)),
   ]
     .join(' ')
@@ -1638,14 +1681,14 @@ export default function JobsQuotingList() {
                 <table className="w-full table-fixed border-collapse text-left">
                   <thead>
                     <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
-                      <th className="w-[12%] px-3 py-3">D-number</th>
-                      <th className="w-[24%] px-3 py-3">Job Type</th>
+                      <th className="w-[28%] px-3 py-3">D-number</th>
+                      <th className="w-[14%] px-3 py-3">Job Type</th>
                       <th className="w-[11%] px-2 py-3 text-center">Date Modified</th>
                       <th className="w-[10%] px-2 py-3 text-center">Uploaded By</th>
                       <th className="w-[7%] px-1 py-3 text-center">Repairs</th>
                       <th className="w-[7%] px-1 py-3 text-center">Safety</th>
                       <th className="w-[7%] px-1 py-3 text-center">Total</th>
-                      <th className="w-[22%] px-3 py-3 text-center">PDF</th>
+                      <th className="w-[16%] px-3 py-3 text-center">PDF</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1695,7 +1738,7 @@ export default function JobsQuotingList() {
                           >
                             <td className="px-3 py-4 align-top">
                               <span className="block whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
-                                {getItemDNumber(item) || '-'}
+                                {getItemDNumberDisplay(item)}
                               </span>
                             </td>
                             <td className="px-3 py-4 align-top">
