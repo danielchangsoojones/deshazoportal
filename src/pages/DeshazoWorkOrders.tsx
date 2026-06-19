@@ -102,10 +102,22 @@ function getAssignedTechnicians(workOrder: DeshazoSavedWorkOrderListItem) {
 }
 
 function getTypeBadgeClass(jobType: string) {
-  const normalizedType = jobType.toLowerCase()
-  if (normalizedType.includes('service')) return 'bg-[#4f9879] text-white'
-  if (normalizedType.includes('mod')) return 'bg-[#f47f2f] text-white'
-  return 'bg-[#4f7fd6] text-white'
+  const normalizedType = jobType.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (normalizedType.includes('inspection')) return 'bg-[#4f7fd6]'
+  if (normalizedType.includes('warranty')) return 'bg-[#9aa1ad]'
+  if (normalizedType.includes('service call')) return 'bg-[#4f9879]'
+  if (normalizedType.includes('installation')) return 'bg-[#43c7ae]'
+  if (
+    normalizedType.includes('retail parts') ||
+    normalizedType.includes('repair') ||
+    normalizedType.includes('load test') ||
+    normalizedType.includes('quoted repair') ||
+    normalizedType.includes('site agreement') ||
+    normalizedType.includes('emergency after hour')
+  ) {
+    return 'bg-[#f4b331]'
+  }
+  return 'bg-[#f4b331]'
 }
 
 export default function DeshazoWorkOrders() {
@@ -529,7 +541,7 @@ export default function DeshazoWorkOrders() {
                           </div>
                         </td>
                         <td className="px-3 py-3">
-                          <span className={`rounded-sm px-2 py-1 text-sm font-black ${getTypeBadgeClass(workOrder.jobType)}`}>
+                          <span className={`rounded-sm px-2 py-1 text-sm font-black text-white ${getTypeBadgeClass(workOrder.jobType)}`}>
                             {workOrder.jobType || 'Inspection'}
                           </span>
                         </td>
