@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
-import { useCustomerPath } from '../lib/customerRouting'
 
 export default function ResetPassword() {
   const configError = !isConfigured || !supabase
@@ -14,7 +13,6 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
   const navigate = useNavigate()
-  const customerPath = useCustomerPath()
 
   useEffect(() => {
     if (configError || !supabase) {
@@ -61,7 +59,7 @@ export default function ResetPassword() {
     } else {
       setMessage('Password updated successfully. Redirecting to sign in...')
       setTimeout(() => {
-        navigate(customerPath('/login'))
+        navigate('/login')
       }, 1200)
     }
 
@@ -132,7 +130,7 @@ export default function ResetPassword() {
         </form>
 
         <p className="mt-6 text-center text-sm text-gray-600">
-          <Link to={customerPath('/login')} className="font-medium text-indigo-600 hover:underline">
+          <Link to="/login" className="font-medium text-indigo-600 hover:underline">
             Back to sign in
           </Link>
         </p>

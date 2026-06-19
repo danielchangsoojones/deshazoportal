@@ -8,7 +8,6 @@ import type {
   DeshazoInspectionPoint,
   DeshazoSavedInspectionReport,
 } from './deshazoExternalReports'
-import { getCustomerDisplayName } from './customerRouting'
 
 type ActionItem = {
   label: string
@@ -162,11 +161,6 @@ function getConditionTone(point: DeshazoInspectionPoint) {
   return 'danger'
 }
 
-function isSafetyStatus(status: string) {
-  const normalizedStatus = status.replace(/\s+/g, ' ').trim().toUpperCase()
-  return normalizedStatus.includes('DO NOT OPERATE') || normalizedStatus.includes('SAFETY')
-}
-
 function getConditionRank(point: DeshazoInspectionPoint) {
   const tone = getConditionTone(point)
   if (tone === 'repair') return 4
@@ -251,45 +245,6 @@ function getStructureSectionName(craneReport: DeshazoCraneReport) {
   return structureType.split('-')[0]?.trim() || structureType
 }
 
-function cleanSectionName(value?: string | null) {
-  const trimmed = value?.trim()
-  if (!trimmed) return ''
-  return trimmed
-    .replace(/\{\{\s*customer\s*name\s*\}\}/gi, getCustomerDisplayName())
-    .replace(/\bcraneStructureType\b/g, '')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .trim()
-}
-
-function isTrolleyHoistSectionName(value?: string | null) {
-  const normalized = cleanSectionName(value).toLowerCase()
-  return (normalized.includes('trolley') || normalized.includes('trolly')) && normalized.includes('hoist')
-}
-
-function isHoistSectionName(value?: string | null) {
-  const normalized = cleanSectionName(value).toLowerCase()
-  return normalized.includes('hoist')
-}
-
-function getTextLength(value?: string | null) {
-  return (value ?? '').replace(/\s+/g, ' ').trim().length
-}
-
-function hasLongCategoryText(value?: string | null) {
-  const normalized = (value ?? '').trim()
-  return getTextLength(normalized) > 54 || /[.!?]\s+\S/.test(normalized)
-}
-
-function sectionNeedsBlockLayout(section: ResolvedSection) {
-  return section.points.some((point) => hasLongCategoryText(point.name))
-}
-
-function sectionedItemsNeedBlockLayout(items: SectionedItem[]) {
-  return items.some((item) => hasLongCategoryText(item.label))
-}
-
 function resolveSections(craneReport: DeshazoCraneReport) {
   const sections: ResolvedSection[] = []
   const hoists = craneReport.crane?.hoists ?? []
@@ -304,21 +259,14 @@ function resolveSections(craneReport: DeshazoCraneReport) {
         return
       }
 
-      if (isTrolleyHoistSectionName(section.name) && hoists.length > 0) {
-        resolveHoistSections(sortedPoints, hoists.length).forEach((points, hoistIndex) => {
-          if (points.length > 0) sections.push({ name: `Trolley Hoist ${hoistIndex + 1}`, points })
-        })
-        return
-      }
-
-      if (isHoistSectionName(section.name) && hoists.length > 0) {
+      if ((section.name ?? '').includes('Hoist') && hoists.length > 0) {
         resolveHoistSections(sortedPoints, hoists.length).forEach((points, hoistIndex) => {
           if (points.length > 0) sections.push({ name: `Hoist ${hoistIndex + 1}`, points })
         })
         return
       }
 
-      sections.push({ name: cleanSectionName(section.name) || inspection.type || 'Inspection Section', points: dedupeInspectionPoints(sortedPoints) })
+      sections.push({ name: section.name || inspection.type || 'Inspection Section', points: dedupeInspectionPoints(sortedPoints) })
     })
   })
 
@@ -342,28 +290,7 @@ function getActionItems(craneReport: DeshazoCraneReport) {
       const condition = getPointDisplayValue(point).toUpperCase()
       if (condition === 'REPAIR') {
         items.push({
-          label: cleanSectionName(point.name) || 'Unnamed point',
-          sectionName: section.name,
-          status: condition,
-          notes: getPointNotes(point),
-          photos: point.photos ?? [],
-        })
-      }
-    })
-  })
-
-  return items
-}
-
-function getSafetyItems(craneReport: DeshazoCraneReport) {
-  const items: SectionedItem[] = []
-
-  resolveSections(craneReport).forEach((section) => {
-    section.points.forEach((point) => {
-      const condition = getPointDisplayValue(point)
-      if (isSafetyStatus(condition)) {
-        items.push({
-          label: cleanSectionName(point.name) || 'Unnamed point',
+          label: point.name ?? 'Unnamed point',
           sectionName: section.name,
           status: condition,
           notes: getPointNotes(point),
@@ -384,9 +311,9 @@ function getNotesAndPhotoItems(craneReport: DeshazoCraneReport) {
       const notes = getPointNotes(point)
       const photos = point.photos ?? []
       const condition = getPointDisplayValue(point).toUpperCase()
-      if ((notes || photos.length > 0) && condition !== 'REPAIR' && !isSafetyStatus(condition)) {
+      if ((notes || photos.length > 0) && condition !== 'REPAIR') {
         items.push({
-          label: cleanSectionName(point.name) || 'Unnamed point',
+          label: point.name ?? 'Unnamed point',
           sectionName: section.name,
           status: condition,
           notes,
@@ -415,23 +342,14 @@ function renderSectionedItemGroup(
   group: { sectionName: string; items: SectionedItem[] },
   itemLabel: string,
   includePhotos = false,
-  options: { showHeader?: boolean; totalCount?: number; forceBlockLayout?: boolean } = {},
 ) {
-  const showHeader = options.showHeader ?? true
-  const totalCount = options.totalCount ?? group.items.length
-  const useBlockLayout = Boolean(options.forceBlockLayout) || sectionedItemsNeedBlockLayout(group.items)
-
   return `
         <section class="page2-item-section">
-          ${
-            showHeader
-              ? `<div class="page2-section-title">
-                  <span>${escapeHtml(group.sectionName)}</span>
-                  <span class="page2-section-count">${totalCount} ${escapeHtml(itemLabel)}${totalCount === 1 ? '' : 's'}</span>
-                </div>`
-              : ''
-          }
-          <div class="page2-points-box ${useBlockLayout ? 'page2-points-box-blocks' : ''}">
+          <div class="page2-section-title">
+            <span>${escapeHtml(group.sectionName)}</span>
+            <span class="page2-section-count">${group.items.length} ${escapeHtml(itemLabel)}${group.items.length === 1 ? '' : 's'}</span>
+          </div>
+          <div class="page2-points-box">
             ${group.items
               .map(
                 (item) => `
@@ -442,7 +360,7 @@ function renderSectionedItemGroup(
                       includePhotos && item.photos.length > 0
                         ? `<div class="page2-action-photos">
                             ${item.photos
-                              .slice(0, 6)
+                              .slice(0, 2)
                               .map(
                                 (photo, photoIndex) => `
                                   <figure class="page2-action-photo">
@@ -483,7 +401,7 @@ function getAllPhotos(craneReport: DeshazoCraneReport) {
     resolveSections({ ...craneReport, inspections: [inspection] }).forEach((section) => {
       section.points.forEach((point) => {
         ;(point.photos ?? []).forEach((photo) => {
-          photos.push({ ...photo, caption: cleanSectionName(point.name) || section.name || 'Inspection Point' })
+          photos.push({ ...photo, caption: point.name ?? section.name ?? 'Inspection Point' })
         })
       })
     })
@@ -587,19 +505,10 @@ function joinAddressParts(parts: Array<string | undefined>) {
   return parts.map((part) => part?.trim()).filter(Boolean).join(' - ')
 }
 
-function getReportCustomerName(report: DeshazoSavedInspectionReport) {
-  const rawPayload = report.summary?.rawPayload
-  return (
-    report.summary?.customerName ||
-    getUnknownString(rawPayload ?? {}, ['customerName', 'billToName']) ||
-    getCustomerDisplayName()
-  )
-}
-
 function getServiceContactInfo(report: DeshazoSavedInspectionReport): ServiceContactInfo {
   const rawPayload = report.summary?.rawPayload
   const customerLocation = getNestedRecord(rawPayload, 'customerLocation')
-  const customer = getReportCustomerName(report)
+  const customer = report.summary?.customerName || getUnknownString(rawPayload ?? {}, ['customerName', 'billToName']) || 'Wabash'
   const contact = getUnknownString(rawPayload ?? {}, ['confirmTo', 'contactName', 'contact']) || '--'
   const phone = getUnknownString(customerLocation ?? rawPayload ?? {}, ['telephoneNo', 'phone', 'contactPhone']) || '--'
   const email = getUnknownString(rawPayload ?? {}, ['emailAddress', 'email']) || '--'
@@ -830,7 +739,7 @@ function renderServiceJsa(report: DeshazoSavedInspectionReport, item: DeshazoGen
 function renderServiceHeader(report: DeshazoSavedInspectionReport, compact: boolean) {
   const branchName = getBranchName(report)
   const jobNo = report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId)
-  const customer = getReportCustomerName(report)
+  const customer = report.summary?.customerName || 'Wabash'
   const po = report.summary?.customerPoNo || 'UNAVAILABLE'
 
   if (compact) {
@@ -1043,7 +952,6 @@ function toneClass(point: DeshazoInspectionPoint) {
   if (tone === 'success') return 'status status-success'
   if (tone === 'neutral') return 'status status-neutral'
   if (normalizedStatus === 'MONITOR') return 'status status-monitor status-with-icons'
-  if (isSafetyStatus(normalizedStatus)) return 'status status-danger status-long-label'
   return 'status status-danger status-with-icons'
 }
 
@@ -1052,17 +960,12 @@ function page2StatusClass(status: string) {
   if (normalizedStatus === 'SATISFACTORY') return 'page2-point-status page2-status-success'
   if (normalizedStatus === 'N/A') return 'page2-point-status page2-status-neutral'
   if (normalizedStatus === 'MONITOR') return 'page2-point-status page2-status-monitor status-with-icons'
-  if (isSafetyStatus(normalizedStatus)) return 'page2-point-status page2-status-danger status-long-label'
   return 'page2-point-status page2-status-danger status-with-icons'
 }
 
 function renderStatusLabel(status: string) {
-  const normalizedStatus = status.replace(/\s+/g, ' ').trim().toUpperCase()
-  const label = isSafetyStatus(normalizedStatus)
-    ? 'Safety'
-    : normalizedStatus === 'N/A'
-      ? 'N/A'
-      : toTitleCase(status)
+  const label = toTitleCase(status)
+  const normalizedStatus = status.toUpperCase()
   if (normalizedStatus !== 'REPAIR' && normalizedStatus !== 'MONITOR') return escapeHtml(label)
 
   const iconClass = normalizedStatus === 'MONITOR' ? 'status-icon-monitor' : 'status-icon-repair'
@@ -1112,13 +1015,10 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
 
   const stats = getInspectionStats(selectedCrane)
   const actionItems = getActionItems(selectedCrane)
-  const safetyItems = getSafetyItems(selectedCrane)
   const notesAndPhotoItems = getNotesAndPhotoItems(selectedCrane)
-  const issuePhotoUrls = new Set(
-    [...actionItems, ...safetyItems].flatMap((item) => item.photos.map((photo) => photo.content).filter(Boolean)),
-  )
+  const actionPhotoUrls = new Set(actionItems.flatMap((item) => item.photos.map((photo) => photo.content).filter(Boolean)))
   const photos = getAllPhotos(selectedCrane)
-    .filter((photo) => !issuePhotoUrls.has(photo.content))
+    .filter((photo) => !actionPhotoUrls.has(photo.content))
   const sections = resolveSections(selectedCrane)
   const primaryCrane = selectedCrane.crane
   const overviewDate = selectedCrane.inspections?.find((inspection) => inspection.completedAt)?.completedAt || report.summary?.completedAt
@@ -1127,16 +1027,15 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     detailSections
       .map((section) => {
         const satisfactoryCount = section.points.filter((point) => getConditionTone(point) === 'success').length
-        const useBlockLayout = sectionNeedsBlockLayout(section)
         return `
           <section class="detail-section">
             <div class="detail-header">${escapeHtml(section.name)} <span>${satisfactoryCount}/${section.points.length || 0} Satisfactory</span></div>
-            <div class="detail-grid ${useBlockLayout ? 'detail-grid-blocks' : ''}">
+            <div class="detail-grid">
               ${section.points
                 .map(
                   (point) => `
                     <div class="detail-row">
-                      <div class="detail-label">${escapeHtml(cleanSectionName(point.name) || 'Inspection point')}</div>
+                      <div class="detail-label">${escapeHtml(point.name ?? 'Inspection point')}</div>
                       <div class="${toneClass(point)}">${renderStatusLabel(getPointDisplayValue(point))}</div>
                     </div>
                   `,
@@ -1149,12 +1048,6 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
       .join('')
 
   const estimateDetailSectionHeight = (section: ResolvedSection) => {
-    if (sectionNeedsBlockLayout(section)) {
-      return section.points.reduce((height, point) => {
-        const labelHeight = Math.max(28, Math.ceil(getTextLength(point.name ?? 'Inspection point') / 92) * 14 + 12)
-        return height + labelHeight
-      }, 44)
-    }
     const visualRows = Math.ceil(section.points.length / 3)
     return 44 + visualRows * 24
   }
@@ -1163,7 +1056,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     const packedPages: string[] = []
     let currentPageBlocks: string[] = []
     let currentHeight = 0
-    const usableHeight = 690
+    const usableHeight = 760
 
     blocks.forEach((block) => {
       const shouldStartNextPage =
@@ -1184,10 +1077,8 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   }
 
   const estimateSectionedItemHeight = (item: SectionedItem, includePhotos = false) => {
-    let height = hasLongCategoryText(item.label)
-      ? Math.max(42, Math.ceil(getTextLength(item.label) / 95) * 14 + 18)
-      : 34
-    if (includePhotos && item.photos.length > 0) height += Math.ceil(Math.min(item.photos.length, 6) / 3) * 144 + 10
+    let height = 34
+    if (includePhotos && item.photos.length > 0) height += 150
     if (item.notes) height += Math.max(22, Math.ceil(item.notes.length / 95) * 14)
     return height
   }
@@ -1196,9 +1087,8 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     group: { sectionName: string; items: SectionedItem[] },
     itemLabel: string,
     includePhotos = false,
-    options: { forceBlockLayout?: boolean } = {},
   ) => {
-    const maxGroupHeight = 610
+    const maxGroupHeight = 660
     const blocks: Array<{ html: string; estimatedHeight: number }> = []
     let currentItems: SectionedItem[] = []
     let currentHeight = 52
@@ -1207,16 +1097,11 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
       const itemHeight = estimateSectionedItemHeight(item, includePhotos)
       if (currentItems.length > 0 && currentHeight + itemHeight > maxGroupHeight) {
         blocks.push({
-          html: renderSectionedItemGroup(
-            { sectionName: group.sectionName, items: currentItems },
-            itemLabel,
-            includePhotos,
-            { showHeader: blocks.length === 0, totalCount: group.items.length, forceBlockLayout: options.forceBlockLayout },
-          ),
+          html: renderSectionedItemGroup({ sectionName: group.sectionName, items: currentItems }, itemLabel, includePhotos),
           estimatedHeight: currentHeight,
         })
         currentItems = []
-        currentHeight = 14
+        currentHeight = 52
       }
 
       currentItems.push(item)
@@ -1225,12 +1110,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
 
     if (currentItems.length > 0) {
       blocks.push({
-        html: renderSectionedItemGroup(
-          { sectionName: group.sectionName, items: currentItems },
-          itemLabel,
-          includePhotos,
-          { showHeader: blocks.length === 0, totalCount: group.items.length, forceBlockLayout: options.forceBlockLayout },
-        ),
+        html: renderSectionedItemGroup({ sectionName: group.sectionName, items: currentItems }, itemLabel, includePhotos),
         estimatedHeight: currentHeight,
       })
     }
@@ -1266,24 +1146,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     return blocks
   }
 
-  const useLongFirstPageActionLayout = sectionedItemsNeedBlockLayout(actionItems)
-  const firstPageActionRows = useLongFirstPageActionLayout ? Math.min(actionItems.length, 6) : Math.ceil(Math.min(actionItems.length, 6) / 3)
-  const firstPageActionHeight = actionItems.length
-    ? 32 + firstPageActionRows * (useLongFirstPageActionLayout ? 58 : 48)
-    : 0
-  const firstPageAvailableSectionHeight = Math.max(0, 500 - firstPageActionHeight)
-  let firstPageSectionCount = 0
-  let usedFirstPageSectionHeight = 0
-  for (const section of sections) {
-    const sectionHeight = estimateDetailSectionHeight(section) + 18
-    const canFit = usedFirstPageSectionHeight + sectionHeight <= firstPageAvailableSectionHeight
-    if (firstPageSectionCount > 0 && !canFit) break
-    if (firstPageSectionCount === 0 || canFit) {
-      firstPageSectionCount += 1
-      usedFirstPageSectionHeight += sectionHeight
-    }
-    if (firstPageSectionCount >= 2 && !useLongFirstPageActionLayout) break
-  }
+  const firstPageSectionCount = sections.length > 2 ? 2 : sections.length
   const firstPageSections = sections.slice(0, firstPageSectionCount)
   const continuationSections = sections.slice(firstPageSectionCount)
   const firstPageSectionsMarkup = renderDetailSections(firstPageSections)
@@ -1392,7 +1255,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
           <div class="zero-info-grid">
             <div><span>Structure:</span> <strong>${escapeHtml(primaryCrane?.structure?.type || primaryCrane?.description || 'Not available')}</strong></div>
             <div><span>Description:</span> <strong>${escapeHtml(primaryCrane?.description || 'Not available')}</strong></div>
-            <div><span>Customer:</span> <strong>${escapeHtml(getReportCustomerName(report))}</strong></div>
+            <div><span>Customer:</span> <strong>${escapeHtml(report.summary?.customerName || 'Wabash')}</strong></div>
             <div><span>Purchase Order:</span> <strong>${escapeHtml(report.summary?.customerPoNo || 'UNAVAILABLE')}</strong></div>
             <div><span>Job #:</span> <strong>${escapeHtml(report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId))}</strong></div>
             <div><span>Location:</span> <strong>${escapeHtml(primaryCrane?.location || report.summary?.customerLocationName || 'N/A')}</strong></div>
@@ -1436,7 +1299,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     ? `
       <div class="panel panel-danger">
         <div class="panel-title">Action Items ${actionItems.length}</div>
-        <div class="panel-body panel-body-actions"><div class="mini-action-grid ${useLongFirstPageActionLayout ? 'mini-action-grid-blocks' : ''}">${firstPageActions}</div></div>
+        <div class="panel-body panel-body-actions"><div class="mini-action-grid">${firstPageActions}</div></div>
       </div>
     `
     : ''
@@ -1453,19 +1316,9 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     })
   }
 
-  if (safetyItems.length > 0) {
-    followUpBlocks.push({
-      html: `<div class="page2-title page2-title-safety ${actionItems.length ? 'page2-title-after-list' : ''}">SAFETY ITEMS</div>`,
-      estimatedHeight: 38,
-    })
-    groupItemsBySection(safetyItems).forEach((group) => {
-      followUpBlocks.push(...chunkSectionedGroupBlocks(group, 'Safety item', true, { forceBlockLayout: true }))
-    })
-  }
-
   if (notesAndPhotoItems.length > 0) {
     followUpBlocks.push({
-      html: `<div class="page2-title ${actionItems.length || safetyItems.length ? 'page2-title-notes' : ''}">NOTES AND PHOTOS</div>`,
+      html: `<div class="page2-title ${actionItems.length ? 'page2-title-notes' : ''}">NOTES AND PHOTOS</div>`,
       estimatedHeight: 38,
     })
     groupItemsBySection(notesAndPhotoItems).forEach((group) => {
@@ -1496,7 +1349,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
             <div><span>Purchase Order:</span> ${escapeHtml(report.summary?.customerPoNo || 'UNAVAILABLE')}</div>
             <div><span>Job #:</span> ${escapeHtml(report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId))}</div>
             <div><span>Service Location:</span> ${escapeHtml(report.summary?.serviceLocationName || '001 California')}</div>
-            <div><span>Customer Name:</span> ${escapeHtml(getReportCustomerName(report))}</div>
+            <div><span>Customer Name:</span> ${escapeHtml(report.summary?.customerName || 'Wabash')}</div>
           </div>
         </div>
         <div class="page2-content">
@@ -1532,7 +1385,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
           <div class="summary-cell"><div class="summary-label">Structure</div><div class="summary-value">${escapeHtml(primaryCrane?.structure?.type || primaryCrane?.description || 'Not available')}</div></div>
           <div class="summary-cell"><div class="summary-label">Job #</div><div class="summary-value">${escapeHtml(report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId))}</div></div>
           <div class="summary-cell"><div class="summary-label">Description</div><div class="summary-value">${escapeHtml(primaryCrane?.description || 'Not available')}</div></div>
-          <div class="summary-cell"><div class="summary-label">Customer</div><div class="summary-value">${escapeHtml(getReportCustomerName(report))}</div></div>
+          <div class="summary-cell"><div class="summary-label">Customer</div><div class="summary-value">${escapeHtml(report.summary?.customerName || 'Wabash')}</div></div>
           <div class="summary-cell"><div class="summary-label">Purchase Order</div><div class="summary-value">${escapeHtml(report.summary?.customerPoNo || 'UNAVAILABLE')}</div></div>
           <div class="summary-cell"><div class="summary-label">Location</div><div class="summary-value">${escapeHtml(primaryCrane?.location || 'N/A')}</div></div>
           <div class="summary-cell"><div class="summary-label">Customer Address</div><div class="summary-value">${escapeHtml(report.summary?.customerLocationAddress || report.summary?.customerAddress || 'N/A')}</div></div>
@@ -1623,7 +1476,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .zero-point span:first-child { min-width: 0; }
     .zero-point span:last-child { text-align: right; }
     .body-full { height: ${DESHAZO_PDF_PAGE_HEIGHT_PX - 2}px; }
-    .body-page2 { position: relative; padding: 25px 24px 58px; }
+    .body-page2 { position: relative; padding: 25px 24px 18px; }
     .summary-top { display: grid; grid-template-columns: 1.7fr 1fr 1fr; gap: 12px; padding-bottom: 9px; border-bottom: 1px solid #cfcfcf; font-size: 12px; }
     .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #d8d8d8; border-left: 1px solid #d8d8d8; }
     .summary-cell { min-height: 46px; padding: 5px 7px; border-right: 1px solid #d8d8d8; border-bottom: 1px solid #d8d8d8; font-size: 11px; }
@@ -1645,25 +1498,16 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .mini-action-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; align-items: center; min-height: 48px; padding: 9px 12px; border-right: 1px solid #efcccc; border-bottom: 1px solid #efcccc; font-size: 11px; }
     .mini-action-row:nth-child(3n) { border-right: 0; }
     .mini-action-row:nth-last-child(-n+3) { border-bottom: 0; }
-    .mini-action-grid-blocks { display: block; }
-    .mini-action-grid-blocks .mini-action-row { grid-template-columns: minmax(0, 1fr) 116px; align-items: start; min-height: 0; padding: 8px 10px; border-right: 0; break-inside: avoid; page-break-inside: avoid; }
-    .mini-action-grid-blocks .mini-action-row:nth-last-child(-n+3) { border-bottom: 1px solid #efcccc; }
-    .mini-action-grid-blocks .mini-action-row:last-child { border-bottom: 0; }
-    .mini-action-grid-blocks .mini-action-status { padding-top: 1px; }
-    .mini-action-label { min-width: 0; line-height: 1.15; overflow-wrap: anywhere; }
+    .mini-action-label { min-width: 0; line-height: 1.15; }
     .mini-action-status { display: flex; align-items: center; justify-content: flex-end; }
     .action-pill { display: inline-grid; grid-auto-flow: column; align-items: center; justify-content: center; box-sizing: border-box; width: 104px; min-height: 22px; padding: 3px 8px 2px; background: #f7d4d4; color: #8d1111; font-size: 12px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; overflow: visible; }
     .overview-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; font-size: 12px; }
-    .detail-section { padding-top: 11px; margin-top: 11px; border-top: 1px solid #dadada; break-inside: auto; }
+    .detail-section { padding-top: 11px; margin-top: 11px; border-top: 1px solid #dadada; break-inside: avoid; }
     .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 6px; font-size: 12px; font-weight: 700; }
     .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 14px; }
-    .detail-grid-blocks { display: block; border: 1px solid #dadada; border-bottom: 0; }
-    .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 7px; min-height: 21px; font-size: 12px; break-inside: avoid; page-break-inside: avoid; }
-    .detail-grid-blocks .detail-row { grid-template-columns: minmax(0, 1fr) 112px; align-items: start; min-height: 0; padding: 8px 9px; border-bottom: 1px solid #dadada; }
-    .detail-grid-blocks .status { width: 108px; justify-self: end; }
-    .detail-label { min-width: 0; line-height: 1.18; overflow-wrap: anywhere; }
+    .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 7px; min-height: 21px; font-size: 12px; }
+    .detail-label { min-width: 0; line-height: 1.18; }
     .status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; width: 92px; min-height: 22px; padding: 3px 6px 2px; text-align: center; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; overflow: visible; }
-    .status-long-label { min-height: 28px; padding: 4px 6px; line-height: 1.08; white-space: normal; overflow-wrap: anywhere; }
     .status-with-icons { justify-content: space-between; gap: 4px; }
     .status-with-icons { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
     .status-with-icons > span:nth-child(2) { min-width: 0; text-align: center; align-self: center; }
@@ -1686,13 +1530,11 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-brand-sub { margin-top: 5px; font-size: 9.8px; font-weight: 900; line-height: 1; text-transform: uppercase; }
     .page2-meta { display: grid; grid-template-columns: 1fr 96px; gap: 6px 32px; justify-self: end; width: 366px; font-size: 12px; line-height: 1.32; }
     .page2-meta span { font-weight: 700; }
-    .page2-content { margin-top: 22px; padding-bottom: 34px; }
+    .page2-content { margin-top: 22px; }
     .page2-continuation { margin-bottom: 18px; }
     .page2-continuation .detail-section:first-child { margin-top: 0; }
     .page2-title { margin-left: 5px; padding-bottom: 11px; border-bottom: 1px solid #b81717; font-size: 15px; font-weight: 700; line-height: 1.05; text-transform: uppercase; color: #171821; }
     .page2-title-repair { color: #b81717; }
-    .page2-title-safety { color: #b81717; }
-    .page2-title-after-list { margin-top: 22px; }
     .page2-title-notes { margin-top: 22px; }
     .page2-title-pictures { margin-top: 22px; border-bottom-color: #d8d8d8; color: #171821; }
     .page2-title-pictures-only { margin-top: 20px; }
@@ -1700,26 +1542,19 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-section-title { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 700; line-height: 1.1; }
     .page2-section-count { color: #b81717; font-size: 10px; font-weight: 700; }
     .page2-points-box { margin-top: 8px; min-height: 66px; border: 1px solid #d8d8d8; padding: 8px 11px; }
-    .page2-points-box-blocks { padding: 0; }
-    .page2-point { margin: 0; font-size: 12px; break-inside: avoid; page-break-inside: avoid; }
+    .page2-point { margin: 0; font-size: 12px; }
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
-    .page2-points-box-blocks .page2-point { display: grid; grid-template-columns: minmax(0, 1fr) 116px; align-items: start; gap: 12px; padding: 9px 11px; }
-    .page2-points-box-blocks .page2-point + .page2-point { margin-top: 0; padding-top: 9px; }
-    .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+    .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
     .page2-point-status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; min-height: 22px; margin: 7px 0 0 18px; padding: 3px 8px 2px; font-size: 10px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; white-space: nowrap; overflow: visible; }
-    .page2-points-box-blocks .page2-point-status { width: 110px; min-width: 110px; margin: 0; justify-self: end; }
-    .page2-point-status.status-long-label { min-height: 30px; padding: 4px 7px; line-height: 1.08; white-space: normal; overflow-wrap: anywhere; }
     .page2-status-success { background: #bff2be; color: #1f6a2e; }
     .page2-status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .page2-status-danger { background: #e8c7c9; color: #9d1c1c; }
     .page2-status-monitor { background: #fbf4bf; color: #8b7a00; }
-    .page2-action-photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 9px 0 0; }
-    .page2-points-box-blocks .page2-action-photos { grid-column: 1 / -1; }
-    .page2-action-photo { position: relative; height: 136px; margin: 0; background: #ecdcdc; overflow: hidden; }
-    .page2-action-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
-    .page2-action-photo figcaption { position: absolute; top: 5px; right: 6px; padding: 2px 5px; background: rgba(255, 255, 255, .86); font-size: 8px; font-weight: 700; color: #8d1111; }
+    .page2-action-photos { display: grid; grid-template-columns: repeat(2, 112px); gap: 0; margin: 7px 0 0 18px; }
+    .page2-action-photo { position: relative; width: 112px; height: 136px; margin: 0; background: #ecdcdc; overflow: hidden; }
+    .page2-action-photo img { display: block; width: 100%; height: 118px; object-fit: cover; }
+    .page2-action-photo figcaption { position: absolute; top: 4px; right: 5px; font-size: 8px; font-weight: 700; color: #8d1111; }
     .page2-note { margin-top: 7px; font-size: 10px; line-height: 1.35; }
-    .page2-points-box-blocks .page2-note { grid-column: 1 / -1; }
     .page2-note span { font-weight: 700; }
     .page2-dot { position: absolute; left: 18px; top: 470px; font-size: 10px; line-height: 1; }
     .body-service { position: relative; box-sizing: border-box; height: ${DESHAZO_PDF_PAGE_HEIGHT_PX - 2}px; padding: 0 18px 58px; font-size: 12px; color: #000; }
@@ -1841,7 +1676,7 @@ async function waitForImages(root: HTMLElement) {
 export function getDeshazoInspectionPdfFileName(report: DeshazoSavedInspectionReport, selectedCraneIndex = 0) {
   const selectedCrane = report.rawPayload.cranes?.[selectedCraneIndex] ?? report.rawPayload.cranes?.[0] ?? null
   const jobNo = report.summary?.jobNo || report.summary?.salesOrderNo || report.jobNo || String(report.workOrderId)
-  const customer = getReportCustomerName(report)
+  const customer = report.summary?.customerName || 'Wabash'
   const type = toTitleCase(selectedCrane?.inspections?.[0]?.type || report.jobType || 'Inspection')
   const date = formatFileDatePart(
     selectedCrane?.inspections?.[0]?.date ||

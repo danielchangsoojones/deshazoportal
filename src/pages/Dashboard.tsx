@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
-import { useCustomerPath } from '../lib/customerRouting'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
 import { DeveloperBadge } from '../components/DeveloperBadge'
@@ -79,7 +78,6 @@ export default function Dashboard() {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
-  const customerPath = useCustomerPath()
 
   const visiblePortalCards = useMemo(
     () => portalCards.filter((card) => userTag === 'developer' || !card.developerOnly),
@@ -92,32 +90,32 @@ export default function Dashboard() {
       ...visiblePortalCards.map((card) => ({
         label: card.title,
         active: false,
-        href: card.href ? customerPath(card.href) : card.href,
+        href: card.href,
         developerOnly: card.developerOnly,
       })),
     ],
-    [customerPath, visiblePortalCards],
+    [visiblePortalCards],
   )
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate(customerPath('/login'))
+      navigate('/login')
       return
     }
     supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
-        navigate(customerPath('/login'))
+        navigate('/login')
       } else {
         const nextUserTag = await getCurrentUserTag(data.user.id)
         setUserTag(nextUserTag)
         setUser(data.user)
       }
     })
-  }, [customerPath, navigate])
+  }, [navigate])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate(customerPath('/login'))
+    navigate('/login')
   }
 
   if (!user) return null
@@ -245,7 +243,7 @@ export default function Dashboard() {
                   {card.href ? (
                     <Link
                       className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[15px] font-bold text-[var(--deshazo-blue)] no-underline shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition group-hover:gap-3"
-                      to={customerPath(card.href)}
+                      to={card.href}
                     >
                       <span>Open</span>
                       <span aria-hidden="true">→</span>

@@ -3,10 +3,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
-import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import DNumberSearchBar from '../components/DNumberSearchBar'
-import { getCustomerLocationOptions, type PortalLocationOption } from '../lib/portalLocations'
+import { portalLocationOptions } from '../lib/portalLocations'
 import {
   type AssetUnit,
   type AssetsPageAnalytics,
@@ -105,7 +104,6 @@ function IssueRing({ unit }: { unit: AssetUnit }) {
 }
 
 function AssetUnitCard({ unit, currentView }: { unit: AssetUnit; currentView: 'open-risk' | 'asset-fleet' }) {
-  const customerPath = useCustomerPath()
   return (
     <article className="overflow-hidden rounded-[10px] border border-[var(--deshazo-border)] bg-white shadow-[0_14px_30px_-28px_rgba(47,86,166,0.22)]">
       <div className="space-y-1 px-4 py-4">
@@ -125,7 +123,7 @@ function AssetUnitCard({ unit, currentView }: { unit: AssetUnit; currentView: 'o
       <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
         <IssueRing unit={unit} />
         <Link
-          to={customerPath(`/asset-info?unit_id=${unit.unit_id}${currentView === 'open-risk' ? '&view=open-risk' : ''}`)}
+          to={`/asset-info?unit_id=${unit.unit_id}${currentView === 'open-risk' ? '&view=open-risk' : ''}`}
           className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-[4px] bg-[var(--deshazo-blue)] text-[14px] font-bold text-white"
         >
           See Details
@@ -144,12 +142,9 @@ export default function AssetFleetAssets() {
   const [locationMenuOpen, setLocationMenuOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [assetsPage, setAssetsPage] = useState<AssetsPageAnalytics>(defaultAssetsPage)
-  const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
-  const selectedCustomer = useSelectedCustomer()
-  const customerPath = useCustomerPath()
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
 
   const activeMenuItems = useDeveloperMenuItems(
@@ -170,32 +165,18 @@ export default function AssetFleetAssets() {
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate(customerPath('/login'))
+      navigate('/login')
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate(customerPath('/login'))
+        navigate('/login')
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [customerPath, navigate])
-
-  useEffect(() => {
-    let cancelled = false
-    getCustomerLocationOptions(selectedCustomer)
-      .then((locations) => {
-        if (!cancelled) setLocationOptions(locations)
-      })
-      .catch(() => {
-        if (!cancelled) setLocationOptions([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [selectedCustomer])
+  }, [navigate])
 
   useEffect(() => {
     if (authLoading || !user) {
@@ -209,8 +190,8 @@ export default function AssetFleetAssets() {
         setLoading(true)
         setError('')
         const data = currentView === 'open-risk'
-          ? await getSupabaseOpenRiskAssets(selectedLocations, currentPage - 1, selectedCustomer)
-          : await getSupabaseAssetFleetAssets(selectedLocations, currentPage - 1, selectedCustomer)
+          ? await getSupabaseOpenRiskAssets(selectedLocations, currentPage - 1)
+          : await getSupabaseAssetFleetAssets(selectedLocations, currentPage - 1)
         setAssetsPage(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -226,11 +207,11 @@ export default function AssetFleetAssets() {
     loadAssets()
 
     return () => controller.abort()
-  }, [selectedLocations, currentPage, currentView, authLoading, user, selectedCustomer])
+  }, [selectedLocations, currentPage, currentView, authLoading, user])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate(customerPath('/login'))
+    navigate('/login')
   }
 
   if (authLoading) {
@@ -268,7 +249,7 @@ export default function AssetFleetAssets() {
     assetsPage.unit_array.reduce((sum, unit) => sum + unit.monitor_issue_count, 0)
   const totalPages = Math.max(1, Math.ceil(totalAssetsCount / pageSize))
   const visiblePages = buildVisiblePages(currentPage, totalPages)
-  const selectedLocationLabels = locationOptions.filter((option) => selectedLocations.includes(option.value))
+  const selectedLocationLabels = portalLocationOptions.filter((option) => selectedLocations.includes(option.value))
 
   const syncFilters = (locations: string[], page: number) => {
     const next = new URLSearchParams()
@@ -433,7 +414,7 @@ export default function AssetFleetAssets() {
 
                   {locationMenuOpen ? (
                     <div className="absolute right-0 top-[calc(100%+8px)] z-20 max-h-72 w-full overflow-y-auto rounded-[14px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-30px_rgba(47,86,166,0.35)]">
-                      {locationOptions.map((location) => {
+                      {portalLocationOptions.map((location) => {
                         const isSelected = selectedLocations.includes(location.value)
                         return (
                           <button

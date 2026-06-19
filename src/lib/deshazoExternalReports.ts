@@ -1,5 +1,4 @@
 import { supabase } from './supabase'
-import { getCustomerFilterValue } from './customerRouting'
 
 const portalParseBaseUrl = (import.meta.env.VITE_PORTAL_PARSE_BASE_URL as string | undefined)?.trim() || ''
 const deshazoExternalApiBaseUrl =
@@ -7,6 +6,7 @@ const deshazoExternalApiBaseUrl =
   (portalParseBaseUrl ? new URL(portalParseBaseUrl).origin : '') ||
   'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com'
 const deshazoExternalApiKey = (import.meta.env.VITE_DESHAZO_EXTERNAL_API_KEY as string | undefined)?.trim() || ''
+const wabashCustomerNameFilter = '%Wabash%'
 
 export type DeshazoInspectionPhoto = {
   id?: string
@@ -113,7 +113,6 @@ type DeshazoInspectionReportRow = {
 
 type DeshazoExternalWorkOrderRow = {
   work_order_id: number
-  customer?: string | null
   job_no: string | null
   sales_order_no: string | null
   job_type: string | null
@@ -248,85 +247,50 @@ function getCustomerLocationAddress(rawPayload: Record<string, unknown> | null) 
     .replace(', ,', ',')
 }
 
-function resolveSelectedCustomer(customer?: string) {
-  return getCustomerFilterValue(customer)
-}
-
-function workOrderSummarySelect(includeSyncFields = false) {
-  return [
-    'work_order_id',
-    'customer',
-    'job_no',
-    'sales_order_no',
-    'job_type',
-    'status_name',
-    'customer_location_name',
-    'service_location_name',
-    'bill_to_name',
-    'bill_to_city',
-    'bill_to_state',
-    'bill_to_zip_code',
-    'customer_po_no',
-    'comment',
-    'start_date',
-    'end_date',
-    'completed_at',
-    'raw_payload',
-    ...(includeSyncFields ? ['synced_at', 'created_at'] : []),
-  ].join(', ')
-}
-
-export async function getSavedDeshazoInspectionReports(limit = 20, customer?: string) {
+export async function getSavedDeshazoInspectionReports(limit = 20) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
-  const selectedCustomer = resolveSelectedCustomer(customer)
-  const { data: summaryData, error: summaryError } = await supabase
-    .from('deshazo_external_work_orders')
-    .select(workOrderSummarySelect())
-    .ilike('customer', selectedCustomer)
-    .order('start_date', { ascending: false, nullsFirst: false })
-    .order('end_date', { ascending: false, nullsFirst: false })
-    .order('work_order_id', { ascending: false })
-    .limit(limit)
-
-  if (summaryError) {
-    throw new Error(summaryError.message)
-  }
-
-  const summaries = ((summaryData ?? []) as unknown) as DeshazoExternalWorkOrderRow[]
-  const workOrderIds = summaries.map((row) => row.work_order_id)
-  if (workOrderIds.length === 0) return []
-
   const { data, error } = await supabase
     .from('deshazo_external_inspection_reports')
     .select('work_order_id, job_no, job_type, raw_payload, synced_at')
-    .in('work_order_id', workOrderIds)
+    .order('synced_at', { ascending: false })
+    .limit(limit)
 
   if (error) {
     throw new Error(error.message)
   }
 
   const reportRows = (data ?? []) as DeshazoInspectionReportRow[]
+  const workOrderIds = reportRows.map((row) => row.work_order_id)
   const summariesById = new Map<number, DeshazoExternalWorkOrderRow>()
-  summaries.forEach((row) => summariesById.set(row.work_order_id, row))
 
-  return reportRows
-    .map((row) => normalizeSavedReport(row, summariesById.get(row.work_order_id)))
-    .sort((left, right) =>
-      dateScore(right.summary?.startDate || right.summary?.endDate || right.syncedAt) -
-      dateScore(left.summary?.startDate || left.summary?.endDate || left.syncedAt) ||
-      right.workOrderId - left.workOrderId,
-    )
+  if (workOrderIds.length > 0) {
+    const { data: summaryData, error: summaryError } = await supabase
+      .from('deshazo_external_work_orders')
+      .select(
+        'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
+      )
+      .in('work_order_id', workOrderIds)
+
+    if (summaryError) {
+      throw new Error(summaryError.message)
+    }
+
+    ;((summaryData ?? []) as DeshazoExternalWorkOrderRow[]).forEach((row) => {
+      summariesById.set(row.work_order_id, row)
+    })
+  }
+
+  return reportRows.map((row) => normalizeSavedReport(row, summariesById.get(row.work_order_id)))
 }
 
-export async function getSavedDeshazoInspectionReport(workOrderId: number, customer?: string) {
+export async function getSavedDeshazoInspectionReport(workOrderId: number) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
-  const selectedCustomer = resolveSelectedCustomer(customer)
   const { data, error } = await supabase
     .from('deshazo_external_inspection_reports')
     .select('work_order_id, job_no, job_type, raw_payload, synced_at')
@@ -341,18 +305,17 @@ export async function getSavedDeshazoInspectionReport(workOrderId: number, custo
 
   const { data: summaryData, error: summaryError } = await supabase
     .from('deshazo_external_work_orders')
-    .select(workOrderSummarySelect())
+    .select(
+      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
+    )
     .eq('work_order_id', workOrderId)
-    .ilike('customer', selectedCustomer)
     .maybeSingle()
 
   if (summaryError) {
     throw new Error(summaryError.message)
   }
 
-  if (!summaryData) return null
-
-  return normalizeSavedReport(data as DeshazoInspectionReportRow, summaryData as unknown as DeshazoExternalWorkOrderRow | undefined)
+  return normalizeSavedReport(data as DeshazoInspectionReportRow, summaryData as DeshazoExternalWorkOrderRow | undefined)
 }
 
 function normalizeDNumber(value?: string | number | null) {
@@ -372,20 +335,18 @@ function dateScore(value: string) {
   return Number.isNaN(parsed) ? -Infinity : parsed
 }
 
-export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: string, customer?: string) {
+export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
   const normalizedDNumber = normalizeDNumber(dNumber)
   if (!normalizedDNumber) return []
-  const selectedCustomer = resolveSelectedCustomer(customer)
 
   const { data: craneRows, error: craneError } = await supabase
     .from('deshazo_external_report_cranes')
     .select('work_order_id')
     .ilike('contact_code', dNumber)
-    .ilike('customer', selectedCustomer)
     .limit(500)
 
   if (craneError) {
@@ -413,16 +374,18 @@ export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: 
 
   const { data: summaryData, error: summaryError } = await supabase
     .from('deshazo_external_work_orders')
-    .select(workOrderSummarySelect())
+    .select(
+      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
+    )
     .in('work_order_id', workOrderIds)
-    .ilike('customer', selectedCustomer)
+    .ilike('bill_to_name', wabashCustomerNameFilter)
 
   if (summaryError) {
     throw new Error(summaryError.message)
   }
 
   const summariesById = new Map<number, DeshazoExternalWorkOrderRow>()
-  ;(((summaryData ?? []) as unknown) as DeshazoExternalWorkOrderRow[]).forEach((row) => {
+  ;((summaryData ?? []) as DeshazoExternalWorkOrderRow[]).forEach((row) => {
     summariesById.set(row.work_order_id, row)
   })
 
@@ -495,7 +458,7 @@ function buildCsv(rows: Array<Record<string, unknown>>, columns: string[]) {
   ].join('\n')
 }
 
-export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = [], customer?: string): Promise<DeshazoWorkOrdersCsvResult> {
+export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = []): Promise<DeshazoWorkOrdersCsvResult> {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
@@ -539,7 +502,6 @@ export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = []
     'raw_payload',
   ]
   const locationFilter = buildWorkOrderLocationFilter(locationValues)
-  const selectedCustomer = resolveSelectedCustomer(customer)
   const rows: Array<Record<string, unknown>> = []
   const batchSize = 1000
 
@@ -547,7 +509,7 @@ export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = []
     let query = supabase
       .from('deshazo_external_work_orders')
       .select(columns.join(', '))
-      .ilike('customer', selectedCustomer)
+      .ilike('bill_to_name', wabashCustomerNameFilter)
       .order('start_date', { ascending: false, nullsFirst: false })
       .order('end_date', { ascending: false, nullsFirst: false })
       .order('work_order_id', { ascending: false })
@@ -574,14 +536,13 @@ export async function getSavedDeshazoWorkOrdersCsv(locationValues: string[] = []
   }
 }
 
-export async function getSavedDeshazoRepairReportsByCity(city: string, customer?: string) {
+export async function getSavedDeshazoRepairReportsByCity(city: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
   const searchTerms = buildLocationSearchTerms(city)
   if (searchTerms.length === 0) return []
-  const selectedCustomer = resolveSelectedCustomer(customer)
 
   const locationFilters = searchTerms.flatMap((term) => {
     const escapedTerm = term.replaceAll('%', '\\%').replaceAll('_', '\\_')
@@ -594,9 +555,8 @@ export async function getSavedDeshazoRepairReportsByCity(city: string, customer?
   const { data: summaryData, error: summaryError } = await supabase
     .from('deshazo_external_work_orders')
     .select(
-      workOrderSummarySelect(),
+      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
     )
-    .ilike('customer', selectedCustomer)
     .ilike('job_type', '%repair%')
     .or(locationFilters.join(','))
     .order('start_date', { ascending: false, nullsFirst: false })
@@ -608,7 +568,7 @@ export async function getSavedDeshazoRepairReportsByCity(city: string, customer?
     throw new Error(summaryError.message)
   }
 
-  const summaries = ((summaryData ?? []) as unknown) as DeshazoExternalWorkOrderRow[]
+  const summaries = (summaryData ?? []) as DeshazoExternalWorkOrderRow[]
   const workOrderIds = summaries.map((row) => row.work_order_id)
   if (workOrderIds.length === 0) return []
 
@@ -633,20 +593,22 @@ export async function getSavedDeshazoRepairReportsByCity(city: string, customer?
     )
 }
 
-export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset = 0, customer?: string) {
+export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset = 0) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
   const trimmedSearch = search.trim()
   const escapedSearch = trimmedSearch.replaceAll('%', '\\%').replaceAll('_', '\\_')
-  const selectedCustomer = resolveSelectedCustomer(customer)
-  const matchingDNumberWorkOrderIds = trimmedSearch ? await getWorkOrderIdsMatchingDNumberSearch(escapedSearch, selectedCustomer) : []
+  const matchingDNumberWorkOrderIds = trimmedSearch ? await getWorkOrderIdsMatchingDNumberSearch(escapedSearch) : []
 
   let query = supabase
     .from('deshazo_external_work_orders')
-    .select(workOrderSummarySelect(true), { count: 'exact' })
-    .ilike('customer', selectedCustomer)
+    .select(
+      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload, synced_at, created_at',
+      { count: 'exact' },
+    )
+    .ilike('bill_to_name', wabashCustomerNameFilter)
     .order('start_date', { ascending: false, nullsFirst: false })
     .order('end_date', { ascending: false, nullsFirst: false })
     .order('work_order_id', { ascending: false })
@@ -671,7 +633,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
     throw new Error(error.message)
   }
 
-  const rows = ((data ?? []) as unknown) as Array<DeshazoExternalWorkOrderRow & { synced_at: string | null }>
+  const rows = (data ?? []) as Array<DeshazoExternalWorkOrderRow & { synced_at: string | null }>
   const workOrderIds = rows.map((row) => row.work_order_id)
   const reportIds = new Set<number>()
 
@@ -699,14 +661,13 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
   }
 }
 
-async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string, customer?: string) {
+async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string) {
   if (!supabase) return []
 
   const { data, error } = await supabase
     .from('deshazo_external_report_cranes')
     .select('work_order_id')
     .ilike('contact_code', `%${escapedSearch}%`)
-    .ilike('customer', resolveSelectedCustomer(customer))
     .limit(500)
 
   if (error) {

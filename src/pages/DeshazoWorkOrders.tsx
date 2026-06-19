@@ -4,7 +4,6 @@ import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
-import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   type DeshazoSavedWorkOrderListItem,
@@ -125,9 +124,6 @@ export default function DeshazoWorkOrders() {
   const lastSyncAtRef = useRef('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
-  const selectedCustomer = useSelectedCustomer()
-  const customerName = getCustomerDisplayName(selectedCustomer)
-  const customerPath = useCustomerPath()
   const canFetchAll = userTag === 'developer'
   const searchIsPending = search !== submittedSearch || (loading && submittedSearch.trim().length > 0)
 
@@ -135,7 +131,7 @@ export default function DeshazoWorkOrders() {
 
   const loadWorkOrders = useCallback(async (cancelledRef?: { cancelled: boolean }) => {
     if (!isConfigured || !supabase) {
-      navigate(customerPath('/login'))
+      navigate('/login')
       return
     }
 
@@ -150,13 +146,13 @@ export default function DeshazoWorkOrders() {
       }
 
       if (!nextUser) {
-        navigate(customerPath('/login'))
+        navigate('/login')
         return
       }
 
       const offset = (currentPage - 1) * WORK_ORDERS_PAGE_SIZE
       const [result, latestSyncAt, nextUserTag] = await Promise.all([
-        getSavedDeshazoWorkOrders(WORK_ORDERS_PAGE_SIZE, submittedSearch, offset, selectedCustomer),
+        getSavedDeshazoWorkOrders(WORK_ORDERS_PAGE_SIZE, submittedSearch, offset),
         lastSyncAtRef.current ? Promise.resolve(lastSyncAtRef.current) : getDeshazoExternalWorkOrdersLastSync(),
         userTagRef.current ? Promise.resolve(userTagRef.current) : getCurrentUserTag(nextUser.id),
       ])
@@ -182,7 +178,7 @@ export default function DeshazoWorkOrders() {
       setMessage(
         result.totalCount > 0
           ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved work orders from Supabase.`
-          : `No saved work orders found for ${customerName}.`,
+          : 'No saved work orders found yet.',
       )
     } catch (error) {
       if (cancelledRef?.cancelled) return
@@ -190,11 +186,11 @@ export default function DeshazoWorkOrders() {
     } finally {
       if (!cancelledRef?.cancelled) setLoading(false)
     }
-  }, [currentPage, customerName, customerPath, navigate, selectedCustomer, submittedSearch])
+  }, [currentPage, navigate, submittedSearch])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate(customerPath('/login'))
+      navigate('/login')
       return
     }
 
@@ -203,7 +199,7 @@ export default function DeshazoWorkOrders() {
     return () => {
       cancelledRef.cancelled = true
     }
-  }, [customerPath, loadWorkOrders, navigate])
+  }, [loadWorkOrders, navigate])
 
   const fullName =
     user?.user_metadata?.full_name ||
@@ -220,7 +216,7 @@ export default function DeshazoWorkOrders() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate(customerPath('/login'))
+    navigate('/login')
   }
 
   useEffect(() => {
@@ -509,7 +505,7 @@ export default function DeshazoWorkOrders() {
                 </thead>
                 <tbody>
                   {workOrders.map((workOrder) => {
-                    const targetHref = customerPath(`/deshazo-external-reports?workOrderId=${encodeURIComponent(workOrder.workOrderId)}`)
+                    const targetHref = `/deshazo-external-reports?workOrderId=${encodeURIComponent(workOrder.workOrderId)}`
                     const assignedTechnicians = getAssignedTechnicians(workOrder)
                     return (
                       <tr
@@ -533,7 +529,7 @@ export default function DeshazoWorkOrders() {
                             {workOrder.jobType || 'Inspection'}
                           </span>
                         </td>
-                        <td className="px-3 py-3 font-bold">{workOrder.customerName || customerName}</td>
+                        <td className="px-3 py-3 font-bold">{workOrder.customerName || 'Wabash'}</td>
                         <td className="max-w-[290px] truncate px-3 py-3 font-bold">{getCustomerLocation(workOrder)}</td>
                         <td className="max-w-[260px] truncate px-3 py-3 font-bold">{workOrder.comment || '-'}</td>
                         <td className="px-3 py-3 font-bold">{workOrder.serviceLocationName || '-'}</td>

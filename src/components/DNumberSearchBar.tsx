@@ -1,14 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { searchAssetByDNumber } from '../lib/portalApi'
-import { useCustomerPath } from '../lib/customerRouting'
 
 export default function DNumberSearchBar() {
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
-  const customerPath = useCustomerPath()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -19,7 +17,7 @@ export default function DNumberSearchBar() {
       setLoading(true)
       setError('')
       const result = await searchAssetByDNumber(trimmed)
-      navigate(customerPath(`/asset-info?unit_id=${result.unit_id}`))
+      navigate(`/asset-info?unit_id=${result.unit_id}`)
     } catch {
       setError('No asset found.')
     } finally {
