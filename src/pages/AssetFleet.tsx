@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import { type AssetsServicedAnalytics, type ServicedAsset } from '../lib/portalApi'
@@ -56,15 +57,16 @@ function ProgressRing({ percent, size = 56 }: { percent: number; size?: number }
   )
 }
 
-function AssetCard({ asset }: { asset: ServicedAsset }) {
+function AssetCard({ asset, customerName }: { asset: ServicedAsset; customerName: string }) {
   const percent = getSafetyPercent(asset.safety_issue_count, asset.total_open_issues)
+  const customerPath = useCustomerPath()
 
   return (
     <Link
-      to={`/asset-fleet-assets?locations=${asset.location_value}`}
+      to={customerPath(`/asset-fleet-assets?locations=${asset.location_value}`)}
       className="block rounded-[22px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.86)_0%,var(--deshazo-surface)_100%)] px-6 py-5 no-underline shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_42px_-34px_rgba(47,86,166,0.32)]"
     >
-      <p className="text-[15px] font-semibold text-[rgba(21,24,33,0.7)]">Wabash National</p>
+      <p className="text-[15px] font-semibold text-[rgba(21,24,33,0.7)]">{customerName}</p>
       <h2 className="mt-2 text-[clamp(24px,2vw,34px)] font-extrabold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
         {asset.location}
       </h2>
@@ -90,23 +92,26 @@ export default function AssetFleet() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerPath = useCustomerPath()
+  const customerName = getCustomerDisplayName(selectedCustomer)
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Asset Fleet')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -115,7 +120,7 @@ export default function AssetFleet() {
       try {
         setLoading(true)
         setError('')
-        const data = await getSupabaseAssetFleetServiced()
+        const data = await getSupabaseAssetFleetServiced(selectedCustomer)
         setAssetSummary(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -130,11 +135,11 @@ export default function AssetFleet() {
     loadAssets()
 
     return () => controller.abort()
-  }, [])
+  }, [selectedCustomer])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (authLoading) {
@@ -310,7 +315,7 @@ export default function AssetFleet() {
             ) : (
               <div className="grid gap-6 lg:grid-cols-2">
                 {assetSummary.serviced_assets.map((asset) => (
-                  <AssetCard key={asset.location_value} asset={asset} />
+                  <AssetCard key={asset.location_value} asset={asset} customerName={customerName} />
                 ))}
               </div>
             )}

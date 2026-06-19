@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
+import { useCustomerPath } from '../lib/customerRouting'
 
 export default function Signup() {
   const [name, setName] = useState('')
@@ -11,6 +12,7 @@ export default function Signup() {
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const customerPath = useCustomerPath()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,7 +40,7 @@ export default function Signup() {
     if (error) {
       setError(error.message)
     } else if (data.session) {
-      navigate('/dashboard')
+      navigate(customerPath('/dashboard'))
     } else {
       setMessage('Check your email to confirm your account. Please double check your spam folder. It will be from Blockstamp: noreply@portalupdates.blockstampsf.com.')
     }
@@ -131,7 +133,7 @@ export default function Signup() {
 
         <p className="mt-6 text-center text-sm text-gray-600">
           Already have an account?{' '}
-          <Link to="/login" className="font-medium text-indigo-600 hover:underline">
+          <Link to={customerPath('/login')} className="font-medium text-indigo-600 hover:underline">
             Sign in
           </Link>
         </p>

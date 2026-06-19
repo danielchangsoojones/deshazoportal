@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabase'
 import { getCurrentUserTag, type UserTag } from './userTags'
+import { useCustomerPath } from './customerRouting'
 
 type PortalMenuItem = {
   label: string
@@ -9,6 +10,7 @@ type PortalMenuItem = {
 
 export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], activeKey: string) {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
+  const customerPath = useCustomerPath()
 
   useEffect(() => {
     let cancelled = false
@@ -39,9 +41,10 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
         .filter((item) => userTag === 'developer' || item.label !== 'Documents')
         .map((item) => ({
           ...item,
+          href: item.href?.startsWith('/') ? customerPath(item.href) : item.href,
           developerOnly: item.label === 'Documents',
           active: item.label === activeKey || item.href === activeKey,
         })),
-    [activeKey, menuItems, userTag],
+    [activeKey, customerPath, menuItems, userTag],
   )
 }

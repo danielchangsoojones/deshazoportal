@@ -8,6 +8,7 @@ import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import { createAssetNote, listAssetNotes, type AssetNoteRecord } from '../lib/assetNotes'
@@ -451,6 +452,10 @@ export default function AssetInfo() {
   const [error, setError] = useState('')
   const [recurringIssues, setRecurringIssues] = useState<RecurringIssue[]>([])
   const [recurringIssuesLoading, setRecurringIssuesLoading] = useState(false)
+  const selectedCustomer = useSelectedCustomer()
+  const customerName = getCustomerDisplayName(selectedCustomer)
+  const customerIdentifierLabel = `Unique ${customerName} Identifier`
+  const customerPath = useCustomerPath()
   const selectedRepairDocumentToDraft = useMemo(
     () => repairDocuments.find((document) => document.documentKey === selectedDocumentUrl) ?? null,
     [repairDocuments, selectedDocumentUrl],
@@ -574,19 +579,19 @@ export default function AssetInfo() {
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
 
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   useEffect(() => {
     if (authLoading || !user) {
@@ -607,7 +612,7 @@ export default function AssetInfo() {
         setLoading(true)
         setError('')
         const data = usesSupabaseAssetData
-          ? await getSupabaseOpenRiskAssetInfo(unitId)
+          ? await getSupabaseOpenRiskAssetInfo(unitId, selectedCustomer)
           : await getAssetInfo(unitId, controller.signal)
         setAssetInfo(data)
       } catch (err) {
@@ -624,7 +629,7 @@ export default function AssetInfo() {
     void loadAssetInfo()
 
     return () => controller.abort()
-  }, [unitId, usesSupabaseAssetData, authLoading, user])
+  }, [unitId, usesSupabaseAssetData, authLoading, user, selectedCustomer])
 
   useEffect(() => {
     if (authLoading || !user) {
@@ -637,7 +642,7 @@ export default function AssetInfo() {
       try {
         setRecurringIssuesLoading(true)
         const data = usesSupabaseAssetData
-          ? await getSupabaseOpenRiskRecurringIssues(unitId)
+          ? await getSupabaseOpenRiskRecurringIssues(unitId, selectedCustomer)
           : await getRecurringIssues(unitId, controller.signal)
         setRecurringIssues(data)
       } catch {
@@ -649,7 +654,7 @@ export default function AssetInfo() {
 
     void loadRecurringIssues()
     return () => controller.abort()
-  }, [unitId, usesSupabaseAssetData, authLoading, user])
+  }, [unitId, usesSupabaseAssetData, authLoading, user, selectedCustomer])
 
   useEffect(() => {
     if (!user || !unitId || !supabase) {
@@ -788,7 +793,7 @@ export default function AssetInfo() {
           return
         }
 
-        const matchedReports = await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber)
+        const matchedReports = await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber, selectedCustomer)
         const mappedDocuments: GeneratedInspectionPdfDocument[] = matchedReports.map((match) => ({
           documentKey: `inspection:${match.report.workOrderId}:${match.craneIndex}`,
           report: match.report,
@@ -828,7 +833,7 @@ export default function AssetInfo() {
     return () => {
       controller.abort()
     }
-  }, [activeTab, unitId, assetInfo.unit_name])
+  }, [activeTab, unitId, assetInfo.unit_name, selectedCustomer])
 
   useEffect(() => {
     if (activeTab !== 'documents') return
@@ -872,7 +877,7 @@ export default function AssetInfo() {
         repairDocumentUrlsRef.current = []
 
         if (!cancelled) {
-          const reports = await getSavedDeshazoRepairReportsByCity(city)
+          const reports = await getSavedDeshazoRepairReportsByCity(city, selectedCustomer)
           const mappedDocuments: RepairPdfDocument[] = reports.map((report) => ({
             documentKey: `repair:${report.workOrderId}`,
             report,
@@ -911,7 +916,7 @@ export default function AssetInfo() {
       repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
       repairDocumentUrlsRef.current = []
     }
-  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location])
+  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location, selectedCustomer])
 
   useEffect(() => {
     return () => {
@@ -970,7 +975,7 @@ export default function AssetInfo() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (authLoading) {
@@ -1057,7 +1062,7 @@ export default function AssetInfo() {
       setLoading(true)
       setError('')
       const data = usesSupabaseAssetData
-        ? await getSupabaseOpenRiskAssetInfo(unitId)
+        ? await getSupabaseOpenRiskAssetInfo(unitId, selectedCustomer)
         : await getAssetInfo(unitId)
       setAssetInfo(data)
     } catch (err) {
@@ -1161,7 +1166,7 @@ export default function AssetInfo() {
 
     try {
       setIssueReportLoading(true)
-      const matchedReports = await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber)
+      const matchedReports = await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber, selectedCustomer)
 
       if (matchedReports.length === 0) {
         setIssueReportError(`No synced inspection report matched ${docNumber}.`)
@@ -1413,7 +1418,7 @@ export default function AssetInfo() {
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--deshazo-surface)] text-[16px]">✏️</span>
               <span className="relative">
                 <span className="flex items-center gap-2">
-                  <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">Unique Wabash Identifier</p>
+                  <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">{customerIdentifierLabel}</p>
                   <button
                     type="button"
                     onClick={(event) => {
@@ -1421,8 +1426,8 @@ export default function AssetInfo() {
                       setWabashInfoOpen((open) => !open)
                     }}
                     className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--deshazo-border)] bg-white text-[11px] font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
-                    aria-label="What is the unique Wabash identifier?"
-                    title="What is the unique Wabash identifier?"
+                    aria-label={`What is the ${customerIdentifierLabel}?`}
+                    title={`What is the ${customerIdentifierLabel}?`}
                   >
                     i
                   </button>
@@ -1666,7 +1671,7 @@ export default function AssetInfo() {
                       </tr>
                       {wabashIdentifier ? (
                         <tr className="border-t border-[var(--deshazo-border)]">
-                          <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">Unique Wabash Identifier</td>
+                          <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">{customerIdentifierLabel}</td>
                           <td className="px-4 py-3 text-[15px] font-medium tracking-wide text-[var(--deshazo-text)]">{wabashIdentifier}</td>
                         </tr>
                       ) : null}
@@ -2300,7 +2305,7 @@ export default function AssetInfo() {
       {wabashModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setWabashModalOpen(false)}>
           <div className="w-full max-w-md rounded-[18px] bg-white p-6 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.3)]" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">Unique Wabash Identifier</h2>
+            <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">{customerIdentifierLabel}</h2>
             <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Edit the identifier string for this asset. This is shared across all users for the same unit.</p>
             <input
               type="text"

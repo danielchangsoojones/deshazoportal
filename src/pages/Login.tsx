@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
+import { useCustomerPath } from '../lib/customerRouting'
 
 type LoginProps = {
   redirectTo?: string
@@ -18,6 +19,7 @@ export default function Login({
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const customerPath = useCustomerPath()
 
   useEffect(() => {
     if (!redirectIfAuthenticated || !isConfigured || !supabase) return
@@ -87,7 +89,7 @@ export default function Login({
                 Password
               </label>
               <Link
-                to={`/forgot-password?from=${encodeURIComponent(forgotPasswordFrom)}`}
+                to={customerPath(`/forgot-password?from=${encodeURIComponent(forgotPasswordFrom)}`)}
                 className="text-xs text-indigo-600 hover:underline"
               >
                 Forgot password?
@@ -114,7 +116,7 @@ export default function Login({
 
         <p className="mt-6 text-center text-sm text-gray-600">
           Don't have an account?{' '}
-          <Link to="/signup" className="font-medium text-indigo-600 hover:underline">
+          <Link to={customerPath('/signup')} className="font-medium text-indigo-600 hover:underline">
             Sign up
           </Link>
         </p>

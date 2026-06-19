@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
-import { portalLocationOptions } from '../lib/portalLocations'
+import { getCustomerLocationOptions, type PortalLocationOption } from '../lib/portalLocations'
 import { getSavedDeshazoWorkOrdersCsv } from '../lib/deshazoExternalReports'
+import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
@@ -24,30 +25,47 @@ const menuItems = [
 export default function CustomReports() {
   const [user, setUser] = useState<User | null>(null)
   const [selectedLocations, setSelectedLocations] = useState<string[]>([])
+  const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
   const [csvLoading, setCsvLoading] = useState(false)
   const [error, setError] = useState('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerPath = useCustomerPath()
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Custom Reports')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
     })
-  }, [navigate])
+  }, [customerPath, navigate])
+
+  useEffect(() => {
+    let cancelled = false
+    getCustomerLocationOptions(selectedCustomer)
+      .then((locations) => {
+        if (!cancelled) setLocationOptions(locations)
+      })
+      .catch(() => {
+        if (!cancelled) setLocationOptions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCustomer])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   const toggleLocation = (locationValue: string) => {
@@ -59,7 +77,7 @@ export default function CustomReports() {
   }
 
   const selectAllLocations = () => {
-    setSelectedLocations(portalLocationOptions.map((location) => location.value))
+    setSelectedLocations(locationOptions.map((location) => location.value))
   }
 
   const clearLocations = () => {
@@ -70,7 +88,7 @@ export default function CustomReports() {
     try {
       setCsvLoading(true)
       setError('')
-      const result = await getSavedDeshazoWorkOrdersCsv(selectedLocations)
+      const result = await getSavedDeshazoWorkOrdersCsv(selectedLocations, selectedCustomer)
       const blob = new Blob([result.csv], { type: result.contentType })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -187,7 +205,7 @@ export default function CustomReports() {
 
               <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
                 <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
-                <span>{selectedLocations.length} of {portalLocationOptions.length} locations selected</span>
+                <span>{selectedLocations.length} of {locationOptions.length} locations selected</span>
               </div>
             </div>
           </div>
@@ -234,7 +252,7 @@ export default function CustomReports() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {portalLocationOptions.map((location) => {
+              {locationOptions.map((location) => {
                 const checked = selectedLocations.includes(location.value)
 
                 return (

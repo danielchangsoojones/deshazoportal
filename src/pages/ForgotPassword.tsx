@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
+import { useCustomerPath } from '../lib/customerRouting'
 
 export default function ForgotPassword() {
   const [searchParams] = useSearchParams()
@@ -8,7 +9,8 @@ export default function ForgotPassword() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  const backToLoginPath = searchParams.get('from') === 'quote' ? '/quotelogin' : '/login'
+  const customerPath = useCustomerPath()
+  const backToLoginPath = searchParams.get('from') === 'quote' ? '/quotelogin' : customerPath('/login')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -22,7 +24,7 @@ export default function ForgotPassword() {
 
     try {
       setLoading(true)
-      const redirectTo = `${window.location.origin}/reset-password`
+      const redirectTo = `${window.location.origin}${customerPath('/reset-password')}`
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
 
       if (error) {

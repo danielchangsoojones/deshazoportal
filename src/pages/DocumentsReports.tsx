@@ -4,7 +4,8 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { portalLocationOptions } from '../lib/portalLocations'
+import { getCustomerLocationOptions, type PortalLocationOption } from '../lib/portalLocations'
+import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { getCurrentUserTag } from '../lib/userTags'
 import {
   getAllPDFs,
@@ -60,6 +61,7 @@ export default function DocumentsReports() {
   const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const [selectedLocations, setSelectedLocations] = useState<string[]>([])
+  const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
   const [locationMenuOpen, setLocationMenuOpen] = useState(false)
   const [documents, setDocuments] = useState<PortalPdfDocument[]>([])
   const [loading, setLoading] = useState(true)
@@ -67,29 +69,45 @@ export default function DocumentsReports() {
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedPdfUrl, setSelectedPdfUrl] = useState('')
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerPath = useCustomerPath()
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Documents')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         const userTag = await getCurrentUserTag(data.user.id)
         if (userTag !== 'developer') {
           setAuthLoading(false)
-          navigate('/dashboard')
+          navigate(customerPath('/dashboard'))
           return
         }
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
+
+  useEffect(() => {
+    let cancelled = false
+    getCustomerLocationOptions(selectedCustomer)
+      .then((locations) => {
+        if (!cancelled) setLocationOptions(locations)
+      })
+      .catch(() => {
+        if (!cancelled) setLocationOptions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCustomer])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -121,7 +139,7 @@ export default function DocumentsReports() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (authLoading) {
@@ -157,7 +175,7 @@ export default function DocumentsReports() {
     documents.find((item) => item.pdf === selectedPdfUrl) ||
     pageDocuments[0] ||
     null
-  const selectedLocationLabels = portalLocationOptions.filter((option) => selectedLocations.includes(option.value))
+  const selectedLocationLabels = locationOptions.filter((option) => selectedLocations.includes(option.value))
 
   const toggleLocation = (locationValue: string) => {
     setSelectedLocations((current) =>
@@ -368,7 +386,7 @@ export default function DocumentsReports() {
 
                   {locationMenuOpen ? (
                     <div className="absolute right-0 top-[calc(100%+8px)] z-20 max-h-72 w-full overflow-y-auto rounded-[14px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-30px_rgba(47,86,166,0.35)]">
-                      {portalLocationOptions.map((location) => {
+                      {locationOptions.map((location) => {
                         const isSelected = selectedLocations.includes(location.value)
 
                         return (
