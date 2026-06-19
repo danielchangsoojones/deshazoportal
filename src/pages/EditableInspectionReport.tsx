@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isConfigured } from '../lib/supabase'
 import {
@@ -90,6 +90,9 @@ type PendingAddMenuLineItem = {
 type RelatedDocument = EditableInspectionDocument
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ')
+
+const getPdfFiles = (files: Iterable<File>) =>
+  Array.from(files).filter((file) => file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf')
 
 type QuoteBlockVisibility = {
   contact: boolean
@@ -282,7 +285,7 @@ const blankReport: ReportData = {
   contactName: '',
   contactEmail: '',
   contactPhone: '',
-  notes: '---',
+  notes: defaultAdditionalNotes,
 }
 
 const createDefaultRepairCostSections = (repairId: string): CostSection[] => [
@@ -543,6 +546,77 @@ const getDNumberFromReport = (reportData: ReportData | Record<string, string>) =
 const getJobNumberDisplayFromReport = (reportData: ReportData | Record<string, string>) =>
   removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, '').trim() || '---'
 
+const getMeaningfulReportValue = (value: string | undefined) => {
+  const normalizedValue = removeReportValueLabel(value ?? '')
+  if (!normalizedValue || /^[-–—]+$/.test(normalizedValue) || /^n\/?a$/i.test(normalizedValue)) return ''
+  return normalizedValue
+}
+
+const getReportSummaryCraneContextParts = (reportData: ReportData | Record<string, string>) =>
+  [
+    getMeaningfulReportValue(reportData.location),
+    getMeaningfulReportValue(reportData.description),
+  ].filter(Boolean)
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const removeReportSummaryCraneContextParts = (summary: string, contextParts: string[]) =>
+  contextParts.reduce((nextSummary, part) => {
+    const escapedPart = escapeRegExp(part)
+    return nextSummary
+      .replace(new RegExp(`\\s+-\\s+${escapedPart}(?=\\s+-|\\s+performed\\b|$)`, 'i'), '')
+      .replace(new RegExp(`(^|\\s+-\\s+)${escapedPart}\\s+-\\s+`, 'i'), '$1')
+      .replace(new RegExp(`(^|\\s+-\\s+)${escapedPart}$`, 'i'), '$1')
+      .trim()
+      .replace(/\s+-\s+$/, '')
+  }, summary)
+
+const insertReportSummaryCraneContext = (
+  summary: string,
+  reportData: ReportData | Record<string, string>,
+) => {
+  const trimmedSummary = summary.trim()
+  const contextParts = getReportSummaryCraneContextParts(reportData)
+    .filter((part) => !trimmedSummary.toLowerCase().includes(part.toLowerCase()))
+
+  if (contextParts.length === 0) return trimmedSummary
+
+  const context = contextParts.join(' - ')
+  if (!trimmedSummary) return context
+
+  const dNumberMatch = trimmedSummary.match(/\bD[\s-]*\d[A-Z0-9]{2,}\b/i)
+  if (!dNumberMatch || dNumberMatch.index === undefined) return `${trimmedSummary} - ${context}`
+
+  const insertIndex = dNumberMatch.index + dNumberMatch[0].length
+  return `${trimmedSummary.slice(0, insertIndex)} - ${context}${trimmedSummary.slice(insertIndex)}`
+}
+
+const addReportSummaryCraneContext = (reportData: ReportData): ReportData => ({
+  ...reportData,
+  summary: insertReportSummaryCraneContext(reportData.summary, reportData),
+})
+
+const syncReportSummaryCraneContext = (
+  previousReport: ReportData,
+  nextReport: ReportData,
+  changedFieldId: string,
+) => {
+  if (changedFieldId !== 'description' && changedFieldId !== 'location') return nextReport
+
+  const summaryWithoutStaleContext = removeReportSummaryCraneContextParts(
+    nextReport.summary,
+    [
+      ...getReportSummaryCraneContextParts(previousReport),
+      ...getReportSummaryCraneContextParts(nextReport),
+    ],
+  )
+
+  return {
+    ...nextReport,
+    summary: insertReportSummaryCraneContext(summaryWithoutStaleContext, nextReport),
+  }
+}
+
 const formatBranchLabel = (branch: string) =>
   branch
     .trim()
@@ -676,7 +750,7 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
   const serialHoist4 = getTopLevelExtractedText(data, ['serial_hoist_4', 'serialHoist4'])
   const capacityHoist4 = getTopLevelExtractedText(data, ['capacity_hoist_4', 'capacityHoist4'])
   const modelHoist4 = getTopLevelExtractedText(data, ['model_hoist_4', 'modelHoist4'])
-  return {
+  const report = {
     ...defaultReport,
     branch: formatReportValue('DESHAZO Branch', branch, '---'),
     phone: formatReportValue('Branch Contact Phone', branchContactPhone, '---'),
@@ -716,6 +790,8 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
     scopeOfWork: '',
     notes: defaultAdditionalNotes,
   }
+
+  return addReportSummaryCraneContext(report)
 }
 
 const getTextFromRecord = (value: unknown, keys: string[]) =>
@@ -1190,7 +1266,7 @@ const getTemplateLineItemRows = (
 
 const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
   const reportMarkup = sources.map((source) => {
-    const reportData = normalizeReport(source.payload.reportData)
+    const reportData = addReportSummaryCraneContext(normalizeReport(source.payload.reportData))
     const repairSections = getPrintableRepairSections(getVisibleRepairSections(
       normalizeRepairSections(source.payload.repairSections as RepairSection[]),
       source.payload.repairSectionVisibility,
@@ -1837,7 +1913,7 @@ const getNormalizedReportPayload = (report: EditableInspectionReport): EditableI
   const repairSectionVisibility = report.pageLayoutVisibility?.repairSectionVisibility ?? report.repairSectionVisibility
 
   return {
-    reportData: normalizeReport(report.reportData),
+    reportData: addReportSummaryCraneContext(normalizeReport(report.reportData)),
     repairSections: normalizeRepairSections(report.repairSections as RepairSection[], report.reportData),
     costSections,
     blockVisibility,
@@ -1900,7 +1976,7 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
       && !repairSections.some((section) => Array.isArray(section.costSections) && section.costSections.length > 0)
 
     return {
-      reportData: applyQuoteItemColumnIdentifiersToReport(item.reportData, item),
+      reportData: addReportSummaryCraneContext(applyQuoteItemColumnIdentifiersToReport(item.reportData, item)),
       repairSections: shouldMoveLegacyCostsIntoFirstRepair
         ? repairSections.map((section, index) =>
             index === 0 ? { ...section, costSections: legacyRepairCostSections } : section,
@@ -1921,7 +1997,7 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
   }
 
   return {
-    reportData: applyQuoteItemColumnIdentifiersToReport(buildReportFromJobsQuotingItem(item), item),
+    reportData: addReportSummaryCraneContext(applyQuoteItemColumnIdentifiersToReport(buildReportFromJobsQuotingItem(item), item)),
     repairSections: buildRepairSectionsFromJobsQuotingItem(item),
     costSections: defaultCostSections,
     blockVisibility: defaultBlockVisibility,
@@ -2332,12 +2408,12 @@ export default function EditableInspectionReport() {
   const [report, setReport] = useState<ReportData>(() => {
     const savedReport = window.localStorage.getItem(storageKey)
 
-    if (!savedReport) return defaultReport
+    if (!savedReport) return addReportSummaryCraneContext(defaultReport)
 
     try {
-      return normalizeReport(JSON.parse(savedReport) as ReportData)
+      return addReportSummaryCraneContext(normalizeReport(JSON.parse(savedReport) as ReportData))
     } catch {
-      return defaultReport
+      return addReportSummaryCraneContext(defaultReport)
     }
   })
   const [repairSections, setRepairSections] = useState<RepairSection[]>(() => {
@@ -2795,7 +2871,7 @@ export default function EditableInspectionReport() {
   }
 
   const applyEditableReportPayload = useCallback((payload: EditableInspectionReportPayload) => {
-    const nextReport = normalizeReport(payload.reportData)
+    const nextReport = addReportSummaryCraneContext(normalizeReport(payload.reportData))
     const nextRepairSections = normalizeRepairSections(payload.repairSections as RepairSection[], payload.reportData)
     const nextCostSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
     const nextBlockVisibility = { ...defaultBlockVisibility, ...payload.blockVisibility }
@@ -3332,7 +3408,11 @@ export default function EditableInspectionReport() {
 
   const updateField = (id: string, value: string) => {
     setReport((currentReport) => {
-      const nextReport = { ...currentReport, [id]: normalizeProtectedReportField(id, value) }
+      const nextReport = syncReportSummaryCraneContext(
+        currentReport,
+        { ...currentReport, [id]: normalizeProtectedReportField(id, value) },
+        id,
+      )
       window.localStorage.setItem(storageKey, JSON.stringify(nextReport))
       return nextReport
     })
@@ -3525,6 +3605,8 @@ export default function EditableInspectionReport() {
           ? 'No PDFs were found in that folder.'
           : source === 'Dropped PDF'
             ? 'No PDFs were dropped.'
+          : source === 'Pasted PDF'
+            ? 'No PDFs were pasted.'
           : 'No PDF was selected.',
       )
       return
@@ -3603,13 +3685,13 @@ export default function EditableInspectionReport() {
 
   const uploadRelatedFolder = async (fileList: FileList | null) => {
     const files = Array.from(fileList ?? []) as Array<File & { webkitRelativePath?: string }>
-    const pdfs = files.filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    const pdfs = getPdfFiles(files) as Array<File & { webkitRelativePath?: string }>
 
     await addRelatedDocuments(pdfs, 'Folder upload')
   }
 
   const uploadRelatedPdfs = async (fileList: FileList | null) => {
-    const pdfs = Array.from(fileList ?? []).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    const pdfs = getPdfFiles(fileList ?? [])
     await addRelatedDocuments(pdfs, 'Uploaded PDF')
   }
 
@@ -3648,9 +3730,39 @@ export default function EditableInspectionReport() {
     pagePdfDragDepth.current = 0
     setPagePdfDragActive(false)
 
-    const pdfs = Array.from(event.dataTransfer.files).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    const pdfs = getPdfFiles(event.dataTransfer.files)
     setRelatedDocumentsOpen(true)
     await addRelatedDocuments(pdfs, 'Dropped PDF')
+  }
+
+  const handlePagePdfPaste = async (event: ClipboardEvent<HTMLElement>) => {
+    const hasClipboardFiles =
+      event.clipboardData.files.length > 0 ||
+      Array.from(event.clipboardData.items).some((item) => item.kind === 'file')
+
+    if (!hasClipboardFiles) return
+
+    const files = event.clipboardData.files.length > 0
+      ? getPdfFiles(event.clipboardData.files)
+      : getPdfFiles(
+          Array.from(event.clipboardData.items)
+            .filter((item) => item.kind === 'file')
+            .map((item) => item.getAsFile())
+            .filter((file): file is File => Boolean(file)),
+        )
+
+    if (files.length === 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      setRelatedDocumentsOpen(true)
+      await addRelatedDocuments(files, 'Pasted PDF')
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    setRelatedDocumentsOpen(true)
+    await addRelatedDocuments(files, 'Pasted PDF')
   }
 
   const openMenuItemSourceDocument = async (item: MenuItem) => {
@@ -4156,6 +4268,7 @@ export default function EditableInspectionReport() {
       onDragOver={handlePagePdfDragOver}
       onDragLeave={handlePagePdfDragLeave}
       onDrop={handlePagePdfDrop}
+      onPaste={handlePagePdfPaste}
     >
       <style>
         {`
