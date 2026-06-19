@@ -68,6 +68,7 @@ const PREVENTATIVE_REPORTS_PAGE_SIZE = 10
 type AssetNote = {
   id: string
   unitId: string
+  customer: string
   authorId: string
   text: string
   authorName: string
@@ -155,6 +156,7 @@ const formatNoteTimestamp = (value: string) =>
 const mapNoteRecord = (note: AssetNoteRecord): AssetNote => ({
   id: note.id,
   unitId: note.unitId,
+  customer: note.customer,
   authorId: note.authorId,
   text: note.text,
   authorName: note.authorName,
@@ -670,7 +672,7 @@ export default function AssetInfo() {
       try {
         setNotesLoading(true)
         setNotesError('')
-        const data = await listAssetNotes(unitId)
+        const data = await listAssetNotes(unitId, selectedCustomer)
         if (!cancelled) {
           setNotes(data.map(mapNoteRecord))
         }
@@ -691,7 +693,7 @@ export default function AssetInfo() {
     return () => {
       cancelled = true
     }
-  }, [unitId, user])
+  }, [unitId, user, selectedCustomer])
 
   useEffect(() => {
     if (!user || !unitId || !supabase) {
@@ -743,7 +745,7 @@ export default function AssetInfo() {
       try {
         setCustomerIdentifierLoading(true)
         setCustomerIdentifierError('')
-        const data = await getAssetCompanyInternalId(unitId)
+        const data = await getAssetCompanyInternalId(unitId, selectedCustomer)
         if (!cancelled) {
           setCustomerIdentifier(data?.value ?? '')
         }
@@ -764,7 +766,7 @@ export default function AssetInfo() {
     return () => {
       cancelled = true
     }
-  }, [unitId, user])
+  }, [unitId, user, selectedCustomer])
 
   useEffect(() => {
     if (activeTab !== 'documents') {
@@ -1011,6 +1013,7 @@ export default function AssetInfo() {
       setNotesError('')
       const newNote = await createAssetNote({
         unitId,
+        customer: selectedCustomer,
         authorId: user.id,
         authorName: fullName,
         authorEmail: user.email ?? '',
@@ -1036,6 +1039,7 @@ export default function AssetInfo() {
       setCustomerIdentifierError('')
       const savedRecord = await upsertAssetCompanyInternalId({
         unitId,
+        customer: selectedCustomer,
         value,
         updatedBy: user.id,
         updatedByName: fullName,
@@ -1440,7 +1444,7 @@ export default function AssetInfo() {
                     className="absolute left-0 top-[calc(100%+10px)] z-20 block w-[300px] rounded-[12px] border border-[var(--deshazo-border)] bg-white p-3 text-[12px] font-medium leading-relaxed text-[rgba(21,24,33,0.68)] shadow-[0_18px_40px_-28px_rgba(47,86,166,0.28)]"
                     onClick={(event) => event.stopPropagation()}
                   >
-                    Use this field to store the company-specific internal identifier for this asset. It is shared across all users for the same unit and helps your team reference the asset consistently.
+                    Use this field to store the company-specific internal identifier for this asset. It is shared across all users for this customer and unit, and helps your team reference the asset consistently.
                   </span>
                 ) : null}
               </span>
@@ -2306,7 +2310,7 @@ export default function AssetInfo() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setCustomerIdentifierModalOpen(false)}>
           <div className="w-full max-w-md rounded-[18px] bg-white p-6 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.3)]" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">{customerIdentifierLabel}</h2>
-            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Edit the identifier string for this asset. This is shared across all users for the same unit.</p>
+            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Edit the identifier string for this asset. This is shared across all users for this customer and unit.</p>
             <input
               type="text"
               value={customerIdentifierDraft}

@@ -1,17 +1,20 @@
 create extension if not exists pgcrypto;
 
 create table if not exists public.asset_company_internal_ids (
-  unit_id text primary key,
+  unit_id text not null,
+  customer text not null default 'legacy',
   unique_company_internal_id text not null check (char_length(btrim(unique_company_internal_id)) > 0),
   updated_at timestamptz not null default timezone('utc', now()),
   updated_by uuid not null references auth.users (id) on delete restrict,
   updated_by_name text not null default '',
-  updated_by_email text not null default ''
+  updated_by_email text not null default '',
+  primary key (customer, unit_id)
 );
 
 create table if not exists public.asset_company_internal_id_history (
   id uuid primary key default gen_random_uuid(),
   unit_id text not null,
+  customer text not null default 'legacy',
   previous_value text,
   new_value text not null,
   changed_at timestamptz not null default timezone('utc', now()),
@@ -21,7 +24,7 @@ create table if not exists public.asset_company_internal_id_history (
 );
 
 create index if not exists asset_company_internal_id_history_unit_id_changed_at_idx
-  on public.asset_company_internal_id_history (unit_id, changed_at desc);
+  on public.asset_company_internal_id_history (customer, unit_id, changed_at desc);
 
 create or replace function public.log_asset_company_internal_id_history()
 returns trigger
@@ -33,6 +36,7 @@ begin
   if tg_op = 'INSERT' or old.unique_company_internal_id is distinct from new.unique_company_internal_id then
     insert into public.asset_company_internal_id_history (
       unit_id,
+      customer,
       previous_value,
       new_value,
       changed_by,
@@ -41,6 +45,7 @@ begin
     )
     values (
       new.unit_id,
+      new.customer,
       case when tg_op = 'INSERT' then null else old.unique_company_internal_id end,
       new.unique_company_internal_id,
       new.updated_by,
