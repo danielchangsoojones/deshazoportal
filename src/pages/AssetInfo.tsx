@@ -150,6 +150,14 @@ const formatTitleCase = (value?: string) =>
         .join(' ')
     : 'Not available'
 
+const formatSafetyCategory = (value?: string) => {
+  const normalized = value?.trim().toLowerCase()
+  if (normalized === 'repair') return 'Repair'
+  if (normalized === 'monitor') return 'Monitor'
+  if (normalized === 'safety') return 'Safety'
+  return formatTitleCase(value)
+}
+
 const formatNoteTimestamp = (value: string) =>
   new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
@@ -243,7 +251,7 @@ function AssetIssueRow({
       </td>
       <td className="w-[17%] px-4 py-3 align-top">
         <span className={`inline-flex rounded-full px-2.5 py-1 text-[13px] font-bold ${getSafetyBadgeClass(issue.safety_category)}`}>
-          {issue.safety_category}
+          {formatSafetyCategory(issue.safety_category)}
         </span>
       </td>
       <td className="w-[16%] px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
@@ -1235,7 +1243,7 @@ export default function AssetInfo() {
   const handleDownloadIssues = () => {
     const rows = filteredIssues.map((issue) => [
       issue.category,
-      issue.safety_category,
+      formatSafetyCategory(issue.safety_category),
       formatDisplayDate(issue.inspection_date),
       formatTitleCase(issue.component_type),
       issue.remarks.replace(/\r?\n/g, ' '),

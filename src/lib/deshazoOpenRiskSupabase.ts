@@ -12,7 +12,6 @@ import { getCustomerLocationLookup, getLocationOptionFromLabel, normalizeLocatio
 
 const pageSize = 24
 const cacheTtlMs = 5 * 60 * 1000
-const actionableConditions = ['REPAIR', 'MONITOR', 'DO NOT OPERATE / SAFETY']
 const recurringWindowMs = 365 * 24 * 60 * 60 * 1000
 
 type WorkOrderRow = {
@@ -66,17 +65,6 @@ type OpenRiskDataset = {
   totalSafetyIssues: number
   totalMonitorIssues: number
   loadedAt: number
-}
-
-type SummaryViewRow = {
-  unit_id: string
-  unit_name: string | null
-  warehouse_location: string | null
-  interior_location: string | null
-  inspection_date: string | null
-  safety_issue_count: number | null
-  monitor_issue_count: number | null
-  total_issue_count: number | null
 }
 
 type IssueViewRow = {
@@ -236,8 +224,15 @@ function getDateTime(value?: string | null) {
 
 function mapConditionToSafetyCategory(value?: string | null) {
   const normalized = normalizeText(value).toUpperCase()
-  if (normalized === 'MONITOR') return 'monitor'
-  if (normalized === 'REPAIR' || normalized === 'DO NOT OPERATE / SAFETY') return 'safety'
+  if (normalized === 'MONITOR' || normalized === 'MONITORING' || /^MONITOR\b/.test(normalized)) return 'monitor'
+  if (
+    normalized === 'REPAIR' ||
+    /^REPAIRS?\b/.test(normalized) ||
+    /REPAIR (REQUIRED|NEEDED)/.test(normalized) ||
+    normalized === 'SAFETY' ||
+    normalized.includes('DO NOT OPERATE') ||
+    normalized.includes('UNSAFE')
+  ) return 'safety'
   return null
 }
 
@@ -270,45 +265,6 @@ function formatRemarks(value: unknown) {
   return parseRemarkTexts(value).map(ensureSentencePunctuation).join(' ')
 }
 
-function buildIssueRowsFromView(rows: IssueViewRow[]) {
-  const sortedRows = [...rows].sort((left, right) =>
-    (left.section_sort ?? 0) - (right.section_sort ?? 0) ||
-    (left.point_sort ?? 0) - (right.point_sort ?? 0) ||
-    (left.remark_sort ?? 0) - (right.remark_sort ?? 0),
-  )
-  const issuesByKey = new Map<string, AssetIssue>()
-
-  for (const row of sortedRows) {
-    const category = normalizeText(row.category).toLowerCase()
-    const safetyCategory = normalizeText(row.safety_category).toLowerCase()
-    const inspectionDate = formatDateLabel(row.inspection_date ?? row.completed_at) ?? ''
-    const componentType = normalizeText(row.component_type) || 'component_1'
-    const key = [
-      category,
-      safetyCategory,
-      row.inspection_date ?? row.completed_at ?? '',
-      componentType,
-    ].join('|')
-    const remarks = ensureSentencePunctuation(normalizeText(row.remarks))
-    const existing = issuesByKey.get(key)
-
-    if (existing) {
-      existing.remarks = [existing.remarks, remarks].filter(Boolean).join(' ')
-      continue
-    }
-
-    issuesByKey.set(key, {
-      category,
-      safety_category: safetyCategory,
-      inspection_date: inspectionDate,
-      component_type: componentType,
-      remarks,
-    })
-  }
-
-  return Array.from(issuesByKey.values())
-}
-
 function buildSectionComponentLabels(sections: SectionRow[]) {
   const sortedSections = [...sections].sort((left, right) => {
     const leftOrder = left.section_order ?? left.section_index ?? 0
@@ -320,13 +276,7 @@ function buildSectionComponentLabels(sections: SectionRow[]) {
   const labels = new Map<string, string>()
 
   for (const section of sortedSections) {
-    const rawName = normalizeText(section.section_name)
-    const lowerName = rawName.toLowerCase()
-    const base = lowerName.includes('hoist')
-      ? 'hoist'
-      : lowerName.includes('cranestructuretype')
-        ? 'bridge'
-        : normalizeKey(rawName) || 'component'
+    const base = getSectionComponentBase(section)
     const nextCount = (counts.get(base) ?? 0) + 1
     counts.set(base, nextCount)
     labels.set(section.id, `${base}_${nextCount}`)
@@ -335,8 +285,17 @@ function buildSectionComponentLabels(sections: SectionRow[]) {
   return labels
 }
 
-function isHoistSection(section?: SectionRow) {
-  return normalizeText(section?.section_name).toLowerCase().includes('hoist')
+function getSectionComponentBase(section?: SectionRow) {
+  const rawName = normalizeText(section?.section_name)
+  const lowerName = rawName.toLowerCase()
+  if (lowerName.includes('hoist') && (lowerName.includes('trolley') || lowerName.includes('trolly'))) return 'trolley_hoist'
+  if (lowerName.includes('hoist')) return 'hoist'
+  if (lowerName.includes('cranestructuretype')) return 'bridge'
+  return normalizeKey(rawName) || 'component'
+}
+
+function isHoistLikeSection(section?: SectionRow) {
+  return getSectionComponentBase(section).includes('hoist')
 }
 
 function getLocationValue(unit: AssetUnit) {
@@ -365,97 +324,6 @@ function isMissingViewError(error: unknown) {
   return /does not exist|schema cache|Could not find|PGRST202|PGRST205|permission denied for view|function/i.test(message)
 }
 
-async function fetchOpenRiskRpcRows<T>(functionName: string, customer: string) {
-  const client = requireSupabase()
-  const { data, error } = await client.rpc(functionName, { p_customer: customer })
-  if (error) {
-    throw new Error(error.message)
-  }
-  return (data ?? []) as T[]
-}
-
-async function fetchOpenRiskViewRows(customer: string) {
-  const [summaries, issueRows] = await Promise.all([
-    fetchAll<SummaryViewRow>(
-      'deshazo_open_risk_asset_summaries',
-      'unit_id,unit_name,warehouse_location,interior_location,inspection_date,safety_issue_count,monitor_issue_count,total_issue_count',
-      (query) => query.eq('customer', customer),
-      1000,
-    ),
-    fetchAll<IssueViewRow>(
-      'deshazo_open_risk_latest_issue_rows',
-      'unit_id,category,safety_category,inspection_date,completed_at,component_type,remarks,section_sort,point_sort,remark_sort',
-      (query) => query.eq('customer', customer),
-      1000,
-    ),
-  ])
-
-  return { summaries, issueRows }
-}
-
-async function loadDatasetFromViews(customer: string): Promise<OpenRiskDataset> {
-  const locationLookupPromise = getCustomerLocationLookup(customer)
-  let summaries: SummaryViewRow[] = []
-  let issueRows: IssueViewRow[] = []
-
-  try {
-    ;[summaries, issueRows] = await Promise.all([
-      fetchOpenRiskRpcRows<SummaryViewRow>('get_deshazo_open_risk_asset_summaries', customer),
-      fetchOpenRiskRpcRows<IssueViewRow>('get_deshazo_open_risk_latest_issue_rows', customer),
-    ])
-  } catch (error) {
-    if (!isMissingViewError(error)) {
-      throw error
-    }
-    ;({ summaries, issueRows } = await fetchOpenRiskViewRows(customer))
-  }
-
-  const locationLookup = await locationLookupPromise
-
-  const issueRowsByUnitId = new Map<string, IssueViewRow[]>()
-  for (const row of issueRows) {
-    const unitId = normalizeText(row.unit_id).toUpperCase()
-    if (!unitId) continue
-    const group = issueRowsByUnitId.get(unitId) ?? []
-    group.push(row)
-    issueRowsByUnitId.set(unitId, group)
-  }
-
-  const assets = summaries.map<AssetRecord>((summary, index) => {
-    const unitId = normalizeText(summary.unit_id).toUpperCase()
-    const locationOption = getCanonicalLocationOption(summary.warehouse_location, locationLookup.aliases)
-    const issues = buildIssueRowsFromView(issueRowsByUnitId.get(unitId) ?? [])
-    const safetyIssueCount = issues.filter((issue) => issue.safety_category === 'safety').length
-    const monitorIssueCount = issues.filter((issue) => issue.safety_category === 'monitor').length
-    return {
-      unit: {
-        unit_id: unitId,
-        unit_name: normalizeText(summary.unit_name) || unitId,
-        warehouse_location: locationOption?.label ?? normalizeText(summary.warehouse_location),
-        interior_location: normalizeText(summary.interior_location),
-        inspection_date: formatDateLabel(summary.inspection_date),
-        safety_issue_count: safetyIssueCount,
-        monitor_issue_count: monitorIssueCount,
-      },
-      issues,
-      sortIndex: index,
-    }
-  })
-
-  assets.sort((left, right) => {
-    const leftTotal = left.unit.safety_issue_count + left.unit.monitor_issue_count
-    const rightTotal = right.unit.safety_issue_count + right.unit.monitor_issue_count
-    return rightTotal - leftTotal || left.sortIndex - right.sortIndex
-  })
-
-  return {
-    assets,
-    totalSafetyIssues: assets.reduce((sum, asset) => sum + asset.unit.safety_issue_count, 0),
-    totalMonitorIssues: assets.reduce((sum, asset) => sum + asset.unit.monitor_issue_count, 0),
-    loadedAt: Date.now(),
-  }
-}
-
 function buildIssueRows(
   inspection: InspectionRow,
   sections: SectionRow[],
@@ -481,8 +349,8 @@ function buildIssueRows(
     const pointKey = `${point.section_row_id}:${normalizeText(point.point_name).toLowerCase()}`
     const hoistOccurrence = (hoistPointOccurrences.get(pointKey) ?? 0) + 1
     hoistPointOccurrences.set(pointKey, hoistOccurrence)
-    const componentType = isHoistSection(section)
-      ? `hoist_${hoistOccurrence}`
+    const componentType = isHoistLikeSection(section)
+      ? `${getSectionComponentBase(section)}_${hoistOccurrence}`
       : sectionLabels.get(point.section_row_id) ?? 'component_1'
 
     issues.push({
@@ -544,7 +412,7 @@ async function loadLatestAssetDetailFromTables(dNumber: string, customer: string
     'id,section_row_id,point_name,condition,remarks,point_index',
     'section_row_id',
     sections.map((section) => section.id),
-    (query) => query.eq('customer', customer).in('condition', actionableConditions),
+    (query) => query.eq('customer', customer),
     200,
   )
   const workOrder = workOrderById.get(latestCrane.work_order_id)
@@ -620,7 +488,7 @@ async function loadDatasetFromTables(customer: string): Promise<OpenRiskDataset>
     'id,section_row_id,point_name,condition,remarks,point_index',
     'section_row_id',
     Array.from(sectionById.keys()),
-    (query) => query.eq('customer', customer).in('condition', actionableConditions),
+    (query) => query.eq('customer', customer),
   )
 
   const pointsByInspectionId = new Map<string, PointRow[]>()
@@ -690,16 +558,6 @@ async function loadDataset(customer?: string) {
   pendingDatasetCustomer = selectedCustomer
   pendingDataset = (async () => {
     await requireAuthenticatedSession()
-
-    try {
-      cachedDataset = await loadDatasetFromViews(selectedCustomer)
-      cachedDatasetCustomer = selectedCustomer
-      pendingDataset = null
-      pendingDatasetCustomer = ''
-      return cachedDataset
-    } catch {
-      // Fall back to direct report-table loading if the compact views are unavailable.
-    }
 
     cachedDataset = await loadDatasetFromTables(selectedCustomer)
     cachedDatasetCustomer = selectedCustomer
@@ -897,7 +755,7 @@ export async function getSupabaseOpenRiskRecurringIssues(unitId: string, custome
     'id,section_row_id,point_name,condition,remarks,point_index',
     'section_row_id',
     Array.from(sectionById.keys()),
-    (query) => query.eq('customer', selectedCustomer).in('condition', actionableConditions),
+    (query) => query.eq('customer', selectedCustomer),
   )
   const pointsByInspectionId = new Map<string, PointRow[]>()
   for (const point of points) {

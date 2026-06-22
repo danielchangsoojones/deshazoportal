@@ -1,6 +1,12 @@
+drop view if exists public.deshazo_open_risk_issue_rows;
+drop view if exists public.deshazo_open_risk_asset_summaries;
+drop view if exists public.deshazo_open_risk_latest_issue_rows;
+drop view if exists public.deshazo_open_risk_latest_assets;
+
 create or replace view public.deshazo_open_risk_latest_assets as
-with wabash_inspections as (
+with customer_inspections as (
   select
+    lower(trim(coalesce(w.customer, w.bill_to_name, ''))) as customer,
     upper(trim(c.contact_code)) as unit_id,
     concat_ws(' ', upper(trim(c.contact_code)), nullif(trim(c.description), '')) as unit_name,
     coalesce(nullif(trim(w.customer_location_name), ''), nullif(trim(w.service_location_name), '')) as warehouse_location,
@@ -9,7 +15,7 @@ with wabash_inspections as (
     i.inspection_date,
     i.completed_at,
     row_number() over (
-      partition by upper(trim(c.contact_code))
+      partition by lower(trim(coalesce(w.customer, w.bill_to_name, ''))), upper(trim(c.contact_code))
       order by i.inspection_date desc nulls last, i.completed_at desc nulls last, i.id desc
     ) as latest_rank
   from public.deshazo_external_work_orders w
@@ -17,16 +23,10 @@ with wabash_inspections as (
     on c.work_order_id = w.work_order_id
   join public.deshazo_external_report_inspections i
     on i.crane_row_id = c.id
-  where
-    coalesce(w.customer, w.bill_to_name, '') ilike '%wabash%'
-    and nullif(trim(c.contact_code), '') is not null
-),
-latest_assets as (
-  select *
-  from wabash_inspections
-  where latest_rank = 1
+  where nullif(trim(c.contact_code), '') is not null
 )
 select
+  customer,
   unit_id,
   unit_name,
   warehouse_location,
@@ -34,11 +34,13 @@ select
   inspection_row_id,
   inspection_date,
   completed_at
-from latest_assets;
+from customer_inspections
+where latest_rank = 1;
 
 create or replace view public.deshazo_open_risk_latest_issue_rows as
 with actionable_points as (
   select
+    a.customer,
     a.unit_id,
     a.unit_name,
     a.warehouse_location,
@@ -52,9 +54,18 @@ with actionable_points as (
       else 'safety'
     end as safety_category,
     case
+      when lower(coalesce(s.section_name, '')) like '%hoist%'
+        and (
+          lower(coalesce(s.section_name, '')) like '%trolley%'
+          or lower(coalesce(s.section_name, '')) like '%trolly%'
+        ) then
+        concat('trolley_hoist_', row_number() over (
+          partition by a.customer, a.inspection_row_id, s.id, lower(coalesce(nullif(trim(p.point_name), ''), 'uncategorized'))
+          order by coalesce(p.point_index, 0), p.id
+        ))
       when lower(coalesce(s.section_name, '')) like '%hoist%' then
         concat('hoist_', row_number() over (
-          partition by a.inspection_row_id, s.id, lower(coalesce(nullif(trim(p.point_name), ''), 'uncategorized'))
+          partition by a.customer, a.inspection_row_id, s.id, lower(coalesce(nullif(trim(p.point_name), ''), 'uncategorized'))
           order by coalesce(p.point_index, 0), p.id
         ))
       when lower(coalesce(s.section_name, '')) like '%cranestructuretype%' then 'bridge_1'
@@ -111,6 +122,7 @@ with actionable_points as (
   where upper(trim(p.condition)) in ('REPAIR', 'MONITOR', 'DO NOT OPERATE / SAFETY')
 )
 select
+  customer,
   unit_id,
   unit_name,
   warehouse_location,
@@ -130,13 +142,15 @@ from actionable_points;
 create or replace view public.deshazo_open_risk_asset_summaries as
 with issue_counts as (
   select
+    customer,
     unit_id,
     count(*) filter (where safety_category = 'safety') as safety_issue_count,
     count(*) filter (where safety_category = 'monitor') as monitor_issue_count
   from public.deshazo_open_risk_latest_issue_rows
-  group by unit_id
+  group by customer, unit_id
 )
 select
+  a.customer,
   a.unit_id,
   a.unit_name,
   a.warehouse_location,
@@ -147,11 +161,13 @@ select
   (coalesce(ic.safety_issue_count, 0) + coalesce(ic.monitor_issue_count, 0))::int as total_issue_count
 from public.deshazo_open_risk_latest_assets a
 left join issue_counts ic
-  on ic.unit_id = a.unit_id;
+  on ic.customer = a.customer
+  and ic.unit_id = a.unit_id;
 
 create or replace view public.deshazo_open_risk_issue_rows as
-with wabash_inspections as (
+with customer_inspections as (
   select
+    lower(trim(coalesce(w.customer, w.bill_to_name, ''))) as customer,
     upper(trim(c.contact_code)) as unit_id,
     i.id as inspection_row_id,
     i.inspection_date,
@@ -161,15 +177,14 @@ with wabash_inspections as (
     on c.work_order_id = w.work_order_id
   join public.deshazo_external_report_inspections i
     on i.crane_row_id = c.id
-  where
-    coalesce(w.customer, w.bill_to_name, '') ilike '%wabash%'
-    and nullif(trim(c.contact_code), '') is not null
+  where nullif(trim(c.contact_code), '') is not null
 )
 select
-  wi.unit_id,
-  wi.inspection_row_id,
-  wi.inspection_date,
-  wi.completed_at,
+  ci.customer,
+  ci.unit_id,
+  ci.inspection_row_id,
+  ci.inspection_date,
+  ci.completed_at,
   lower(coalesce(nullif(trim(p.point_name), ''), 'uncategorized')) as category,
   case
     when upper(trim(p.condition)) = 'MONITOR' then 'monitor'
@@ -191,9 +206,9 @@ select
     end,
     ''
   ) as remarks
-from wabash_inspections wi
+from customer_inspections ci
 join public.deshazo_external_report_sections s
-  on s.inspection_row_id = wi.inspection_row_id
+  on s.inspection_row_id = ci.inspection_row_id
 join public.deshazo_external_report_points p
   on p.section_row_id = s.id
 cross join lateral jsonb_array_elements(
