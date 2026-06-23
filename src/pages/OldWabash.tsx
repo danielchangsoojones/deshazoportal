@@ -1,4 +1,4 @@
-const wabashLoginUrl = 'https://portal.blockstampsf.com/wabash/login'
+const wabashDashboardUrl = 'https://portal.blockstampsf.com/wabash/dashboard'
 
 export default function OldWabash() {
   return (
@@ -20,14 +20,14 @@ export default function OldWabash() {
         </p>
 
         <a
-          href={wabashLoginUrl}
+          href={wabashDashboardUrl}
           className="mt-4 block break-words rounded-[12px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-4 py-3 text-[15px] font-black text-[var(--deshazo-blue)] hover:underline"
         >
-          portal.blockstampsf.com/wabash/login
+          portal.blockstampsf.com/wabash/dashboard
         </a>
 
         <a
-          href={wabashLoginUrl}
+          href={wabashDashboardUrl}
           className="mt-6 inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--deshazo-blue)] px-6 py-3 text-sm font-black text-white shadow-[0_16px_32px_-24px_rgba(47,86,166,0.75)] transition hover:opacity-90"
         >
           Open Wabash Portal
