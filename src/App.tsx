@@ -5,6 +5,7 @@ import QuoteLogin from './pages/QuoteLogin'
 import Signup from './pages/Signup'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
+import OldWabash from './pages/OldWabash'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ContactUs = lazy(() => import('./pages/ContactUs'))
@@ -65,6 +66,8 @@ function App() {
           <Route path="/:customer">
             {portalRoutes}
           </Route>
+          <Route path="/login" element={<OldWabash />} />
+          <Route path="/dashboard" element={<OldWabash />} />
           <Route path="/quotelogin" element={<QuoteLogin />} />
           <Route path="/deshazo-internal-dashboard" element={<DeshazoInternalDashboard />} />
           <Route path="/dashazo-internal-dashboard" element={<Navigate to="/deshazo-internal-dashboard" replace />} />
