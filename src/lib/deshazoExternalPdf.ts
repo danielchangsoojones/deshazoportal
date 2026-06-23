@@ -21,6 +21,8 @@ type ActionItem = {
 type ResolvedSection = {
   name: string
   points: DeshazoInspectionPoint[]
+  satisfactoryCount?: number
+  totalPointCount?: number
 }
 
 type SectionedItem = ActionItem
@@ -320,6 +322,37 @@ function hasLongDetailRows(section: ResolvedSection) {
 
 function hasLongActionItems(items: SectionedItem[]) {
   return items.some((item) => hasLongCategoryText(item.label))
+}
+
+function splitTextIntoBlocks(value: string, maxLength: number) {
+  const text = value.trim().replace(/\s+/g, ' ')
+  if (!text || text.length <= maxLength) return text ? [text] : ['']
+
+  const blocks: string[] = []
+  let current = ''
+
+  text.split(' ').forEach((word) => {
+    const next = current ? `${current} ${word}` : word
+    if (next.length > maxLength && current) {
+      blocks.push(current)
+      current = word
+      return
+    }
+
+    if (word.length > maxLength) {
+      if (current) blocks.push(current)
+      for (let index = 0; index < word.length; index += maxLength) {
+        blocks.push(word.slice(index, index + maxLength))
+      }
+      current = ''
+      return
+    }
+
+    current = next
+  })
+
+  if (current) blocks.push(current)
+  return blocks
 }
 
 function getStructureSectionName(craneReport: DeshazoCraneReport) {
@@ -1173,11 +1206,12 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   const renderDetailSections = (detailSections: ResolvedSection[]) =>
     detailSections
       .map((section) => {
-        const satisfactoryCount = section.points.filter((point) => getConditionTone(point) === 'success').length
+        const satisfactoryCount = section.satisfactoryCount ?? section.points.filter((point) => getConditionTone(point) === 'success').length
+        const totalPointCount = section.totalPointCount ?? section.points.length
         const longTextLayout = hasLongDetailRows(section)
         return `
           <section class="detail-section">
-            <div class="detail-header">${escapeHtml(section.name)} <span>${satisfactoryCount}/${section.points.length || 0} Satisfactory</span></div>
+            <div class="detail-header">${escapeHtml(section.name)} <span>${satisfactoryCount}/${totalPointCount || 0} Satisfactory</span></div>
             <div class="detail-grid ${longTextLayout ? 'detail-grid-long' : ''}">
               ${section.points
                 .map(
@@ -1198,12 +1232,61 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   const estimateDetailSectionHeight = (section: ResolvedSection) => {
     if (hasLongDetailRows(section)) {
       return 38 + section.points.reduce((total, point) => {
-        const labelHeight = Math.ceil(getTextLength(point.name ?? 'Inspection point') / 92) * 13
+        const labelHeight = Math.ceil(getTextLength(point.name ?? 'Inspection point') / 84) * 14
         return total + Math.max(26, labelHeight + 10)
       }, 0)
     }
     const visualRows = Math.ceil(section.points.length / 3)
     return 44 + visualRows * 24
+  }
+
+  const makeDetailSectionChunk = (section: ResolvedSection, points: DeshazoInspectionPoint[]): ResolvedSection => ({
+    ...section,
+    points,
+    satisfactoryCount: section.satisfactoryCount ?? section.points.filter((point) => getConditionTone(point) === 'success').length,
+    totalPointCount: section.totalPointCount ?? section.points.length,
+  })
+
+  const splitOversizedDetailPoint = (point: DeshazoInspectionPoint, maxLength = 900) => {
+    const name = point.name ?? 'Inspection point'
+    const parts = splitTextIntoBlocks(name, maxLength)
+    if (parts.length <= 1) return [point]
+    return parts.map((part, index) => ({
+      ...point,
+      name: index === 0 ? part : `${part}`,
+    }))
+  }
+
+  const splitDetailSectionIntoPageBlocks = (section: ResolvedSection, usableHeight: number) => {
+    const blocks: Array<{ html: string; estimatedHeight: number }> = []
+    const points = section.points.flatMap((point) => splitOversizedDetailPoint(point))
+    let currentPoints: DeshazoInspectionPoint[] = []
+
+    points.forEach((point) => {
+      const candidate = makeDetailSectionChunk(section, [...currentPoints, point])
+      const candidateHeight = estimateDetailSectionHeight(candidate) + 22
+      if (currentPoints.length > 0 && candidateHeight > usableHeight) {
+        const chunk = makeDetailSectionChunk(section, currentPoints)
+        blocks.push({
+          html: `<div class="page2-continuation">${renderDetailSections([chunk])}</div>`,
+          estimatedHeight: estimateDetailSectionHeight(chunk) + 22,
+        })
+        currentPoints = [point]
+        return
+      }
+
+      currentPoints.push(point)
+    })
+
+    if (currentPoints.length > 0) {
+      const chunk = makeDetailSectionChunk(section, currentPoints)
+      blocks.push({
+        html: `<div class="page2-continuation">${renderDetailSections([chunk])}</div>`,
+        estimatedHeight: estimateDetailSectionHeight(chunk) + 22,
+      })
+    }
+
+    return blocks
   }
 
   const packPageBlocks = (blocks: Array<{ html: string; estimatedHeight: number }>) => {
@@ -1231,9 +1314,9 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   }
 
   const estimateSectionedItemHeight = (item: SectionedItem, includePhotos = false) => {
-    let height = hasLongCategoryText(item.label) ? Math.max(42, Math.ceil(getTextLength(item.label) / 95) * 14 + 18) : 34
+    let height = hasLongCategoryText(item.label) ? Math.max(42, Math.ceil(getTextLength(item.label) / 82) * 15 + 20) : 34
     if (includePhotos && item.photos.length > 0) height += Math.ceil(item.photos.length / 3) * 145 + 12
-    if (item.notes) height += Math.max(22, Math.ceil(item.notes.length / 95) * 14)
+    if (item.notes) height += Math.max(22, Math.ceil(item.notes.length / 82) * 15)
     return height
   }
 
@@ -1241,6 +1324,52 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     html: titleHtml,
     estimatedHeight,
   })
+
+  const makeSectionedItemChunks = (item: SectionedItem, includePhotos: boolean) => {
+    const chunks: SectionedItem[] = []
+    const labelParts = splitTextIntoBlocks(item.label, 1850)
+    const noteParts = item.notes ? splitTextIntoBlocks(item.notes, 2100) : ['']
+    const firstNote = noteParts[0] ?? ''
+    const canAttachFirstNote =
+      labelParts.length === 1 &&
+      Boolean(firstNote) &&
+      18 + estimateSectionedItemHeight({ ...item, label: labelParts[0] ?? item.label, notes: firstNote, photos: [] }, false) <= 620
+
+    labelParts.forEach((label, index) => {
+      chunks.push({
+        ...item,
+        label,
+        notes: canAttachFirstNote && index === 0 ? firstNote : '',
+        photos: [],
+      })
+    })
+
+    noteParts.slice(canAttachFirstNote ? 1 : 0).forEach((notes) => {
+      if (!notes) return
+      chunks.push({
+        ...item,
+        label: `${item.label} (continued)`,
+        notes,
+        photos: [],
+      })
+    })
+
+    if (includePhotos && item.photos.length > 0) {
+      for (let index = 0; index < item.photos.length; index += 3) {
+        const photoLabel = labelParts.length > 1
+          ? `${labelParts[labelParts.length - 1]} (continued)`
+          : `${item.label}${chunks.length ? ' (continued)' : ''}`
+        chunks.push({
+          ...item,
+          label: photoLabel,
+          notes: '',
+          photos: item.photos.slice(index, index + 3),
+        })
+      }
+    }
+
+    return chunks.length > 0 ? chunks : [{ ...item, photos: includePhotos ? item.photos : [] }]
+  }
 
   const chunkSectionedGroupBlocks = (
     group: { sectionName: string; items: SectionedItem[] },
@@ -1262,17 +1391,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     })
 
     group.items.forEach((item) => {
-      const photoChunks = includePhotos && item.photos.length > 0
-        ? Array.from({ length: Math.ceil(item.photos.length / 6) }, (_, index) => item.photos.slice(index * 6, index * 6 + 6))
-        : [[] as DeshazoInspectionPhoto[]]
-
-      photoChunks.forEach((photos, chunkIndex) => {
-        const itemChunk = {
-          ...item,
-          photos,
-          notes: chunkIndex === 0 ? item.notes : '',
-          label: chunkIndex === 0 ? item.label : `${item.label} (continued)`,
-        }
+      makeSectionedItemChunks(item, includePhotos).forEach((itemChunk) => {
         blocks.push({
           html: renderSectionedItemGroup(
             { sectionName: group.sectionName, items: [itemChunk] },
@@ -1321,26 +1440,51 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   const firstPageActionPanelHeight = actionItems.length > 0 ? 32 + firstPageActionRows * (usesLongFirstPageActionLayout ? 45 : 36) : 0
   const firstPageFixedContentHeight = 345 + firstPageActionPanelHeight
   const firstPageAvailableSectionHeight = Math.max(0, 870 - firstPageFixedContentHeight)
-  let firstPageSectionCount = 0
+  const firstPageSections: ResolvedSection[] = []
+  const continuationSections: ResolvedSection[] = []
   let firstPageSectionsHeight = 0
   let canPlaceMoreFirstPageSections = true
+
   sections.forEach((section) => {
-    if (!canPlaceMoreFirstPageSections) return
-    const sectionHeight = estimateDetailSectionHeight(section) + 18
-    if (firstPageSectionsHeight + sectionHeight > firstPageAvailableSectionHeight) {
+    if (!canPlaceMoreFirstPageSections) {
+      continuationSections.push(section)
+      return
+    }
+
+    const sectionPoints = section.points.flatMap((point) => splitOversizedDetailPoint(point))
+    const fullSection = makeDetailSectionChunk(section, sectionPoints)
+    const sectionHeight = estimateDetailSectionHeight(fullSection) + 18
+
+    if (firstPageSectionsHeight + sectionHeight <= firstPageAvailableSectionHeight) {
+      firstPageSections.push(fullSection)
+      firstPageSectionsHeight += sectionHeight
+      return
+    }
+
+    const availableHeight = firstPageAvailableSectionHeight - firstPageSectionsHeight
+    let fittingPointCount = 0
+
+    for (let index = 0; index < sectionPoints.length; index += 1) {
+      const candidate = makeDetailSectionChunk(section, sectionPoints.slice(0, index + 1))
+      const candidateHeight = estimateDetailSectionHeight(candidate) + 18
+      if (candidateHeight > availableHeight) break
+      fittingPointCount = index + 1
+    }
+
+    if (fittingPointCount > 0) {
+      firstPageSections.push(makeDetailSectionChunk(section, sectionPoints.slice(0, fittingPointCount)))
+      continuationSections.push(makeDetailSectionChunk(section, sectionPoints.slice(fittingPointCount)))
       canPlaceMoreFirstPageSections = false
       return
     }
-    firstPageSectionsHeight += sectionHeight
-    firstPageSectionCount += 1
+
+    continuationSections.push(fullSection)
+    canPlaceMoreFirstPageSections = false
   })
-  const firstPageSections = sections.slice(0, firstPageSectionCount)
-  const continuationSections = sections.slice(firstPageSectionCount)
   const firstPageSectionsMarkup = renderDetailSections(firstPageSections)
-  const continuationBlocks = continuationSections.map((section) => ({
-    html: `<div class="page2-continuation">${renderDetailSections([section])}</div>`,
-    estimatedHeight: estimateDetailSectionHeight(section) + 22,
-  }))
+  const continuationBlocks = continuationSections.flatMap((section) =>
+    splitDetailSectionIntoPageBlocks(section, 690),
+  )
   const defaultBridgePointNames = [
     'Motors',
     'Bridge Brakes',
