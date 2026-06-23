@@ -130,6 +130,17 @@ const defaultAssetDocuments: AssetPdfResponse = {
 const formatDisplayDate = (value?: string) =>
   value ? value.replace(/\. /g, ' ').replace(/th,|st,|nd,|rd,/g, ',') : 'Not available'
 
+const formatRepairReportDate = (value?: string) => {
+  if (!value) return 'Not available'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return formatDisplayDate(value)
+
+  const year = parsed.getFullYear()
+  const day = String(parsed.getDate()).padStart(2, '0')
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 const parseInspectionDate = (value?: string) => {
   if (!value) return null
 
@@ -1806,7 +1817,9 @@ export default function AssetInfo() {
                                   ) : null}
                                 </div>
                                 <p className="w-[92px] shrink-0 text-right text-sm font-semibold text-[rgba(21,24,33,0.72)]">
-                                  {formatDisplayDate(document.inspection_date)}
+                                  {activeTab === 'repair'
+                                    ? formatRepairReportDate(document.inspection_date)
+                                    : formatDisplayDate(document.inspection_date)}
                                 </p>
                               </div>
                             </button>
