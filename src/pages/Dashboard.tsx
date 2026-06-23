@@ -43,12 +43,6 @@ const portalCards = [
     developerOnly: true,
   },
   {
-    eyebrow: 'Documents',
-    title: 'Equipment Notebook LLM',
-    description: 'Chat with inspection reports and manuals to build cited repair and parts recommendations.',
-    href: '/equipment-notebook-llm',
-  },
-  {
     eyebrow: 'Reports',
     title: 'Custom Reports',
     description: 'Download a csv of the data to use on your own computer.',
