@@ -15,6 +15,7 @@ const Spend = lazy(() => import('./pages/Spend'))
 const DocumentsReports = lazy(() => import('./pages/DocumentsReports'))
 const EquipmentNotebookLLM = lazy(() => import('./pages/EquipmentNotebookLLM'))
 const DeshazoInternalDashboard = lazy(() => import('./pages/DeshazoInternalDashboard'))
+const CustomerPortals = lazy(() => import('./pages/CustomerPortals'))
 const QuoteAnalytics = lazy(() => import('./pages/QuoteAnalytics'))
 const CustomReports = lazy(() => import('./pages/CustomReports'))
 const DeshazoExternalReports = lazy(() => import('./pages/DeshazoExternalReports'))
@@ -72,6 +73,7 @@ function App() {
           <Route path="/quotelogin" element={<QuoteLogin />} />
           <Route path="/deshazo-internal-dashboard" element={<DeshazoInternalDashboard />} />
           <Route path="/dashazo-internal-dashboard" element={<Navigate to="/deshazo-internal-dashboard" replace />} />
+          <Route path="/customer-portals" element={<CustomerPortals />} />
           <Route path="/jobsquotinglist" element={<JobsQuotingList />} />
           <Route path="/inspection-report-template" element={<EditableInspectionReport />} />
           <Route path="/editable-inspection-report" element={<EditableInspectionReport />} />
