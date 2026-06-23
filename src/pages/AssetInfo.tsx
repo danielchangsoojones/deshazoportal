@@ -846,21 +846,22 @@ export default function AssetInfo() {
   }, [activeTab, unitId, assetInfo.unit_name, selectedCustomer])
 
   useEffect(() => {
-    if (activeTab !== 'documents') return
+    if (activeTab !== 'documents' && activeTab !== 'repair') return
 
-    const totalPages = Math.max(1, Math.ceil(inspectionDocuments.length / PREVENTATIVE_REPORTS_PAGE_SIZE))
+    const documents = activeTab === 'repair' ? repairDocuments : inspectionDocuments
+    const totalPages = Math.max(1, Math.ceil(documents.length / PREVENTATIVE_REPORTS_PAGE_SIZE))
     if (documentsPage > totalPages) {
       setDocumentsPage(totalPages)
       return
     }
 
     const startIndex = (documentsPage - 1) * PREVENTATIVE_REPORTS_PAGE_SIZE
-    const currentPageDocuments = inspectionDocuments.slice(startIndex, startIndex + PREVENTATIVE_REPORTS_PAGE_SIZE)
+    const currentPageDocuments = documents.slice(startIndex, startIndex + PREVENTATIVE_REPORTS_PAGE_SIZE)
     if (currentPageDocuments.length === 0) return
     if (!currentPageDocuments.some((document) => document.documentKey === selectedDocumentUrl)) {
       setSelectedDocumentUrl(currentPageDocuments[0].documentKey)
     }
-  }, [activeTab, documentsPage, inspectionDocuments, selectedDocumentUrl])
+  }, [activeTab, documentsPage, inspectionDocuments, repairDocuments, selectedDocumentUrl])
 
   useEffect(() => {
     if (activeTab !== 'repair') {
@@ -902,6 +903,7 @@ export default function AssetInfo() {
           }
 
           setRepairDocuments(mappedDocuments)
+          setDocumentsPage(1)
           setSelectedDocumentUrl((current) =>
             mappedDocuments.some((document) => document.documentKey === current) ? current : (mappedDocuments[0]?.documentKey ?? ''),
           )
@@ -1277,11 +1279,11 @@ export default function AssetInfo() {
       : inspectionDocuments
   const getDocumentKey = (document: AssetPdfDocument | RepairPdfDocument) =>
     'documentKey' in document ? document.documentKey : document.pdf
-  const documentsTotalPages = activeTab === 'documents'
-    ? Math.max(1, Math.ceil(inspectionDocuments.length / PREVENTATIVE_REPORTS_PAGE_SIZE))
+  const documentsTotalPages = activeTab === 'documents' || activeTab === 'repair'
+    ? Math.max(1, Math.ceil(currentDocumentList.length / PREVENTATIVE_REPORTS_PAGE_SIZE))
     : Math.max(1, assetDocuments.total_pages || 1)
   const visibleDocumentPages = buildVisiblePages(documentsPage, documentsTotalPages)
-  const pagedDocumentList = activeTab === 'documents'
+  const pagedDocumentList = activeTab === 'documents' || activeTab === 'repair'
     ? currentDocumentList.slice(
         (documentsPage - 1) * PREVENTATIVE_REPORTS_PAGE_SIZE,
         documentsPage * PREVENTATIVE_REPORTS_PAGE_SIZE,
@@ -1707,7 +1709,7 @@ export default function AssetInfo() {
                   ) : null}
 
                   <div className="mb-5 flex flex-wrap items-center justify-between gap-4 text-sm font-semibold text-[rgba(21,24,33,0.68)]">
-                    {activeTab === 'documents' ? (
+                    {activeTab === 'documents' || activeTab === 'repair' ? (
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
@@ -1747,7 +1749,7 @@ export default function AssetInfo() {
                           ›
                         </button>
                         <span className="ml-2 text-[13px] font-bold text-[rgba(21,24,33,0.55)]">
-                          {inspectionDocuments.length} reports
+                          {currentDocumentList.length} reports
                         </span>
                       </div>
                     ) : null}
