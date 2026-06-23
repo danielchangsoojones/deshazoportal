@@ -126,6 +126,7 @@ const printedPageHeightIn = 11
 const printedPageMarginIn = 0.45
 const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
+const reportAutosaveIntervalMs = 10 * 1000
 const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
 const menuSearchDebounceMs = 300
@@ -2343,6 +2344,7 @@ export default function EditableInspectionReport() {
   const reportHydrationReady = useRef(false)
   const skipNextReportDatabaseSave = useRef(false)
   const pendingReportChanges = useRef(false)
+  const reportAutosaveInFlight = useRef(false)
   const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
@@ -2942,6 +2944,11 @@ export default function EditableInspectionReport() {
     currentReportName,
     currentSourceDocumentName,
   ])
+  const saveCurrentEditableReportNowRef = useRef(saveCurrentEditableReportNow)
+
+  useEffect(() => {
+    saveCurrentEditableReportNowRef.current = saveCurrentEditableReportNow
+  }, [saveCurrentEditableReportNow])
 
   useEffect(() => {
     if (!isConfigured) {
@@ -3048,6 +3055,27 @@ export default function EditableInspectionReport() {
 
     pendingReportChanges.current = true
   }, [currentEditableReportPayload, reportDatabaseStatus])
+
+  useEffect(() => {
+    if (!isConfigured || !currentJobsQuotingItemId) return
+
+    const autosaveTimer = window.setInterval(() => {
+      if (!reportHydrationReady.current || reportAutosaveInFlight.current) return
+
+      reportAutosaveInFlight.current = true
+      saveCurrentEditableReportNowRef.current()
+        .catch((error) => {
+          setReportDatabaseStatus('error')
+          console.error('Editable report could not be auto-saved.', error)
+        })
+        .finally(() => {
+          reportAutosaveInFlight.current = false
+        })
+    }, reportAutosaveIntervalMs)
+
+    return () => window.clearInterval(autosaveTimer)
+  }, [currentJobsQuotingItemId])
+
   useLayoutEffect(() => {
     const contentElement = reportContentRef.current
     if (!contentElement) return
