@@ -185,6 +185,10 @@ function isNaStatus(value: string) {
   return value === 'N/A' || value === 'NA' || value === 'NOT APPLICABLE'
 }
 
+function isSatisfactoryStatus(value: string) {
+  return value === 'SATISFACTORY'
+}
+
 function isRepairStatus(value: string) {
   return value === 'REPAIR' || /^REPAIRS?\b/.test(value) || /REPAIR (REQUIRED|NEEDED)/.test(value)
 }
@@ -197,9 +201,19 @@ function isSafetyStatus(value: string) {
   return value === 'SAFETY' || value.includes('DO NOT OPERATE') || value.includes('UNSAFE')
 }
 
+function isKnownStatus(value: string) {
+  return (
+    isSatisfactoryStatus(value) ||
+    isNaStatus(value) ||
+    isRepairStatus(value) ||
+    isMonitorStatus(value) ||
+    isSafetyStatus(value)
+  )
+}
+
 function getStatusTone(status: string): ConditionTone {
   const value = normalizeStatus(status)
-  if (value === 'SATISFACTORY') return 'success'
+  if (isSatisfactoryStatus(value)) return 'success'
   if (!value || isNaStatus(value)) return 'neutral'
   if (isRepairStatus(value)) return 'repair'
   if (isMonitorStatus(value)) return 'monitor'
@@ -1067,17 +1081,20 @@ function getServiceTicketHtml(report: DeshazoSavedInspectionReport) {
 }
 
 function toneClass(point: DeshazoInspectionPoint) {
+  const status = normalizeStatus(getPointDisplayValue(point))
   const tone = getConditionTone(point)
   if (tone === 'success') return 'status status-success'
+  if (tone === 'neutral' && status && !isKnownStatus(status)) return 'status status-plain'
   if (tone === 'neutral') return 'status status-neutral'
   if (tone === 'monitor') return 'status status-monitor status-with-icons'
-  if (isSafetyStatus(normalizeStatus(getPointDisplayValue(point)))) return 'status status-danger status-long-label'
+  if (isSafetyStatus(status)) return 'status status-danger status-long-label'
   return 'status status-danger status-with-icons'
 }
 
 function page2StatusClass(status: string) {
   const tone = getStatusTone(status)
   if (tone === 'success') return 'page2-point-status page2-status-success'
+  if (tone === 'neutral' && normalizeStatus(status) && !isKnownStatus(normalizeStatus(status))) return 'page2-point-status page2-status-plain'
   if (tone === 'neutral') return 'page2-point-status page2-status-neutral'
   if (tone === 'monitor') return 'page2-point-status page2-status-monitor status-with-icons'
   if (isSafetyStatus(normalizeStatus(status))) return 'page2-point-status page2-status-danger status-long-label'
@@ -1086,7 +1103,13 @@ function page2StatusClass(status: string) {
 
 function renderStatusLabel(status: string) {
   const normalizedStatus = normalizeStatus(status)
-  const label = isSafetyStatus(normalizedStatus) ? 'Safety' : isNaStatus(normalizedStatus) ? 'N/A' : toTitleCase(status)
+  const label = isSafetyStatus(normalizedStatus)
+    ? 'Safety'
+    : isNaStatus(normalizedStatus)
+      ? 'N/A'
+      : isKnownStatus(normalizedStatus)
+        ? toTitleCase(status)
+        : status.trim() || '-'
   if (!isRepairStatus(normalizedStatus) && !isMonitorStatus(normalizedStatus)) return escapeHtml(label)
 
   const iconClass = isMonitorStatus(normalizedStatus) ? 'status-icon-monitor' : 'status-icon-repair'
@@ -1214,24 +1237,10 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     return height
   }
 
-  const attachTitleToFirstBlock = (
-    titleHtml: string,
-    titleHeight: number,
-    blocks: Array<{ html: string; estimatedHeight: number }>,
-  ) => {
-    if (blocks.length === 0) {
-      return [{ html: titleHtml, estimatedHeight: titleHeight }]
-    }
-
-    const [firstBlock, ...remainingBlocks] = blocks
-    return [
-      {
-        html: `${titleHtml}${firstBlock.html}`,
-        estimatedHeight: titleHeight + firstBlock.estimatedHeight,
-      },
-      ...remainingBlocks,
-    ]
-  }
+  const makeTitleBlock = (titleHtml: string, estimatedHeight = 38) => ({
+    html: titleHtml,
+    estimatedHeight,
+  })
 
   const chunkSectionedGroupBlocks = (
     group: { sectionName: string; items: SectionedItem[] },
@@ -1239,44 +1248,42 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     includePhotos = false,
     options: { forceLongLayout?: boolean } = {},
   ) => {
-    const maxGroupHeight = 610
     const blocks: Array<{ html: string; estimatedHeight: number }> = []
-    let currentItems: SectionedItem[] = []
-    let currentHeight = 52
-    let chunkIndex = 0
-
-    group.items.forEach((item) => {
-      const itemHeight = estimateSectionedItemHeight(item, includePhotos)
-      if (currentItems.length > 0 && currentHeight + itemHeight > maxGroupHeight) {
-        blocks.push({
-          html: renderSectionedItemGroup(
-            { sectionName: group.sectionName, items: currentItems },
-            itemLabel,
-            includePhotos,
-            { showHeader: chunkIndex === 0, totalCount: group.items.length, forceLongLayout: options.forceLongLayout },
-          ),
-          estimatedHeight: currentHeight,
-        })
-        chunkIndex += 1
-        currentItems = []
-        currentHeight = 18
-      }
-
-      currentItems.push(item)
-      currentHeight += itemHeight
+    blocks.push({
+      html: `
+        <section class="page2-item-section page2-item-section-header">
+          <div class="page2-section-title">
+            <span>${escapeHtml(group.sectionName)}</span>
+            <span class="page2-section-count">${group.items.length} ${escapeHtml(itemLabel)}${group.items.length === 1 ? '' : 's'}</span>
+          </div>
+        </section>
+      `,
+      estimatedHeight: 24,
     })
 
-    if (currentItems.length > 0) {
-      blocks.push({
-        html: renderSectionedItemGroup(
-          { sectionName: group.sectionName, items: currentItems },
-          itemLabel,
-          includePhotos,
-          { showHeader: chunkIndex === 0, totalCount: group.items.length, forceLongLayout: options.forceLongLayout },
-        ),
-        estimatedHeight: currentHeight,
+    group.items.forEach((item) => {
+      const photoChunks = includePhotos && item.photos.length > 0
+        ? Array.from({ length: Math.ceil(item.photos.length / 6) }, (_, index) => item.photos.slice(index * 6, index * 6 + 6))
+        : [[] as DeshazoInspectionPhoto[]]
+
+      photoChunks.forEach((photos, chunkIndex) => {
+        const itemChunk = {
+          ...item,
+          photos,
+          notes: chunkIndex === 0 ? item.notes : '',
+          label: chunkIndex === 0 ? item.label : `${item.label} (continued)`,
+        }
+        blocks.push({
+          html: renderSectionedItemGroup(
+            { sectionName: group.sectionName, items: [itemChunk] },
+            itemLabel,
+            includePhotos,
+            { showHeader: false, totalCount: group.items.length, forceLongLayout: options.forceLongLayout },
+          ),
+          estimatedHeight: 18 + estimateSectionedItemHeight(itemChunk, includePhotos),
+        })
       })
-    }
+    })
 
     return blocks
   }
@@ -1390,7 +1397,8 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     stats.repairCount === 0 &&
     stats.satisfactoryPointCount === 0 &&
     stats.safetyMonitorCount === 0 &&
-    stats.naPointCount === 0
+    stats.naPointCount === 0 &&
+    sections.length === 0
 
   const renderZeroCountSection = (section: ResolvedSection) => `
     <section class="zero-section">
@@ -1489,41 +1497,28 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     const actionBlocks = groupItemsBySection(actionItems).flatMap((group) =>
       chunkSectionedGroupBlocks(group, 'Repair item', true),
     )
-    followUpBlocks.push(...attachTitleToFirstBlock(
-      '<div class="page2-title page2-title-repair">ACTION LIST - REPAIR ITEMS</div>',
-      38,
-      actionBlocks,
-    ))
+    followUpBlocks.push(makeTitleBlock('<div class="page2-title page2-title-repair">ACTION LIST - REPAIR ITEMS</div>'), ...actionBlocks)
   }
 
   if (safetyItems.length > 0) {
     const safetyBlocks = groupItemsBySection(safetyItems).flatMap((group) =>
       chunkSectionedGroupBlocks(group, 'Safety item', true, { forceLongLayout: true }),
     )
-    followUpBlocks.push(...attachTitleToFirstBlock(
-      `<div class="page2-title page2-title-safety ${actionItems.length ? 'page2-title-after-list' : ''}">SAFETY ITEMS</div>`,
-      38,
-      safetyBlocks,
-    ))
+    followUpBlocks.push(makeTitleBlock(`<div class="page2-title page2-title-safety ${actionItems.length ? 'page2-title-after-list' : ''}">SAFETY ITEMS</div>`), ...safetyBlocks)
   }
 
   if (notesAndPhotoItems.length > 0) {
     const notesBlocks = groupItemsBySection(notesAndPhotoItems).flatMap((group) =>
       chunkSectionedGroupBlocks(group, 'item'),
     )
-    followUpBlocks.push(...attachTitleToFirstBlock(
-      `<div class="page2-title ${actionItems.length || safetyItems.length ? 'page2-title-notes' : ''}">NOTES AND PHOTOS</div>`,
-      38,
-      notesBlocks,
-    ))
+    followUpBlocks.push(makeTitleBlock(`<div class="page2-title ${actionItems.length || safetyItems.length ? 'page2-title-notes' : ''}">NOTES AND PHOTOS</div>`), ...notesBlocks)
   }
 
   if (photos.length > 0) {
-    followUpBlocks.push(...attachTitleToFirstBlock(
-      `<div class="page2-title ${actionItems.length || safetyItems.length || notesAndPhotoItems.length ? 'page2-title-pictures' : 'page2-title-pictures-only'}">ADDITIONAL DETAILS - PICTURES</div>`,
-      38,
-      chunkPhotoBlocks(photos),
-    ))
+    followUpBlocks.push(
+      makeTitleBlock(`<div class="page2-title ${actionItems.length || safetyItems.length || notesAndPhotoItems.length ? 'page2-title-pictures' : 'page2-title-pictures-only'}">ADDITIONAL DETAILS - PICTURES</div>`),
+      ...chunkPhotoBlocks(photos),
+    )
   }
 
   const remainingPageContents = packPageBlocks([...continuationBlocks, ...followUpBlocks])
@@ -1728,6 +1723,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .status-danger { background: #f7c7c7; color: #a61616; }
     .status-monitor { background: #fbf4bf; color: #8b7a00; }
+    .status-plain { justify-self: end; width: auto; min-width: 16px; background: transparent; color: #171821; font-weight: 700; }
     .page2-header { display: grid; grid-template-columns: 250px 1fr; align-items: start; gap: 24px; padding: 0 0 9px; border-bottom: 3px solid #f0aa2e; }
     .page2-brand { font-size: 30px; font-weight: 900; letter-spacing: -1px; line-height: .9; color: #050505; }
     .page2-brand span { color: #f0aa2e; }
@@ -1763,6 +1759,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .page2-status-danger { background: #e8c7c9; color: #9d1c1c; }
     .page2-status-monitor { background: #fbf4bf; color: #8b7a00; }
+    .page2-status-plain { min-width: 16px; margin-left: 0; background: transparent; color: #171821; font-weight: 700; }
     .page2-action-photos { display: grid; grid-template-columns: repeat(3, 164px); gap: 8px 10px; margin: 9px 0 0 18px; }
     .page2-action-photo { position: relative; width: 164px; height: 132px; margin: 0; background: #ecdcdc; overflow: hidden; }
     .page2-action-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
