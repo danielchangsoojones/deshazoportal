@@ -5,7 +5,6 @@ import JSZip from 'jszip'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
-import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   DESHAZO_PDF_PAGE_HEIGHT_PX,
   DESHAZO_PDF_PAGE_WIDTH_PX,
@@ -21,7 +20,6 @@ import {
   getSavedDeshazoInspectionReport,
   getSavedDeshazoInspectionReports,
 } from '../lib/deshazoExternalReports'
-import { getCurrentUserTag } from '../lib/userTags'
 import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 
 const menuItems = [
@@ -251,12 +249,6 @@ export default function DeshazoExternalReports() {
         const nextUser = data.user
         if (!nextUser) {
           navigate(customerPath('/login'))
-          return
-        }
-
-        const userTag = await getCurrentUserTag(nextUser.id)
-        if (userTag !== 'developer') {
-          navigate(customerPath('/dashboard'))
           return
         }
 
@@ -496,7 +488,6 @@ export default function DeshazoExternalReports() {
                 <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
                   DESHA<span className="text-[#f2b43f]">Z</span>O
                 </div>
-                <DeveloperBadge className="text-[11px]" />
               </div>
               <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#8b92a1]">
                 Recent synced work orders from Supabase
