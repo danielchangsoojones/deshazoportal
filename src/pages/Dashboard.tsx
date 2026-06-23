@@ -37,7 +37,7 @@ const portalCards = [
   },
   {
     eyebrow: 'Documents',
-    title: 'Documents',
+    title: 'Document Reports',
     description: 'Download maintenance reports, summaries, and supporting PDFs from one place.',
     href: '/documents-reports',
     developerOnly: true,
@@ -55,9 +55,9 @@ const portalCards = [
     href: '/custom-reports',
   },
   {
-    eyebrow: 'Operations',
-    title: 'Work Orders',
-    description: 'Open synced DeShazo work orders from Supabase and drill into inspection ticket PDFs.',
+    eyebrow: 'Documents',
+    title: 'Documents',
+    description: 'Open synced DeShazo documents from Supabase and drill into inspection ticket PDFs.',
     href: '/deshazo-work-orders',
   },
   {

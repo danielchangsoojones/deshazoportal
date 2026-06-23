@@ -20,9 +20,9 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents', href: '/documents-reports' },
+  { label: 'Document Reports', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
-  { label: 'Work Orders', href: '/deshazo-work-orders' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -73,7 +73,7 @@ export default function DocumentsReports() {
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
 
-  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Documents')
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Document Reports')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {

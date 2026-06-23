@@ -20,9 +20,9 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents', href: '/documents-reports' },
+  { label: 'Document Reports', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
-  { label: 'Work Orders', href: '/deshazo-work-orders' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -193,12 +193,12 @@ export default function DeshazoWorkOrders() {
       setLastSyncAt(latestSyncAt)
       setMessage(
         result.totalCount > 0
-          ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved work orders from Supabase.`
-          : 'No saved work orders found yet.',
+          ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved documents from Supabase.`
+          : 'No saved documents found yet.',
       )
     } catch (error) {
       if (cancelledRef?.cancelled) return
-      setMessage(error instanceof Error ? error.message : 'Saved work orders could not be loaded.')
+      setMessage(error instanceof Error ? error.message : 'Saved documents could not be loaded.')
     } finally {
       if (!cancelledRef?.cancelled) setLoading(false)
     }
@@ -261,7 +261,7 @@ export default function DeshazoWorkOrders() {
 
     for (let pass = 1; pass <= FULL_SYNC_MAX_BACKFILL_PASSES; pass += 1) {
       setMessage(
-        `Backfilling missing work orders from production API... pass ${pass}, ${workOrdersSeen} processed so far.`,
+        `Backfilling missing documents from production API... pass ${pass}, ${workOrdersSeen} processed so far.`,
       )
       const missingResult = await syncDeshazoExternalWorkOrders({
         pageSize: FULL_SYNC_MISSING_BATCH_SIZE,
@@ -304,12 +304,12 @@ export default function DeshazoWorkOrders() {
   ) => {
     const isFetchAll = !maxPages && !latestByDate && !nextMissingByDate
     const scopeText = isFetchAll
-      ? `all missing work orders from the full source list in batches of ${FULL_SYNC_MISSING_BATCH_SIZE}`
+      ? `all missing documents from the full source list in batches of ${FULL_SYNC_MISSING_BATCH_SIZE}`
       : nextMissingByDate
-      ? `the next ${pageSize} newest work orders that are not already saved`
+      ? `the next ${pageSize} newest documents that are not already saved`
       : maxPages
-        ? `${pageSize} work orders from source page ${page}`
-        : `all work orders using page size ${pageSize}`
+        ? `${pageSize} documents from source page ${page}`
+        : `all documents using page size ${pageSize}`
     const confirmed = window.confirm(
       `This will call the production DeShazo sync API and save/update ${scopeText} in Supabase. Continue?`,
     )
@@ -324,10 +324,10 @@ export default function DeshazoWorkOrders() {
       const failureText = result.failures?.length ? ` ${result.failures.length} failures returned.` : ''
       await loadWorkOrders()
       setMessage(
-        `Sync complete: ${result.workOrdersSeen} work orders and ${result.reportsSeen} reports processed.${failureText}`,
+        `Sync complete: ${result.workOrdersSeen} documents and ${result.reportsSeen} reports processed.${failureText}`,
       )
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'External work order sync failed.')
+      setMessage(error instanceof Error ? error.message : 'External document sync failed.')
     } finally {
       setSyncing(false)
     }
@@ -337,7 +337,7 @@ export default function DeshazoWorkOrders() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
         <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
-          Loading work orders...
+          Loading documents...
         </div>
       </div>
     )
@@ -425,7 +425,7 @@ export default function DeshazoWorkOrders() {
                 DESHA<span className="text-[#f2b43f]">Z</span>O
               </div>
               <p className="mt-2 text-[13px] font-bold uppercase tracking-[0.02em] text-[#8a91a3]">
-                External Work Orders
+                Documents
               </p>
             </div>
 
@@ -443,7 +443,7 @@ export default function DeshazoWorkOrders() {
           <section className="rounded-[26px] border border-[var(--deshazo-border)] bg-white/78 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] sm:p-5">
             <div className="mb-5 grid gap-3 md:grid-cols-3">
               <div className="rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
-                <p className="text-[12px] font-black uppercase tracking-[0.08em] text-[#8a91a3]">Saved Work Orders</p>
+                <p className="text-[12px] font-black uppercase tracking-[0.08em] text-[#8a91a3]">Saved Documents</p>
                 <p className="mt-2 text-[30px] font-black leading-none tracking-[-0.03em] text-[var(--deshazo-blue)]">
                   {totalCount.toLocaleString()}
                 </p>
@@ -468,7 +468,7 @@ export default function DeshazoWorkOrders() {
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="text-[24px] font-black leading-tight tracking-[-0.025em] text-[var(--deshazo-text)] sm:text-[28px]">
-                    Work Orders
+                    Documents
                   </div>
                   <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.58)]">
                     Search by D-number, job number, customer, or location.
@@ -480,7 +480,7 @@ export default function DeshazoWorkOrders() {
                     <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
                       <button
                         type="button"
-                        onClick={() => handleSync('all work orders', FULL_SYNC_MISSING_BATCH_SIZE)}
+                        onClick={() => handleSync('all documents', FULL_SYNC_MISSING_BATCH_SIZE)}
                         disabled={syncing}
                         className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-[#4f9879] px-4 py-2 text-sm font-black text-white shadow-[0_12px_26px_-20px_rgba(79,152,121,0.7)] transition hover:bg-[#43886c] disabled:cursor-not-allowed disabled:opacity-55"
                       >
@@ -494,7 +494,7 @@ export default function DeshazoWorkOrders() {
                       <input
                         value={search}
                         onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Search work orders..."
+                        placeholder="Search documents..."
                         className="h-11 w-full min-w-0 rounded-md border border-[#cfd7e8] bg-[#fbfcff] px-4 pr-10 text-sm font-semibold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#98a0b2] focus:border-[var(--deshazo-blue)] focus:bg-white focus:shadow-[0_0_0_3px_rgba(47,86,166,0.1)]"
                       />
                       {search || submittedSearch ? (

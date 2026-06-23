@@ -38,11 +38,11 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
   return useMemo(
     () =>
       menuItems
-        .filter((item) => userTag === 'developer' || item.label !== 'Documents')
+        .filter((item) => userTag === 'developer' || item.label !== 'Document Reports')
         .map((item) => ({
           ...item,
           href: item.href?.startsWith('/') ? customerPath(item.href) : item.href,
-          developerOnly: item.label === 'Documents',
+          developerOnly: item.label === 'Document Reports',
           active: item.label === activeKey || item.href === activeKey,
         })),
     [activeKey, customerPath, menuItems, userTag],
