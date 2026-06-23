@@ -26,6 +26,8 @@ export default function AddNewUser() {
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
+  const customerLoginPath = customerPath('/login')
+  const customerLoginUrl = `https://portal.blockstampsf.com${customerLoginPath}`
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Add User')
 
@@ -163,12 +165,12 @@ export default function AddNewUser() {
             <p className="text-[16px] leading-7 text-[rgba(21,24,33,0.75)]">
               To add a new user, have them visit the link below to sign up:{' '}
               <a
-                href="https://portal.blockstampsf.com/login"
+                href={customerLoginUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-semibold text-[var(--deshazo-blue)] hover:underline"
               >
-                portal.blockstampsf.com/login
+                portal.blockstampsf.com{customerLoginPath}
               </a>
             </p>
           </section>
