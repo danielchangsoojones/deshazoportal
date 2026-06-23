@@ -1400,7 +1400,7 @@ export default function AssetInfo() {
           </aside>
         )}
 
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:h-[calc(100vh-60px)] lg:px-10">
+        <section className="flex min-w-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-10">
           <div className="mb-6">
             <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
               DESHA<span className="text-[#f2b43f]">Z</span>O
@@ -1472,7 +1472,7 @@ export default function AssetInfo() {
             </button>
           </div>
 
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
+          <section className="flex flex-col rounded-[14px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
             <div className="border-b border-[var(--deshazo-border)] px-4 pt-3">
               <div className="flex flex-wrap gap-2">
                 {tabs.map((tab) => (
@@ -1492,7 +1492,7 @@ export default function AssetInfo() {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
+            <div className="px-4 py-4">
               {loading ? (
                 <div className="space-y-3">
                   <div className="h-12 animate-pulse rounded bg-[var(--deshazo-surface)]" />
