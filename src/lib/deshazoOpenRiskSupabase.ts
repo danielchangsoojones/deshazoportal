@@ -80,6 +80,17 @@ type IssueViewRow = {
   remark_sort?: number | null
 }
 
+type AssetSummaryViewRow = {
+  unit_id: string
+  unit_name: string | null
+  warehouse_location: string | null
+  interior_location: string | null
+  inspection_date: string | null
+  safety_issue_count: number | null
+  monitor_issue_count: number | null
+  total_issue_count: number | null
+}
+
 type SupabaseQueryBuilder = {
   eq: (column: string, value: string) => SupabaseQueryBuilder
   in: (column: string, values: readonly string[]) => SupabaseQueryBuilder
@@ -545,6 +556,57 @@ async function loadDatasetFromTables(customer: string): Promise<OpenRiskDataset>
   }
 }
 
+async function loadDatasetFromSummaryView(customer: string): Promise<OpenRiskDataset> {
+  const locationLookup = await getCustomerLocationLookup(customer)
+  const rows = await fetchAll<AssetSummaryViewRow>(
+    'deshazo_open_risk_asset_summaries',
+    'unit_id,unit_name,warehouse_location,interior_location,inspection_date,safety_issue_count,monitor_issue_count,total_issue_count',
+    (query) => query.eq('customer', customer),
+    1000,
+  )
+
+  let totalSafetyIssues = 0
+  let totalMonitorIssues = 0
+
+  const assets = rows.map<AssetRecord>((row, sortIndex) => {
+    const safetyIssueCount = row.safety_issue_count ?? 0
+    const monitorIssueCount = row.monitor_issue_count ?? 0
+    totalSafetyIssues += safetyIssueCount
+    totalMonitorIssues += monitorIssueCount
+
+    const locationOption = getCanonicalLocationOption(row.warehouse_location, locationLookup.aliases)
+    const dNumber = normalizeText(row.unit_id).toUpperCase()
+    const unitName = normalizeText(row.unit_name) || dNumber
+
+    return {
+      unit: {
+        unit_id: dNumber,
+        unit_name: unitName,
+        warehouse_location: locationOption?.label ?? normalizeText(row.warehouse_location),
+        interior_location: normalizeText(row.interior_location),
+        inspection_date: formatDateLabel(row.inspection_date),
+        safety_issue_count: safetyIssueCount,
+        monitor_issue_count: monitorIssueCount,
+      },
+      issues: [],
+      sortIndex,
+    }
+  })
+
+  assets.sort((left, right) => {
+    const leftTotal = left.unit.safety_issue_count + left.unit.monitor_issue_count
+    const rightTotal = right.unit.safety_issue_count + right.unit.monitor_issue_count
+    return rightTotal - leftTotal || left.unit.unit_id.localeCompare(right.unit.unit_id)
+  })
+
+  return {
+    assets,
+    totalSafetyIssues,
+    totalMonitorIssues,
+    loadedAt: Date.now(),
+  }
+}
+
 async function loadDataset(customer?: string) {
   const selectedCustomer = resolveSelectedCustomer(customer)
   const now = Date.now()
@@ -559,7 +621,14 @@ async function loadDataset(customer?: string) {
   pendingDataset = (async () => {
     await requireAuthenticatedSession()
 
-    cachedDataset = await loadDatasetFromTables(selectedCustomer)
+    try {
+      cachedDataset = await loadDatasetFromSummaryView(selectedCustomer)
+    } catch (error) {
+      if (!isMissingViewError(error)) {
+        throw error
+      }
+      cachedDataset = await loadDatasetFromTables(selectedCustomer)
+    }
     cachedDatasetCustomer = selectedCustomer
     pendingDataset = null
     pendingDatasetCustomer = ''
