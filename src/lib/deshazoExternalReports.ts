@@ -441,17 +441,24 @@ function getLocationTermsFromOptionValues(locationValues: string[]) {
   return locationValues.flatMap((value) => buildLocationSearchTerms(value.replace(/_/g, ' ')))
 }
 
+function escapeLikeSearchTerm(term: string) {
+  return term.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
+function buildIlikeFilter(column: string, term: string) {
+  return `${column}.ilike."%${escapeLikeSearchTerm(term)}%"`
+}
+
 function buildWorkOrderLocationFilter(locationValues: string[]) {
   const locationTerms = Array.from(new Set(getLocationTermsFromOptionValues(locationValues)))
   if (locationTerms.length === 0) return ''
 
   return locationTerms
     .flatMap((term) => {
-      const escapedTerm = term.replaceAll('%', '\\%').replaceAll('_', '\\_')
       return [
-        `customer_location_name.ilike.%${escapedTerm}%`,
-        `service_location_name.ilike.%${escapedTerm}%`,
-        `bill_to_city.ilike.%${escapedTerm}%`,
+        buildIlikeFilter('customer_location_name', term),
+        buildIlikeFilter('service_location_name', term),
+        buildIlikeFilter('bill_to_city', term),
       ]
     })
     .join(',')
@@ -563,10 +570,9 @@ export async function getSavedDeshazoRepairReportsByCity(city: string, customer?
   if (searchTerms.length === 0) return []
 
   const locationFilters = searchTerms.flatMap((term) => {
-    const escapedTerm = term.replaceAll('%', '\\%').replaceAll('_', '\\_')
     return [
-      `customer_location_name.ilike.%${escapedTerm}%`,
-      `service_location_name.ilike.%${escapedTerm}%`,
+      buildIlikeFilter('customer_location_name', term),
+      buildIlikeFilter('service_location_name', term),
     ]
   })
 
@@ -620,7 +626,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
 
   const selectedCustomer = resolveSelectedCustomer(customer)
   const trimmedSearch = search.trim()
-  const escapedSearch = trimmedSearch.replaceAll('%', '\\%').replaceAll('_', '\\_')
+  const escapedSearch = escapeLikeSearchTerm(trimmedSearch)
   const matchingDNumberWorkOrderIds = trimmedSearch
     ? await getWorkOrderIdsMatchingDNumberSearch(escapedSearch, selectedCustomer)
     : []
@@ -639,7 +645,7 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
 
   if (trimmedSearch) {
     const searchFilters = [
-      `job_no.ilike.%${escapedSearch}%`,
+      `job_no.ilike."%${escapedSearch}%"`,
     ]
     const matchingWorkOrderIds = Array.from(new Set(matchingDNumberWorkOrderIds))
     if (matchingWorkOrderIds.length > 0) {
