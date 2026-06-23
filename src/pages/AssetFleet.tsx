@@ -33,32 +33,39 @@ const defaultAssetsSummary: AssetsServicedAnalytics = {
   serviced_assets: [],
 }
 
-const buildProgressGradient = (percent: number) =>
-  `conic-gradient(#f53822 0deg ${percent * 3.6}deg, #efb634 ${percent * 3.6}deg 360deg)`
+const clampPercent = (value: number) => Math.max(0, Math.min(100, value))
 
-const getSafetyPercent = (safetyIssues = 0, totalIssues = 0) =>
-  totalIssues > 0 ? Math.round((safetyIssues / totalIssues) * 100) : 0
+const buildProgressGradient = (percent: number) => {
+  const clampedPercent = clampPercent(percent)
+  const progressDegrees = clampedPercent * 3.6
+  return `conic-gradient(#22a06b 0deg ${progressDegrees}deg, #e6ebf2 ${progressDegrees}deg 360deg)`
+}
+
+const getProgressPercent = (safetyIssues = 0, totalIssues = 0) =>
+  totalIssues > 0 ? clampPercent(Math.round((safetyIssues / totalIssues) * 100)) : 0
 
 function ProgressRing({ percent, size = 56 }: { percent: number; size?: number }) {
   const innerSize = size - 10
+  const clampedPercent = clampPercent(percent)
 
   return (
     <div
       className="relative flex items-center justify-center rounded-full"
-      style={{ width: `${size}px`, height: `${size}px`, background: buildProgressGradient(percent) }}
+      aria-label={`${clampedPercent}% complete`}
+      style={{ width: `${size}px`, height: `${size}px`, background: buildProgressGradient(clampedPercent) }}
     >
       <div
-        className="flex items-center justify-center rounded-full bg-white font-extrabold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]"
+        className="flex items-center justify-center rounded-full bg-white font-extrabold text-[#16744d] shadow-[inset_0_0_0_1px_rgba(34,160,107,0.12)]"
         style={{ width: `${innerSize}px`, height: `${innerSize}px`, fontSize: size < 64 ? '16px' : '20px' }}
       >
-        {percent}%
+        {clampedPercent}%
       </div>
     </div>
   )
 }
 
 function AssetCard({ asset, customerName }: { asset: ServicedAsset; customerName: string }) {
-  const percent = getSafetyPercent(asset.safety_issue_count, asset.total_open_issues)
+  const percent = getProgressPercent(asset.safety_issue_count, asset.total_open_issues)
   const customerPath = useCustomerPath()
 
   return (
@@ -164,7 +171,7 @@ export default function AssetFleet() {
     .slice(0, 2)
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
-  const overallPercent = getSafetyPercent(assetSummary.safety_issue_count, assetSummary.total_open_issues)
+  const overallPercent = getProgressPercent(assetSummary.safety_issue_count, assetSummary.total_open_issues)
   const customerName = getCustomerDisplayName(selectedCustomer)
 
   return (
