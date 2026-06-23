@@ -26,6 +26,12 @@ const internalCards = [
     description: 'Chat with quote context, inspection reports, and equipment manuals to build cited parts guidance.',
     href: '/equipment-notebook-llm',
   },
+  {
+    eyebrow: 'Portals',
+    title: 'Customer Portals',
+    description: 'Search the master customer list and open each customer portal dashboard directly.',
+    href: '/customer-portals',
+  },
 ]
 
 export default function DeshazoInternalDashboard() {
