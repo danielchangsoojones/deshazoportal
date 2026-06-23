@@ -3,7 +3,10 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getEditableInspectionReport, type EditableInspectionReport } from '../lib/editableInspectionReports'
+import { useCustomerPath } from '../lib/customerRouting'
 import {
   askNotebook,
   deleteNotebookSource,
@@ -50,10 +53,10 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents', href: '/documents-reports' },
+  { label: 'Document Reports', href: '/documents-reports' },
   { label: 'Equipment Notebook LLM', href: '/equipment-notebook-llm' },
   { label: 'Custom Reports', href: '/custom-reports' },
-  { label: 'Work Orders', href: '/deshazo-work-orders' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -133,7 +136,7 @@ const rankInspections = (query: string, inspections: JobsQuotingItem[]): RankedI
         score += 20
         reasons.push(`${inspection.repairCount} repair item${inspection.repairCount === 1 ? '' : 's'}`)
       }
-      if (/wabash|3nf005|harrington|hoist|cf4|chain|monorail/i.test(getInspectionSearchText(inspection))) {
+      if (/3nf005|harrington|hoist|cf4|chain|monorail/i.test(getInspectionSearchText(inspection))) {
         score += 18
         reasons.push('equipment match')
       }
@@ -315,18 +318,12 @@ export default function EquipmentNotebookLLM() {
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const launchedQuoteIdRef = useRef<string | null>(null)
   const navigate = useNavigate()
+  const customerPath = useCustomerPath()
   const [searchParams] = useSearchParams()
   const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
   const editableReportId = searchParams.get('editableReportId')?.trim() || ''
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.label === 'Equipment Notebook LLM',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Equipment Notebook LLM')
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
@@ -407,18 +404,18 @@ export default function EquipmentNotebookLLM() {
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight })
@@ -787,7 +784,10 @@ export default function EquipmentNotebookLLM() {
                           : 'text-[#647084] hover:bg-[#f4f7fb] hover:text-[#253241]'
                       }`}
                     >
-                      <span>{item.label}</span>
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <span className="truncate">{item.label}</span>
+                        {item.developerOnly ? <DeveloperBadge /> : null}
+                      </span>
                     </Link>
                   ))}
                 </nav>

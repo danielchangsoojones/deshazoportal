@@ -1,13 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
-import { portalLocationOptions } from '../lib/portalLocations'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
+import { getCustomerLocationOptions, type PortalLocationOption } from '../lib/portalLocations'
+import { getCurrentUserTag } from '../lib/userTags'
 import {
   getAllPDFs,
   isPortalApiConfigured,
   type PortalPdfDocument,
 } from '../lib/portalApi'
+import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -16,9 +20,9 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents', href: '/documents-reports' },
+  { label: 'Document Reports', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
-  { label: 'Work Orders', href: '/deshazo-work-orders' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -56,6 +60,8 @@ export default function DocumentsReports() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
+  const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
+  const [locationsLoading, setLocationsLoading] = useState(true)
   const [selectedLocations, setSelectedLocations] = useState<string[]>([])
   const [locationMenuOpen, setLocationMenuOpen] = useState(false)
   const [documents, setDocuments] = useState<PortalPdfDocument[]>([])
@@ -64,30 +70,60 @@ export default function DocumentsReports() {
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedPdfUrl, setSelectedPdfUrl] = useState('')
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerPath = useCustomerPath()
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.label === 'Documents',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Document Reports')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
+        const userTag = await getCurrentUserTag(data.user.id)
+        if (userTag !== 'developer') {
+          setAuthLoading(false)
+          navigate(customerPath('/dashboard'))
+          return
+        }
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadLocations() {
+      try {
+        setLocationsLoading(true)
+        const nextLocations = await getCustomerLocationOptions(selectedCustomer)
+        if (cancelled) return
+        setLocationOptions(nextLocations)
+        setSelectedLocations((current) =>
+          current.filter((locationValue) => nextLocations.some((location) => location.value === locationValue)),
+        )
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Unable to load customer locations.')
+          setLocationOptions([])
+          setSelectedLocations([])
+        }
+      } finally {
+        if (!cancelled) setLocationsLoading(false)
+      }
+    }
+
+    void loadLocations()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCustomer])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -119,7 +155,7 @@ export default function DocumentsReports() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (authLoading) {
@@ -155,7 +191,7 @@ export default function DocumentsReports() {
     documents.find((item) => item.pdf === selectedPdfUrl) ||
     pageDocuments[0] ||
     null
-  const selectedLocationLabels = portalLocationOptions.filter((option) => selectedLocations.includes(option.value))
+  const selectedLocationLabels = locationOptions.filter((option) => selectedLocations.includes(option.value))
 
   const toggleLocation = (locationValue: string) => {
     setSelectedLocations((current) =>
@@ -203,7 +239,10 @@ export default function DocumentsReports() {
                             : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                         }`}
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </Link>
                     ) : (
@@ -212,7 +251,10 @@ export default function DocumentsReports() {
                         type="button"
                         className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium text-[rgba(21,24,33,0.7)] transition hover:bg-white"
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </button>
                     ),
@@ -326,7 +368,9 @@ export default function DocumentsReports() {
                     onClick={() => setLocationMenuOpen((open) => !open)}
                     className="flex min-h-10 w-full flex-wrap items-center gap-2 rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-left text-sm text-[var(--deshazo-text)] outline-none transition focus:border-[var(--deshazo-blue)]"
                   >
-                    {selectedLocationLabels.length > 0 ? (
+                    {locationsLoading ? (
+                      <span className="text-[rgba(21,24,33,0.45)]">Loading locations...</span>
+                    ) : selectedLocationLabels.length > 0 ? (
                       selectedLocationLabels.map((location) => (
                         <span
                           key={location.value}
@@ -360,7 +404,15 @@ export default function DocumentsReports() {
 
                   {locationMenuOpen ? (
                     <div className="absolute right-0 top-[calc(100%+8px)] z-20 max-h-72 w-full overflow-y-auto rounded-[14px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-30px_rgba(47,86,166,0.35)]">
-                      {portalLocationOptions.map((location) => {
+	                      {locationsLoading ? (
+	                        <div className="px-3 py-2 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+	                          Loading locations...
+	                        </div>
+	                      ) : locationOptions.length === 0 ? (
+	                        <div className="px-3 py-2 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+	                          No locations found.
+	                        </div>
+	                      ) : locationOptions.map((location) => {
                         const isSelected = selectedLocations.includes(location.value)
 
                         return (

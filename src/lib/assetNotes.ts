@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 type AssetNoteRow = {
   id: string
   unit_id: string
+  customer: string
   author_id: string
   author_name: string
   author_email: string
@@ -13,6 +14,7 @@ type AssetNoteRow = {
 export type AssetNoteRecord = {
   id: string
   unitId: string
+  customer: string
   authorId: string
   authorName: string
   authorEmail: string
@@ -23,6 +25,7 @@ export type AssetNoteRecord = {
 const mapAssetNote = (row: AssetNoteRow): AssetNoteRecord => ({
   id: row.id,
   unitId: row.unit_id,
+  customer: row.customer,
   authorId: row.author_id,
   authorName: row.author_name,
   authorEmail: row.author_email,
@@ -30,15 +33,19 @@ const mapAssetNote = (row: AssetNoteRow): AssetNoteRecord => ({
   createdAt: row.created_at,
 })
 
-export async function listAssetNotes(unitId: string) {
+export async function listAssetNotes(unitId: string, customer: string) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
+  }
+  if (!customer) {
+    throw new Error('A customer is required to load notes.')
   }
 
   const { data, error } = await supabase
     .from('asset_notes')
-    .select('id, unit_id, author_id, author_name, author_email, note_text, created_at')
+    .select('id, unit_id, customer, author_id, author_name, author_email, note_text, created_at')
     .eq('unit_id', unitId)
+    .eq('customer', customer)
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -50,6 +57,7 @@ export async function listAssetNotes(unitId: string) {
 
 export async function createAssetNote(input: {
   unitId: string
+  customer: string
   authorId: string
   authorName: string
   authorEmail: string
@@ -58,17 +66,21 @@ export async function createAssetNote(input: {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
+  if (!input.customer) {
+    throw new Error('A customer is required to save notes.')
+  }
 
   const { data, error } = await supabase
     .from('asset_notes')
     .insert({
       unit_id: input.unitId,
+      customer: input.customer,
       author_id: input.authorId,
       author_name: input.authorName,
       author_email: input.authorEmail,
       note_text: input.text,
     })
-    .select('id, unit_id, author_id, author_name, author_email, note_text, created_at')
+    .select('id, unit_id, customer, author_id, author_name, author_email, note_text, created_at')
     .single()
 
   if (error) {

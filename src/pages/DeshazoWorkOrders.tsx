@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   type DeshazoSavedWorkOrderListItem,
@@ -11,6 +12,7 @@ import {
   syncDeshazoExternalWorkOrders,
 } from '../lib/deshazoExternalReports'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
+import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -18,9 +20,9 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents', href: '/documents-reports' },
+  { label: 'Document Reports', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
-  { label: 'Work Orders', href: '/deshazo-work-orders' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -100,10 +102,22 @@ function getAssignedTechnicians(workOrder: DeshazoSavedWorkOrderListItem) {
 }
 
 function getTypeBadgeClass(jobType: string) {
-  const normalizedType = jobType.toLowerCase()
-  if (normalizedType.includes('service')) return 'bg-[#4f9879] text-white'
-  if (normalizedType.includes('mod')) return 'bg-[#f47f2f] text-white'
-  return 'bg-[#4f7fd6] text-white'
+  const normalizedType = jobType.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (normalizedType.includes('inspection')) return 'border-[#b8c9f5] bg-[#eef3ff] text-[#315aa7]'
+  if (normalizedType.includes('warranty')) return 'border-[#d3d8e2] bg-[#f4f6fa] text-[#616a78]'
+  if (normalizedType.includes('service call')) return 'border-[#b8dece] bg-[#edf8f3] text-[#367861]'
+  if (normalizedType.includes('installation')) return 'border-[#b5e8df] bg-[#ecfbf8] text-[#248976]'
+  if (
+    normalizedType.includes('retail parts') ||
+    normalizedType.includes('repair') ||
+    normalizedType.includes('load test') ||
+    normalizedType.includes('quoted repair') ||
+    normalizedType.includes('site agreement') ||
+    normalizedType.includes('emergency after hour')
+  ) {
+    return 'border-[#f6d58e] bg-[#fff7e8] text-[#a96d09]'
+  }
+  return 'border-[#f6d58e] bg-[#fff7e8] text-[#a96d09]'
 }
 
 export default function DeshazoWorkOrders() {
@@ -123,21 +137,17 @@ export default function DeshazoWorkOrders() {
   const lastSyncAtRef = useRef('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerName = getCustomerDisplayName(selectedCustomer)
+  const customerPath = useCustomerPath()
   const canFetchAll = userTag === 'developer'
   const searchIsPending = search !== submittedSearch || (loading && submittedSearch.trim().length > 0)
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.href === '/deshazo-work-orders',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, '/deshazo-work-orders')
 
   const loadWorkOrders = useCallback(async (cancelledRef?: { cancelled: boolean }) => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
 
@@ -152,14 +162,14 @@ export default function DeshazoWorkOrders() {
       }
 
       if (!nextUser) {
-        navigate('/login')
+        navigate(customerPath('/login'))
         return
       }
 
       const offset = (currentPage - 1) * WORK_ORDERS_PAGE_SIZE
       const [result, latestSyncAt, nextUserTag] = await Promise.all([
-        getSavedDeshazoWorkOrders(WORK_ORDERS_PAGE_SIZE, submittedSearch, offset),
-        lastSyncAtRef.current ? Promise.resolve(lastSyncAtRef.current) : getDeshazoExternalWorkOrdersLastSync(),
+        getSavedDeshazoWorkOrders(WORK_ORDERS_PAGE_SIZE, submittedSearch, offset, selectedCustomer),
+        lastSyncAtRef.current ? Promise.resolve(lastSyncAtRef.current) : getDeshazoExternalWorkOrdersLastSync(selectedCustomer),
         userTagRef.current ? Promise.resolve(userTagRef.current) : getCurrentUserTag(nextUser.id),
       ])
       if (cancelledRef?.cancelled) return
@@ -183,20 +193,20 @@ export default function DeshazoWorkOrders() {
       setLastSyncAt(latestSyncAt)
       setMessage(
         result.totalCount > 0
-          ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved work orders from Supabase.`
-          : 'No saved work orders found yet.',
+          ? `Showing ${firstVisibleRow}-${lastVisibleRow} of ${result.totalCount} saved documents from Supabase.`
+          : 'No saved documents found yet.',
       )
     } catch (error) {
       if (cancelledRef?.cancelled) return
-      setMessage(error instanceof Error ? error.message : 'Saved work orders could not be loaded.')
+      setMessage(error instanceof Error ? error.message : 'Saved documents could not be loaded.')
     } finally {
       if (!cancelledRef?.cancelled) setLoading(false)
     }
-  }, [currentPage, navigate, submittedSearch])
+  }, [currentPage, customerPath, navigate, selectedCustomer, submittedSearch])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
 
@@ -205,7 +215,7 @@ export default function DeshazoWorkOrders() {
     return () => {
       cancelledRef.cancelled = true
     }
-  }, [loadWorkOrders, navigate])
+  }, [customerPath, loadWorkOrders, navigate])
 
   const fullName =
     user?.user_metadata?.full_name ||
@@ -222,7 +232,7 @@ export default function DeshazoWorkOrders() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   useEffect(() => {
@@ -251,7 +261,7 @@ export default function DeshazoWorkOrders() {
 
     for (let pass = 1; pass <= FULL_SYNC_MAX_BACKFILL_PASSES; pass += 1) {
       setMessage(
-        `Backfilling missing work orders from production API... pass ${pass}, ${workOrdersSeen} processed so far.`,
+        `Backfilling missing documents from production API... pass ${pass}, ${workOrdersSeen} processed so far.`,
       )
       const missingResult = await syncDeshazoExternalWorkOrders({
         pageSize: FULL_SYNC_MISSING_BATCH_SIZE,
@@ -294,12 +304,12 @@ export default function DeshazoWorkOrders() {
   ) => {
     const isFetchAll = !maxPages && !latestByDate && !nextMissingByDate
     const scopeText = isFetchAll
-      ? `all missing work orders from the full source list in batches of ${FULL_SYNC_MISSING_BATCH_SIZE}`
+      ? `all missing documents from the full source list in batches of ${FULL_SYNC_MISSING_BATCH_SIZE}`
       : nextMissingByDate
-      ? `the next ${pageSize} newest work orders that are not already saved`
+      ? `the next ${pageSize} newest documents that are not already saved`
       : maxPages
-        ? `${pageSize} work orders from source page ${page}`
-        : `all work orders using page size ${pageSize}`
+        ? `${pageSize} documents from source page ${page}`
+        : `all documents using page size ${pageSize}`
     const confirmed = window.confirm(
       `This will call the production DeShazo sync API and save/update ${scopeText} in Supabase. Continue?`,
     )
@@ -314,10 +324,10 @@ export default function DeshazoWorkOrders() {
       const failureText = result.failures?.length ? ` ${result.failures.length} failures returned.` : ''
       await loadWorkOrders()
       setMessage(
-        `Sync complete: ${result.workOrdersSeen} work orders and ${result.reportsSeen} reports processed.${failureText}`,
+        `Sync complete: ${result.workOrdersSeen} documents and ${result.reportsSeen} reports processed.${failureText}`,
       )
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'External work order sync failed.')
+      setMessage(error instanceof Error ? error.message : 'External document sync failed.')
     } finally {
       setSyncing(false)
     }
@@ -327,7 +337,7 @@ export default function DeshazoWorkOrders() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
         <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
-          Loading work orders...
+          Loading documents...
         </div>
       </div>
     )
@@ -338,6 +348,9 @@ export default function DeshazoWorkOrders() {
   const totalPages = Math.max(1, Math.ceil(totalCount / WORK_ORDERS_PAGE_SIZE))
   const firstRow = totalCount > 0 ? (currentPage - 1) * WORK_ORDERS_PAGE_SIZE + 1 : 0
   const lastRow = Math.min(currentPage * WORK_ORDERS_PAGE_SIZE, totalCount)
+  const currentPageCount = workOrders.length
+  const recentlySyncedCount = canFetchAll ? workOrders.filter(isRecentlySynced).length : 0
+  const assignedVisibleCount = workOrders.filter((workOrder) => getAssignedTechnicians(workOrder)).length
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -406,69 +419,114 @@ export default function DeshazoWorkOrders() {
         )}
 
         <section className="min-w-0 flex-1 bg-[#e9eef8] px-5 py-5 sm:px-8 lg:px-10">
-          <div className="rounded-sm border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)]">
-            <div className="mb-4 flex flex-col gap-3 border-b border-[var(--deshazo-border)] pb-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <h1 className="text-[20px] font-black text-[var(--deshazo-text)]">
-                  Work Orders <span className="text-[15px] font-bold text-[#7a808e]">({totalCount})</span>
-                </h1>
-                <div className="mt-2 inline-flex rounded-sm bg-[#f4b331] px-3 py-1 text-sm font-bold text-white">
-                  Last Sync: {lastSyncAt ? formatDateTime(lastSyncAt) : 'Never'}
-                </div>
+          <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="text-[34px] font-black uppercase leading-none tracking-[-0.035em] text-[#b8bcc8] sm:text-[38px]">
+                DESHA<span className="text-[#f2b43f]">Z</span>O
               </div>
-              <div className="flex w-full flex-col gap-3 lg:max-w-[760px] lg:items-end">
-                {canFetchAll && (
-                  <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleSync('all work orders', FULL_SYNC_MISSING_BATCH_SIZE)}
-                      disabled={syncing}
-                      className="rounded-sm bg-[#4f9879] px-3 py-2 text-sm font-black text-white transition hover:bg-[#43886c] disabled:cursor-not-allowed disabled:opacity-55"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        Fetch All
-                        <DeveloperBadge />
-                      </span>
-                    </button>
+              <p className="mt-2 text-[13px] font-bold uppercase tracking-[0.02em] text-[#8a91a3]">
+                Documents
+              </p>
+            </div>
+
+            <div className="inline-flex w-full flex-col gap-2 rounded-[18px] border border-[var(--deshazo-border)] bg-white/75 px-4 py-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.24)] sm:w-auto sm:min-w-[320px]">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-[12px] font-black uppercase tracking-[0.08em] text-[#8a91a3]">Last Sync</span>
+                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-[#4f9879]" aria-hidden="true" />
+              </div>
+              <p className="text-[15px] font-black text-[var(--deshazo-text)]">
+                {lastSyncAt ? formatDateTime(lastSyncAt) : 'Never synced'}
+              </p>
+            </div>
+          </div>
+
+          <section className="rounded-[26px] border border-[var(--deshazo-border)] bg-white/78 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] sm:p-5">
+            <div className="mb-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
+                <p className="text-[12px] font-black uppercase tracking-[0.08em] text-[#8a91a3]">Saved Documents</p>
+                <p className="mt-2 text-[30px] font-black leading-none tracking-[-0.03em] text-[var(--deshazo-blue)]">
+                  {totalCount.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
+                <p className="text-[12px] font-black uppercase tracking-[0.08em] text-[#8a91a3]">Showing Now</p>
+                <p className="mt-2 text-[30px] font-black leading-none tracking-[-0.03em] text-[var(--deshazo-text)]">
+                  {currentPageCount}
+                </p>
+              </div>
+              <div className="rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
+                <p className="text-[12px] font-black uppercase tracking-[0.08em] text-[#8a91a3]">
+                  {canFetchAll ? 'New Today' : 'Assigned Visible'}
+                </p>
+                <p className="mt-2 text-[30px] font-black leading-none tracking-[-0.03em] text-[#4f9879]">
+                  {canFetchAll ? recentlySyncedCount : assignedVisibleCount}
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-[24px] font-black leading-tight tracking-[-0.025em] text-[var(--deshazo-text)] sm:text-[28px]">
+                    Documents
                   </div>
-                )}
-                <div className="w-full max-w-[440px]">
-                  <div className="relative min-w-0">
-                    <input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Search D-number or job number..."
-                      className="w-full min-w-0 border border-[#bfc7d8] px-3 py-2 pr-9 text-sm font-semibold outline-none focus:border-[var(--deshazo-blue)]"
-                    />
-                    {search || submittedSearch ? (
+                  <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.58)]">
+                    Search by D-number, job number, customer, or location.
+                  </p>
+                </div>
+
+                <div className="flex w-full flex-col gap-3 lg:max-w-[760px] lg:items-end">
+                  {canFetchAll && (
+                    <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
                       <button
                         type="button"
-                        onClick={clearSearch}
-                        className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-[#bfc7d8] bg-[#eef2f8] text-[16px] font-black leading-none text-[#273f7a] shadow-sm transition hover:border-[var(--deshazo-blue)] hover:bg-[#dbe5ff]"
-                        aria-label="Clear search"
-                        title="Clear search"
+                        onClick={() => handleSync('all documents', FULL_SYNC_MISSING_BATCH_SIZE)}
+                        disabled={syncing}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-[#4f9879] px-4 py-2 text-sm font-black text-white shadow-[0_12px_26px_-20px_rgba(79,152,121,0.7)] transition hover:bg-[#43886c] disabled:cursor-not-allowed disabled:opacity-55"
                       >
-                        ×
+                        <span>{syncing ? 'Syncing...' : 'Fetch All'}</span>
+                        <DeveloperBadge />
                       </button>
+                    </div>
+                  )}
+                  <div className="w-full max-w-[500px]">
+                    <div className="relative min-w-0">
+                      <input
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="Search documents..."
+                        className="h-11 w-full min-w-0 rounded-md border border-[#cfd7e8] bg-[#fbfcff] px-4 pr-10 text-sm font-semibold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#98a0b2] focus:border-[var(--deshazo-blue)] focus:bg-white focus:shadow-[0_0_0_3px_rgba(47,86,166,0.1)]"
+                      />
+                      {search || submittedSearch ? (
+                        <button
+                          type="button"
+                          onClick={clearSearch}
+                          className="absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-[#cfd7e8] bg-white text-[16px] font-black leading-none text-[#273f7a] shadow-sm transition hover:border-[var(--deshazo-blue)] hover:bg-[#eef3ff]"
+                          aria-label="Clear search"
+                          title="Clear search"
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </div>
+                    {searchIsPending ? (
+                      <div className="mt-2 flex items-center gap-2 text-[12px] font-bold text-[#5f6675]" role="status">
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-[#f4b331]" aria-hidden="true" />
+                        Searching...
+                      </div>
                     ) : null}
                   </div>
-                  {searchIsPending ? (
-                    <div className="mt-1 flex items-center gap-2 text-[12px] font-bold text-[#5f6675]" role="status">
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-[#f4b331]" aria-hidden="true" />
-                      Searching...
-                    </div>
-                  ) : null}
                 </div>
               </div>
             </div>
 
             {message ? (
-              <div className="mb-4 rounded-md bg-[#f6f8fc] px-3 py-2 text-sm font-semibold text-[rgba(21,24,33,0.72)]">
+              <div className="mb-4 rounded-[14px] border border-[var(--deshazo-border)] bg-[#f7f9fd] px-4 py-3 text-sm font-semibold text-[rgba(21,24,33,0.72)]">
                 {message}
               </div>
             ) : null}
 
-            <div className="mb-3 flex flex-col gap-2 border border-[var(--deshazo-border)] bg-[#f8f9fb] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-3 flex flex-col gap-3 rounded-[16px] border border-[var(--deshazo-border)] bg-[#f8f9fb] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-bold text-[#5f6675]">
                 Rows {firstRow}-{lastRow} of {totalCount}
               </div>
@@ -477,7 +535,7 @@ export default function DeshazoWorkOrders() {
                   type="button"
                   onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                   disabled={currentPage <= 1 || loading}
-                  className="rounded-sm bg-[#f4b331] px-3 py-1.5 text-sm font-black text-white transition hover:bg-[#dfa123] disabled:cursor-not-allowed disabled:opacity-45"
+                  className="rounded-md border border-[#e9c46e] bg-white px-3 py-1.5 text-sm font-black text-[#9d6507] transition hover:bg-[#fff7e8] disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   ‹ Prev
                 </button>
@@ -488,17 +546,18 @@ export default function DeshazoWorkOrders() {
                   type="button"
                   onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                   disabled={currentPage >= totalPages || loading}
-                  className="rounded-sm bg-[#f4b331] px-3 py-1.5 text-sm font-black text-white transition hover:bg-[#dfa123] disabled:cursor-not-allowed disabled:opacity-45"
+                  className="rounded-md border border-[#e9c46e] bg-white px-3 py-1.5 text-sm font-black text-[#9d6507] transition hover:bg-[#fff7e8] disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   Next ›
                 </button>
               </div>
             </div>
 
-            <div className="overflow-auto">
-              <table className="min-w-[1320px] w-full border-collapse text-left text-[14px]">
-                <thead>
-                  <tr className="border-b border-[var(--deshazo-border)] text-[13px] font-black text-[#6d7482]">
+            <div className="overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
+              <div className="overflow-auto">
+                <table className="w-full min-w-[1320px] border-collapse text-left text-[14px]">
+                  <thead>
+                    <tr className="border-b border-[var(--deshazo-border)] bg-[#f7f9fd] text-[12px] font-black uppercase tracking-[0.04em] text-[#6d7482]">
                     <th className="px-3 py-3">Work Order #</th>
                     <th className="px-3 py-3">Type</th>
                     <th className="px-3 py-3">Customer</th>
@@ -508,54 +567,55 @@ export default function DeshazoWorkOrders() {
                     <th className="px-3 py-3">Dates</th>
                     <th className="px-3 py-3">Assigned To</th>
                   </tr>
-                </thead>
-                <tbody>
-                  {workOrders.map((workOrder) => {
-                    const targetHref = `/deshazo-external-reports?workOrderId=${encodeURIComponent(workOrder.workOrderId)}`
-                    const assignedTechnicians = getAssignedTechnicians(workOrder)
-                    return (
-                      <tr
-                        key={workOrder.workOrderId}
-                        onClick={() => navigate(targetHref)}
-                        className="cursor-pointer border-b border-[var(--deshazo-border)] odd:bg-[#f8f9fb] even:bg-white hover:bg-[#eef3ff]"
-                      >
-                        <td className="px-3 py-3 font-black">
-                          <div className="flex items-center gap-2">
-                            <span>{getWorkOrderNumber(workOrder)}</span>
-                            {canFetchAll && isRecentlySynced(workOrder) ? (
-                              <span className="rounded-sm bg-[#4f7fd6] px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.02em] text-white">
-                                New
-                              </span>
-                            ) : null}
-                            {canFetchAll && isRecentlySynced(workOrder) ? <DeveloperBadge /> : null}
-                          </div>
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className={`rounded-sm px-2 py-1 text-sm font-black ${getTypeBadgeClass(workOrder.jobType)}`}>
-                            {workOrder.jobType || 'Inspection'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 font-bold">{workOrder.customerName || 'Wabash'}</td>
-                        <td className="max-w-[290px] truncate px-3 py-3 font-bold">{getCustomerLocation(workOrder)}</td>
-                        <td className="max-w-[260px] truncate px-3 py-3 font-bold">{workOrder.comment || '-'}</td>
-                        <td className="px-3 py-3 font-bold">{workOrder.serviceLocationName || '-'}</td>
-                        <td className="whitespace-nowrap px-3 py-3 font-bold">{formatDateRange(workOrder)}</td>
-                        <td className="px-3 py-3">
-                          {assignedTechnicians ? (
-                            <span className="font-bold text-[var(--deshazo-text)]">{assignedTechnicians}</span>
-                          ) : (
-                            <span className="rounded-sm bg-[#f4b331] px-3 py-2 text-sm font-black text-white">
-                              Show Assigned
+                  </thead>
+                  <tbody>
+                    {workOrders.map((workOrder) => {
+                      const targetHref = `${customerPath('/deshazo-external-reports')}?workOrderId=${encodeURIComponent(workOrder.workOrderId)}`
+                      const assignedTechnicians = getAssignedTechnicians(workOrder)
+                      return (
+                        <tr
+                          key={workOrder.workOrderId}
+                          onClick={() => navigate(targetHref)}
+                          className="group cursor-pointer border-b border-[var(--deshazo-border)] bg-white transition last:border-b-0 odd:bg-[#fbfcff] hover:bg-[#eef3ff]"
+                        >
+                          <td className="px-3 py-4 font-black">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[var(--deshazo-blue)] group-hover:underline">{getWorkOrderNumber(workOrder)}</span>
+                              {canFetchAll && isRecentlySynced(workOrder) ? (
+                                <span className="rounded-full bg-[#eaf1ff] px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.02em] text-[#315aa7]">
+                                  New
+                                </span>
+                              ) : null}
+                              {canFetchAll && isRecentlySynced(workOrder) ? <DeveloperBadge /> : null}
+                            </div>
+                          </td>
+                          <td className="px-3 py-4">
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-black ${getTypeBadgeClass(workOrder.jobType)}`}>
+                              {workOrder.jobType || 'Inspection'}
                             </span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                          </td>
+                          <td className="px-3 py-4 font-bold">{workOrder.customerName || customerName}</td>
+                          <td className="max-w-[290px] truncate px-3 py-4 font-semibold text-[rgba(21,24,33,0.78)]">{getCustomerLocation(workOrder)}</td>
+                          <td className="max-w-[260px] truncate px-3 py-4 font-semibold text-[rgba(21,24,33,0.72)]">{workOrder.comment || '-'}</td>
+                          <td className="px-3 py-4 font-semibold text-[rgba(21,24,33,0.78)]">{workOrder.serviceLocationName || '-'}</td>
+                          <td className="whitespace-nowrap px-3 py-4 font-bold">{formatDateRange(workOrder)}</td>
+                          <td className="px-3 py-4">
+                            {assignedTechnicians ? (
+                              <span className="font-bold text-[var(--deshazo-text)]">{assignedTechnicians}</span>
+                            ) : (
+                              <span className="rounded-full border border-[#f6d58e] bg-[#fff7e8] px-3 py-1 text-xs font-black text-[#a96d09]">
+                                Show Assigned
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </section>
         </section>
       </main>
     </div>

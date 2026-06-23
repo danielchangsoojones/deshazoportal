@@ -76,6 +76,10 @@ function buildCityKeyVariants(value: string) {
   )
 }
 
+function escapePostgrestFilterValue(value: string) {
+  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
+}
+
 const mapRepairReport = async (row: RepairReportRow): Promise<RepairReportRecord> => {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
@@ -126,9 +130,9 @@ export async function listRepairReportsByCity(city: string) {
     .eq('is_active', true)
     .or(
       cityKeys.flatMap((cityKey) => [
-        `city_key.ilike.${cityKey}`,
-        `service_location.ilike.${cityKey}`,
-        `customer_location.ilike.${cityKey}`,
+        `city_key.ilike.${escapePostgrestFilterValue(cityKey)}`,
+        `service_location.ilike.${escapePostgrestFilterValue(cityKey)}`,
+        `customer_location.ilike.${escapePostgrestFilterValue(cityKey)}`,
       ]).join(','),
     )
     .order('date_start', { ascending: false, nullsFirst: false })

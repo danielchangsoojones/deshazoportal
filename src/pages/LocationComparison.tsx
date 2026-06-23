@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import type { User } from '@supabase/supabase-js'
 import {
   getLocationAnalytics,
   isPortalApiConfigured,
   type LocationAnalytics,
 } from '../lib/portalApi'
+import { useCustomerPath } from '../lib/customerRouting'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -15,9 +18,9 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents', href: '/documents-reports' },
+  { label: 'Document Reports', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
-  { label: 'Work Orders', href: '/deshazo-work-orders' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -33,30 +36,24 @@ export default function LocationComparison() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const customerPath = useCustomerPath()
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.label === 'Location Comparison',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Location Comparison')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -84,7 +81,7 @@ export default function LocationComparison() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (authLoading) {
@@ -149,7 +146,10 @@ export default function LocationComparison() {
                             : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                         }`}
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </Link>
                     ) : (
@@ -158,7 +158,10 @@ export default function LocationComparison() {
                         type="button"
                         className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium text-[rgba(21,24,33,0.7)] transition hover:bg-white"
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </button>
                     ),

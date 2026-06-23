@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isConfigured } from '../lib/supabase'
 import {
@@ -92,6 +92,9 @@ type RelatedDocument = EditableInspectionDocument
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ')
 
+const getPdfFiles = (files: Iterable<File>) =>
+  Array.from(files).filter((file) => file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf')
+
 type QuoteBlockVisibility = {
   contact: boolean
   scopeOfWork: boolean
@@ -125,6 +128,7 @@ const printedPageHeightIn = 11
 const printedPageMarginIn = 0.45
 const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
+const reportAutosaveIntervalMs = 10 * 1000
 const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
 const menuSearchDebounceMs = 300
@@ -205,7 +209,7 @@ const defaultReport: ReportData = {
   date: 'Date: Mar 24, 2026',
   structure: 'Structure: Gantry',
   description: 'Description: Portable Gantry',
-  customer: 'Customer: Wabash',
+  customer: 'Customer',
   purchaseOrder: 'Purchase Order: S2P1215028',
   jobNumber: 'Job #: 0270357',
   location: 'Location: Building 2',
@@ -284,7 +288,7 @@ const blankReport: ReportData = {
   contactName: '',
   contactEmail: '',
   contactPhone: '',
-  notes: '---',
+  notes: defaultAdditionalNotes,
 }
 
 const createDefaultRepairCostSections = (repairId: string): CostSection[] => [
@@ -740,6 +744,77 @@ const getDNumberFromReport = (reportData: ReportData | Record<string, string>) =
 const getJobNumberDisplayFromReport = (reportData: ReportData | Record<string, string>) =>
   removeReportValueLabel(reportData.jobNumber ?? '').replace(/^#\s*/, '').trim() || '---'
 
+const getMeaningfulReportValue = (value: string | undefined) => {
+  const normalizedValue = removeReportValueLabel(value ?? '')
+  if (!normalizedValue || /^[-–—]+$/.test(normalizedValue) || /^n\/?a$/i.test(normalizedValue)) return ''
+  return normalizedValue
+}
+
+const getReportSummaryCraneContextParts = (reportData: ReportData | Record<string, string>) =>
+  [
+    getMeaningfulReportValue(reportData.location),
+    getMeaningfulReportValue(reportData.description),
+  ].filter(Boolean)
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const removeReportSummaryCraneContextParts = (summary: string, contextParts: string[]) =>
+  contextParts.reduce((nextSummary, part) => {
+    const escapedPart = escapeRegExp(part)
+    return nextSummary
+      .replace(new RegExp(`\\s+-\\s+${escapedPart}(?=\\s+-|\\s+performed\\b|$)`, 'i'), '')
+      .replace(new RegExp(`(^|\\s+-\\s+)${escapedPart}\\s+-\\s+`, 'i'), '$1')
+      .replace(new RegExp(`(^|\\s+-\\s+)${escapedPart}$`, 'i'), '$1')
+      .trim()
+      .replace(/\s+-\s+$/, '')
+  }, summary)
+
+const insertReportSummaryCraneContext = (
+  summary: string,
+  reportData: ReportData | Record<string, string>,
+) => {
+  const trimmedSummary = summary.trim()
+  const contextParts = getReportSummaryCraneContextParts(reportData)
+    .filter((part) => !trimmedSummary.toLowerCase().includes(part.toLowerCase()))
+
+  if (contextParts.length === 0) return trimmedSummary
+
+  const context = contextParts.join(' - ')
+  if (!trimmedSummary) return context
+
+  const dNumberMatch = trimmedSummary.match(/\bD[\s-]*\d[A-Z0-9]{2,}\b/i)
+  if (!dNumberMatch || dNumberMatch.index === undefined) return `${trimmedSummary} - ${context}`
+
+  const insertIndex = dNumberMatch.index + dNumberMatch[0].length
+  return `${trimmedSummary.slice(0, insertIndex)} - ${context}${trimmedSummary.slice(insertIndex)}`
+}
+
+const addReportSummaryCraneContext = (reportData: ReportData): ReportData => ({
+  ...reportData,
+  summary: insertReportSummaryCraneContext(reportData.summary, reportData),
+})
+
+const syncReportSummaryCraneContext = (
+  previousReport: ReportData,
+  nextReport: ReportData,
+  changedFieldId: string,
+) => {
+  if (changedFieldId !== 'description' && changedFieldId !== 'location') return nextReport
+
+  const summaryWithoutStaleContext = removeReportSummaryCraneContextParts(
+    nextReport.summary,
+    [
+      ...getReportSummaryCraneContextParts(previousReport),
+      ...getReportSummaryCraneContextParts(nextReport),
+    ],
+  )
+
+  return {
+    ...nextReport,
+    summary: insertReportSummaryCraneContext(summaryWithoutStaleContext, nextReport),
+  }
+}
+
 const formatBranchLabel = (branch: string) =>
   branch
     .trim()
@@ -873,7 +948,7 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
   const serialHoist4 = getTopLevelExtractedText(data, ['serial_hoist_4', 'serialHoist4'])
   const capacityHoist4 = getTopLevelExtractedText(data, ['capacity_hoist_4', 'capacityHoist4'])
   const modelHoist4 = getTopLevelExtractedText(data, ['model_hoist_4', 'modelHoist4'])
-  return {
+  const report = {
     ...defaultReport,
     branch: formatReportValue('DESHAZO Branch', branch, '---'),
     phone: formatReportValue('Branch Contact Phone', branchContactPhone, '---'),
@@ -913,6 +988,8 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
     scopeOfWork: '',
     notes: defaultAdditionalNotes,
   }
+
+  return addReportSummaryCraneContext(report)
 }
 
 const getTextFromRecord = (value: unknown, keys: string[]) =>
@@ -1387,7 +1464,7 @@ const getTemplateLineItemRows = (
 
 const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
   const reportMarkup = sources.map((source) => {
-    const reportData = normalizeReport(source.payload.reportData)
+    const reportData = addReportSummaryCraneContext(normalizeReport(source.payload.reportData))
     const repairSections = getPrintableRepairSections(getVisibleRepairSections(
       normalizeRepairSections(source.payload.repairSections as RepairSection[]),
       source.payload.repairSectionVisibility,
@@ -1532,9 +1609,9 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
         </div>
 
         <section class="contact-row">
-          <div>Contact Name: ${getTemplateValue(reportData.contactName)}</div>
-          <div>Email: ${getTemplateValue(reportData.contactEmail)}</div>
-          <div>Phone: ${getTemplateValue(reportData.contactPhone)}</div>
+          <div><span class="contact-label">Contact Name</span> <span class="contact-value">${getTemplateValue(reportData.contactName)}</span></div>
+          <div><span class="contact-label">Email</span> <span class="contact-value contact-email">${getTemplateValue(reportData.contactEmail)}</span></div>
+          <div><span class="contact-label">Phone Number</span> <span class="contact-value">${getTemplateValue(reportData.contactPhone)}</span></div>
         </section>
 
         <section class="scope">
@@ -1658,8 +1735,11 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             border: 1px solid #d4d4d4;
             background: #fafafa;
           }
-          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; }
           .contact-row div:last-child { border-right: 0; }
+          .contact-label { text-transform: none; }
+          .contact-value { text-transform: none; }
+          .contact-email { text-transform: lowercase; }
           .scope {
             margin-top: 12px;
             border: 1px solid #d4d4d4;
@@ -1825,7 +1905,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
 const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifier) =>
   createSimplePdfFile('master-service-agreement.pdf', 'Master Service Agreement', [
     'DESHAZO service pricing reference for quote proposal preparation.',
-    'Customer: Wabash',
+    'Customer',
     `Covered Equipment: Crane ${craneIdentifier}`,
     'Regular technician labor: $145.00/hr',
     'Overtime technician labor: $217.50/hr',
@@ -1869,8 +1949,13 @@ const formatMoney = (value: number) =>
     currency: 'USD',
   }).format(value)
 
+const getCustomerUnitPriceFromMargin = (internalUnitCost: number, margin: number) => {
+  const customerCostRatio = 1 - margin / 100
+  return customerCostRatio > 0 ? internalUnitCost / customerCostRatio : 0
+}
+
 const getLegacyCustomerUnitPrice = (lineItem: RepairLineItem) =>
-  parseMoney(lineItem.rate) * (1 + parseMoney(lineItem.margin) / 100)
+  getCustomerUnitPriceFromMargin(parseMoney(lineItem.rate), parseMoney(lineItem.margin))
 
 const getInternalUnitCost = (lineItem: RepairLineItem) =>
   parseMoney(lineItem.internalCost ?? lineItem.rate)
@@ -1891,7 +1976,7 @@ const getUnitProfit = (internalUnitCost: number, customerUnitPrice: number) =>
   customerUnitPrice - internalUnitCost
 
 const getUnitMargin = (internalUnitCost: number, customerUnitPrice: number) =>
-  internalUnitCost > 0 ? ((customerUnitPrice - internalUnitCost) / internalUnitCost) * 100 : 0
+  customerUnitPrice > 0 ? 100 - (internalUnitCost / customerUnitPrice) * 100 : 0
 
 const getLineItemMargin = (lineItem: RepairLineItem) => {
   if (lineItem.margin !== undefined && lineItem.margin !== null && lineItem.margin !== '') {
@@ -2026,7 +2111,7 @@ const getNormalizedReportPayload = (report: EditableInspectionReport): EditableI
   const repairSectionVisibility = report.pageLayoutVisibility?.repairSectionVisibility ?? report.repairSectionVisibility
 
   return {
-    reportData: normalizeReport(report.reportData),
+    reportData: addReportSummaryCraneContext(normalizeReport(report.reportData)),
     repairSections: normalizeRepairSections(report.repairSections as RepairSection[], report.reportData),
     costSections,
     blockVisibility,
@@ -2089,7 +2174,7 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
       && !repairSections.some((section) => Array.isArray(section.costSections) && section.costSections.length > 0)
 
     return {
-      reportData: applyQuoteItemColumnIdentifiersToReport(item.reportData, item),
+      reportData: addReportSummaryCraneContext(applyQuoteItemColumnIdentifiersToReport(item.reportData, item)),
       repairSections: shouldMoveLegacyCostsIntoFirstRepair
         ? repairSections.map((section, index) =>
             index === 0 ? { ...section, costSections: legacyRepairCostSections } : section,
@@ -2110,7 +2195,7 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
   }
 
   return {
-    reportData: applyQuoteItemColumnIdentifiersToReport(buildReportFromJobsQuotingItem(item), item),
+    reportData: addReportSummaryCraneContext(applyQuoteItemColumnIdentifiersToReport(buildReportFromJobsQuotingItem(item), item)),
     repairSections: buildRepairSectionsFromJobsQuotingItem(item),
     costSections: defaultCostSections,
     blockVisibility: defaultBlockVisibility,
@@ -2461,6 +2546,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
   const reportHydrationReady = useRef(false)
   const skipNextReportDatabaseSave = useRef(false)
   const pendingReportChanges = useRef(false)
+  const reportAutosaveInFlight = useRef(false)
   const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
@@ -2528,12 +2614,12 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
 
     const savedReport = window.localStorage.getItem(storageKey)
 
-    if (!savedReport) return defaultReport
+    if (!savedReport) return addReportSummaryCraneContext(defaultReport)
 
     try {
-      return normalizeReport(JSON.parse(savedReport) as ReportData)
+      return addReportSummaryCraneContext(normalizeReport(JSON.parse(savedReport) as ReportData))
     } catch {
-      return defaultReport
+      return addReportSummaryCraneContext(defaultReport)
     }
   })
   const [repairSections, setRepairSections] = useState<RepairSection[]>(() => {
@@ -2996,7 +3082,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
   }
 
   const applyEditableReportPayload = useCallback((payload: EditableInspectionReportPayload) => {
-    const nextReport = normalizeReport(payload.reportData)
+    const nextReport = addReportSummaryCraneContext(normalizeReport(payload.reportData))
     const nextRepairSections = normalizeRepairSections(payload.repairSections as RepairSection[], payload.reportData)
     const nextCostSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
     const nextBlockVisibility = { ...defaultBlockVisibility, ...payload.blockVisibility }
@@ -3071,6 +3157,11 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
     currentSourceDocumentName,
     backendEnabled,
   ])
+  const saveCurrentEditableReportNowRef = useRef(saveCurrentEditableReportNow)
+
+  useEffect(() => {
+    saveCurrentEditableReportNowRef.current = saveCurrentEditableReportNow
+  }, [saveCurrentEditableReportNow])
 
   useEffect(() => {
     if (!backendEnabled) {
@@ -3177,6 +3268,27 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
 
     pendingReportChanges.current = true
   }, [currentEditableReportPayload, reportDatabaseStatus])
+
+  useEffect(() => {
+    if (!isConfigured || !currentJobsQuotingItemId) return
+
+    const autosaveTimer = window.setInterval(() => {
+      if (!reportHydrationReady.current || reportAutosaveInFlight.current) return
+
+      reportAutosaveInFlight.current = true
+      saveCurrentEditableReportNowRef.current()
+        .catch((error) => {
+          setReportDatabaseStatus('error')
+          console.error('Editable report could not be auto-saved.', error)
+        })
+        .finally(() => {
+          reportAutosaveInFlight.current = false
+        })
+    }, reportAutosaveIntervalMs)
+
+    return () => window.clearInterval(autosaveTimer)
+  }, [currentJobsQuotingItemId])
+
   useLayoutEffect(() => {
     const contentElement = reportContentRef.current
     if (!contentElement) return
@@ -3538,7 +3650,11 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
 
   const updateField = (id: string, value: string) => {
     setReport((currentReport) => {
-      const nextReport = { ...currentReport, [id]: normalizeProtectedReportField(id, value) }
+      const nextReport = syncReportSummaryCraneContext(
+        currentReport,
+        { ...currentReport, [id]: normalizeProtectedReportField(id, value) },
+        id,
+      )
       window.localStorage.setItem(storageKey, JSON.stringify(nextReport))
       return nextReport
     })
@@ -3780,6 +3896,8 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
           ? 'No PDFs were found in that folder.'
           : source === 'Dropped PDF'
             ? 'No PDFs were dropped.'
+          : source === 'Pasted PDF'
+            ? 'No PDFs were pasted.'
           : 'No PDF was selected.',
       )
       return
@@ -3863,13 +3981,13 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
 
   const uploadRelatedFolder = async (fileList: FileList | null) => {
     const files = Array.from(fileList ?? []) as Array<File & { webkitRelativePath?: string }>
-    const pdfs = files.filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    const pdfs = getPdfFiles(files) as Array<File & { webkitRelativePath?: string }>
 
     await addRelatedDocuments(pdfs, 'Folder upload')
   }
 
   const uploadRelatedPdfs = async (fileList: FileList | null) => {
-    const pdfs = Array.from(fileList ?? []).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    const pdfs = getPdfFiles(fileList ?? [])
     await addRelatedDocuments(pdfs, 'Uploaded PDF')
   }
 
@@ -3908,9 +4026,39 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
     pagePdfDragDepth.current = 0
     setPagePdfDragActive(false)
 
-    const pdfs = Array.from(event.dataTransfer.files).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    const pdfs = getPdfFiles(event.dataTransfer.files)
     setRelatedDocumentsOpen(true)
     await addRelatedDocuments(pdfs, 'Dropped PDF')
+  }
+
+  const handlePagePdfPaste = async (event: ClipboardEvent<HTMLElement>) => {
+    const hasClipboardFiles =
+      event.clipboardData.files.length > 0 ||
+      Array.from(event.clipboardData.items).some((item) => item.kind === 'file')
+
+    if (!hasClipboardFiles) return
+
+    const files = event.clipboardData.files.length > 0
+      ? getPdfFiles(event.clipboardData.files)
+      : getPdfFiles(
+          Array.from(event.clipboardData.items)
+            .filter((item) => item.kind === 'file')
+            .map((item) => item.getAsFile())
+            .filter((file): file is File => Boolean(file)),
+        )
+
+    if (files.length === 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      setRelatedDocumentsOpen(true)
+      await addRelatedDocuments(files, 'Pasted PDF')
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    setRelatedDocumentsOpen(true)
+    await addRelatedDocuments(files, 'Pasted PDF')
   }
 
   const openMenuItemSourceDocument = async (item: MenuItem) => {
@@ -4045,7 +4193,10 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                             return {
                               ...lineItem,
                               margin: value,
-                              customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                              customerPrice: getCustomerUnitPriceFromMargin(
+                                getInternalUnitCost(lineItem),
+                                parseMoney(value),
+                              ).toFixed(2),
                             }
                           }
                           return { ...lineItem, [field]: value }
@@ -4197,7 +4348,10 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                     return {
                       ...lineItem,
                       margin: value,
-                      customerPrice: (getInternalUnitCost(lineItem) * (1 + parseMoney(value) / 100)).toFixed(2),
+                      customerPrice: getCustomerUnitPriceFromMargin(
+                        getInternalUnitCost(lineItem),
+                        parseMoney(value),
+                      ).toFixed(2),
                     }
                   }
                   return { ...lineItem, [field]: value }
@@ -4410,6 +4564,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
       onDragOver={handlePagePdfDragOver}
       onDragLeave={handlePagePdfDragLeave}
       onDrop={handlePagePdfDrop}
+      onPaste={handlePagePdfPaste}
     >
       <style>
         {`
@@ -5326,7 +5481,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
               style={getRuntimePageBreakStyle('contact')}
               className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('contact')}`}
             >
-              <div className="grid grid-cols-[1fr_1fr_1fr] border-b border-[#d4d4d4] bg-[#f7f7f7] text-[11px] font-black uppercase text-[#555b66]">
+              <div className="grid grid-cols-[1fr_1fr_1fr] border-b border-[#d4d4d4] bg-[#f7f7f7] text-[11px] font-black text-[#555b66]">
                 <div className="px-2 py-1">Contact Name</div>
                 <div className="border-l border-[#d4d4d4] px-2 py-1">Email</div>
                 <div className="border-l border-[#d4d4d4] px-2 py-1">Phone Number</div>
@@ -5465,7 +5620,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                               <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                               <div className="report-inline-action border-l border-[#d8d8d8]" />
                               <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
-                                <div className="px-3 py-2">Margin</div>
+                                <div className="px-3 py-2">Gross Margin</div>
                                 <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
                                 <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
                               </div>
@@ -5542,25 +5697,25 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                                         )
                                       }}
                                       className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
-                                      aria-label={`Open margin settings for ${section.title} ${costSection.title} line item ${lineIndex + 1}`}
+                                      aria-label={`Open gross margin settings for ${section.title} ${costSection.title} line item ${lineIndex + 1}`}
                                     >
                                       {Math.round(parseMoney(lineItem.margin))}%
                                     </button>
                                     {activeMarginMenu === `repair-cost-${section.id}-${costSection.id}-${lineItem.id}` ? (
                                       <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
                                         <div className="mb-2 flex items-center justify-between gap-2">
-                                          <span className="text-[11px] font-black uppercase text-[#555b66]">Margin</span>
+                                          <span className="text-[11px] font-black uppercase text-[#555b66]">Gross Margin</span>
                                           <button
                                             type="button"
                                             onClick={() => setActiveMarginMenu('')}
                                             className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                                            aria-label="Close margin settings"
+                                            aria-label="Close gross margin settings"
                                           >
                                             x
                                           </button>
                                         </div>
                                         <label className="block text-[11px] font-black uppercase text-[#555b66]">
-                                          Margin: {Math.round(parseMoney(lineItem.margin))}%
+                                          Gross Margin: {Math.round(parseMoney(lineItem.margin))}%
                                         </label>
                                         <input
                                           type="range"
@@ -5734,7 +5889,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Total Customer Price</div>
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
                       <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-hidden rounded-t-md border border-[#cfd6e5] bg-[#f7f8fb] text-[10px] font-black uppercase leading-tight text-[#555b66] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
-                        <div className="px-3 py-2">Margin</div>
+                        <div className="px-3 py-2">Gross Margin</div>
                         <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Profit Per Unit</div>
                         <div className="border-l border-[#cfd6e5] px-3 py-2 text-right">Total Profit</div>
                       </div>
@@ -5848,25 +6003,25 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
                                 )
                               }}
                               className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
-                              aria-label={`Open margin settings for ${section.title} line item ${lineIndex + 1}`}
+                              aria-label={`Open gross margin settings for ${section.title} line item ${lineIndex + 1}`}
                             >
                               {Math.round(parseMoney(lineItem.margin))}%
                             </button>
                             {activeMarginMenu === `cost-${section.id}-${lineItem.id}` ? (
                               <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
                                 <div className="mb-2 flex items-center justify-between gap-2">
-                                  <span className="text-[11px] font-black uppercase text-[#555b66]">Margin</span>
+                                  <span className="text-[11px] font-black uppercase text-[#555b66]">Gross Margin</span>
                                   <button
                                     type="button"
                                     onClick={() => setActiveMarginMenu('')}
                                     className="flex h-6 w-6 items-center justify-center rounded-md border border-[#d8deea] bg-white text-[13px] font-black text-[#4d5360] transition hover:bg-[#f4f6fb]"
-                                    aria-label="Close margin settings"
+                                    aria-label="Close gross margin settings"
                                   >
                                     x
                                   </button>
                                 </div>
                                 <label className="block text-[11px] font-black uppercase text-[#555b66]">
-                                  Margin: {Math.round(parseMoney(lineItem.margin))}%
+                                  Gross Margin: {Math.round(parseMoney(lineItem.margin))}%
                                 </label>
                                 <input
                                   type="range"
@@ -5998,7 +6153,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
               </div>
               <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid min-h-[70px] w-[252px] grid-cols-3 overflow-hidden border border-[#111] bg-white text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
                 <div className={`flex flex-col justify-center px-3 py-2.5 ${getMarginCellClassName(String(grandTotalMargin))}`}>
-                  <span className="text-[9px] font-black uppercase leading-tight">Margin</span>
+                  <span className="text-[9px] font-black uppercase leading-tight">Gross Margin</span>
                   <span className="mt-0.5 text-[13px] font-black">{Math.round(grandTotalMargin)}%</span>
                 </div>
                 <div className="flex flex-col justify-center border-l border-[#cfcfcf] px-3 py-2.5 text-right">
@@ -6268,7 +6423,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
           <div className="flex items-center justify-between border-b border-[#dfe4ef] px-5 py-3">
             <div>
               <h2 className="text-[18px] font-black text-[#1f2430]">Master Service Agreement</h2>
-              <p className="mt-0.5 text-[12px] font-semibold text-[#747b8a]">Example pricing schedule for Wabash service work</p>
+              <p className="mt-0.5 text-[12px] font-semibold text-[#747b8a]">Example pricing schedule for service work</p>
             </div>
             <button
               type="button"
@@ -6293,7 +6448,7 @@ export default function EditableInspectionReport({ mockMode = false }: EditableI
               <section className="mt-6 grid grid-cols-2 gap-4 text-[13px] font-semibold">
                 <div className="rounded-md border border-[#dfe4ef] p-4">
                   <p className="text-[11px] font-black uppercase text-[#747b8a]">Customer</p>
-                  <p className="mt-1 text-[16px] font-black">Wabash</p>
+                  <p className="mt-1 text-[16px] font-black">Customer</p>
                 </div>
                 <div className="rounded-md border border-[#dfe4ef] p-4">
                   <p className="text-[11px] font-black uppercase text-[#747b8a]">Covered Equipment</p>

@@ -2,7 +2,6 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
-import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   createBlankJobQuotingItem,
   createJobQuotingItemFromExternalCraneDNumber,
@@ -20,15 +19,17 @@ import {
   type JobsQuotingItemResultStatus,
   type JobsQuotingRun,
 } from '../lib/jobsQuoting'
-import { getCurrentUserTag, getUserDisplayNames, type UserTag } from '../lib/userTags'
+import { getUserDisplayNames } from '../lib/userTags'
 
 const activeStatuses = new Set(['uploading', 'pending', 'processing', 'needs_review'])
 const inspectionRunsCollapsedStorageKey = 'deshazo-jobs-quoting-inspection-runs-collapsed'
+const currentQuoteJobsStorageKey = 'deshazo-jobs-quoting-current-jobs'
 const extractOnlyUploadMaxFilesPerRequest = 25
 const extractOnlyUploadMaxBytesPerRequest = 60 * 1024 * 1024
 const runGroupWindowMs = 10 * 60 * 1000
 const allJobsSectionId = 'all-jobs'
 const reportsPerPage = 50
+const uploadProcessingNote = 'This can take 5 to 15 minutes to load in the report. Please refresh the page.'
 
 type JobsQuotingListProps = {
   homePath?: string
@@ -65,6 +66,13 @@ type JobsQuotingJobGroup = {
   safetyCount: number
   priorityCount: number
   modifiedAt: string
+}
+
+type QuoteJobListScope = 'current' | 'all'
+
+type CurrentQuoteJobsState = {
+  jobNumbers: string[]
+  itemIds: string[]
 }
 
 type QuoteLineItem = {
@@ -285,6 +293,47 @@ function getExtractionValue(data: Record<string, unknown>, key: string) {
   return field == null ? '' : String(field)
 }
 
+function getFirstExtractionValue(data: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = getExtractionValue(data, key).trim()
+    if (value) return value
+  }
+
+  return ''
+}
+
+function removeReportValueLabel(value: string) {
+  return value.includes(':') ? value.split(':').slice(1).join(':').trim() : value.trim()
+}
+
+function getMeaningfulReportValue(value: string | undefined) {
+  const normalizedValue = removeReportValueLabel(value ?? '')
+  if (!normalizedValue || /^[-–—]+$/.test(normalizedValue) || /^n\/?a$/i.test(normalizedValue)) return ''
+  return normalizedValue
+}
+
+function getItemLocation(item: JobsQuotingItem) {
+  return getMeaningfulReportValue(
+    item.reportData.location ||
+    getFirstExtractionValue(item.extractionData, ['location', 'Location', 'service_location', 'serviceLocation', 'Service Location']),
+  )
+}
+
+function getItemDescription(item: JobsQuotingItem) {
+  return getMeaningfulReportValue(
+    item.reportData.description ||
+    getFirstExtractionValue(item.extractionData, ['description', 'Description']),
+  )
+}
+
+function getItemDNumberDisplay(item: JobsQuotingItem) {
+  return [
+    getItemDNumber(item) || '-',
+    getItemLocation(item),
+    getItemDescription(item),
+  ].filter(Boolean).join(' - ')
+}
+
 function getSearchVariants(value: string) {
   const normalizedValue = value.trim().toLowerCase()
   if (!normalizedValue) return []
@@ -306,6 +355,8 @@ function getSearchVariants(value: string) {
 function getItemSearchText(item: JobsQuotingItem) {
   return [
     ...getSearchVariants(getItemDNumber(item)),
+    ...getSearchVariants(getItemLocation(item)),
+    ...getSearchVariants(getItemDescription(item)),
     ...getSearchVariants(getItemJobNumber(item)),
   ]
     .join(' ')
@@ -317,6 +368,44 @@ function getItemJobNumber(item: JobsQuotingItem) {
 
 function normalizeJobNumberForMatch(jobNumber: string) {
   return jobNumber.trim().toLowerCase()
+}
+
+function getJobNumberMatchKeys(jobNumber: string) {
+  const normalizedJobNumber = normalizeJobNumberForMatch(jobNumber)
+  if (!normalizedJobNumber) return []
+
+  const keys = new Set([normalizedJobNumber])
+  const compactJobNumber = normalizedJobNumber.replace(/[^a-z0-9]+/g, '')
+  if (compactJobNumber) {
+    keys.add(compactJobNumber)
+  }
+  if (/^0+\d+$/.test(compactJobNumber)) {
+    keys.add(compactJobNumber.replace(/^0+/, '') || '0')
+  }
+
+  return Array.from(keys)
+}
+
+function getStoredCurrentQuoteJobs(): CurrentQuoteJobsState {
+  try {
+    const storedValue = window.localStorage.getItem(currentQuoteJobsStorageKey)
+    const parsedValue: unknown = storedValue ? JSON.parse(storedValue) : null
+    if (!parsedValue || typeof parsedValue !== 'object') {
+      return { jobNumbers: [], itemIds: [] }
+    }
+
+    const value = parsedValue as Partial<CurrentQuoteJobsState>
+    return {
+      jobNumbers: Array.isArray(value.jobNumbers) ? value.jobNumbers.filter((jobNumber): jobNumber is string => typeof jobNumber === 'string') : [],
+      itemIds: Array.isArray(value.itemIds) ? value.itemIds.filter((itemId): itemId is string => typeof itemId === 'string') : [],
+    }
+  } catch {
+    return { jobNumbers: [], itemIds: [] }
+  }
+}
+
+function storeCurrentQuoteJobs(currentJobs: CurrentQuoteJobsState) {
+  window.localStorage.setItem(currentQuoteJobsStorageKey, JSON.stringify(currentJobs))
 }
 
 function getItemDNumber(item: JobsQuotingItem) {
@@ -419,9 +508,14 @@ export default function JobsQuotingList({
   showHeaderActions = true,
 }: JobsQuotingListProps = {}) {
   const hasMockData = Boolean(mockItems)
+  const initialCurrentQuoteJobs = mockItems
+    ? {
+      itemIds: mockItems.map((item) => item.id),
+      jobNumbers: mockItems.map(getItemJobNumber).filter(Boolean),
+    }
+    : getStoredCurrentQuoteJobs()
   const [user, setUser] = useState<User | null>(null)
-  const [authLoading, setAuthLoading] = useState(true)
-  const [userTag, setUserTag] = useState<UserTag | null>(null)
+  const [authLoading, setAuthLoading] = useState(!hasMockData)
   const [runs, setRuns] = useState<JobsQuotingRun[]>(() => mockRuns ?? [])
   const [items, setItems] = useState<JobsQuotingItem[]>(() => mockItems ?? [])
   const [itemResults, setItemResults] = useState<Record<string, JobsQuotingItemResult>>(() =>
@@ -430,6 +524,7 @@ export default function JobsQuotingList({
   const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
   const [itemsLoading, setItemsLoading] = useState(false)
   const [selectedJobSectionId, setSelectedJobSectionId] = useState<string>(allJobsSectionId)
+  const [quoteJobListScope, setQuoteJobListScope] = useState<QuoteJobListScope>('current')
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
@@ -446,6 +541,8 @@ export default function JobsQuotingList({
   const [markResultAmountWon, setMarkResultAmountWon] = useState('')
   const [markResultSubmitting, setMarkResultSubmitting] = useState(false)
   const [pinnedImportedJobNumbers, setPinnedImportedJobNumbers] = useState<string[]>([])
+  const [currentQuoteJobNumbers, setCurrentQuoteJobNumbers] = useState<string[]>(initialCurrentQuoteJobs.jobNumbers)
+  const [currentQuoteItemIds, setCurrentQuoteItemIds] = useState<string[]>(initialCurrentQuoteJobs.itemIds)
   const [loading, setLoading] = useState(!hasMockData)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -463,16 +560,31 @@ export default function JobsQuotingList({
     [items],
   )
   const selectedJobSection = jobSectionGroups.find((group) => group.id === selectedJobSectionId)
-  const canUseExtendControls = userTag === 'developer'
   const getRunUploaderName = useCallback(
     (run: JobsQuotingRun | undefined) => (run?.userId ? userDisplayNames[run.userId] || '' : 'Shared'),
     [userDisplayNames],
   )
+  const currentQuoteJobNumberKeys = useMemo(
+    () => new Set(currentQuoteJobNumbers.flatMap(getJobNumberMatchKeys)),
+    [currentQuoteJobNumbers],
+  )
+  const currentQuoteItemIdSet = useMemo(() => new Set(currentQuoteItemIds), [currentQuoteItemIds])
+  const currentQuoteItems = useMemo(() => {
+    if (currentQuoteItemIdSet.size === 0 && currentQuoteJobNumberKeys.size === 0) return []
+
+    return items.filter((item) => {
+      if (currentQuoteItemIdSet.has(item.id)) return true
+      const itemJobNumberKeys = getJobNumberMatchKeys(getItemJobNumber(item))
+      return itemJobNumberKeys.some((key) => currentQuoteJobNumberKeys.has(key))
+    })
+  }, [currentQuoteItemIdSet, currentQuoteJobNumberKeys, items])
   const visibleItems = useMemo(() => {
-    if (selectedJobSectionId === allJobsSectionId || !selectedJobSection) return sortItemsByNewest(items)
+    if (selectedJobSectionId === allJobsSectionId || !selectedJobSection) {
+      return sortItemsByNewest(quoteJobListScope === 'current' ? currentQuoteItems : items)
+    }
 
     return sortItemsByPriority(selectedJobSection.items)
-  }, [items, selectedJobSection, selectedJobSectionId])
+  }, [currentQuoteItems, items, quoteJobListScope, selectedJobSection, selectedJobSectionId])
   const filteredItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
     if (!normalizedQuery) return visibleItems
@@ -484,10 +596,10 @@ export default function JobsQuotingList({
   }, [searchQuery, visibleItems])
   const jobGroups = useMemo(() => buildJobGroups(filteredItems), [filteredItems])
   const sortedJobGroups = useMemo(() => {
-    const pinnedJobNumbers = new Set(pinnedImportedJobNumbers.map(normalizeJobNumberForMatch))
+    const pinnedJobNumbers = new Set(pinnedImportedJobNumbers.flatMap(getJobNumberMatchKeys))
     const comparePinnedGroups = (firstGroup: JobsQuotingJobGroup, secondGroup: JobsQuotingJobGroup) => {
-      const firstGroupPinned = firstGroup.jobNumber ? pinnedJobNumbers.has(normalizeJobNumberForMatch(firstGroup.jobNumber)) : false
-      const secondGroupPinned = secondGroup.jobNumber ? pinnedJobNumbers.has(normalizeJobNumberForMatch(secondGroup.jobNumber)) : false
+      const firstGroupPinned = firstGroup.jobNumber ? getJobNumberMatchKeys(firstGroup.jobNumber).some((key) => pinnedJobNumbers.has(key)) : false
+      const secondGroupPinned = secondGroup.jobNumber ? getJobNumberMatchKeys(secondGroup.jobNumber).some((key) => pinnedJobNumbers.has(key)) : false
 
       if (firstGroupPinned !== secondGroupPinned) {
         return firstGroupPinned ? -1 : 1
@@ -529,9 +641,47 @@ export default function JobsQuotingList({
     [editQuotePath, includeItemIdInEditPath],
   )
 
+  const showQuoteJobScope = (scope: QuoteJobListScope) => {
+    setQuoteJobListScope(scope)
+    setSelectedJobSectionId(allJobsSectionId)
+  }
+
+  const setCurrentQuoteJobsFromItems = (nextItems: JobsQuotingItem[]) => {
+    const nextCurrentJobs = {
+      itemIds: nextItems.map((item) => item.id),
+      jobNumbers: nextItems.map(getItemJobNumber).filter(Boolean),
+    }
+    storeCurrentQuoteJobs(nextCurrentJobs)
+    setCurrentQuoteItemIds(nextCurrentJobs.itemIds)
+    setCurrentQuoteJobNumbers(nextCurrentJobs.jobNumbers)
+    showQuoteJobScope('current')
+  }
+
+  const setCurrentQuoteJobsFromJobNumbers = (jobNumbers: string[]) => {
+    const nextCurrentJobs = {
+      itemIds: [],
+      jobNumbers: jobNumbers.filter((jobNumber) => jobNumber.trim()),
+    }
+    storeCurrentQuoteJobs(nextCurrentJobs)
+    setCurrentQuoteItemIds(nextCurrentJobs.itemIds)
+    setCurrentQuoteJobNumbers(nextCurrentJobs.jobNumbers)
+    showQuoteJobScope('current')
+  }
+
+  const setCurrentQuoteJobsFromItemIds = (itemIds: string[], jobNumbers: string[] = []) => {
+    const nextCurrentJobs = {
+      itemIds: itemIds.filter((itemId) => itemId.trim()),
+      jobNumbers: jobNumbers.filter((jobNumber) => jobNumber.trim()),
+    }
+    storeCurrentQuoteJobs(nextCurrentJobs)
+    setCurrentQuoteItemIds(nextCurrentJobs.itemIds)
+    setCurrentQuoteJobNumbers(nextCurrentJobs.jobNumbers)
+    showQuoteJobScope('current')
+  }
+
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, selectedJobSectionId])
+  }, [quoteJobListScope, searchQuery, selectedJobSectionId])
 
   useEffect(() => {
     if (searchQuery.trim()) {
@@ -544,6 +694,8 @@ export default function JobsQuotingList({
   }, [pageCount])
 
   useEffect(() => {
+    if (hasMockData) return
+
     if (!isConfigured || !supabase) {
       navigate('/quotelogin')
       return
@@ -557,7 +709,7 @@ export default function JobsQuotingList({
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [hasMockData, navigate])
 
   const loadQuotingData = useCallback(async (sectionId?: string) => {
     if (mockItems) {
@@ -606,13 +758,10 @@ export default function JobsQuotingList({
   }, [mockItemResults, mockItems, mockRuns])
 
   useEffect(() => {
-    if (user) {
+    if (user || hasMockData) {
       loadQuotingData()
-      getCurrentUserTag(user.id)
-        .then(setUserTag)
-        .catch(() => setUserTag(null))
     }
-  }, [loadQuotingData, user])
+  }, [hasMockData, loadQuotingData, user])
 
   useEffect(() => {
     if (hasMockData) {
@@ -728,9 +877,9 @@ export default function JobsQuotingList({
   const applyUploadResult = (result: Awaited<ReturnType<typeof uploadInspectionForQuoting>>) => {
     const uploadedRuns = result.runs && result.runs.length > 0 ? result.runs : [result.run]
     mergeUploadedRuns(uploadedRuns)
-    setSelectedJobSectionId(allJobsSectionId)
+    setCurrentQuoteJobsFromItems(result.items)
     setItems((currentItems) => sortItemsByNewest([...result.items, ...currentItems.filter((item) => !result.items.some((nextItem) => nextItem.id === item.id))]))
-    setMessage(result.message ?? 'Inspection report sent to Extend.')
+    setMessage(`${result.message ?? 'Inspection report sent to Extend.'} ${uploadProcessingNote}`)
   }
 
   const uploadGiantPdf = async (fileList: FileList | null) => {
@@ -768,13 +917,14 @@ export default function JobsQuotingList({
 
     try {
       let firstResult: Awaited<ReturnType<typeof uploadInspectionForQuoting>> | null = null
+      const uploadedItems: JobsQuotingItem[] = []
 
       for (const [fileIndex, file] of files.entries()) {
         setMessage(`Sending PDF ${fileIndex + 1} of ${files.length} through the split workflow.`)
         const result = await uploadInspectionForQuoting(file, folderName)
         const uploadedRuns = renameRunsForDisplay(result.runs && result.runs.length > 0 ? result.runs : [result.run], folderName)
         mergeUploadedRuns(uploadedRuns)
-        setSelectedJobSectionId(allJobsSectionId)
+        uploadedItems.push(...result.items)
 
         if (!firstResult) {
           firstResult = result
@@ -782,7 +932,8 @@ export default function JobsQuotingList({
         }
       }
 
-      setMessage(`${files.length} PDFs from ${folderName} sent through the split workflow. Runs will refresh as Extend finishes.`)
+      setCurrentQuoteJobsFromItems(uploadedItems)
+      setMessage(`${files.length} PDFs from ${folderName} sent through the split workflow. ${uploadProcessingNote}`)
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
@@ -810,6 +961,7 @@ export default function JobsQuotingList({
 
     try {
       let firstResult: Awaited<ReturnType<typeof uploadExtractOnlyInspectionForQuoting>> | null = null
+      const uploadedItems: JobsQuotingItem[] = []
       for (const [batchIndex, batch] of batches.entries()) {
         setMessage(`Uploading batch ${batchIndex + 1} of ${batches.length} (${batch.length} PDF${batch.length === 1 ? '' : 's'}).`)
         const result = await uploadExtractOnlyInspectionForQuoting(batch, sourceFileName)
@@ -819,6 +971,7 @@ export default function JobsQuotingList({
             ? result.runs
             : [result.run]
         mergeUploadedRuns(uploadedRuns)
+        uploadedItems.push(...result.items)
 
         if (!firstResult) {
           firstResult = result
@@ -826,7 +979,7 @@ export default function JobsQuotingList({
         }
       }
 
-      setSelectedJobSectionId(allJobsSectionId)
+      setCurrentQuoteJobsFromItems(uploadedItems)
 
       if (firstResult) {
         setMessage(
@@ -889,7 +1042,7 @@ export default function JobsQuotingList({
           await new Promise((resolve) => window.setTimeout(resolve, 3000))
         }
         setPinnedImportedJobNumbers(importedJobNumbers.length > 0 ? importedJobNumbers : jobNumbers)
-        setSelectedJobSectionId(allJobsSectionId)
+        setCurrentQuoteJobsFromJobNumbers(importedJobNumbers.length > 0 ? importedJobNumbers : jobNumbers)
         setSearchQuery('')
         setCurrentPage(1)
         await loadQuotingData(allJobsSectionId)
@@ -930,6 +1083,7 @@ export default function JobsQuotingList({
 
     try {
       const result = await createJobQuotingItemFromExternalCraneDNumber(normalizedDNumber)
+      setCurrentQuoteJobsFromItemIds([result.itemId], result.jobNumber ? [result.jobNumber] : [])
       setCreateDNumberModalOpen(false)
       setCreateDNumberInput('')
       navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(result.itemId)}`)
@@ -949,6 +1103,7 @@ export default function JobsQuotingList({
 
     try {
       const result = await createBlankJobQuotingItem()
+      setCurrentQuoteJobsFromItemIds([result.itemId])
       navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(result.itemId)}`)
     } catch (error) {
       setMessage(getFriendlyImportErrorMessage(error))
@@ -1030,7 +1185,7 @@ export default function JobsQuotingList({
     )
   }
 
-  if (!user) return null
+  if (!user && !hasMockData) return null
 
   const jobsListLoading = loading || itemsLoading
   const totalRepairItems = filteredItems.reduce((total, item) => total + item.repairCount, 0)
@@ -1168,7 +1323,7 @@ export default function JobsQuotingList({
               </form>
               <div className="rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
                 <div className="text-[12px] font-black uppercase text-[#273f7a]">Create New</div>
-                <div className={`mt-2 grid gap-2 ${canUseExtendControls ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <button
                     type="button"
                     disabled={busy}
@@ -1204,17 +1359,14 @@ export default function JobsQuotingList({
                   >
                     Choose Folder
                   </button>
-                  {canUseExtendControls ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => giantPdfInputRef.current?.click()}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <span>Giant PDF</span>
-                      <DeveloperBadge />
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => giantPdfInputRef.current?.click()}
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Giant PDF
+                  </button>
                 </div>
               </div>
             </div>
@@ -1549,16 +1701,39 @@ export default function JobsQuotingList({
           <section className="min-w-0 overflow-hidden rounded-md border border-[#dfe4ef] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
               <div className="flex flex-col justify-between gap-3 border-b border-[#dfe4ef] bg-[#fbfcff] px-5 py-4 lg:flex-row lg:items-center">
                 <div className="min-w-0">
-                  <h2 className="text-[20px] font-black tracking-normal text-[#1f2430]">
-                    {selectedJobSectionId === allJobsSectionId
-                      ? 'All Quote Jobs'
-                      : selectedJobSection?.jobNumber
-                        ? `Job ${selectedJobSection.jobNumber}`
-                        : 'Job number not found'}
-                  </h2>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <h2 className="text-[20px] font-black tracking-normal text-[#1f2430]">
+                      {selectedJobSectionId === allJobsSectionId
+                        ? quoteJobListScope === 'current'
+                          ? 'Current Quote Jobs'
+                          : 'All Quote Jobs'
+                        : selectedJobSection?.jobNumber
+                          ? `Job ${selectedJobSection.jobNumber}`
+                          : 'Job number not found'}
+                    </h2>
+                    <div className="inline-grid w-fit grid-cols-2 overflow-hidden rounded-md border border-[#cfd6e5] bg-white p-0.5 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.5)]">
+                      {(['current', 'all'] as const).map((scope) => (
+                        <button
+                          key={scope}
+                          type="button"
+                          onClick={() => showQuoteJobScope(scope)}
+                          className={`min-w-[82px] rounded-[4px] px-3 py-1.5 text-[12px] font-black capitalize transition ${
+                            quoteJobListScope === scope && selectedJobSectionId === allJobsSectionId
+                              ? 'bg-[#273f7a] text-white shadow-sm'
+                              : 'text-[#273f7a] hover:bg-[#edf2fb]'
+                          }`}
+                          aria-pressed={quoteJobListScope === scope && selectedJobSectionId === allJobsSectionId}
+                        >
+                          {scope}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <p className="mt-1 text-[13px] font-semibold text-[#747b8a]">
                     {selectedJobSectionId === allJobsSectionId
-                      ? 'All quote jobs, sorted by newest changed first.'
+                      ? quoteJobListScope === 'current'
+                        ? 'Only the job or upload you most recently imported in this session.'
+                        : 'All quote jobs, sorted by newest changed first.'
                       : 'Showing quote reports from the selected job section.'}
                   </p>
                 </div>
@@ -1647,7 +1822,7 @@ export default function JobsQuotingList({
                           >
                             <td className="px-3 py-4 align-top">
                               <span className="block whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
-                                {getItemDNumber(item) || '-'}
+                                {getItemDNumberDisplay(item)}
                               </span>
                             </td>
                             <td className="px-3 py-4 align-top">
@@ -1732,10 +1907,18 @@ export default function JobsQuotingList({
 
                 {!jobsListLoading && sortedJobGroups.length === 0 ? (
                   <div className="px-5 py-16 text-center">
-                    <p className="text-base font-black text-[#1f2430]">{searchQuery.trim() ? 'No matching quote reports.' : 'No repair jobs yet.'}</p>
+                    <p className="text-base font-black text-[#1f2430]">
+                      {searchQuery.trim()
+                        ? 'No matching quote reports.'
+                        : selectedJobSectionId === allJobsSectionId && quoteJobListScope === 'current'
+                          ? 'No current job selected yet.'
+                          : 'No repair jobs yet.'}
+                    </p>
                     <p className="mt-2 text-sm font-semibold text-[#747b8a]">
                       {searchQuery.trim()
                         ? 'Try searching another D-number or job number.'
+                        : selectedJobSectionId === allJobsSectionId && quoteJobListScope === 'current'
+                          ? 'Import a job to show it here, or switch to All to browse every quote job.'
                         : 'Upload a report, then check Extend once splitting and extraction are complete.'}
                     </p>
                   </div>

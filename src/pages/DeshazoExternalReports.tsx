@@ -4,7 +4,7 @@ import type { User } from '@supabase/supabase-js'
 import JSZip from 'jszip'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
-import { DeveloperBadge } from '../components/DeveloperBadge'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import {
   DESHAZO_PDF_PAGE_HEIGHT_PX,
   DESHAZO_PDF_PAGE_WIDTH_PX,
@@ -20,7 +20,7 @@ import {
   getSavedDeshazoInspectionReport,
   getSavedDeshazoInspectionReports,
 } from '../lib/deshazoExternalReports'
-import { getCurrentUserTag } from '../lib/userTags'
+import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -28,9 +28,9 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents', href: '/documents-reports' },
+  { label: 'Document Reports', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
-  { label: 'Work Orders', href: '/deshazo-work-orders' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -227,21 +227,16 @@ export default function DeshazoExternalReports() {
   const [message, setMessage] = useState('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerPath = useCustomerPath()
   const [searchParams] = useSearchParams()
   const requestedDNumber = useMemo(() => getRequestedDNumber(searchParams), [searchParams])
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.href === '/deshazo-work-orders',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, '/deshazo-work-orders')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
 
@@ -253,13 +248,7 @@ export default function DeshazoExternalReports() {
         const { data } = await client.auth.getUser()
         const nextUser = data.user
         if (!nextUser) {
-          navigate('/login')
-          return
-        }
-
-        const userTag = await getCurrentUserTag(nextUser.id)
-        if (userTag !== 'developer') {
-          navigate('/dashboard')
+          navigate(customerPath('/login'))
           return
         }
 
@@ -268,7 +257,7 @@ export default function DeshazoExternalReports() {
         setUser(nextUser)
 
         if (hasRequestedWorkOrderId) {
-          const requestedReport = await getSavedDeshazoInspectionReport(requestedWorkOrderId)
+          const requestedReport = await getSavedDeshazoInspectionReport(requestedWorkOrderId, selectedCustomer)
           if (cancelled) return
 
           if (requestedReport) {
@@ -289,7 +278,7 @@ export default function DeshazoExternalReports() {
           setLoading(false)
 
           try {
-            const recentReports = await getSavedDeshazoInspectionReports(100)
+            const recentReports = await getSavedDeshazoInspectionReports(100, selectedCustomer)
             if (cancelled) return
 
             const nextReports = requestedReport
@@ -302,7 +291,7 @@ export default function DeshazoExternalReports() {
           return
         }
 
-        const nextReports = await getSavedDeshazoInspectionReports(100)
+        const nextReports = await getSavedDeshazoInspectionReports(100, selectedCustomer)
         if (cancelled) return
 
         setReports(nextReports)
@@ -324,7 +313,7 @@ export default function DeshazoExternalReports() {
     return () => {
       cancelled = true
     }
-  }, [navigate, searchParams])
+  }, [customerPath, navigate, searchParams, selectedCustomer])
 
   const selectedReport = reports.find((report) => report.workOrderId === selectedWorkOrderId) ?? reports[0] ?? null
   const craneTickets: CraneTicketEntry[] = useMemo(
@@ -362,7 +351,7 @@ export default function DeshazoExternalReports() {
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   const downloadBlob = (blob: Blob, filename: string) => {
@@ -499,7 +488,6 @@ export default function DeshazoExternalReports() {
                 <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
                   DESHA<span className="text-[#f2b43f]">Z</span>O
                 </div>
-                <DeveloperBadge className="text-[11px]" />
               </div>
               <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#8b92a1]">
                 Recent synced work orders from Supabase

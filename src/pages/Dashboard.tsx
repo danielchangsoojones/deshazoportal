@@ -4,7 +4,10 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
+import { useCustomerPath } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 const portalCards = [
@@ -34,15 +37,10 @@ const portalCards = [
   },
   {
     eyebrow: 'Documents',
-    title: 'Documents',
+    title: 'Document Reports',
     description: 'Download maintenance reports, summaries, and supporting PDFs from one place.',
     href: '/documents-reports',
-  },
-  {
-    eyebrow: 'Documents',
-    title: 'Equipment Notebook LLM',
-    description: 'Chat with inspection reports and manuals to build cited repair and parts recommendations.',
-    href: '/equipment-notebook-llm',
+    developerOnly: true,
   },
   {
     eyebrow: 'Reports',
@@ -51,9 +49,9 @@ const portalCards = [
     href: '/custom-reports',
   },
   {
-    eyebrow: 'Operations',
-    title: 'Work Orders',
-    description: 'Open synced DeShazo work orders from Supabase and drill into inspection ticket PDFs.',
+    eyebrow: 'Documents',
+    title: 'Documents',
+    description: 'Open synced DeShazo documents from Supabase and drill into inspection ticket PDFs.',
     href: '/deshazo-work-orders',
   },
   {
@@ -72,43 +70,48 @@ const portalCards = [
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const customerPath = useCustomerPath()
 
   const visiblePortalCards = useMemo(
-    () => portalCards,
-    [],
+    () => portalCards.filter((card) => userTag === 'developer' || !card.developerOnly),
+    [userTag],
   )
 
   const menuItems = useMemo(
     () => [
-      { label: 'Home', active: true, href: '/dashboard' },
+      { label: 'Home', active: true, href: '/dashboard', developerOnly: false },
       ...visiblePortalCards.map((card) => ({
         label: card.title,
         active: false,
-        href: card.href,
+        href: customerPath(card.href),
+        developerOnly: card.developerOnly,
       })),
     ],
-    [visiblePortalCards],
+    [customerPath, visiblePortalCards],
   )
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
+        const nextUserTag = await getCurrentUserTag(data.user.id)
+        setUserTag(nextUserTag)
         setUser(data.user)
       }
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (!user) return null
@@ -154,7 +157,10 @@ export default function Dashboard() {
                             : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                         }`}
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </Link>
                     ) : (
@@ -163,7 +169,10 @@ export default function Dashboard() {
                         type="button"
                         className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium text-[rgba(21,24,33,0.7)] transition hover:bg-white"
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </button>
                     ),
@@ -213,8 +222,11 @@ export default function Dashboard() {
                 <div className="absolute inset-x-0 top-0 h-1.5 bg-[linear-gradient(90deg,var(--deshazo-blue)_0%,var(--deshazo-blue-soft)_100%)] opacity-90" />
                 <div className="mb-4 flex items-center justify-between gap-3 pt-1">
                   <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{card.eyebrow}</p>
-                  <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]">
-                  </span>
+                  {card.developerOnly ? (
+                    <DeveloperBadge />
+                  ) : (
+                    <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]" />
+                  )}
                 </div>
                 <h2 className="text-[clamp(28px,2.3vw,32px)] font-extrabold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
                   {card.title}
@@ -227,7 +239,7 @@ export default function Dashboard() {
                   {card.href ? (
                     <Link
                       className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[15px] font-bold text-[var(--deshazo-blue)] no-underline shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition group-hover:gap-3"
-                      to={card.href}
+                      to={customerPath(card.href)}
                     >
                       <span>Open</span>
                       <span aria-hidden="true">→</span>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line,
@@ -7,6 +7,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import { createAssetNote, listAssetNotes, type AssetNoteRecord } from '../lib/assetNotes'
 import { getAssetCompanyInternalId, upsertAssetCompanyInternalId } from '../lib/assetCompanyInternalId'
@@ -16,19 +18,33 @@ import {
   upsertAssetNotificationSubscriber,
   type AssetNotificationSubscriberRecord,
 } from '../lib/assetNotificationSubscribers'
-import { listRepairReportsByCity } from '../lib/repairReports'
 import {
-  findAssetPdfPage,
   getAssetInfo,
-  getAssetPDF,
   getRecurringIssues,
-  isPortalApiConfigured,
   type AssetPdfDocument,
   type AssetPdfResponse,
   type AssetInfoAnalytics,
   type AssetIssue,
   type RecurringIssue,
 } from '../lib/portalApi'
+import {
+  DESHAZO_PDF_PAGE_HEIGHT_PX,
+  DESHAZO_PDF_PAGE_WIDTH_PX,
+  createDeshazoInspectionPdfBlob,
+  getDeshazoInspectionPdfFileName,
+  getDeshazoInspectionReportHtml,
+  getDeshazoInspectionReportStyles,
+} from '../lib/deshazoExternalPdf'
+import {
+  getSavedDeshazoRepairReportsByCity,
+  getSavedDeshazoInspectionReportMatchesForDNumber,
+  type DeshazoSavedInspectionReport,
+} from '../lib/deshazoExternalReports'
+import {
+  getSupabaseOpenRiskAssetInfo,
+  getSupabaseOpenRiskRecurringIssues,
+} from '../lib/deshazoOpenRiskSupabase'
+import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -36,9 +52,9 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents', href: '/documents-reports' },
+  { label: 'Document Reports', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
-  { label: 'Work Orders', href: '/deshazo-work-orders' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
@@ -46,11 +62,13 @@ const menuItems = [
 type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'notes' | 'analytics'
 
 const ANALYTICS_COLORS = ['#2f56a6', '#f2b43f', '#e05c3a', '#4a9960', '#7b44c7', '#355fb4']
+const PREVENTATIVE_REPORTS_PAGE_SIZE = 10
 
 
 type AssetNote = {
   id: string
   unitId: string
+  customer: string
   authorId: string
   text: string
   authorName: string
@@ -64,12 +82,35 @@ type NotificationSubscriber = {
   repairDone: boolean
 }
 
-type IssueReportMatch = {
-  document: AssetPdfDocument
-  pageNumber: number
+type FilterField = 'category' | 'safety_category' | 'inspection_date' | 'component_type' | 'remarks'
+
+type GeneratedIssueReportMatch = {
+  report: DeshazoSavedInspectionReport
+  craneIndex: number
 }
 
-type FilterField = 'category' | 'safety_category' | 'inspection_date' | 'component_type' | 'remarks'
+type RepairPdfDocument = AssetPdfDocument & {
+  documentKey: string
+  report: DeshazoSavedInspectionReport
+  pdfLoading?: boolean
+  pdfError?: string
+}
+
+type GeneratedInspectionPdfDocument = AssetPdfDocument & {
+  documentKey: string
+  report: DeshazoSavedInspectionReport
+  craneIndex: number
+  pdfLoading?: boolean
+  pdfError?: string
+}
+
+const isRepairPdfDocument = (
+  document: AssetPdfDocument | RepairPdfDocument | null,
+): document is RepairPdfDocument => Boolean(document && 'documentKey' in document)
+
+const isGeneratedInspectionPdfDocument = (
+  document: AssetPdfDocument | RepairPdfDocument | GeneratedInspectionPdfDocument | null,
+): document is GeneratedInspectionPdfDocument => Boolean(document && 'craneIndex' in document)
 
 const defaultAssetInfo: AssetInfoAnalytics = {
   unit_location: '',
@@ -88,6 +129,17 @@ const defaultAssetDocuments: AssetPdfResponse = {
 
 const formatDisplayDate = (value?: string) =>
   value ? value.replace(/\. /g, ' ').replace(/th,|st,|nd,|rd,/g, ',') : 'Not available'
+
+const formatRepairReportDate = (value?: string) => {
+  if (!value) return 'Not available'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return formatDisplayDate(value)
+
+  const year = parsed.getFullYear()
+  const day = String(parsed.getDate()).padStart(2, '0')
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 const parseInspectionDate = (value?: string) => {
   if (!value) return null
@@ -109,12 +161,21 @@ const formatTitleCase = (value?: string) =>
         .join(' ')
     : 'Not available'
 
+const formatSafetyCategory = (value?: string) => {
+  const normalized = value?.trim().toLowerCase()
+  if (normalized === 'repair') return 'Repair'
+  if (normalized === 'monitor') return 'Monitor'
+  if (normalized === 'safety') return 'Safety'
+  return formatTitleCase(value)
+}
+
 const formatNoteTimestamp = (value: string) =>
   new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 const mapNoteRecord = (note: AssetNoteRecord): AssetNote => ({
   id: note.id,
   unitId: note.unitId,
+  customer: note.customer,
   authorId: note.authorId,
   text: note.text,
   authorName: note.authorName,
@@ -140,13 +201,6 @@ const extractDocumentNumber = (...values: Array<string | undefined>) => {
 
   return ''
 }
-
-const formatRepairReportType = (value: string) =>
-  value
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
 
 const getSafetyBadgeClass = (value: string) => {
   const normalized = value.toLowerCase()
@@ -192,29 +246,183 @@ const buildVisiblePages = (currentPage: number, totalPages: number) => {
     .sort((left, right) => left - right)
 }
 
-function AssetIssueRow({ issue, index, onClick }: { issue: AssetIssue; index: number; onClick: () => void }) {
+function AssetIssueRow({
+  issue,
+  index,
+  onClick,
+}: {
+  issue: AssetIssue
+  index: number
+  onClick: () => void
+}) {
   return (
     <tr onClick={onClick} className={`cursor-pointer transition hover:bg-[#dbe5ff] ${index % 2 === 0 ? 'bg-[#f4f7ff]' : 'bg-white'}`}>
-      <td className="px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
+      <td className="w-[23%] px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
         {issue.category}
       </td>
-      <td className="px-4 py-3 align-top">
+      <td className="w-[17%] px-4 py-3 align-top">
         <span className={`inline-flex rounded-full px-2.5 py-1 text-[13px] font-bold ${getSafetyBadgeClass(issue.safety_category)}`}>
-          {issue.safety_category}
+          {formatSafetyCategory(issue.safety_category)}
         </span>
       </td>
-      <td className="px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
+      <td className="w-[16%] px-4 py-3 align-top text-[15px] font-medium text-[var(--deshazo-text)]">
         {formatDisplayDate(issue.inspection_date)}
       </td>
-      <td className="px-4 py-3 align-top">
+      <td className="w-[11%] px-4 py-3 align-top">
         <span className={`inline-flex rounded-full px-2.5 py-1 text-[13px] font-bold ${getComponentBadgeClass(issue.component_type)}`}>
           {formatTitleCase(issue.component_type)}
         </span>
       </td>
-      <td className="px-4 py-3 align-top text-[15px] font-medium leading-snug text-[var(--deshazo-text)]">
-        {issue.remarks}
+      <td className="w-[33%] px-4 py-3 align-top text-[15px] font-medium leading-snug text-[var(--deshazo-text)]">
+        <span className="min-w-0 flex-1 whitespace-normal break-words">{issue.remarks}</span>
       </td>
     </tr>
+  )
+}
+
+function GeneratedInspectionReportPreview({
+  report,
+  selectedCraneIndex,
+  zoom,
+  onZoomOut,
+  onZoomIn,
+  onOpenReportPage,
+  onDownload,
+  downloadBusy = false,
+}: {
+  report: DeshazoSavedInspectionReport
+  selectedCraneIndex: number
+  zoom: number
+  onZoomOut?: () => void
+  onZoomIn?: () => void
+  onOpenReportPage?: () => void
+  onDownload?: () => void
+  downloadBusy?: boolean
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+  const [currentPage, setCurrentPage] = useState(0)
+  const reportMarkup = useMemo(
+    () =>
+      `<style>${getDeshazoInspectionReportStyles('preview')}</style>${getDeshazoInspectionReportHtml(
+        report,
+        selectedCraneIndex,
+      )}`,
+    [report, selectedCraneIndex],
+  )
+  const pageCount = useMemo(() => Math.max(1, reportMarkup.match(/class="pdf-page"/g)?.length ?? 1), [reportMarkup])
+
+  useEffect(() => {
+    const node = containerRef.current
+    if (!node) return undefined
+
+    const updateScale = () => {
+      const availableWidth = Math.max(0, node.clientWidth - 32)
+      const widthScale = availableWidth / DESHAZO_PDF_PAGE_WIDTH_PX
+      setScale(Math.max(0.45, Math.min(1.75, widthScale * zoom)))
+    }
+
+    updateScale()
+    const observer = new ResizeObserver(updateScale)
+    observer.observe(node)
+    window.addEventListener('resize', updateScale)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateScale)
+    }
+  }, [zoom])
+
+  const pageGap = 24
+  const scaledWidth = DESHAZO_PDF_PAGE_WIDTH_PX * scale
+  const scaledHeight = DESHAZO_PDF_PAGE_HEIGHT_PX * scale
+  const pageOffset = currentPage * (DESHAZO_PDF_PAGE_HEIGHT_PX + pageGap) * scale
+
+  return (
+    <section ref={containerRef} className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#777]">
+      <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto px-4 py-5">
+        <div className="overflow-hidden bg-white shadow-[0_16px_40px_-34px_rgba(0,0,0,0.4)]" style={{ width: scaledWidth, height: scaledHeight }}>
+          <div
+            className="deshazo-pdf-root"
+            style={{
+              marginTop: -pageOffset,
+              transform: `scale(${scale})`,
+              transformOrigin: 'top left',
+            }}
+            dangerouslySetInnerHTML={{ __html: reportMarkup }}
+          />
+        </div>
+      </div>
+      {(onZoomOut || onZoomIn || onOpenReportPage || onDownload) ? (
+        <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center overflow-hidden rounded-[12px] bg-[#323232] px-3 py-2 text-white shadow-[0_18px_34px_-18px_rgba(0,0,0,0.6)]">
+          <button
+            type="button"
+            onClick={onZoomOut}
+            disabled={!onZoomOut}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[28px] font-light leading-none text-white/90 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            aria-label="Zoom out"
+            title="Zoom out"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={onZoomIn}
+            disabled={!onZoomIn}
+            className="ml-2 flex h-10 w-10 items-center justify-center rounded-full text-[25px] font-light leading-none text-white/90 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            aria-label="Zoom in"
+            title="Zoom in"
+          >
+            +
+          </button>
+          <div className="mx-3 h-9 w-px bg-white/35" />
+          <button
+            type="button"
+            onClick={onOpenReportPage}
+            disabled={!onOpenReportPage}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[22px] font-semibold leading-none text-white/90 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            aria-label="Open report preview"
+            title="Open report preview"
+          >
+            ▣
+          </button>
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={!onDownload || downloadBusy}
+            className="ml-2 flex h-10 w-10 items-center justify-center rounded-full text-[28px] font-light leading-none text-white/90 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            aria-label="Download report"
+            title="Download report"
+          >
+            {downloadBusy ? '…' : '↓'}
+          </button>
+        </div>
+      ) : null}
+      <div className="border-t border-[var(--deshazo-border)] bg-white px-4 py-3">
+        <div className="grid grid-cols-[44px_1fr_44px] items-center gap-3 rounded-sm border border-[var(--deshazo-border)] bg-white px-2 py-2">
+          <button
+            type="button"
+            onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+            disabled={currentPage === 0}
+            className="flex h-9 w-9 items-center justify-center rounded-md bg-[#edae2f] text-2xl font-bold leading-none text-white transition hover:bg-[#d89b22] disabled:cursor-not-allowed disabled:opacity-45"
+            aria-label="Previous PDF page"
+          >
+            ‹
+          </button>
+          <div className="text-center text-[15px] font-bold text-[var(--deshazo-text)]">
+            Page {currentPage + 1} of {pageCount}
+          </div>
+          <button
+            type="button"
+            onClick={() => setCurrentPage((page) => Math.min(pageCount - 1, page + 1))}
+            disabled={currentPage >= pageCount - 1}
+            className="flex h-9 w-9 items-center justify-center rounded-md bg-[#edae2f] text-2xl font-bold leading-none text-white transition hover:bg-[#d89b22] disabled:cursor-not-allowed disabled:opacity-45"
+            aria-label="Next PDF page"
+          >
+            ›
+          </button>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -229,23 +437,27 @@ export default function AssetInfo() {
   const [filterValue, setFilterValue] = useState('')
   const [assetInfo, setAssetInfo] = useState<AssetInfoAnalytics>(defaultAssetInfo)
   const [assetDocuments, setAssetDocuments] = useState<AssetPdfResponse>(defaultAssetDocuments)
-  const [repairDocuments, setRepairDocuments] = useState<AssetPdfDocument[]>([])
+  const [inspectionDocuments, setInspectionDocuments] = useState<GeneratedInspectionPdfDocument[]>([])
+  const [repairDocuments, setRepairDocuments] = useState<RepairPdfDocument[]>([])
+  const repairDocumentUrlsRef = useRef<string[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState('')
   const [documentsPage, setDocumentsPage] = useState(1)
+  const [inspectionPreviewZoom, setInspectionPreviewZoom] = useState(1)
+  const [inspectionDownloadBusy, setInspectionDownloadBusy] = useState(false)
   const [selectedDocumentUrl, setSelectedDocumentUrl] = useState('')
   const [notes, setNotes] = useState<AssetNote[]>([])
   const [noteInput, setNoteInput] = useState('')
   const [notesLoading, setNotesLoading] = useState(false)
   const [notesError, setNotesError] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
-  const [wabashModalOpen, setWabashModalOpen] = useState(false)
-  const [wabashIdentifier, setWabashIdentifier] = useState('')
-  const [wabashDraft, setWabashDraft] = useState('')
-  const [wabashLoading, setWabashLoading] = useState(false)
-  const [wabashSaving, setWabashSaving] = useState(false)
-  const [wabashError, setWabashError] = useState('')
-  const [wabashInfoOpen, setWabashInfoOpen] = useState(false)
+  const [customerIdentifierModalOpen, setCustomerIdentifierModalOpen] = useState(false)
+  const [customerIdentifier, setCustomerIdentifier] = useState('')
+  const [customerIdentifierDraft, setCustomerIdentifierDraft] = useState('')
+  const [customerIdentifierLoading, setCustomerIdentifierLoading] = useState(false)
+  const [customerIdentifierSaving, setCustomerIdentifierSaving] = useState(false)
+  const [customerIdentifierError, setCustomerIdentifierError] = useState('')
+  const [customerIdentifierInfoOpen, setCustomerIdentifierInfoOpen] = useState(false)
   const [emailModalOpen, setEmailModalOpen] = useState(false)
   const [notificationEmails, setNotificationEmails] = useState<NotificationSubscriber[]>([])
   const [notificationEmailsLoading, setNotificationEmailsLoading] = useState(false)
@@ -256,25 +468,27 @@ export default function AssetInfo() {
   const [issueReportLoading, setIssueReportLoading] = useState(false)
   const [issueReportError, setIssueReportError] = useState('')
   const [selectedIssue, setSelectedIssue] = useState<AssetIssue | null>(null)
-  const [selectedIssueMatch, setSelectedIssueMatch] = useState<IssueReportMatch | null>(null)
+  const [selectedIssueMatch, setSelectedIssueMatch] = useState<GeneratedIssueReportMatch | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [recurringIssues, setRecurringIssues] = useState<RecurringIssue[]>([])
   const [recurringIssuesLoading, setRecurringIssuesLoading] = useState(false)
+  const selectedRepairDocumentToDraft = useMemo(
+    () => repairDocuments.find((document) => document.documentKey === selectedDocumentUrl) ?? null,
+    [repairDocuments, selectedDocumentUrl],
+  )
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerName = getCustomerDisplayName(selectedCustomer)
+  const customerIdentifierLabel = `Unique ${customerName} Identifier`
+  const customerPath = useCustomerPath()
   const unitId = searchParams.get('unit_id')?.trim() || ''
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
+  const usesSupabaseAssetData = currentView === 'open-risk' || currentView === 'asset-fleet'
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active:
-          currentView === 'open-risk'
-            ? item.label === 'Open Risk Items'
-            : item.label === 'Asset Fleet',
-      })),
-    [currentView],
+  const activeMenuItems = useDeveloperMenuItems(
+    menuItems,
+    currentView === 'open-risk' ? 'Open Risk Items' : 'Asset Fleet',
   )
 
   const analytics = useMemo(() => {
@@ -386,21 +600,25 @@ export default function AssetInfo() {
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
 
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   useEffect(() => {
+    if (authLoading || !user) {
+      return
+    }
+
     const controller = new AbortController()
 
     const loadAssetInfo = async () => {
@@ -414,7 +632,9 @@ export default function AssetInfo() {
       try {
         setLoading(true)
         setError('')
-        const data = await getAssetInfo(unitId, controller.signal)
+        const data = usesSupabaseAssetData
+          ? await getSupabaseOpenRiskAssetInfo(unitId, selectedCustomer)
+          : await getAssetInfo(unitId, controller.signal)
         setAssetInfo(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -430,16 +650,21 @@ export default function AssetInfo() {
     void loadAssetInfo()
 
     return () => controller.abort()
-  }, [unitId])
+  }, [unitId, usesSupabaseAssetData, authLoading, user, selectedCustomer])
 
   useEffect(() => {
+    if (authLoading || !user) {
+      return
+    }
     if (!unitId) return
     const controller = new AbortController()
 
     const loadRecurringIssues = async () => {
       try {
         setRecurringIssuesLoading(true)
-        const data = await getRecurringIssues(unitId, controller.signal)
+        const data = usesSupabaseAssetData
+          ? await getSupabaseOpenRiskRecurringIssues(unitId, selectedCustomer)
+          : await getRecurringIssues(unitId, controller.signal)
         setRecurringIssues(data)
       } catch {
         if (!controller.signal.aborted) setRecurringIssues([])
@@ -450,7 +675,7 @@ export default function AssetInfo() {
 
     void loadRecurringIssues()
     return () => controller.abort()
-  }, [unitId])
+  }, [unitId, usesSupabaseAssetData, authLoading, user, selectedCustomer])
 
   useEffect(() => {
     if (!user || !unitId || !supabase) {
@@ -466,7 +691,7 @@ export default function AssetInfo() {
       try {
         setNotesLoading(true)
         setNotesError('')
-        const data = await listAssetNotes(unitId)
+        const data = await listAssetNotes(unitId, selectedCustomer)
         if (!cancelled) {
           setNotes(data.map(mapNoteRecord))
         }
@@ -487,7 +712,7 @@ export default function AssetInfo() {
     return () => {
       cancelled = true
     }
-  }, [unitId, user])
+  }, [unitId, user, selectedCustomer])
 
   useEffect(() => {
     if (!user || !unitId || !supabase) {
@@ -527,9 +752,9 @@ export default function AssetInfo() {
 
   useEffect(() => {
     if (!user || !unitId || !supabase) {
-      setWabashIdentifier('')
-      setWabashLoading(false)
-      setWabashError(unitId ? '' : 'A unit id is required to load the unique company internal id.')
+      setCustomerIdentifier('')
+      setCustomerIdentifierLoading(false)
+      setCustomerIdentifierError(unitId ? '' : 'A unit id is required to load the unique company internal id.')
       return
     }
 
@@ -537,20 +762,20 @@ export default function AssetInfo() {
 
     const loadCompanyInternalId = async () => {
       try {
-        setWabashLoading(true)
-        setWabashError('')
-        const data = await getAssetCompanyInternalId(unitId)
+        setCustomerIdentifierLoading(true)
+        setCustomerIdentifierError('')
+        const data = await getAssetCompanyInternalId(unitId, selectedCustomer)
         if (!cancelled) {
-          setWabashIdentifier(data?.value ?? '')
+          setCustomerIdentifier(data?.value ?? '')
         }
       } catch (err) {
         if (!cancelled) {
-          setWabashIdentifier('')
-          setWabashError(err instanceof Error ? err.message : 'Unable to load the unique company internal id.')
+          setCustomerIdentifier('')
+          setCustomerIdentifierError(err instanceof Error ? err.message : 'Unable to load the unique company internal id.')
         }
       } finally {
         if (!cancelled) {
-          setWabashLoading(false)
+          setCustomerIdentifierLoading(false)
         }
       }
     }
@@ -560,7 +785,7 @@ export default function AssetInfo() {
     return () => {
       cancelled = true
     }
-  }, [unitId, user])
+  }, [unitId, user, selectedCustomer])
 
   useEffect(() => {
     if (activeTab !== 'documents') {
@@ -580,15 +805,42 @@ export default function AssetInfo() {
       try {
         setDocumentsLoading(true)
         setDocumentsError('')
-        const data = await getAssetPDF(unitId, documentsPage, controller.signal)
-        setAssetDocuments(data)
+        const docNumber = extractDocumentNumber(assetInfo.unit_name, unitId)
+        if (!docNumber) {
+          setDocumentsError('No D number was found for this asset, so preventative maintenance reports could not be loaded.')
+          setAssetDocuments(defaultAssetDocuments)
+          setInspectionDocuments([])
+          setSelectedDocumentUrl('')
+          return
+        }
+
+        const matchedReports = await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber, selectedCustomer)
+        const mappedDocuments: GeneratedInspectionPdfDocument[] = matchedReports.map((match) => ({
+          documentKey: `inspection:${match.report.workOrderId}:${match.craneIndex}`,
+          report: match.report,
+          craneIndex: match.craneIndex,
+          inspection_date: match.inspectionDate || match.report.summary?.endDate || match.report.syncedAt,
+          pdf: '',
+          type: match.report.jobType || match.report.summary?.jobType || 'Inspection',
+          display_name: getDeshazoInspectionPdfFileName(match.report).replace(/\.pdf$/i, ''),
+        }))
+
+        setAssetDocuments({
+          ...defaultAssetDocuments,
+          page_size: PREVENTATIVE_REPORTS_PAGE_SIZE,
+          total_invoice_count: mappedDocuments.length,
+          total_pages: Math.max(1, Math.ceil(mappedDocuments.length / PREVENTATIVE_REPORTS_PAGE_SIZE)),
+        })
+        setInspectionDocuments(mappedDocuments)
+        setDocumentsPage(1)
         setSelectedDocumentUrl((current) =>
-          data.results.some((document) => document.pdf === current) ? current : (data.results[0]?.pdf ?? ''),
+          mappedDocuments.some((document) => document.documentKey === current) ? current : (mappedDocuments[0]?.documentKey ?? ''),
         )
       } catch (err) {
         if (controller.signal.aborted) return
         setDocumentsError(err instanceof Error ? err.message : 'Unable to load asset documents.')
         setAssetDocuments(defaultAssetDocuments)
+        setInspectionDocuments([])
         setSelectedDocumentUrl('')
       } finally {
         if (!controller.signal.aborted) {
@@ -599,8 +851,28 @@ export default function AssetInfo() {
 
     loadDocuments()
 
-    return () => controller.abort()
-  }, [activeTab, unitId, documentsPage])
+    return () => {
+      controller.abort()
+    }
+  }, [activeTab, unitId, assetInfo.unit_name, selectedCustomer])
+
+  useEffect(() => {
+    if (activeTab !== 'documents' && activeTab !== 'repair') return
+
+    const documents = activeTab === 'repair' ? repairDocuments : inspectionDocuments
+    const totalPages = Math.max(1, Math.ceil(documents.length / PREVENTATIVE_REPORTS_PAGE_SIZE))
+    if (documentsPage > totalPages) {
+      setDocumentsPage(totalPages)
+      return
+    }
+
+    const startIndex = (documentsPage - 1) * PREVENTATIVE_REPORTS_PAGE_SIZE
+    const currentPageDocuments = documents.slice(startIndex, startIndex + PREVENTATIVE_REPORTS_PAGE_SIZE)
+    if (currentPageDocuments.length === 0) return
+    if (!currentPageDocuments.some((document) => document.documentKey === selectedDocumentUrl)) {
+      setSelectedDocumentUrl(currentPageDocuments[0].documentKey)
+    }
+  }, [activeTab, documentsPage, inspectionDocuments, repairDocuments, selectedDocumentUrl])
 
   useEffect(() => {
     if (activeTab !== 'repair') {
@@ -623,19 +895,28 @@ export default function AssetInfo() {
       try {
         setDocumentsLoading(true)
         setDocumentsError('')
-        const data = await listRepairReportsByCity(city)
+        repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+        repairDocumentUrlsRef.current = []
 
         if (!cancelled) {
-          const mappedDocuments: AssetPdfDocument[] = data.map((report) => ({
-            inspection_date: report.dateStart ?? report.uploadedAt,
-            pdf: report.signedUrl,
-            type: formatRepairReportType(report.reportType),
-            display_name: report.displayName || `${report.workOrderNumber} ${formatRepairReportType(report.reportType)}`,
+          const reports = await getSavedDeshazoRepairReportsByCity(city, selectedCustomer)
+          const mappedDocuments: RepairPdfDocument[] = reports.map((report) => ({
+            documentKey: `repair:${report.workOrderId}`,
+            report,
+            inspection_date: report.summary?.startDate || report.summary?.endDate || report.syncedAt,
+            pdf: '',
+            type: report.jobType || 'Repair',
+            display_name: getDeshazoInspectionPdfFileName(report).replace(/\.pdf$/i, ''),
           }))
 
+          if (cancelled) {
+            return
+          }
+
           setRepairDocuments(mappedDocuments)
+          setDocumentsPage(1)
           setSelectedDocumentUrl((current) =>
-            mappedDocuments.some((document) => document.pdf === current) ? current : (mappedDocuments[0]?.pdf ?? ''),
+            mappedDocuments.some((document) => document.documentKey === current) ? current : (mappedDocuments[0]?.documentKey ?? ''),
           )
         }
       } catch (err) {
@@ -655,12 +936,69 @@ export default function AssetInfo() {
 
     return () => {
       cancelled = true
+      repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+      repairDocumentUrlsRef.current = []
     }
-  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location])
+  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location, selectedCustomer])
+
+  useEffect(() => {
+    return () => {
+      repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+      repairDocumentUrlsRef.current = []
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab !== 'repair' || !selectedDocumentUrl) {
+      return
+    }
+
+    const selectedRepairDocument = selectedRepairDocumentToDraft
+    if (!selectedRepairDocument || selectedRepairDocument.pdf || selectedRepairDocument.pdfLoading) {
+      return
+    }
+
+    let cancelled = false
+
+    const loadSelectedRepairPdf = async () => {
+      try {
+        const blob = await createDeshazoInspectionPdfBlob(selectedRepairDocument.report)
+        if (cancelled) return
+
+        const pdfUrl = URL.createObjectURL(blob)
+        repairDocumentUrlsRef.current.push(pdfUrl)
+        setRepairDocuments((documents) =>
+          documents.map((document) =>
+            document.documentKey === selectedRepairDocument.documentKey
+              ? { ...document, pdf: pdfUrl, pdfError: '' }
+              : document,
+          ),
+        )
+      } catch (err) {
+        if (cancelled) return
+        setRepairDocuments((documents) =>
+          documents.map((document) =>
+            document.documentKey === selectedRepairDocument.documentKey
+              ? {
+                  ...document,
+                  pdfError: err instanceof Error ? err.message : 'Unable to draft repair PDF.',
+                }
+              : document,
+          ),
+        )
+      }
+    }
+
+    void loadSelectedRepairPdf()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, selectedDocumentUrl, selectedRepairDocumentToDraft])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (authLoading) {
@@ -696,6 +1034,7 @@ export default function AssetInfo() {
       setNotesError('')
       const newNote = await createAssetNote({
         unitId,
+        customer: selectedCustomer,
         authorId: user.id,
         authorName: fullName,
         authorEmail: user.email ?? '',
@@ -710,28 +1049,29 @@ export default function AssetInfo() {
     }
   }
 
-  const handleSaveWabashIdentifier = async () => {
-    const value = wabashDraft.trim()
+  const handleSaveCustomerIdentifier = async () => {
+    const value = customerIdentifierDraft.trim()
     if (!value || !user || !unitId) {
       return
     }
 
     try {
-      setWabashSaving(true)
-      setWabashError('')
+      setCustomerIdentifierSaving(true)
+      setCustomerIdentifierError('')
       const savedRecord = await upsertAssetCompanyInternalId({
         unitId,
+        customer: selectedCustomer,
         value,
         updatedBy: user.id,
         updatedByName: fullName,
         updatedByEmail: user.email ?? '',
       })
-      setWabashIdentifier(savedRecord.value)
-      setWabashModalOpen(false)
+      setCustomerIdentifier(savedRecord.value)
+      setCustomerIdentifierModalOpen(false)
     } catch (err) {
-      setWabashError(err instanceof Error ? err.message : 'Unable to save the unique company internal id.')
+      setCustomerIdentifierError(err instanceof Error ? err.message : 'Unable to save the unique company internal id.')
     } finally {
-      setWabashSaving(false)
+      setCustomerIdentifierSaving(false)
     }
   }
 
@@ -746,7 +1086,9 @@ export default function AssetInfo() {
     try {
       setLoading(true)
       setError('')
-      const data = await getAssetInfo(unitId)
+      const data = usesSupabaseAssetData
+        ? await getSupabaseOpenRiskAssetInfo(unitId, selectedCustomer)
+        : await getAssetInfo(unitId)
       setAssetInfo(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load asset information.')
@@ -835,12 +1177,6 @@ export default function AssetInfo() {
     await saveNotificationSubscriber({ ...subscriber, [field]: !subscriber[field] })
   }
 
-  const findIssueDocumentMatch = async (issue: AssetIssue, docNumber: string) => {
-    const response = await findAssetPdfPage(unitId, docNumber, issue.inspection_date)
-
-    return response.match
-  }
-
   const handleIssueRowClick = async (issue: AssetIssue) => {
     setSelectedIssue(issue)
     setSelectedIssueMatch(null)
@@ -855,16 +1191,28 @@ export default function AssetInfo() {
 
     try {
       setIssueReportLoading(true)
-      const matchedDocument = await findIssueDocumentMatch(issue, docNumber)
+      const matchedReports = await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber, selectedCustomer)
 
-      if (!matchedDocument) {
-        setIssueReportError(`No asset PDF page matched ${docNumber} for this unit.`)
+      if (matchedReports.length === 0) {
+        setIssueReportError(`No synced inspection report matched ${docNumber}.`)
         return
       }
 
-      setSelectedIssueMatch(matchedDocument)
+      const issueDate = parseInspectionDate(issue.inspection_date)
+      const sameDateMatch = issueDate
+        ? matchedReports.find((match) => {
+            const matchDate = parseInspectionDate(match.inspectionDate)
+            return Boolean(matchDate && matchDate.toDateString() === issueDate.toDateString())
+          })
+        : null
+      const matchedReport = sameDateMatch ?? matchedReports[0]
+
+      setSelectedIssueMatch({
+        report: matchedReport.report,
+        craneIndex: matchedReport.craneIndex,
+      })
     } catch (err) {
-      setIssueReportError(err instanceof Error ? err.message : 'Unable to load the matching issue PDF.')
+      setIssueReportError(err instanceof Error ? err.message : 'Unable to load the matching inspection report.')
     } finally {
       setIssueReportLoading(false)
     }
@@ -908,7 +1256,7 @@ export default function AssetInfo() {
   const handleDownloadIssues = () => {
     const rows = filteredIssues.map((issue) => [
       issue.category,
-      issue.safety_category,
+      formatSafetyCategory(issue.safety_category),
       formatDisplayDate(issue.inspection_date),
       formatTitleCase(issue.component_type),
       issue.remarks.replace(/\r?\n/g, ' '),
@@ -939,13 +1287,44 @@ export default function AssetInfo() {
   const currentDocumentList =
     activeTab === 'repair'
       ? repairDocuments
-      : assetDocuments.results
-  const documentsTotalPages = Math.max(1, assetDocuments.total_pages || 1)
+      : inspectionDocuments
+  const getDocumentKey = (document: AssetPdfDocument | RepairPdfDocument) =>
+    'documentKey' in document ? document.documentKey : document.pdf
+  const documentsTotalPages = activeTab === 'documents' || activeTab === 'repair'
+    ? Math.max(1, Math.ceil(currentDocumentList.length / PREVENTATIVE_REPORTS_PAGE_SIZE))
+    : Math.max(1, assetDocuments.total_pages || 1)
   const visibleDocumentPages = buildVisiblePages(documentsPage, documentsTotalPages)
+  const pagedDocumentList = activeTab === 'documents' || activeTab === 'repair'
+    ? currentDocumentList.slice(
+        (documentsPage - 1) * PREVENTATIVE_REPORTS_PAGE_SIZE,
+        documentsPage * PREVENTATIVE_REPORTS_PAGE_SIZE,
+      )
+    : currentDocumentList
   const selectedDocument =
-    currentDocumentList.find((document) => document.pdf === selectedDocumentUrl) ||
+    currentDocumentList.find((document) => getDocumentKey(document) === selectedDocumentUrl) ||
     currentDocumentList[0] ||
     null
+  const selectedRepairDocument = isRepairPdfDocument(selectedDocument) ? selectedDocument : null
+  const selectedInspectionDocument = isGeneratedInspectionPdfDocument(selectedDocument) ? selectedDocument : null
+  const selectedDocumentDownloadName = selectedDocument
+    ? `${selectedDocument.display_name.replace(/\.pdf$/i, '')}.pdf`
+    : 'report.pdf'
+  const handleDownloadSelectedInspectionReport = async () => {
+    if (!selectedInspectionDocument) return
+
+    try {
+      setInspectionDownloadBusy(true)
+      const blob = await createDeshazoInspectionPdfBlob(selectedInspectionDocument.report, selectedInspectionDocument.craneIndex)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = getDeshazoInspectionPdfFileName(selectedInspectionDocument.report, selectedInspectionDocument.craneIndex)
+      anchor.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } finally {
+      setInspectionDownloadBusy(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -987,7 +1366,10 @@ export default function AssetInfo() {
                             : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                         }`}
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </Link>
                     ) : (
@@ -996,7 +1378,10 @@ export default function AssetInfo() {
                         type="button"
                         className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium text-[rgba(21,24,33,0.7)] transition hover:bg-white"
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </button>
                     ),
@@ -1028,7 +1413,7 @@ export default function AssetInfo() {
           </aside>
         )}
 
-        <section className="min-w-0 flex-1 px-5 py-5 sm:px-8 lg:px-10">
+        <section className="flex min-w-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-10">
           <div className="mb-6">
             <div className="text-[36px] font-black uppercase tracking-[-0.04em] text-[#b8bcc8]">
               DESHA<span className="text-[#f2b43f]">Z</span>O
@@ -1042,51 +1427,45 @@ export default function AssetInfo() {
             </h1>
           </div>
 
-          {!isPortalApiConfigured && (
-            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-              Add `VITE_PORTAL_PARSE_REST_API_KEY` to load live asset information.
-            </div>
-          )}
-
           {error && (
             <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
             </div>
           )}
 
-          {/* Wabash identifier + email notification buttons */}
+          {/* Customer identifier + email notification buttons */}
           <div className="mb-4 flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => { setWabashDraft(wabashIdentifier); setWabashError(''); setWabashModalOpen(true) }}
+              onClick={() => { setCustomerIdentifierDraft(customerIdentifier); setCustomerIdentifierError(''); setCustomerIdentifierModalOpen(true) }}
               className="flex items-center gap-3 rounded-[10px] border border-[var(--deshazo-border)] bg-white px-4 py-3 text-left shadow-[0_4px_12px_-8px_rgba(47,86,166,0.15)] transition hover:border-[var(--deshazo-blue)] hover:bg-[var(--deshazo-surface)]"
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--deshazo-surface)] text-[16px]">✏️</span>
               <span className="relative">
                 <span className="flex items-center gap-2">
-                  <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">Unique Wabash Identifier</p>
+                  <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.55)]">{customerIdentifierLabel}</p>
                   <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation()
-                      setWabashInfoOpen((open) => !open)
+                      setCustomerIdentifierInfoOpen((open) => !open)
                     }}
                     className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--deshazo-border)] bg-white text-[11px] font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
-                    aria-label="What is the unique Wabash identifier?"
-                    title="What is the unique Wabash identifier?"
+                    aria-label={`What is the ${customerIdentifierLabel.toLowerCase()}?`}
+                    title={`What is the ${customerIdentifierLabel.toLowerCase()}?`}
                   >
                     i
                   </button>
                 </span>
                 <p className="text-[14px] font-bold tracking-wide text-[var(--deshazo-text)]">
-                  {wabashLoading ? 'Loading...' : (wabashIdentifier || 'Not set')}
+                  {customerIdentifierLoading ? 'Loading...' : (customerIdentifier || 'Not set')}
                 </p>
-                {wabashInfoOpen ? (
+                {customerIdentifierInfoOpen ? (
                   <span
                     className="absolute left-0 top-[calc(100%+10px)] z-20 block w-[300px] rounded-[12px] border border-[var(--deshazo-border)] bg-white p-3 text-[12px] font-medium leading-relaxed text-[rgba(21,24,33,0.68)] shadow-[0_18px_40px_-28px_rgba(47,86,166,0.28)]"
                     onClick={(event) => event.stopPropagation()}
                   >
-                    Use this field to store the company-specific internal identifier for this asset. It is shared across all users for the same unit and helps your team reference the asset consistently.
+                    Use this field to store the company-specific internal identifier for this asset. It is shared across all users for this customer and unit, and helps your team reference the asset consistently.
                   </span>
                 ) : null}
               </span>
@@ -1106,7 +1485,7 @@ export default function AssetInfo() {
             </button>
           </div>
 
-          <section className="overflow-hidden rounded-[14px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
+          <section className="flex flex-col rounded-[14px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
             <div className="border-b border-[var(--deshazo-border)] px-4 pt-3">
               <div className="flex flex-wrap gap-2">
                 {tabs.map((tab) => (
@@ -1126,7 +1505,7 @@ export default function AssetInfo() {
               </div>
             </div>
 
-            <div className="min-h-[640px] px-4 py-4">
+            <div className="px-4 py-4">
               {loading ? (
                 <div className="space-y-3">
                   <div className="h-12 animate-pulse rounded bg-[var(--deshazo-surface)]" />
@@ -1172,14 +1551,14 @@ export default function AssetInfo() {
                   {/* Issues table */}
                   <div className="overflow-hidden rounded-[8px] border border-[var(--deshazo-border)]">
                   <div className="overflow-x-auto">
-                    <table className="min-w-full border-collapse">
+                    <table className="min-w-full table-fixed border-collapse">
                       <thead className="bg-[#f4f5f7]">
                         <tr className="text-left">
-                          <th className="px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Category</th>
-                          <th className="px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Safety category</th>
-                          <th className="px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Inspection date</th>
-                          <th className="w-[180px] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Component</th>
-                          <th className="px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Remarks</th>
+                          <th className="w-[23%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Category</th>
+                          <th className="w-[17%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Safety category</th>
+                          <th className="w-[16%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Inspection date</th>
+                          <th className="w-[11%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Component</th>
+                          <th className="w-[33%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Remarks</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1315,10 +1694,10 @@ export default function AssetInfo() {
                         <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">Name</td>
                         <td className="px-4 py-3 text-[15px] font-medium text-[var(--deshazo-text)]">{assetInfo.unit_name || 'Not available'}</td>
                       </tr>
-                      {wabashIdentifier ? (
+                      {customerIdentifier ? (
                         <tr className="border-t border-[var(--deshazo-border)]">
-                          <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">Unique Wabash Identifier</td>
-                          <td className="px-4 py-3 text-[15px] font-medium tracking-wide text-[var(--deshazo-text)]">{wabashIdentifier}</td>
+                          <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">{customerIdentifierLabel}</td>
+                          <td className="px-4 py-3 text-[15px] font-medium tracking-wide text-[var(--deshazo-text)]">{customerIdentifier}</td>
                         </tr>
                       ) : null}
                       <tr className="border-t border-[var(--deshazo-border)]">
@@ -1333,7 +1712,7 @@ export default function AssetInfo() {
                   </table>
                 </div>
               ) : activeTab === 'documents' || activeTab === 'repair' ? (
-                <section className="rounded-[18px] border border-[var(--deshazo-border)] bg-white/75 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.16)] sm:p-5">
+                <section className="flex h-full min-h-0 flex-col rounded-[18px] border border-[var(--deshazo-border)] bg-white/75 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.16)] sm:p-5">
                   {documentsError ? (
                     <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                       {documentsError}
@@ -1341,7 +1720,7 @@ export default function AssetInfo() {
                   ) : null}
 
                   <div className="mb-5 flex flex-wrap items-center justify-between gap-4 text-sm font-semibold text-[rgba(21,24,33,0.68)]">
-                    {activeTab === 'documents' ? (
+                    {activeTab === 'documents' || activeTab === 'repair' ? (
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
@@ -1380,16 +1759,19 @@ export default function AssetInfo() {
                         >
                           ›
                         </button>
+                        <span className="ml-2 text-[13px] font-bold text-[rgba(21,24,33,0.55)]">
+                          {currentDocumentList.length} reports
+                        </span>
                       </div>
                     ) : null}
 
                     <div />
                   </div>
 
-                  <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
-                    <div className="max-h-[720px] space-y-4 overflow-y-auto pr-2">
+                  <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(320px,430px)_minmax(0,1fr)]">
+                    <div className="min-h-0 space-y-4 overflow-y-auto pr-2">
                       {documentsLoading ? (
-                        Array.from({ length: assetDocuments.page_size || defaultAssetDocuments.page_size }).map((_, index) => (
+                        Array.from({ length: activeTab === 'documents' ? PREVENTATIVE_REPORTS_PAGE_SIZE : (assetDocuments.page_size || defaultAssetDocuments.page_size) }).map((_, index) => (
                           <div
                             key={index}
                             className="rounded-[18px] border border-[var(--deshazo-border)] bg-white px-4 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]"
@@ -1404,14 +1786,16 @@ export default function AssetInfo() {
                           No reports available
                         </div>
                       ) : (
-                        currentDocumentList.map((document) => {
-                          const isActive = selectedDocument?.pdf === document.pdf
+                        pagedDocumentList.map((document) => {
+                          const documentKey = getDocumentKey(document)
+                          const isActive = selectedDocument ? getDocumentKey(selectedDocument) === documentKey : false
+                          const repairPdfLoading = 'pdfLoading' in document && document.pdfLoading
 
                           return (
                             <button
-                              key={document.pdf}
+                              key={documentKey}
                               type="button"
-                              onClick={() => setSelectedDocumentUrl(document.pdf)}
+                              onClick={() => setSelectedDocumentUrl(documentKey)}
                               className={`w-full rounded-[18px] border bg-white px-4 py-4 text-left shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)] transition ${
                                 isActive
                                   ? 'border-[var(--deshazo-blue)] shadow-[0_18px_32px_-24px_rgba(47,86,166,0.36)]'
@@ -1426,9 +1810,16 @@ export default function AssetInfo() {
                                   <span className="mt-3 inline-flex rounded-full bg-[#dff6e6] px-2.5 py-1 text-[12px] font-semibold text-[#4a9960]">
                                     {formatTitleCase(document.type)}
                                   </span>
+                                  {repairPdfLoading ? (
+                                    <span className="ml-2 mt-3 inline-flex rounded-full bg-[var(--deshazo-surface)] px-2.5 py-1 text-[12px] font-semibold text-[rgba(21,24,33,0.55)]">
+                                      Drafting PDF
+                                    </span>
+                                  ) : null}
                                 </div>
                                 <p className="w-[92px] shrink-0 text-right text-sm font-semibold text-[rgba(21,24,33,0.72)]">
-                                  {formatDisplayDate(document.inspection_date)}
+                                  {activeTab === 'repair'
+                                    ? formatRepairReportDate(document.inspection_date)
+                                    : formatDisplayDate(document.inspection_date)}
                                 </p>
                               </div>
                             </button>
@@ -1437,16 +1828,90 @@ export default function AssetInfo() {
                       )}
                     </div>
 
-                    <div className="relative overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
+                    <div className="relative flex min-h-0 flex-col overflow-hidden rounded-[18px] border border-[var(--deshazo-border)] bg-white shadow-[0_12px_30px_-28px_rgba(47,86,166,0.35)]">
                       {selectedDocument ? (
-                        <iframe
-                          key={selectedDocument.pdf}
-                          src={selectedDocument.pdf}
-                          title={selectedDocument.display_name}
-                          className="h-[700px] w-full border-0"
-                        />
+                        <>
+                          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--deshazo-border)] bg-white px-4 py-3">
+                            <p className="min-w-0 truncate text-sm font-bold text-[var(--deshazo-text)]">
+                              {selectedDocument.display_name}
+                            </p>
+                            {activeTab === 'documents' && selectedInspectionDocument ? (
+                              <div className="flex shrink-0 items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setInspectionPreviewZoom((zoom) => Math.max(0.7, Number((zoom - 0.1).toFixed(2))))}
+                                  disabled={inspectionPreviewZoom <= 0.7}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[16px] font-black text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)] disabled:cursor-not-allowed disabled:opacity-40"
+                                  aria-label="Zoom out"
+                                  title="Zoom out"
+                                >
+                                  −
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setInspectionPreviewZoom((zoom) => Math.min(1.6, Number((zoom + 0.1).toFixed(2))))}
+                                  disabled={inspectionPreviewZoom >= 1.6}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[16px] font-black text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)] disabled:cursor-not-allowed disabled:opacity-40"
+                                  aria-label="Zoom in"
+                                  title="Zoom in"
+                                >
+                                  +
+                                </button>
+                                <a
+                                  href={`/deshazo-external-reports?workOrderId=${encodeURIComponent(selectedInspectionDocument.report.workOrderId)}&dNumber=${encodeURIComponent(
+                                    extractDocumentNumber(assetInfo.unit_name, unitId) || unitId,
+                                  )}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex h-8 items-center rounded-lg border border-[var(--deshazo-border)] bg-white px-3 text-xs font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
+                                >
+                                  Open report page
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={() => { void handleDownloadSelectedInspectionReport() }}
+                                  disabled={inspectionDownloadBusy}
+                                  className="inline-flex h-8 items-center rounded-md bg-[var(--deshazo-blue)] px-3 text-xs font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  {inspectionDownloadBusy ? 'Downloading' : 'Download'}
+                                </button>
+                              </div>
+                            ) : selectedDocument.pdf ? (
+                              <a
+                                href={selectedDocument.pdf}
+                                download={selectedDocumentDownloadName}
+                                className="shrink-0 rounded-md bg-[var(--deshazo-blue)] px-3 py-2 text-xs font-bold text-white transition hover:opacity-90"
+                              >
+                                Download
+                              </a>
+                            ) : null}
+                          </div>
+                          {activeTab === 'documents' && selectedInspectionDocument ? (
+                            <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                              <GeneratedInspectionReportPreview
+                                key={`${selectedInspectionDocument.report.workOrderId}-${selectedInspectionDocument.craneIndex}`}
+                                report={selectedInspectionDocument.report}
+                                selectedCraneIndex={selectedInspectionDocument.craneIndex}
+                                zoom={inspectionPreviewZoom}
+                              />
+                            </div>
+                          ) : selectedDocument.pdf ? (
+                            <iframe
+                              key={selectedDocument.pdf}
+                              src={selectedDocument.pdf}
+                              title={selectedDocument.display_name}
+                              className={`w-full border-0 ${activeTab === 'repair' ? 'h-[980px] min-h-[980px]' : 'h-full min-h-[420px]'}`}
+                            />
+                          ) : (
+                            <div className="flex h-full min-h-[420px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                              {selectedRepairDocument?.pdfError
+                                ? selectedRepairDocument.pdfError
+                                : 'Drafting PDF preview...'}
+                            </div>
+                          )}
+                        </>
                       ) : (
-                        <div className="flex h-[700px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                        <div className="flex h-full min-h-[460px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
                           Select a report to preview the PDF.
                         </div>
                       )}
@@ -1714,35 +2179,43 @@ export default function AssetInfo() {
             </div>
             {issueReportLoading ? (
               <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                Searching asset PDFs for the matching D number...
+                Building the matching inspection report from Supabase...
               </div>
             ) : issueReportError ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-                <p className="text-base font-bold text-[var(--deshazo-text)]">Matching PDF not available</p>
+                <p className="text-base font-bold text-[var(--deshazo-text)]">Matching inspection report not available</p>
                 <p className="max-w-xl text-sm font-medium text-[rgba(21,24,33,0.55)]">{issueReportError}</p>
               </div>
             ) : selectedIssueMatch ? (
               <div className="flex flex-1 flex-col overflow-hidden">
                 <div className="flex items-center justify-between border-b border-[var(--deshazo-border)] px-5 py-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-[var(--deshazo-blue)]">{selectedIssueMatch.document.display_name}</p>
+                    <p className="truncate text-sm font-bold text-[var(--deshazo-blue)]">
+                      {selectedIssueMatch.report.summary?.jobNo ||
+                        selectedIssueMatch.report.summary?.salesOrderNo ||
+                        selectedIssueMatch.report.jobNo ||
+                        selectedIssueMatch.report.workOrderId}
+                    </p>
                     <p className="text-xs text-[rgba(21,24,33,0.45)]">
-                      Showing page {selectedIssueMatch.pageNumber}
+                      Generated from synced Supabase inspection report data.
                     </p>
                   </div>
                   <a
-                    href={`${selectedIssueMatch.document.pdf}#page=${selectedIssueMatch.pageNumber}`}
+                    href={`/deshazo-external-reports?workOrderId=${encodeURIComponent(selectedIssueMatch.report.workOrderId)}&dNumber=${encodeURIComponent(
+                      extractDocumentNumber(selectedIssue?.remarks, assetInfo.unit_name, unitId) || unitId,
+                    )}`}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center rounded-lg border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
                   >
-                    Open full PDF
+                    Open report page
                   </a>
                 </div>
-                <iframe
-                  src={`${selectedIssueMatch.document.pdf}#page=${selectedIssueMatch.pageNumber}`}
-                  title={selectedIssueMatch.document.display_name}
-                  className="flex-1 w-full border-0 bg-white"
+                <GeneratedInspectionReportPreview
+                  key={`${selectedIssueMatch.report.workOrderId}-${selectedIssueMatch.craneIndex}`}
+                  report={selectedIssueMatch.report}
+                  selectedCraneIndex={selectedIssueMatch.craneIndex}
+                  zoom={1}
                 />
               </div>
             ) : (
@@ -1855,37 +2328,37 @@ export default function AssetInfo() {
         </div>
       )}
 
-      {/* Wabash Identifier Modal */}
-      {wabashModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setWabashModalOpen(false)}>
+      {/* Customer Identifier Modal */}
+      {customerIdentifierModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setCustomerIdentifierModalOpen(false)}>
           <div className="w-full max-w-md rounded-[18px] bg-white p-6 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.3)]" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">Unique Wabash Identifier</h2>
-            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Edit the identifier string for this asset. This is shared across all users for the same unit.</p>
+            <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">{customerIdentifierLabel}</h2>
+            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Edit the identifier string for this asset. This is shared across all users for this customer and unit.</p>
             <input
               type="text"
-              value={wabashDraft}
-              onChange={(e) => setWabashDraft(e.target.value)}
+              value={customerIdentifierDraft}
+              onChange={(e) => setCustomerIdentifierDraft(e.target.value)}
               className="w-full rounded-[10px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-4 py-3 text-[15px] font-bold tracking-wide text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
               autoFocus
             />
-            {wabashError ? (
-              <p className="mt-3 text-sm font-semibold text-[#c94b2c]">{wabashError}</p>
+            {customerIdentifierError ? (
+              <p className="mt-3 text-sm font-semibold text-[#c94b2c]">{customerIdentifierError}</p>
             ) : null}
             <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
-                onClick={() => setWabashModalOpen(false)}
+                onClick={() => setCustomerIdentifierModalOpen(false)}
                 className="rounded-xl border border-[var(--deshazo-border)] px-5 py-2.5 text-[14px] font-bold text-[rgba(21,24,33,0.6)] transition hover:bg-[var(--deshazo-surface)]"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={() => void handleSaveWabashIdentifier()}
-                disabled={!wabashDraft.trim() || wabashSaving}
+                onClick={() => void handleSaveCustomerIdentifier()}
+                disabled={!customerIdentifierDraft.trim() || customerIdentifierSaving}
                 className="rounded-xl bg-[var(--deshazo-blue)] px-5 py-2.5 text-[14px] font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {wabashSaving ? 'Saving...' : 'Save'}
+                {customerIdentifierSaving ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>

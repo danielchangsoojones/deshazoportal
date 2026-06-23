@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import DNumberSearchBar from '../components/DNumberSearchBar'
-import {
-  getAssetsServiced,
-  isPortalApiConfigured,
-  type AssetsServicedAnalytics,
-  type ServicedAsset,
-} from '../lib/portalApi'
+import { type AssetsServicedAnalytics, type ServicedAsset } from '../lib/portalApi'
+import { getSupabaseAssetFleetServiced } from '../lib/deshazoOpenRiskSupabase'
+import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -17,53 +16,64 @@ const menuItems = [
   { label: 'Asset Fleet', href: '/asset-fleet' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
-  { label: 'Documents', href: '/documents-reports' },
+  { label: 'Document Reports', href: '/documents-reports' },
   { label: 'Custom Reports', href: '/custom-reports' },
-  { label: 'Work Orders', href: '/deshazo-work-orders' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
 const defaultAssetsSummary: AssetsServicedAnalytics = {
-  total_serviced_str: '0/ 0 Inspected',
+  total_serviced_str: '0 Assets',
   total_units_count: 0,
   serviced_units_count: 0,
+  total_open_issues: 0,
+  safety_issue_count: 0,
+  monitor_issue_count: 0,
   serviced_assets: [],
 }
 
-const buildProgressGradient = (percent: number) =>
-  `conic-gradient(var(--deshazo-blue) 0deg ${percent * 3.6}deg, rgba(219,227,245,0.9) ${percent * 3.6}deg 360deg)`
+const clampPercent = (value: number) => Math.max(0, Math.min(100, value))
 
-const getPercent = (servicedUnits: number, totalUnits: number) =>
-  totalUnits > 0 ? Math.round((servicedUnits / totalUnits) * 100) : 0
+const buildProgressGradient = (percent: number) => {
+  const clampedPercent = clampPercent(percent)
+  const progressDegrees = clampedPercent * 3.6
+  return `conic-gradient(#22a06b 0deg ${progressDegrees}deg, #e6ebf2 ${progressDegrees}deg 360deg)`
+}
+
+const getProgressPercent = (safetyIssues = 0, totalIssues = 0) =>
+  totalIssues > 0 ? clampPercent(Math.round((safetyIssues / totalIssues) * 100)) : 0
 
 function ProgressRing({ percent, size = 56 }: { percent: number; size?: number }) {
   const innerSize = size - 10
+  const clampedPercent = clampPercent(percent)
 
   return (
     <div
       className="relative flex items-center justify-center rounded-full"
-      style={{ width: `${size}px`, height: `${size}px`, background: buildProgressGradient(percent) }}
+      aria-label={`${clampedPercent}% complete`}
+      style={{ width: `${size}px`, height: `${size}px`, background: buildProgressGradient(clampedPercent) }}
     >
       <div
-        className="flex items-center justify-center rounded-full bg-white font-extrabold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]"
+        className="flex items-center justify-center rounded-full bg-white font-extrabold text-[#16744d] shadow-[inset_0_0_0_1px_rgba(34,160,107,0.12)]"
         style={{ width: `${innerSize}px`, height: `${innerSize}px`, fontSize: size < 64 ? '16px' : '20px' }}
       >
-        {percent}%
+        {clampedPercent}%
       </div>
     </div>
   )
 }
 
-function AssetCard({ asset }: { asset: ServicedAsset }) {
-  const percent = getPercent(asset.serviced_units, asset.total_units)
+function AssetCard({ asset, customerName }: { asset: ServicedAsset; customerName: string }) {
+  const percent = getProgressPercent(asset.safety_issue_count, asset.total_open_issues)
+  const customerPath = useCustomerPath()
 
   return (
     <Link
-      to={`/asset-fleet-assets?locations=${asset.location_value}`}
+      to={`${customerPath('/asset-fleet-assets')}?locations=${asset.location_value}`}
       className="block rounded-[22px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.86)_0%,var(--deshazo-surface)_100%)] px-6 py-5 no-underline shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_42px_-34px_rgba(47,86,166,0.32)]"
     >
-      <p className="text-[15px] font-semibold text-[rgba(21,24,33,0.7)]">Wabash National</p>
+      <p className="text-[15px] font-semibold text-[rgba(21,24,33,0.7)]">{customerName}</p>
       <h2 className="mt-2 text-[clamp(24px,2vw,34px)] font-extrabold leading-[1.08] tracking-[-0.04em] text-[var(--deshazo-text)]">
         {asset.location}
       </h2>
@@ -89,30 +99,25 @@ export default function AssetFleet() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
+  const customerPath = useCustomerPath()
 
-  const activeMenuItems = useMemo(
-    () =>
-      menuItems.map((item) => ({
-        ...item,
-        active: item.label === 'Asset Fleet',
-      })),
-    [],
-  )
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Asset Fleet')
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate('/login')
+      navigate(customerPath('/login'))
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate('/login')
+        navigate(customerPath('/login'))
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [navigate])
+  }, [customerPath, navigate])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -121,7 +126,7 @@ export default function AssetFleet() {
       try {
         setLoading(true)
         setError('')
-        const data = await getAssetsServiced(controller.signal)
+        const data = await getSupabaseAssetFleetServiced(selectedCustomer)
         setAssetSummary(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -136,11 +141,11 @@ export default function AssetFleet() {
     loadAssets()
 
     return () => controller.abort()
-  }, [])
+  }, [selectedCustomer])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
-    navigate('/login')
+    navigate(customerPath('/login'))
   }
 
   if (authLoading) {
@@ -166,7 +171,8 @@ export default function AssetFleet() {
     .slice(0, 2)
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
-  const overallPercent = getPercent(assetSummary.serviced_units_count, assetSummary.total_units_count)
+  const overallPercent = getProgressPercent(assetSummary.safety_issue_count, assetSummary.total_open_issues)
+  const customerName = getCustomerDisplayName(selectedCustomer)
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -208,7 +214,10 @@ export default function AssetFleet() {
                             : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                         }`}
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </Link>
                     ) : (
@@ -217,7 +226,10 @@ export default function AssetFleet() {
                         type="button"
                         className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium text-[rgba(21,24,33,0.7)] transition hover:bg-white"
                       >
-                        <span>{item.label}</span>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {item.developerOnly ? <DeveloperBadge /> : null}
+                        </span>
                         <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
                       </button>
                     ),
@@ -269,12 +281,6 @@ export default function AssetFleet() {
             </div>
           </div>
 
-          {!isPortalApiConfigured && (
-            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-              Add `VITE_PORTAL_PARSE_REST_API_KEY` to load live asset fleet analytics.
-            </div>
-          )}
-
           {error && (
             <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
@@ -316,7 +322,7 @@ export default function AssetFleet() {
             ) : (
               <div className="grid gap-6 lg:grid-cols-2">
                 {assetSummary.serviced_assets.map((asset) => (
-                  <AssetCard key={asset.location_value} asset={asset} />
+                  <AssetCard key={asset.location_value} asset={asset} customerName={customerName} />
                 ))}
               </div>
             )}
