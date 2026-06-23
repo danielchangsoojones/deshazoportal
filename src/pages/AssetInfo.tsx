@@ -1885,7 +1885,7 @@ export default function AssetInfo() {
                               key={selectedDocument.pdf}
                               src={selectedDocument.pdf}
                               title={selectedDocument.display_name}
-                              className="h-full min-h-[420px] w-full border-0"
+                              className={`w-full border-0 ${activeTab === 'repair' ? 'h-[980px] min-h-[980px]' : 'h-full min-h-[420px]'}`}
                             />
                           ) : (
                             <div className="flex h-full min-h-[420px] items-center justify-center bg-[linear-gradient(180deg,rgba(238,243,255,0.3)_0%,rgba(255,255,255,1)_100%)] px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
