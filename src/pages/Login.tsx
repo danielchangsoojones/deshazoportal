@@ -7,12 +7,14 @@ type LoginProps = {
   redirectTo?: string
   forgotPasswordFrom?: string
   redirectIfAuthenticated?: boolean
+  useCustomerRedirect?: boolean
 }
 
 export default function Login({
   redirectTo = '/dashboard',
   forgotPasswordFrom = 'login',
   redirectIfAuthenticated = false,
+  useCustomerRedirect = true,
 }: LoginProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -20,7 +22,8 @@ export default function Login({
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
-  const resolvedRedirectTo = redirectTo.startsWith('/') ? customerPath(redirectTo) : redirectTo
+  const resolvedRedirectTo =
+    useCustomerRedirect && redirectTo.startsWith('/') ? customerPath(redirectTo) : redirectTo
 
   useEffect(() => {
     if (!redirectIfAuthenticated || !isConfigured || !supabase) return

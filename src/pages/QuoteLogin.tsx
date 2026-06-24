@@ -6,6 +6,7 @@ export default function QuoteLogin() {
       redirectTo="/deshazo-internal-dashboard"
       forgotPasswordFrom="quote"
       redirectIfAuthenticated
+      useCustomerRedirect={false}
     />
   )
 }
