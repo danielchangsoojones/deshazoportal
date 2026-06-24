@@ -5,7 +5,6 @@ const apiBaseUrl =
   'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com'
 
 const apiKey = process.env.DESHAZO_EXTERNAL_API_KEY || process.env.VITE_DESHAZO_EXTERNAL_API_KEY || ''
-const apiPath = process.env.DESHAZO_SYNC_API_PATH || '/api/external/work-orders/sync'
 const pageSize = Number(process.env.DESHAZO_NIGHTLY_SYNC_PAGE_SIZE || 50)
 const maxPages = Number(process.env.DESHAZO_NIGHTLY_SYNC_MAX_PAGES || 5)
 const mode = process.env.DESHAZO_NIGHTLY_SYNC_MODE || 'latestByDate'
@@ -21,8 +20,7 @@ function buildSyncUrl() {
   requirePositiveInteger(pageSize, 'DESHAZO_NIGHTLY_SYNC_PAGE_SIZE')
   requirePositiveInteger(maxPages, 'DESHAZO_NIGHTLY_SYNC_MAX_PAGES')
 
-  const normalizedApiPath = apiPath.startsWith('/') ? apiPath : `/${apiPath}`
-  const url = new URL(normalizedApiPath, apiBaseUrl)
+  const url = new URL('/api/external/work-orders/sync', apiBaseUrl)
   url.searchParams.set('page', '1')
   url.searchParams.set('pageSize', String(pageSize))
   url.searchParams.set('maxPages', String(maxPages))
