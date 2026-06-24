@@ -11,6 +11,7 @@ import {
   type LocationAnalytics,
 } from '../lib/portalApi'
 import { useCustomerPath } from '../lib/customerRouting'
+import { getCurrentUserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -45,10 +46,16 @@ export default function LocationComparison() {
       navigate(customerPath('/login'))
       return
     }
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
         navigate(customerPath('/login'))
       } else {
+        const userTag = await getCurrentUserTag(data.user.id)
+        if (userTag !== 'developer') {
+          setAuthLoading(false)
+          navigate(customerPath('/dashboard'))
+          return
+        }
         setUser(data.user)
       }
       setAuthLoading(false)
@@ -56,6 +63,8 @@ export default function LocationComparison() {
   }, [customerPath, navigate])
 
   useEffect(() => {
+    if (!user) return
+
     const controller = new AbortController()
 
     const loadAnalytics = async () => {
@@ -77,7 +86,7 @@ export default function LocationComparison() {
     loadAnalytics()
 
     return () => controller.abort()
-  }, [])
+  }, [user])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()

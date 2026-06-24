@@ -19,6 +19,7 @@ import {
   type TopLineSpendAnalytics,
 } from '../lib/portalApi'
 import { useCustomerPath } from '../lib/customerRouting'
+import { getCurrentUserTag } from '../lib/userTags'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -134,10 +135,16 @@ export default function Spend() {
       navigate(customerPath('/login'))
       return
     }
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
         navigate(customerPath('/login'))
       } else {
+        const userTag = await getCurrentUserTag(data.user.id)
+        if (userTag !== 'developer') {
+          setAuthLoading(false)
+          navigate(customerPath('/dashboard'))
+          return
+        }
         setUser(data.user)
       }
       setAuthLoading(false)
@@ -145,6 +152,8 @@ export default function Spend() {
   }, [customerPath, navigate])
 
   useEffect(() => {
+    if (!user) return
+
     const controller = new AbortController()
 
     const loadTopline = async () => {
@@ -166,9 +175,11 @@ export default function Spend() {
     loadTopline()
 
     return () => controller.abort()
-  }, [])
+  }, [user])
 
   useEffect(() => {
+    if (!user) return
+
     const controller = new AbortController()
 
     const loadMoMSpend = async () => {
@@ -190,9 +201,11 @@ export default function Spend() {
     loadMoMSpend()
 
     return () => controller.abort()
-  }, [])
+  }, [user])
 
   useEffect(() => {
+    if (!user) return
+
     const controller = new AbortController()
 
     const loadAvgMoM = async () => {
@@ -214,9 +227,11 @@ export default function Spend() {
     loadAvgMoM()
 
     return () => controller.abort()
-  }, [])
+  }, [user])
 
   useEffect(() => {
+    if (!user) return
+
     const controller = new AbortController()
 
     const loadTopIssue = async () => {
@@ -242,9 +257,11 @@ export default function Spend() {
     loadTopIssue()
 
     return () => controller.abort()
-  }, [])
+  }, [user])
 
   useEffect(() => {
+    if (!user) return
+
     const controller = new AbortController()
 
     const loadLocationSpend = async () => {
@@ -276,9 +293,11 @@ export default function Spend() {
     loadLocationSpend()
 
     return () => controller.abort()
-  }, [])
+  }, [user])
 
   useEffect(() => {
+    if (!user) return
+
     const controller = new AbortController()
 
     const loadSpendTypes = async () => {
@@ -310,7 +329,7 @@ export default function Spend() {
     loadSpendTypes()
 
     return () => controller.abort()
-  }, [])
+  }, [user])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()

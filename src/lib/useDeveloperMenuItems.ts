@@ -8,6 +8,8 @@ type PortalMenuItem = {
   href?: string
 }
 
+const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Document Reports'])
+
 export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], activeKey: string) {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const customerPath = useCustomerPath()
@@ -38,11 +40,11 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
   return useMemo(
     () =>
       menuItems
-        .filter((item) => userTag === 'developer' || item.label !== 'Document Reports')
+        .filter((item) => userTag === 'developer' || !developerOnlyLabels.has(item.label))
         .map((item) => ({
           ...item,
           href: item.href?.startsWith('/') ? customerPath(item.href) : item.href,
-          developerOnly: item.label === 'Document Reports',
+          developerOnly: developerOnlyLabels.has(item.label),
           active: item.label === activeKey || item.href === activeKey,
         })),
     [activeKey, customerPath, menuItems, userTag],

@@ -5,6 +5,7 @@ import JSZip from 'jszip'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   DESHAZO_PDF_PAGE_HEIGHT_PX,
   DESHAZO_PDF_PAGE_WIDTH_PX,
@@ -451,7 +452,10 @@ export default function DeshazoExternalReports() {
                           : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
                       }`}
                     >
-                      <span>{item.label}</span>
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <span className="truncate">{item.label}</span>
+                        {item.developerOnly ? <DeveloperBadge /> : null}
+                      </span>
                     </Link>
                   ))}
                 </nav>

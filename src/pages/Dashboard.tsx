@@ -4,7 +4,7 @@ import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
-import { DeveloperBadge } from '../components/DeveloperBadge'
+import { DeveloperBadge, OldDbBadge } from '../components/DeveloperBadge'
 import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 import { useCustomerPath } from '../lib/customerRouting'
@@ -28,12 +28,16 @@ const portalCards = [
     title: 'Spend',
     description: 'See an analytical breakdown of your spend regarding parts, labor, and maintenance trends.',
     href: '/spend',
+    developerOnly: true,
+    oldDb: true,
   },
   {
     eyebrow: 'Analytics',
     title: 'Location Comparison',
     description: 'Compare parts and labor times across different facilities and identify outliers quickly.',
     href: '/location-comparison',
+    developerOnly: true,
+    oldDb: true,
   },
   {
     eyebrow: 'Documents',
@@ -41,6 +45,7 @@ const portalCards = [
     description: 'Download maintenance reports, summaries, and supporting PDFs from one place.',
     href: '/documents-reports',
     developerOnly: true,
+    oldDb: true,
   },
   {
     eyebrow: 'Reports',
@@ -82,12 +87,13 @@ export default function Dashboard() {
 
   const menuItems = useMemo(
     () => [
-      { label: 'Home', active: true, href: '/dashboard', developerOnly: false },
+      { label: 'Home', active: true, href: '/dashboard', developerOnly: false, oldDb: false },
       ...visiblePortalCards.map((card) => ({
         label: card.title,
         active: false,
         href: customerPath(card.href),
         developerOnly: card.developerOnly,
+        oldDb: card.oldDb,
       })),
     ],
     [customerPath, visiblePortalCards],
@@ -223,7 +229,10 @@ export default function Dashboard() {
                 <div className="mb-4 flex items-center justify-between gap-3 pt-1">
                   <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{card.eyebrow}</p>
                   {card.developerOnly ? (
-                    <DeveloperBadge />
+                    <span className="inline-flex items-center gap-2">
+                      <DeveloperBadge />
+                      {card.oldDb ? <OldDbBadge /> : null}
+                    </span>
                   ) : (
                     <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]" />
                   )}
