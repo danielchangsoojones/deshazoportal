@@ -65,6 +65,7 @@ function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/equipment-notebook-llm" element={<EquipmentNotebookLLM />} />
+          <Route path="/quote-analytics" element={<QuoteAnalytics />} />
           <Route path="/:customer">
             {portalRoutes}
           </Route>

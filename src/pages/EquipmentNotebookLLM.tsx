@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
@@ -317,11 +317,13 @@ export default function EquipmentNotebookLLM() {
   const [composerHeight, setComposerHeight] = useState(96)
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const launchedQuoteIdRef = useRef<string | null>(null)
+  const location = useLocation()
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
   const [searchParams] = useSearchParams()
   const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
   const editableReportId = searchParams.get('editableReportId')?.trim() || ''
+  const loginPath = location.pathname === '/equipment-notebook-llm' ? '/quotelogin' : customerPath('/login')
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Equipment Notebook LLM')
 
@@ -404,18 +406,18 @@ export default function EquipmentNotebookLLM() {
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
-      navigate(customerPath('/login'))
+      navigate(loginPath)
       return
     }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        navigate(customerPath('/login'))
+        navigate(loginPath)
       } else {
         setUser(data.user)
       }
       setAuthLoading(false)
     })
-  }, [customerPath, navigate])
+  }, [loginPath, navigate])
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight })
