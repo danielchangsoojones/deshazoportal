@@ -25,6 +25,14 @@ heroku config:set DESHAZO_SYNC_API_BASE_URL="https://deshazo-api.belovedrobot.co
 heroku config:set DESHAZO_EXTERNAL_API_KEY="your-api-key" --app YOUR_HEROKU_APP
 ```
 
+If that backend does not expose `/api/external/work-orders/sync`, either point
+`DESHAZO_SYNC_API_BASE_URL` at the backend that does expose that route, or set
+the route separately:
+
+```sh
+heroku config:set DESHAZO_SYNC_API_PATH="/api/external/work-orders/sync" --app YOUR_HEROKU_APP
+```
+
 Optional tuning:
 
 ```sh
@@ -60,6 +68,16 @@ Then check logs:
 ```sh
 heroku logs --ps run --app YOUR_HEROKU_APP
 ```
+
+If the command fails with:
+
+```text
+Cannot POST /api/external/work-orders/sync
+```
+
+then the Heroku app is reachable, but the configured backend URL/path is wrong.
+Fix `DESHAZO_SYNC_API_BASE_URL` or `DESHAZO_SYNC_API_PATH`, redeploy if needed,
+and run the manual test again before scheduling.
 
 ## Schedule For 11 PM Eastern
 
