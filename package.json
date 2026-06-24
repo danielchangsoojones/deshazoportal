@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "serve -s dist -l $PORT"
+    "start": "serve -s dist -l $PORT",
+    "sync:deshazo-work-orders:nightly": "node scripts/sync-deshazo-work-orders.mjs"
   },
   "engines": {
     "node": "24.x"
