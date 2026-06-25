@@ -23,6 +23,7 @@ create table if not exists public.jobs_quoting_items (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references public.jobs_quoting_runs (id) on delete cascade,
   user_id uuid references auth.users (id) on delete cascade,
+  uploaded_by_user_id uuid references auth.users (id) on delete set null,
   editable_document_id uuid references public.editable_inspection_documents (id) on delete set null,
   document_name text not null,
   job_number text,
@@ -88,6 +89,7 @@ alter table public.jobs_quoting_items
   add column if not exists job_number text,
   add column if not exists job_type text,
   add column if not exists d_number text,
+  add column if not exists uploaded_by_user_id uuid references auth.users (id) on delete set null,
   add column if not exists deshazo_external_inspection_report_work_order_id bigint references public.deshazo_external_inspection_reports (work_order_id) on delete set null,
   add column if not exists pdf_bucket text not null default 'jobs-quoting-pdfs',
   add column if not exists pdf_storage_path text,
@@ -148,6 +150,11 @@ update public.jobs_quoting_items
 set d_number = nullif(btrim(coalesce(extraction_data #>> '{d_number,value}', extraction_data ->> 'd_number')), '')
 where d_number is null
   and nullif(btrim(coalesce(extraction_data #>> '{d_number,value}', extraction_data ->> 'd_number')), '') is not null;
+
+update public.jobs_quoting_items
+set uploaded_by_user_id = user_id
+where uploaded_by_user_id is null
+  and user_id is not null;
 
 create unique index if not exists jobs_quoting_items_run_extend_file_key
   on public.jobs_quoting_items (run_id, extend_file_id)

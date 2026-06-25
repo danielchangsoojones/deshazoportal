@@ -524,9 +524,12 @@ export default function JobsQuotingList() {
     [items],
   )
   const selectedJobSection = jobSectionGroups.find((group) => group.id === selectedJobSectionId)
-  const getRunUploaderName = useCallback(
-    (run: JobsQuotingRun | undefined) => (run?.userId ? userDisplayNames[run.userId] || '' : 'Shared'),
-    [userDisplayNames],
+  const getItemUploaderName = useCallback(
+    (item: JobsQuotingItem) => {
+      const uploaderUserId = item.uploadedByUserId || runsById.get(item.runId)?.userId
+      return uploaderUserId ? userDisplayNames[uploaderUserId] || '' : 'Shared'
+    },
+    [runsById, userDisplayNames],
   )
   const currentQuoteJobNumberKeys = useMemo(
     () => new Set(currentQuoteJobNumbers.flatMap(getJobNumberMatchKeys)),
@@ -702,13 +705,18 @@ export default function JobsQuotingList() {
   }, [loadQuotingData, user])
 
   useEffect(() => {
-    if (runs.length === 0) {
+    const userIds = [
+      ...runs.map((run) => run.userId).filter((userId): userId is string => Boolean(userId)),
+      ...items.map((item) => item.uploadedByUserId).filter((userId): userId is string => Boolean(userId)),
+    ]
+
+    if (userIds.length === 0) {
       setUserDisplayNames({})
       return
     }
 
     let cancelled = false
-    getUserDisplayNames(runs.map((run) => run.userId).filter((userId): userId is string => Boolean(userId)))
+    getUserDisplayNames(userIds)
       .then((displayNames) => {
         if (!cancelled) setUserDisplayNames(displayNames)
       })
@@ -719,7 +727,7 @@ export default function JobsQuotingList() {
     return () => {
       cancelled = true
     }
-  }, [runs])
+  }, [items, runs])
 
   useEffect(() => {
     const activeRuns = runs.filter((run) => activeStatuses.has(run.status))
@@ -1750,8 +1758,8 @@ export default function JobsQuotingList() {
                               {formatDate(item.updatedAt)}
                             </td>
                             <td className="px-2 py-4 text-center align-top text-sm font-bold text-[#4d5360]">
-                              <span className="block truncate" title={getRunUploaderName(runsById.get(item.runId))}>
-                                {getRunUploaderName(runsById.get(item.runId)) || '-'}
+                              <span className="block truncate" title={getItemUploaderName(item)}>
+                                {getItemUploaderName(item) || '-'}
                               </span>
                             </td>
                             <td className="px-1 py-4 text-center align-top text-lg font-black text-[#273f7a]">

@@ -33,6 +33,7 @@ export type JobsQuotingRun = {
 export type JobsQuotingItem = {
   id: string
   runId: string
+  uploadedByUserId: string | null
   editableDocumentId: string | null
   documentName: string
   jobNumber: string
@@ -103,6 +104,7 @@ type JobsQuotingRunRow = {
 export type JobsQuotingItemRow = {
   id: string
   run_id: string
+  uploaded_by_user_id?: string | null
   editable_document_id: string | null
   document_name: string
   job_number: string | null
@@ -238,6 +240,7 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
   return {
     id: row.id,
     runId: row.run_id,
+    uploadedByUserId: row.uploaded_by_user_id ?? null,
     editableDocumentId: row.editable_document_id,
     documentName: row.document_name,
     jobNumber: row.job_number ?? '',
@@ -298,6 +301,7 @@ function mapJobsQuotingItemResult(row: JobsQuotingItemResultRow): JobsQuotingIte
 export const jobsQuotingItemSelect = `
   id,
   run_id,
+  uploaded_by_user_id,
   editable_document_id,
   document_name,
   job_number,
@@ -664,6 +668,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
     throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
   }
 
+  const accessToken = await getAccessToken()
   const url = new URL('/api/external/jobs-quoting/from-inspection-reports', deshazoExternalApiBaseUrl)
   url.searchParams.set('jobNumbers', lookupJobNumbers.join(','))
   const response = await fetch(url.toString(), {
@@ -672,6 +677,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
       Accept: 'application/json',
       'Content-Type': 'application/json',
       'X-API-Key': deshazoExternalApiKey,
+      'X-Supabase-Access-Token': accessToken,
     },
     body: JSON.stringify({ jobNumbers: lookupJobNumbers }),
   })
