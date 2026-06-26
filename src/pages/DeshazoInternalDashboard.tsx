@@ -21,6 +21,12 @@ const internalCards = [
     href: '/quote-analytics',
   },
   {
+    eyebrow: 'Repair Trends',
+    title: 'Top Cranes',
+    description: 'View the ten cranes with the most repair items across the past month of crane reports.',
+    href: '/top-cranes',
+  },
+  {
     eyebrow: 'AI Tools',
     title: 'Equipment LLM',
     description: 'Chat with quote context, inspection reports, and equipment manuals to build cited parts guidance.',
