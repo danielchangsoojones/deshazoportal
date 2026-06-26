@@ -469,6 +469,16 @@ function buildWorkOrderLocationFilter(locationValues: string[]) {
     .join(',')
 }
 
+function getNewestTimestamp(values: Array<string | null | undefined>) {
+  return values
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .sort((left, right) => {
+      const leftTime = new Date(left).getTime()
+      const rightTime = new Date(right).getTime()
+      return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
+    })[0] ?? ''
+}
+
 async function getWorkOrderIdsMatchingLocationFilter(locationFilter: string, customer: string) {
   if (!supabase || !locationFilter) return []
 
@@ -805,44 +815,41 @@ async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string, custo
   )
 }
 
-export async function getDeshazoExternalWorkOrdersLastSync(customer?: string) {
+export async function getDeshazoExternalWorkOrdersLastSync() {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
-  const selectedCustomer = resolveSelectedCustomer(customer)
-  const { data: syncRunData, error: syncRunError } = await supabase
+  const { data: syncRunData } = await supabase
     .from('deshazo_external_sync_runs')
     .select('finished_at, started_at')
-    .in('sync_type', ['external_work_orders_incremental_strict', 'external_work_orders_incremental', 'external_work_orders'])
+    .like('sync_type', 'external_work_orders%')
     .order('finished_at', { ascending: false, nullsFirst: false })
     .order('started_at', { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle()
 
-  if (!syncRunError) {
-    const syncRunTime = syncRunData?.finished_at || syncRunData?.started_at
-    if (typeof syncRunTime === 'string') {
-      return syncRunTime
-    }
-  }
-
-  const { data: checkpointData, error: checkpointError } = await supabase
+  const { data: checkpointData } = await supabase
     .from('deshazo_external_sync_checkpoints')
     .select('last_successful_sync_at')
-    .in('sync_name', ['external_work_orders_incremental_strict', 'external_work_orders_incremental', 'external_work_orders'])
+    .like('sync_name', 'external_work_orders%')
     .order('last_successful_sync_at', { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle()
 
-  if (!checkpointError && typeof checkpointData?.last_successful_sync_at === 'string') {
-    return checkpointData.last_successful_sync_at
+  const latestRunTime = getNewestTimestamp([
+    syncRunData?.finished_at,
+    syncRunData?.started_at,
+    checkpointData?.last_successful_sync_at,
+  ])
+
+  if (latestRunTime) {
+    return latestRunTime
   }
 
   const { data, error } = await supabase
     .from('deshazo_external_work_orders')
     .select('synced_at')
-    .eq('customer', selectedCustomer)
     .order('synced_at', { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle()

@@ -145,7 +145,6 @@ export default function DeshazoWorkOrders() {
   const filterMenusRef = useRef<HTMLDivElement | null>(null)
   const userRef = useRef<User | null>(null)
   const userTagRef = useRef<UserTag | null>(null)
-  const lastSyncAtRef = useRef('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
   const selectedCustomer = useSelectedCustomer()
@@ -183,7 +182,7 @@ export default function DeshazoWorkOrders() {
           locations: selectedLocations,
           documentTypes: selectedDocumentTypes,
         }),
-        lastSyncAtRef.current ? Promise.resolve(lastSyncAtRef.current) : getDeshazoExternalWorkOrdersLastSync(selectedCustomer),
+        getDeshazoExternalWorkOrdersLastSync(),
         userTagRef.current ? Promise.resolve(userTagRef.current) : getCurrentUserTag(nextUser.id),
       ])
       if (cancelledRef?.cancelled) return
@@ -199,7 +198,6 @@ export default function DeshazoWorkOrders() {
 
       userRef.current = nextUser
       userTagRef.current = nextUserTag
-      lastSyncAtRef.current = latestSyncAt
       setUser(nextUser)
       setUserTag(nextUserTag)
       setWorkOrders(result.workOrders)
