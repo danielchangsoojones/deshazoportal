@@ -1,21 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
 import { isConfigured, supabase } from '../lib/supabase'
 import { type TopCraneRepairItem, getTopCraneRepairItems } from '../lib/topCraneRepairItems'
-import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
-import { usePortalMenu } from '../lib/usePortalMenu'
-
-const menuItems = [
-  { label: 'Internal Dashboard', active: false, href: '/deshazo-internal-dashboard' },
-  { label: 'Top Cranes', active: true, href: '/top-cranes' },
-  { label: 'Quote List', active: false, href: '/jobsquotinglist' },
-  { label: 'Quote Analytics', active: false, href: '/quote-analytics' },
-  { label: 'Equipment LLM', active: false, href: '/equipment-notebook-llm' },
-  { label: 'Customer Portals', active: false, href: '/customer-portals' },
-]
 
 function formatDate(value: string) {
   if (!value) return 'No date'
@@ -30,7 +19,6 @@ export default function TopCranes() {
   const [items, setItems] = useState<TopCraneRepairItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -95,8 +83,6 @@ export default function TopCranes() {
 
   if (!user) return null
 
-  const fullName = getUserDisplayName(user)
-  const initials = getUserInitials(user)
   const totalRepairItems = items.reduce((sum, item) => sum + item.repairItemCount, 0)
   const topItem = items[0]
 
@@ -106,13 +92,11 @@ export default function TopCranes() {
         <div className="flex w-full items-center justify-between gap-4">
           <button
             type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            className="inline-flex min-w-[120px] items-center justify-center gap-2 rounded-md border-2 border-white/80 px-6 py-2.5 text-base font-semibold text-white transition hover:bg-white/10"
+            onClick={() => navigate('/deshazo-internal-dashboard')}
+            className="rounded-md border border-white/30 bg-white/10 px-3 py-2 text-xs font-black uppercase tracking-normal text-white transition hover:bg-white/20"
+            aria-label="Home"
           >
-            <span>Menu</span>
-            <span aria-hidden="true" className="text-xs">
-              {menuOpen ? '⌃' : '⌄'}
-            </span>
+            Home
           </button>
 
           <DNumberSearchBar />
@@ -122,45 +106,6 @@ export default function TopCranes() {
       </header>
 
       <main className="flex w-full items-stretch">
-        {menuOpen && (
-          <aside className="sticky top-[60px] hidden h-[calc(100vh-60px)] w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
-            <div className="flex-1 px-4 py-5">
-              <div className="rounded-[24px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/50 p-4">
-                <nav className="space-y-2">
-                  {menuItems.map((item) => (
-                    <Link
-                      key={item.label}
-                      to={item.href}
-                      className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium transition ${
-                        item.active
-                          ? 'bg-[#dbe5ff] text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.06)]'
-                          : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
-                      }`}
-                    >
-                      <span>{item.label}</span>
-                      <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
-                    </Link>
-                  ))}
-                </nav>
-              </div>
-            </div>
-
-            <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
-              <div className="rounded-2xl bg-[var(--deshazo-surface)] px-3 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-sm font-extrabold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-18px_rgba(47,86,166,0.45)]">
-                    {initials}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-[15px] font-bold text-[var(--deshazo-text)]">{fullName}</p>
-                    <p className="truncate text-[14px] text-[rgba(21,24,33,0.55)]">{user.email}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </aside>
-        )}
-
         <section className="min-w-0 flex-1 px-5 py-5 sm:px-8 lg:px-10">
           <div className="mb-7 flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-end">
             <div>
@@ -172,13 +117,6 @@ export default function TopCranes() {
                 Ranked by the number of repair items found in crane inspection reports.
               </p>
             </div>
-
-            <Link
-              to="/deshazo-internal-dashboard"
-              className="inline-flex items-center rounded-full border border-[var(--deshazo-border)] bg-white px-4 py-2 text-sm font-bold text-[var(--deshazo-blue)] no-underline shadow-[0_10px_24px_-20px_rgba(47,86,166,0.45)] transition hover:bg-[var(--deshazo-surface)]"
-            >
-              Back to Dashboard
-            </Link>
           </div>
 
           <section className="mb-6 grid gap-4 md:grid-cols-3">

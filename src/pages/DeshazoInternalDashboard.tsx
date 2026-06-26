@@ -3,42 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
+import { getInternalDashboardMenuItems, internalDashboardCards } from '../lib/internalDashboardCards'
 import { supabase, isConfigured } from '../lib/supabase'
 import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
 import { usePortalMenu } from '../lib/usePortalMenu'
-
-const internalCards = [
-  {
-    eyebrow: 'Quotes',
-    title: 'Quote List',
-    description: 'Review imported quote reports, edit saved quote proposals, and refresh synced inspection work.',
-    href: '/jobsquotinglist',
-  },
-  {
-    eyebrow: 'Reporting',
-    title: 'Quote Analytics',
-    description: 'Review won and lost quote results, quoted totals, and amount won across saved quote items.',
-    href: '/quote-analytics',
-  },
-  {
-    eyebrow: 'Repair Trends',
-    title: 'Top Cranes',
-    description: 'View the ten cranes with the most repair items across the past month of crane reports.',
-    href: '/top-cranes',
-  },
-  {
-    eyebrow: 'AI Tools',
-    title: 'Equipment LLM',
-    description: 'Chat with quote context, inspection reports, and equipment manuals to build cited parts guidance.',
-    href: '/equipment-notebook-llm',
-  },
-  {
-    eyebrow: 'Portals',
-    title: 'Customer Portals',
-    description: 'Search the master customer list and open each customer portal dashboard directly.',
-    href: '/customer-portals',
-  },
-]
 
 export default function DeshazoInternalDashboard() {
   const [user, setUser] = useState<User | null>(null)
@@ -46,14 +14,7 @@ export default function DeshazoInternalDashboard() {
   const navigate = useNavigate()
 
   const menuItems = useMemo(
-    () => [
-      { label: 'Internal Dashboard', active: true, href: '/deshazo-internal-dashboard' },
-      ...internalCards.map((card) => ({
-        label: card.title,
-        active: false,
-        href: card.href,
-      })),
-    ],
+    () => getInternalDashboardMenuItems('/deshazo-internal-dashboard'),
     [],
   )
 
@@ -158,7 +119,7 @@ export default function DeshazoInternalDashboard() {
           </div>
 
           <section className="grid w-full grid-cols-1 gap-x-8 gap-y-8 md:grid-cols-2 xl:grid-cols-3">
-            {internalCards.map((card) => (
+            {internalDashboardCards.map((card) => (
               <article
                 key={card.title}
                 className="group relative flex min-h-[260px] flex-col overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 pb-5 pt-5 text-left shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_26px_48px_-34px_rgba(47,86,166,0.42)]"
