@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "serve -s dist -l $PORT"
+    "start": "serve -s dist -l $PORT",
+    "send:top-crane-safety-digest": "node scripts/sendTopCraneSafetyDigest.mjs",
+    "send:top-crane-safety-digest:scheduled": "node scripts/sendTopCraneSafetyDigest.mjs --scheduled",
+    "send:top-crane-safety-digest:dry-run": "node scripts/sendTopCraneSafetyDigest.mjs --dry-run"
   },
   "engines": {
     "node": "24.x"
