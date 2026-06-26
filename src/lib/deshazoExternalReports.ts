@@ -181,6 +181,11 @@ export type DeshazoWorkOrdersCsvResult = {
   csv: string
 }
 
+export type DeshazoWorkOrderFilters = {
+  locations?: string[]
+  documentTypes?: string[]
+}
+
 export type DeshazoExternalSyncResult = {
   saved: boolean
   pagesProcessed: number
@@ -464,6 +469,32 @@ function buildWorkOrderLocationFilter(locationValues: string[]) {
     .join(',')
 }
 
+async function getWorkOrderIdsMatchingLocationFilter(locationFilter: string, customer: string) {
+  if (!supabase || !locationFilter) return []
+
+  const rows: Array<{ work_order_id: number }> = []
+  const batchSize = 1000
+
+  for (let offset = 0; ; offset += batchSize) {
+    const { data, error } = await supabase
+      .from('deshazo_external_work_orders')
+      .select('work_order_id')
+      .eq('customer', customer)
+      .or(locationFilter)
+      .range(offset, offset + batchSize - 1)
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    const pageRows = (data ?? []) as Array<{ work_order_id: number }>
+    rows.push(...pageRows)
+    if (pageRows.length < batchSize) break
+  }
+
+  return Array.from(new Set(rows.map((row) => row.work_order_id)))
+}
+
 function escapeCsvValue(value: unknown) {
   if (value === null || value === undefined) return ''
   const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
@@ -619,7 +650,13 @@ export async function getSavedDeshazoRepairReportsByCity(city: string, customer?
     )
 }
 
-export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset = 0, customer?: string) {
+export async function getSavedDeshazoWorkOrders(
+  limit = 100,
+  search = '',
+  offset = 0,
+  customer?: string,
+  filters: DeshazoWorkOrderFilters = {},
+) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
@@ -627,6 +664,18 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
   const selectedCustomer = resolveSelectedCustomer(customer)
   const trimmedSearch = search.trim()
   const escapedSearch = escapeLikeSearchTerm(trimmedSearch)
+  const selectedLocations = filters.locations ?? []
+  const selectedDocumentTypes = filters.documentTypes ?? []
+  const locationFilter = buildWorkOrderLocationFilter(selectedLocations)
+  const locationMatchedWorkOrderIds =
+    locationFilter && trimmedSearch
+      ? await getWorkOrderIdsMatchingLocationFilter(locationFilter, selectedCustomer)
+      : null
+
+  if (locationMatchedWorkOrderIds && locationMatchedWorkOrderIds.length === 0) {
+    return { totalCount: 0, workOrders: [] }
+  }
+
   const matchingDNumberWorkOrderIds = trimmedSearch
     ? await getWorkOrderIdsMatchingDNumberSearch(escapedSearch, selectedCustomer)
     : []
@@ -642,6 +691,16 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
     .order('end_date', { ascending: false, nullsFirst: false })
     .order('work_order_id', { ascending: false })
     .range(offset, offset + limit - 1)
+
+  if (selectedDocumentTypes.length > 0) {
+    query = query.in('job_type', selectedDocumentTypes)
+  }
+
+  if (locationMatchedWorkOrderIds) {
+    query = query.in('work_order_id', locationMatchedWorkOrderIds)
+  } else if (locationFilter) {
+    query = query.or(locationFilter)
+  }
 
   if (trimmedSearch) {
     const searchFilters = [
@@ -689,6 +748,38 @@ export async function getSavedDeshazoWorkOrders(limit = 100, search = '', offset
       createdAt: row.created_at ?? '',
     })),
   }
+}
+
+export async function getSavedDeshazoWorkOrderTypes(customer?: string) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const selectedCustomer = resolveSelectedCustomer(customer)
+  const types = new Set<string>()
+  const batchSize = 1000
+
+  for (let offset = 0; ; offset += batchSize) {
+    const { data, error } = await supabase
+      .from('deshazo_external_work_orders')
+      .select('job_type')
+      .eq('customer', selectedCustomer)
+      .not('job_type', 'is', null)
+      .range(offset, offset + batchSize - 1)
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    const rows = (data ?? []) as Array<{ job_type: string | null }>
+    rows.forEach((row) => {
+      const jobType = row.job_type?.trim()
+      if (jobType) types.add(jobType)
+    })
+    if (rows.length < batchSize) break
+  }
+
+  return Array.from(types).sort((left, right) => left.localeCompare(right))
 }
 
 async function getWorkOrderIdsMatchingDNumberSearch(escapedSearch: string, customer: string) {

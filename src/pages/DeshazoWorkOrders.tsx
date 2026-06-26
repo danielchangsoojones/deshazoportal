@@ -8,11 +8,13 @@ import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   type DeshazoSavedWorkOrderListItem,
   getDeshazoExternalWorkOrdersLastSync,
+  getSavedDeshazoWorkOrderTypes,
   getSavedDeshazoWorkOrders,
   syncDeshazoExternalWorkOrders,
 } from '../lib/deshazoExternalReports'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getCustomerLocationOptions, type PortalLocationOption } from '../lib/portalLocations'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -132,6 +134,15 @@ export default function DeshazoWorkOrders() {
   const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState('')
   const [userTag, setUserTag] = useState<UserTag | null>(null)
+  const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
+  const [locationsLoading, setLocationsLoading] = useState(true)
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([])
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false)
+  const [documentTypeOptions, setDocumentTypeOptions] = useState<string[]>([])
+  const [documentTypesLoading, setDocumentTypesLoading] = useState(true)
+  const [selectedDocumentTypes, setSelectedDocumentTypes] = useState<string[]>([])
+  const [documentTypeMenuOpen, setDocumentTypeMenuOpen] = useState(false)
+  const filterMenusRef = useRef<HTMLDivElement | null>(null)
   const userRef = useRef<User | null>(null)
   const userTagRef = useRef<UserTag | null>(null)
   const lastSyncAtRef = useRef('')
@@ -168,7 +179,10 @@ export default function DeshazoWorkOrders() {
 
       const offset = (currentPage - 1) * WORK_ORDERS_PAGE_SIZE
       const [result, latestSyncAt, nextUserTag] = await Promise.all([
-        getSavedDeshazoWorkOrders(WORK_ORDERS_PAGE_SIZE, submittedSearch, offset, selectedCustomer),
+        getSavedDeshazoWorkOrders(WORK_ORDERS_PAGE_SIZE, submittedSearch, offset, selectedCustomer, {
+          locations: selectedLocations,
+          documentTypes: selectedDocumentTypes,
+        }),
         lastSyncAtRef.current ? Promise.resolve(lastSyncAtRef.current) : getDeshazoExternalWorkOrdersLastSync(selectedCustomer),
         userTagRef.current ? Promise.resolve(userTagRef.current) : getCurrentUserTag(nextUser.id),
       ])
@@ -202,7 +216,48 @@ export default function DeshazoWorkOrders() {
     } finally {
       if (!cancelledRef?.cancelled) setLoading(false)
     }
-  }, [currentPage, customerPath, navigate, selectedCustomer, submittedSearch])
+  }, [currentPage, customerPath, navigate, selectedCustomer, selectedDocumentTypes, selectedLocations, submittedSearch])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadFilterOptions() {
+      try {
+        setLocationsLoading(true)
+        setDocumentTypesLoading(true)
+        const [nextLocations, nextDocumentTypes] = await Promise.all([
+          getCustomerLocationOptions(selectedCustomer),
+          getSavedDeshazoWorkOrderTypes(selectedCustomer),
+        ])
+        if (cancelled) return
+
+        setLocationOptions(nextLocations)
+        setDocumentTypeOptions(nextDocumentTypes)
+        setSelectedLocations((current) =>
+          current.filter((locationValue) => nextLocations.some((location) => location.value === locationValue)),
+        )
+        setSelectedDocumentTypes((current) => current.filter((type) => nextDocumentTypes.includes(type)))
+      } catch (error) {
+        if (!cancelled) {
+          setMessage(error instanceof Error ? error.message : 'Document filters could not be loaded.')
+          setLocationOptions([])
+          setDocumentTypeOptions([])
+          setSelectedLocations([])
+          setSelectedDocumentTypes([])
+        }
+      } finally {
+        if (!cancelled) {
+          setLocationsLoading(false)
+          setDocumentTypesLoading(false)
+        }
+      }
+    }
+
+    void loadFilterOptions()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCustomer])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -216,6 +271,20 @@ export default function DeshazoWorkOrders() {
       cancelledRef.cancelled = true
     }
   }, [customerPath, loadWorkOrders, navigate])
+
+  useEffect(() => {
+    if (!locationMenuOpen && !documentTypeMenuOpen) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && filterMenusRef.current?.contains(target)) return
+      setLocationMenuOpen(false)
+      setDocumentTypeMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+    return () => window.removeEventListener('pointerdown', handlePointerDown)
+  }, [documentTypeMenuOpen, locationMenuOpen])
 
   const fullName =
     user?.user_metadata?.full_name ||
@@ -351,6 +420,26 @@ export default function DeshazoWorkOrders() {
   const currentPageCount = workOrders.length
   const recentlySyncedCount = canFetchAll ? workOrders.filter(isRecentlySynced).length : 0
   const assignedVisibleCount = workOrders.filter((workOrder) => getAssignedTechnicians(workOrder)).length
+  const selectedLocationLabels = locationOptions.filter((option) => selectedLocations.includes(option.value))
+  const selectedDocumentTypeLabels = documentTypeOptions.filter((type) => selectedDocumentTypes.includes(type))
+
+  const toggleLocation = (locationValue: string) => {
+    setSelectedLocations((current) =>
+      current.includes(locationValue)
+        ? current.filter((value) => value !== locationValue)
+        : [...current, locationValue],
+    )
+    setCurrentPage(1)
+  }
+
+  const toggleDocumentType = (documentType: string) => {
+    setSelectedDocumentTypes((current) =>
+      current.includes(documentType)
+        ? current.filter((type) => type !== documentType)
+        : [...current, documentType],
+    )
+    setCurrentPage(1)
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -518,6 +607,163 @@ export default function DeshazoWorkOrders() {
                         Searching...
                       </div>
                     ) : null}
+                  </div>
+
+                  <div
+                    ref={filterMenusRef}
+                    className="flex w-full flex-col gap-3 text-sm font-semibold text-[var(--deshazo-text)] sm:flex-row lg:justify-end"
+                  >
+                    <div className="relative flex items-start gap-3">
+                      <span className="pt-2">Location</span>
+                      <div className="relative w-full min-w-[260px] sm:w-[320px]">
+                        <button
+                          type="button"
+                          onClick={() => setLocationMenuOpen((open) => !open)}
+                          className="flex min-h-10 w-full flex-wrap items-center gap-2 rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-left text-sm text-[var(--deshazo-text)] outline-none transition focus:border-[var(--deshazo-blue)]"
+                        >
+                          {locationsLoading ? (
+                            <span className="text-[rgba(21,24,33,0.45)]">Loading locations...</span>
+                          ) : selectedLocationLabels.length > 0 ? (
+                            selectedLocationLabels.map((location) => (
+                              <span
+                                key={location.value}
+                                className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-2.5 py-1 text-xs font-semibold text-[var(--deshazo-blue)]"
+                              >
+                                <span>{location.label}</span>
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    toggleLocation(location.value)
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      toggleLocation(location.value)
+                                    }
+                                  }}
+                                  className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[11px] text-[var(--deshazo-blue)]"
+                                >
+                                  ×
+                                </span>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[rgba(21,24,33,0.45)]">Select Location</span>
+                          )}
+                        </button>
+
+                        {locationMenuOpen ? (
+                          <div className="absolute right-0 top-[calc(100%+8px)] z-30 max-h-72 w-full overflow-y-auto rounded-[14px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-30px_rgba(47,86,166,0.35)]">
+                            {locationsLoading ? (
+                              <div className="px-3 py-2 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+                                Loading locations...
+                              </div>
+                            ) : locationOptions.length === 0 ? (
+                              <div className="px-3 py-2 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+                                No locations found.
+                              </div>
+                            ) : locationOptions.map((location) => {
+                              const isSelected = selectedLocations.includes(location.value)
+
+                              return (
+                                <button
+                                  key={location.value}
+                                  type="button"
+                                  onClick={() => toggleLocation(location.value)}
+                                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                                    isSelected
+                                      ? 'bg-[#dbe5ff] font-semibold text-[var(--deshazo-text)]'
+                                      : 'text-[rgba(21,24,33,0.78)] hover:bg-[var(--deshazo-surface)]'
+                                  }`}
+                                >
+                                  <span>{location.label}</span>
+                                  <span className="text-[var(--deshazo-blue)]">{isSelected ? '✓' : ''}</span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="relative flex items-start gap-3">
+                      <span className="pt-2">Type</span>
+                      <div className="relative w-full min-w-[240px] sm:w-[260px]">
+                        <button
+                          type="button"
+                          onClick={() => setDocumentTypeMenuOpen((open) => !open)}
+                          className="flex min-h-10 w-full flex-wrap items-center gap-2 rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-left text-sm text-[var(--deshazo-text)] outline-none transition focus:border-[var(--deshazo-blue)]"
+                        >
+                          {documentTypesLoading ? (
+                            <span className="text-[rgba(21,24,33,0.45)]">Loading types...</span>
+                          ) : selectedDocumentTypeLabels.length > 0 ? (
+                            selectedDocumentTypeLabels.map((documentType) => (
+                              <span
+                                key={documentType}
+                                className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-2.5 py-1 text-xs font-semibold text-[var(--deshazo-blue)]"
+                              >
+                                <span>{documentType}</span>
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    toggleDocumentType(documentType)
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      toggleDocumentType(documentType)
+                                    }
+                                  }}
+                                  className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[11px] text-[var(--deshazo-blue)]"
+                                >
+                                  ×
+                                </span>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[rgba(21,24,33,0.45)]">Select Type</span>
+                          )}
+                        </button>
+
+                        {documentTypeMenuOpen ? (
+                          <div className="absolute right-0 top-[calc(100%+8px)] z-30 max-h-72 w-full overflow-y-auto rounded-[14px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-30px_rgba(47,86,166,0.35)]">
+                            {documentTypesLoading ? (
+                              <div className="px-3 py-2 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+                                Loading types...
+                              </div>
+                            ) : documentTypeOptions.length === 0 ? (
+                              <div className="px-3 py-2 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+                                No document types found.
+                              </div>
+                            ) : documentTypeOptions.map((documentType) => {
+                              const isSelected = selectedDocumentTypes.includes(documentType)
+
+                              return (
+                                <button
+                                  key={documentType}
+                                  type="button"
+                                  onClick={() => toggleDocumentType(documentType)}
+                                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                                    isSelected
+                                      ? 'bg-[#dbe5ff] font-semibold text-[var(--deshazo-text)]'
+                                      : 'text-[rgba(21,24,33,0.78)] hover:bg-[var(--deshazo-surface)]'
+                                  }`}
+                                >
+                                  <span>{documentType}</span>
+                                  <span className="text-[var(--deshazo-blue)]">{isSelected ? '✓' : ''}</span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
