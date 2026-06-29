@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
+import { buildCustomerPath } from '../lib/customerRouting'
 import { isConfigured, supabase } from '../lib/supabase'
 import { type TopCraneRepairItem, getTopCraneRepairItems } from '../lib/topCraneRepairItems'
 
@@ -11,6 +12,17 @@ function formatDate(value: string) {
   const parsed = new Date(`${value}T00:00:00`)
   if (Number.isNaN(parsed.getTime())) return value
   return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function buildInspectionReportPath(item: TopCraneRepairItem) {
+  if (!item.latestWorkOrderId) return ''
+
+  const params = new URLSearchParams({
+    workOrderId: String(item.latestWorkOrderId),
+    dNumber: item.craneId,
+  })
+
+  return `${buildCustomerPath(item.customer || 'wabash', '/deshazo-external-reports')}?${params.toString()}`
 }
 
 export default function TopCranes() {
@@ -157,27 +169,44 @@ export default function TopCranes() {
                       <th className="px-5 py-4 text-right">Repair Items</th>
                       <th className="px-5 py-4 text-right">Reports</th>
                       <th className="min-w-[150px] px-5 py-4">Latest Report</th>
+                      <th className="min-w-[180px] px-5 py-4 text-right">Inspection Report</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => (
-                      <tr key={`${item.rank}-${item.craneId}`} className="border-t border-[var(--deshazo-border)]">
-                        <td className="px-5 py-4 text-lg font-black text-[var(--deshazo-blue)]">#{item.rank}</td>
-                        <td className="px-5 py-4">
-                          <p className="font-extrabold text-[var(--deshazo-text)]">{item.craneId}</p>
-                          <p className="mt-1 max-w-[36ch] truncate text-sm text-[rgba(21,24,33,0.62)]">
-                            {item.craneDescription || item.craneLocation || 'No crane details'}
-                          </p>
-                        </td>
-                        <td className="px-5 py-4 font-semibold text-[rgba(21,24,33,0.82)]">{item.customer || '-'}</td>
-                        <td className="px-5 py-4 text-[rgba(21,24,33,0.72)]">{item.customerLocation || '-'}</td>
-                        <td className="px-5 py-4 text-right text-xl font-black text-[#b42318]">{item.repairItemCount}</td>
-                        <td className="px-5 py-4 text-right font-bold text-[rgba(21,24,33,0.72)]">{item.workOrderCount}</td>
-                        <td className="px-5 py-4 font-semibold text-[rgba(21,24,33,0.72)]">
-                          {formatDate(item.latestReportDate)}
-                        </td>
-                      </tr>
-                    ))}
+                    {items.map((item) => {
+                      const inspectionReportPath = buildInspectionReportPath(item)
+
+                      return (
+                        <tr key={`${item.rank}-${item.craneId}`} className="border-t border-[var(--deshazo-border)]">
+                          <td className="px-5 py-4 text-lg font-black text-[var(--deshazo-blue)]">#{item.rank}</td>
+                          <td className="px-5 py-4">
+                            <p className="font-extrabold text-[var(--deshazo-text)]">{item.craneId}</p>
+                            <p className="mt-1 max-w-[36ch] truncate text-sm text-[rgba(21,24,33,0.62)]">
+                              {item.craneDescription || item.craneLocation || 'No crane details'}
+                            </p>
+                          </td>
+                          <td className="px-5 py-4 font-semibold text-[rgba(21,24,33,0.82)]">{item.customer || '-'}</td>
+                          <td className="px-5 py-4 text-[rgba(21,24,33,0.72)]">{item.customerLocation || '-'}</td>
+                          <td className="px-5 py-4 text-right text-xl font-black text-[#b42318]">{item.repairItemCount}</td>
+                          <td className="px-5 py-4 text-right font-bold text-[rgba(21,24,33,0.72)]">{item.workOrderCount}</td>
+                          <td className="px-5 py-4 font-semibold text-[rgba(21,24,33,0.72)]">
+                            {formatDate(item.latestReportDate)}
+                          </td>
+                          <td className="px-5 py-4 text-right">
+                            <button
+                              type="button"
+                              disabled={!inspectionReportPath}
+                              onClick={() => {
+                                if (inspectionReportPath) navigate(inspectionReportPath)
+                              }}
+                              className="inline-flex items-center rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-[12px] font-black uppercase tracking-normal text-[var(--deshazo-blue)] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              See Inspection Report
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

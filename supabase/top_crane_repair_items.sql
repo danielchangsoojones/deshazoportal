@@ -1,19 +1,6 @@
-create index if not exists deshazo_external_report_inspections_inspection_date_idx
-  on public.deshazo_external_report_inspections (inspection_date desc)
-  where inspection_date is not null;
+drop function if exists public.get_top_crane_repair_items(integer, integer, text);
 
-create index if not exists deshazo_external_report_inspections_completed_at_idx
-  on public.deshazo_external_report_inspections (completed_at desc)
-  where inspection_date is null and completed_at is not null;
-
-create index if not exists deshazo_external_report_points_repair_section_idx
-  on public.deshazo_external_report_points (section_row_id)
-  where condition ilike 'repair%';
-
-create index if not exists deshazo_external_work_orders_customer_lower_idx
-  on public.deshazo_external_work_orders (lower(customer));
-
-create or replace function public.get_top_crane_repair_items(
+create function public.get_top_crane_repair_items(
   p_days integer default 30,
   p_limit integer default 10,
   p_customer text default null
@@ -26,6 +13,7 @@ returns table (
   customer text,
   customer_location text,
   latest_report_date date,
+  latest_work_order_id bigint,
   repair_item_count integer,
   work_order_count integer
 )
@@ -37,49 +25,74 @@ as $$
   with params as (
     select
       (current_date - greatest(coalesce(p_days, 30), 1))::date as cutoff_date,
-      (current_date - greatest(coalesce(p_days, 30), 1))::timestamptz as cutoff_at,
       nullif(lower(trim(p_customer)), '') as customer_filter
   ),
-  recent_crane_reports as materialized (
+  recent_reports as materialized (
     select
-      i.id as inspection_row_id,
-      coalesce(nullif(trim(c.contact_code), ''), 'Unassigned') as crane_id,
-      nullif(trim(c.description), '') as crane_description,
-      nullif(trim(c.location), '') as crane_location,
+      wo.work_order_id,
       nullif(trim(coalesce(wo.customer, wo.bill_to_name)), '') as customer,
       nullif(trim(coalesce(wo.customer_location_name, wo.service_location_name)), '') as customer_location,
-      coalesce(i.inspection_date, i.completed_at::date, wo.completed_at::date, wo.end_date, wo.start_date) as report_date,
-      wo.work_order_id
+      coalesce(
+        nullif(ir.raw_payload->>'inspectionDate', '')::date,
+        wo.completed_at::date,
+        wo.end_date,
+        wo.start_date,
+        ir.synced_at::date
+      ) as report_date,
+      ir.raw_payload
     from params
-    join public.deshazo_external_report_inspections i
-      on (
-        i.inspection_date >= params.cutoff_date
-        or (i.inspection_date is null and i.completed_at >= params.cutoff_at)
-      )
-    join public.deshazo_external_report_cranes c
-      on c.id = i.crane_row_id
     join public.deshazo_external_work_orders wo
-      on wo.work_order_id = c.work_order_id
+      on coalesce(wo.completed_at::date, wo.end_date, wo.start_date) >= params.cutoff_date
+    join public.deshazo_external_inspection_reports ir
+      on ir.work_order_id = wo.work_order_id
     where
       (params.customer_filter is null or lower(coalesce(wo.customer, wo.bill_to_name)) = params.customer_filter)
   ),
+  crane_reports as materialized (
+    select
+      rr.work_order_id,
+      rr.customer,
+      rr.customer_location,
+      rr.report_date,
+      crane_item.value as crane_payload,
+      coalesce(
+        nullif(trim(crane_item.value #>> '{crane,contactCode}'), ''),
+        nullif(trim(crane_item.value #>> '{crane,description}'), ''),
+        'Unassigned'
+      ) as crane_id,
+      nullif(trim(crane_item.value #>> '{crane,description}'), '') as crane_description,
+      nullif(trim(crane_item.value #>> '{crane,location}'), '') as crane_location
+    from recent_reports rr
+    cross join lateral jsonb_array_elements(coalesce(rr.raw_payload->'cranes', '[]'::jsonb)) as crane_item(value)
+  ),
+  repair_items as (
+    select
+      cr.work_order_id,
+      cr.customer,
+      cr.customer_location,
+      cr.report_date,
+      cr.crane_id,
+      cr.crane_description,
+      cr.crane_location
+    from crane_reports cr
+    cross join lateral jsonb_array_elements(coalesce(cr.crane_payload->'inspections', '[]'::jsonb)) as inspection_item(value)
+    cross join lateral jsonb_array_elements(coalesce(inspection_item.value->'sections', '[]'::jsonb)) as section_item(value)
+    cross join lateral jsonb_array_elements(coalesce(section_item.value->'points', '[]'::jsonb)) as point_item(value)
+    where lower(trim(coalesce(point_item.value->>'condition', point_item.value->>'value', ''))) like 'repair%'
+  ),
   repair_points as (
     select
-      r.crane_id,
-      max(r.crane_description) as crane_description,
-      max(r.crane_location) as crane_location,
-      max(r.customer) as customer,
-      max(r.customer_location) as customer_location,
-      max(r.report_date) as latest_report_date,
-      count(p.id)::integer as repair_item_count,
-      count(distinct r.work_order_id)::integer as work_order_count
-    from recent_crane_reports r
-    join public.deshazo_external_report_sections s
-      on s.inspection_row_id = r.inspection_row_id
-    join public.deshazo_external_report_points p
-      on p.section_row_id = s.id
-      and p.condition ilike 'repair%'
-    group by r.crane_id
+      crane_id,
+      max(crane_description) as crane_description,
+      max(crane_location) as crane_location,
+      max(customer) as customer,
+      max(customer_location) as customer_location,
+      max(report_date) as latest_report_date,
+      (array_agg(work_order_id order by report_date desc nulls last, work_order_id desc))[1] as latest_work_order_id,
+      count(*)::integer as repair_item_count,
+      count(distinct work_order_id)::integer as work_order_count
+    from repair_items
+    group by crane_id
   ),
   ranked as (
     select
@@ -92,6 +105,7 @@ as $$
       customer,
       customer_location,
       latest_report_date,
+      latest_work_order_id,
       repair_item_count,
       work_order_count
     from repair_points

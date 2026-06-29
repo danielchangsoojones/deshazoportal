@@ -8,6 +8,7 @@ export type TopCraneRepairItem = {
   customer: string
   customerLocation: string
   latestReportDate: string
+  latestWorkOrderId: number | null
   repairItemCount: number
   workOrderCount: number
 }
@@ -20,8 +21,16 @@ type TopCraneRepairItemRow = {
   customer: string | null
   customer_location: string | null
   latest_report_date: string | null
+  latest_work_order_id: number | string | null
   repair_item_count: number | null
   work_order_count: number | null
+}
+
+function normalizeWorkOrderId(value: number | string | null) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value !== 'string') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 function normalizeRow(row: TopCraneRepairItemRow): TopCraneRepairItem {
@@ -33,6 +42,7 @@ function normalizeRow(row: TopCraneRepairItemRow): TopCraneRepairItem {
     customer: row.customer ?? '',
     customerLocation: row.customer_location ?? '',
     latestReportDate: row.latest_report_date ?? '',
+    latestWorkOrderId: normalizeWorkOrderId(row.latest_work_order_id),
     repairItemCount: row.repair_item_count ?? 0,
     workOrderCount: row.work_order_count ?? 0,
   }
