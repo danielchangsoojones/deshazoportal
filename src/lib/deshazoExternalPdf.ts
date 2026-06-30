@@ -1461,23 +1461,6 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
       return
     }
 
-    const availableHeight = firstPageAvailableSectionHeight - firstPageSectionsHeight
-    let fittingPointCount = 0
-
-    for (let index = 0; index < sectionPoints.length; index += 1) {
-      const candidate = makeDetailSectionChunk(section, sectionPoints.slice(0, index + 1))
-      const candidateHeight = estimateDetailSectionHeight(candidate) + 18
-      if (candidateHeight > availableHeight) break
-      fittingPointCount = index + 1
-    }
-
-    if (fittingPointCount > 0) {
-      firstPageSections.push(makeDetailSectionChunk(section, sectionPoints.slice(0, fittingPointCount)))
-      continuationSections.push(makeDetailSectionChunk(section, sectionPoints.slice(fittingPointCount)))
-      canPlaceMoreFirstPageSections = false
-      return
-    }
-
     continuationSections.push(fullSection)
     canPlaceMoreFirstPageSections = false
   })
