@@ -25,7 +25,7 @@ export function getStoredCustomer() {
 
 export function getCustomerFilterValue(customer?: string | null) {
   const normalizedCustomer = normalizeCustomer(customer) || defaultCustomer
-  return customerSlugToFilterValue[normalizedCustomer] ?? normalizedCustomer
+  return customerSlugToFilterValue[normalizedCustomer] ?? normalizedCustomer.replace(/-/g, ' ')
 }
 
 export function getCustomerDisplayName(customer?: string | null) {
