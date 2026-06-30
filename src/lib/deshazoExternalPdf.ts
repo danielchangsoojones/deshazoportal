@@ -16,6 +16,8 @@ type ActionItem = {
   status: string
   notes: string
   photos: DeshazoInspectionPhoto[]
+  photoStartIndex?: number
+  photoTotalCount?: number
 }
 
 type ResolvedSection = {
@@ -531,7 +533,7 @@ function renderSectionedItemGroup(
                                 (photo, photoIndex) => `
                                   <figure class="page2-action-photo">
                                     <img src="${escapeHtml(photo.content ?? '')}" alt="${escapeHtml(item.label)}" />
-                                    <figcaption>${photoIndex + 1}/${item.photos.length}</figcaption>
+                                    <figcaption>${(item.photoStartIndex ?? 0) + photoIndex + 1}/${item.photoTotalCount ?? item.photos.length}</figcaption>
                                   </figure>
                                 `,
                               )
@@ -1202,6 +1204,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   const sections = resolveSections(selectedCrane)
   const primaryCrane = selectedCrane.crane
   const overviewDate = selectedCrane.inspections?.find((inspection) => inspection.completedAt)?.completedAt || report.summary?.completedAt
+  const overviewNote = getOverviewNote(report, selectedCrane)
 
   const renderDetailSections = (detailSections: ResolvedSection[]) =>
     detailSections
@@ -1293,7 +1296,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     const packedPages: string[] = []
     let currentPageBlocks: string[] = []
     let currentHeight = 0
-    const usableHeight = 690
+    const usableHeight = 790
 
     blocks.forEach((block) => {
       const shouldStartNextPage =
@@ -1330,17 +1333,29 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     const labelParts = splitTextIntoBlocks(item.label, 1850)
     const noteParts = item.notes ? splitTextIntoBlocks(item.notes, 2100) : ['']
     const firstNote = noteParts[0] ?? ''
+    const firstPhotoChunk = includePhotos ? item.photos.slice(0, 3) : []
     const canAttachFirstNote =
       labelParts.length === 1 &&
       Boolean(firstNote) &&
       18 + estimateSectionedItemHeight({ ...item, label: labelParts[0] ?? item.label, notes: firstNote, photos: [] }, false) <= 620
+    const canAttachFirstPhotos =
+      labelParts.length === 1 &&
+      firstPhotoChunk.length > 0 &&
+      18 + estimateSectionedItemHeight({
+        ...item,
+        label: labelParts[0] ?? item.label,
+        notes: canAttachFirstNote ? firstNote : '',
+        photos: firstPhotoChunk,
+      }, includePhotos) <= 620
 
     labelParts.forEach((label, index) => {
       chunks.push({
         ...item,
         label,
         notes: canAttachFirstNote && index === 0 ? firstNote : '',
-        photos: [],
+        photos: canAttachFirstPhotos && index === 0 ? firstPhotoChunk : [],
+        photoStartIndex: canAttachFirstPhotos && index === 0 ? 0 : undefined,
+        photoTotalCount: canAttachFirstPhotos && index === 0 ? item.photos.length : undefined,
       })
     })
 
@@ -1348,22 +1363,21 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
       if (!notes) return
       chunks.push({
         ...item,
-        label: `${item.label} (continued)`,
+        label: item.label,
         notes,
         photos: [],
       })
     })
 
     if (includePhotos && item.photos.length > 0) {
-      for (let index = 0; index < item.photos.length; index += 3) {
-        const photoLabel = labelParts.length > 1
-          ? `${labelParts[labelParts.length - 1]} (continued)`
-          : `${item.label}${chunks.length ? ' (continued)' : ''}`
+      for (let index = canAttachFirstPhotos ? 3 : 0; index < item.photos.length; index += 3) {
         chunks.push({
           ...item,
-          label: photoLabel,
+          label: item.label,
           notes: '',
           photos: item.photos.slice(index, index + 3),
+          photoStartIndex: index,
+          photoTotalCount: item.photos.length,
         })
       }
     }
@@ -1438,8 +1452,10 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
   const usesLongFirstPageActionLayout = hasLongActionItems(actionItems)
   const firstPageActionRows = usesLongFirstPageActionLayout ? actionItems.length : Math.ceil(actionItems.length / 3)
   const firstPageActionPanelHeight = actionItems.length > 0 ? 32 + firstPageActionRows * (usesLongFirstPageActionLayout ? 45 : 36) : 0
-  const firstPageFixedContentHeight = 345 + firstPageActionPanelHeight
-  const firstPageAvailableSectionHeight = Math.max(0, 870 - firstPageFixedContentHeight)
+  const firstPageOverviewTextRows = Math.max(1, Math.ceil(getTextLength(overviewNote) / 58))
+  const firstPageOverviewPanelHeight = 34 + Math.max(48, firstPageOverviewTextRows * 14 + 18)
+  const firstPageFixedContentHeight = 318 + firstPageActionPanelHeight + firstPageOverviewPanelHeight
+  const firstPageAvailableSectionHeight = Math.max(0, 830 - firstPageFixedContentHeight)
   const firstPageSections: ResolvedSection[] = []
   const continuationSections: ResolvedSection[] = []
   let firstPageSectionsHeight = 0
@@ -1722,7 +1738,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
         <div class="panel">
           <div class="panel-title">Inspection Overview</div>
           <div class="panel-body overview-grid">
-            <div>${escapeHtml(getOverviewNote(report, selectedCrane))}</div>
+            <div>${escapeHtml(overviewNote)}</div>
             <div>${escapeHtml(overviewDate ? formatTime(overviewDate) : 'N/A')}</div>
             <div>By ${escapeHtml(getLeadTechnician(report, selectedCrane))}</div>
           </div>
@@ -1870,7 +1886,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-item-section { margin: 12px 0 0 13px; }
     .page2-section-title { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 700; line-height: 1.1; }
     .page2-section-count { color: #b81717; font-size: 10px; font-weight: 700; }
-    .page2-points-box { margin-top: 8px; min-height: 66px; border: 1px solid #d8d8d8; padding: 8px 11px; }
+    .page2-points-box { margin-top: 8px; border: 1px solid #d8d8d8; padding: 8px 11px; }
     .page2-point { margin: 0; font-size: 12px; }
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
