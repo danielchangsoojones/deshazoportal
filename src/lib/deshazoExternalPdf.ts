@@ -1969,44 +1969,90 @@ function createRenderRoot(report: DeshazoSavedInspectionReport, selectedCraneInd
 
 async function waitForImages(root: HTMLElement) {
   const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'))
+
+  const readBlobAsDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
+    })
+
+  const waitForImagePixels = (image: HTMLImageElement, timeoutMs = 15000) =>
+    new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup()
+        reject(new Error(`Image timed out: ${image.currentSrc || image.src || 'unknown image'}`))
+      }, timeoutMs)
+
+      const cleanup = () => {
+        window.clearTimeout(timeout)
+        image.removeEventListener('load', handleDone)
+        image.removeEventListener('error', handleError)
+      }
+
+      const handleDone = async () => {
+        try {
+          if (typeof image.decode === 'function') {
+            await image.decode()
+          }
+          if (!image.naturalWidth || !image.naturalHeight) {
+            throw new Error(`Image loaded without pixels: ${image.currentSrc || image.src || 'unknown image'}`)
+          }
+          cleanup()
+          resolve()
+        } catch (error) {
+          cleanup()
+          reject(error)
+        }
+      }
+
+      const handleError = () => {
+        cleanup()
+        reject(new Error(`Image failed to load: ${image.currentSrc || image.src || 'unknown image'}`))
+      }
+
+      if (image.complete) {
+        void handleDone()
+        return
+      }
+
+      image.addEventListener('load', handleDone, { once: true })
+      image.addEventListener('error', handleError, { once: true })
+    })
+
   await Promise.all(
     images.map(async (image) => {
-      const src = image.currentSrc || image.src
-      if (!src || src.startsWith('data:') || src.startsWith('blob:')) return
+      const src = image.getAttribute('src') || image.currentSrc || image.src
+
+      image.loading = 'eager'
+      image.decoding = 'sync'
+      image.referrerPolicy = 'no-referrer'
+
+      if (!src) return
+      if (src.startsWith('data:') || src.startsWith('blob:')) {
+        await waitForImagePixels(image)
+        return
+      }
 
       try {
-        const response = await fetch(src, { mode: 'cors', credentials: 'omit' })
-        if (!response.ok) return
-
-        const blob = await response.blob()
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(String(reader.result))
-          reader.onerror = () => reject(reader.error)
-          reader.readAsDataURL(blob)
-        })
-
+        const response = await fetch(src, { mode: 'cors', credentials: 'omit', cache: 'force-cache' })
+        if (!response.ok) throw new Error(`Image request failed with status ${response.status}`)
+        const dataUrl = await readBlobAsDataUrl(await response.blob())
         image.crossOrigin = 'anonymous'
-        image.referrerPolicy = 'no-referrer'
         image.src = dataUrl
       } catch {
-        // Keep the original URL if the host does not allow CORS; html2canvas can still try useCORS below.
+        const separator = src.includes('?') ? '&' : '?'
+        image.crossOrigin = 'anonymous'
+        image.src = `${src}${separator}pdfImageCacheBust=${Date.now()}`
+      }
+
+      try {
+        await waitForImagePixels(image)
+      } catch (error) {
+        throw new Error(error instanceof Error ? error.message : 'A report image could not be loaded for PDF export.')
       }
     }),
-  )
-
-  await Promise.all(
-    images.map(
-      (image) =>
-        new Promise<void>((resolve) => {
-          if (image.complete) {
-            resolve()
-            return
-          }
-          image.onload = () => resolve()
-          image.onerror = () => resolve()
-        }),
-    ),
   )
 }
 

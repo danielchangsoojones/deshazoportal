@@ -54,6 +54,7 @@ const minimumPhotoArea = 20_000
 const minimumPhotoEdge = 96
 const maximumPhotoAspectRatio = 4
 const perceptualHashSize = 16
+const sampleHashSize = 32
 const matchingHashDistance = 8
 
 function getPdfObject(page: PDFPageProxy, objectId: string): Promise<PdfImageObject | null> {
@@ -81,71 +82,58 @@ function getCanvas(width: number, height: number) {
   return { canvas, context }
 }
 
-function putRgbImageData(image: PdfImageObject) {
-  const width = image.width ?? 0
-  const height = image.height ?? 0
-  const source = image.data
-
-  if (!source || width <= 0 || height <= 0) return null
-
-  const { context } = getCanvas(width, height)
-  const imageData = context.createImageData(width, height)
-  const target = imageData.data
-
-  if (image.kind === pdfjsLib.ImageKind.RGBA_32BPP || source.length === width * height * 4) {
-    target.set(source.slice(0, target.length))
-  } else if (image.kind === pdfjsLib.ImageKind.RGB_24BPP || source.length === width * height * 3) {
-    for (let sourceIndex = 0, targetIndex = 0; sourceIndex < source.length; sourceIndex += 3, targetIndex += 4) {
-      target[targetIndex] = source[sourceIndex]
-      target[targetIndex + 1] = source[sourceIndex + 1]
-      target[targetIndex + 2] = source[sourceIndex + 2]
-      target[targetIndex + 3] = 255
-    }
-  } else {
-    return null
-  }
-
-  context.putImageData(imageData, 0, 0)
-  return context.getImageData(0, 0, width, height)
-}
-
-function getImageData(image: PdfImageObject) {
-  const width = image.width ?? image.bitmap?.width ?? 0
-  const height = image.height ?? image.bitmap?.height ?? 0
+function shouldUseImage(width: number, height: number) {
   const aspectRatio = width > height ? width / height : height / width
 
-  if (
-    width < minimumPhotoEdge ||
-    height < minimumPhotoEdge ||
-    width * height < minimumPhotoArea ||
-    aspectRatio > maximumPhotoAspectRatio
-  ) {
-    return null
-  }
-
-  if (image.bitmap) {
-    const { context } = getCanvas(width, height)
-    context.drawImage(image.bitmap, 0, 0, width, height)
-    return context.getImageData(0, 0, width, height)
-  }
-
-  return putRgbImageData({ ...image, width, height })
+  return (
+    width >= minimumPhotoEdge &&
+    height >= minimumPhotoEdge &&
+    width * height >= minimumPhotoArea &&
+    aspectRatio <= maximumPhotoAspectRatio
+  )
 }
 
-function createPerceptualHash(imageData: ImageData) {
-  const { canvas, context } = getCanvas(perceptualHashSize, perceptualHashSize)
-  const sourceCanvas = document.createElement('canvas')
-  sourceCanvas.width = imageData.width
-  sourceCanvas.height = imageData.height
-  const sourceContext = sourceCanvas.getContext('2d')
+function getImageDataStride(image: PdfImageObject, width: number, height: number) {
+  const source = image.data
+  if (!source) return 0
 
-  if (!sourceContext) {
-    throw new Error('Canvas is not available in this browser.')
+  if (image.kind === pdfjsLib.ImageKind.RGBA_32BPP || source.length >= width * height * 4) return 4
+  if (image.kind === pdfjsLib.ImageKind.RGB_24BPP || source.length >= width * height * 3) return 3
+
+  return 0
+}
+
+function getSampledSourceIndex(x: number, y: number, width: number, height: number, sampleSize: number, stride: number) {
+  const sourceX = Math.min(width - 1, Math.floor(((x + 0.5) * width) / sampleSize))
+  const sourceY = Math.min(height - 1, Math.floor(((y + 0.5) * height) / sampleSize))
+
+  return (sourceY * width + sourceX) * stride
+}
+
+function getRawImageLuminanceValues(image: PdfImageObject, width: number, height: number, sampleSize: number) {
+  const source = image.data
+  const stride = getImageDataStride(image, width, height)
+  if (!source || !stride) return null
+
+  const values: number[] = []
+  for (let y = 0; y < sampleSize; y += 1) {
+    for (let x = 0; x < sampleSize; x += 1) {
+      const index = getSampledSourceIndex(x, y, width, height, sampleSize, stride)
+      values.push(source[index] * 0.299 + source[index + 1] * 0.587 + source[index + 2] * 0.114)
+    }
   }
 
-  sourceContext.putImageData(imageData, 0, 0)
-  context.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height)
+  return values
+}
 
+function createPerceptualHashFromLuminanceValues(luminanceValues: number[]) {
+  const average = luminanceValues.reduce((total, value) => total + value, 0) / luminanceValues.length
+  return luminanceValues.map((value) => (value >= average ? '1' : '0')).join('')
+}
+
+function createPerceptualHashFromBitmap(bitmap: ImageBitmap, width: number, height: number) {
+  const { canvas, context } = getCanvas(perceptualHashSize, perceptualHashSize)
+  context.drawImage(bitmap, 0, 0, width, height, 0, 0, canvas.width, canvas.height)
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
   const luminanceValues: number[] = []
 
@@ -153,24 +141,12 @@ function createPerceptualHash(imageData: ImageData) {
     luminanceValues.push(pixels[index] * 0.299 + pixels[index + 1] * 0.587 + pixels[index + 2] * 0.114)
   }
 
-  const average = luminanceValues.reduce((total, value) => total + value, 0) / luminanceValues.length
-  return luminanceValues.map((value) => (value >= average ? '1' : '0')).join('')
+  return createPerceptualHashFromLuminanceValues(luminanceValues)
 }
 
-function createSampleHash(imageData: ImageData) {
-  const { canvas, context } = getCanvas(32, 32)
-  const sourceCanvas = document.createElement('canvas')
-  sourceCanvas.width = imageData.width
-  sourceCanvas.height = imageData.height
-  const sourceContext = sourceCanvas.getContext('2d')
-
-  if (!sourceContext) {
-    throw new Error('Canvas is not available in this browser.')
-  }
-
-  sourceContext.putImageData(imageData, 0, 0)
-  context.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height)
-
+function createSampleHashFromBitmap(bitmap: ImageBitmap, width: number, height: number) {
+  const { canvas, context } = getCanvas(sampleHashSize, sampleHashSize)
+  context.drawImage(bitmap, 0, 0, width, height, 0, 0, canvas.width, canvas.height)
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
   let hash = 2166136261
 
@@ -179,7 +155,63 @@ function createSampleHash(imageData: ImageData) {
     hash = Math.imul(hash, 16777619)
   }
 
-  return `${imageData.width}x${imageData.height}:${(hash >>> 0).toString(16)}`
+  return `${width}x${height}:${(hash >>> 0).toString(16)}`
+}
+
+function createSampleHashFromRawImage(image: PdfImageObject, width: number, height: number) {
+  const source = image.data
+  const stride = getImageDataStride(image, width, height)
+  if (!source || !stride) return null
+
+  let hash = 2166136261
+  for (let y = 0; y < sampleHashSize; y += 1) {
+    for (let x = 0; x < sampleHashSize; x += 1) {
+      const index = getSampledSourceIndex(x, y, width, height, sampleHashSize, stride)
+      const alpha = stride === 4 ? source[index + 3] : 255
+      const values = [source[index], source[index + 1], source[index + 2], alpha]
+
+      for (const value of values) {
+        hash ^= value
+        hash = Math.imul(hash, 16777619)
+      }
+    }
+  }
+
+  return `${width}x${height}:${(hash >>> 0).toString(16)}`
+}
+
+function createImageFingerprint(image: PdfImageObject, pageNumber: number, imageNumber: number) {
+  const width = image.width ?? image.bitmap?.width ?? 0
+  const height = image.height ?? image.bitmap?.height ?? 0
+
+  if (!shouldUseImage(width, height)) return null
+
+  const luminanceValues = image.bitmap
+    ? null
+    : getRawImageLuminanceValues(image, width, height, perceptualHashSize)
+  const hash = image.bitmap
+    ? createPerceptualHashFromBitmap(image.bitmap, width, height)
+    : luminanceValues
+      ? createPerceptualHashFromLuminanceValues(luminanceValues)
+      : null
+  const dedupeHash = image.bitmap
+    ? createSampleHashFromBitmap(image.bitmap, width, height)
+    : createSampleHashFromRawImage(image, width, height)
+
+  if (!hash || !dedupeHash) return null
+
+  return {
+    pageNumber,
+    imageNumber,
+    width,
+    height,
+    hash,
+    dedupeHash,
+  }
+}
+
+function waitForNextFrame() {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, 0))
 }
 
 function getHashDistance(leftHash: string, rightHash: string) {
@@ -193,16 +225,38 @@ function getHashDistance(leftHash: string, rightHash: string) {
   return distance + Math.abs(leftHash.length - rightHash.length)
 }
 
-function getMatchingImagePair(leftImages: PdfImageFingerprint[], rightImages: PdfImageFingerprint[]) {
-  for (const leftImage of leftImages) {
-    for (const rightImage of rightImages) {
-      if (getHashDistance(leftImage.hash, rightImage.hash) <= matchingHashDistance) {
-        return { leftImage, rightImage }
-      }
-    }
-  }
+function compareImageSets(leftImages: PdfImageFingerprint[], rightImages: PdfImageFingerprint[]) {
+  const candidateMatches = leftImages.flatMap((leftImage, leftIndex) =>
+    rightImages
+      .map((rightImage, rightIndex) => ({
+        leftIndex,
+        rightIndex,
+        distance: getHashDistance(leftImage.hash, rightImage.hash),
+      }))
+      .filter((match) => match.distance <= matchingHashDistance),
+  )
 
-  return null
+  candidateMatches.sort((leftMatch, rightMatch) => leftMatch.distance - rightMatch.distance)
+
+  const matchedLeftIndexes = new Set<number>()
+  const matchedRightIndexes = new Set<number>()
+
+  candidateMatches.forEach((match) => {
+    if (matchedLeftIndexes.has(match.leftIndex) || matchedRightIndexes.has(match.rightIndex)) return
+
+    matchedLeftIndexes.add(match.leftIndex)
+    matchedRightIndexes.add(match.rightIndex)
+  })
+
+  const matchingImageCount = matchedLeftIndexes.size
+
+  return {
+    matchingImageCount,
+    allImagesMatch:
+      matchingImageCount > 0 &&
+      matchingImageCount === leftImages.length &&
+      matchingImageCount === rightImages.length,
+  }
 }
 
 function dedupeImageFingerprints(images: PdfImageFingerprint[]) {
@@ -225,6 +279,7 @@ async function extractPdfImageFingerprints(file: File) {
   const loadingTask = pdfjsLib.getDocument({ data: pdfData })
   const pdf = await loadingTask.promise
   const images: PdfImageFingerprint[] = []
+  let processedImageCount = 0
 
   try {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
@@ -242,20 +297,15 @@ async function extractPdfImageFingerprints(file: File) {
 
         if (!image) continue
 
-        const imageData = getImageData(image)
-        if (!imageData) continue
+        processedImageCount += 1
+        if (processedImageCount % 8 === 0) await waitForNextFrame()
 
-        images.push({
-          pageNumber,
-          imageNumber: images.length + 1,
-          width: imageData.width,
-          height: imageData.height,
-          hash: createPerceptualHash(imageData),
-          dedupeHash: createSampleHash(imageData),
-        })
+        const fingerprint = createImageFingerprint(image, pageNumber, images.length + 1)
+        if (fingerprint) images.push(fingerprint)
       }
 
       page.cleanup()
+      await waitForNextFrame()
     }
   } finally {
     await pdf.destroy()
@@ -564,11 +614,16 @@ export default function QualityControl() {
   const canCompare = leftUpload.status === 'ready' && rightUpload.status === 'ready'
   const isComparing = leftUpload.status === 'extracting' || rightUpload.status === 'extracting'
   const hasUploadedPdf = Boolean(leftUpload.file || rightUpload.file)
-  const matchingPair = canCompare ? getMatchingImagePair(leftUpload.images, rightUpload.images) : null
+  const comparison = canCompare
+    ? compareImageSets(leftUpload.images, rightUpload.images)
+    : { matchingImageCount: 0, allImagesMatch: false }
+  const resultNoun = Math.max(leftUpload.images.length, rightUpload.images.length, comparison.matchingImageCount) === 1
+    ? 'image'
+    : 'images'
   const resultText = canCompare
-    ? matchingPair
-      ? 'These inspection reports contain the same image.'
-      : 'These inspection reports do not contain the same image.'
+    ? comparison.allImagesMatch
+      ? `These inspection reports contain the same ${resultNoun}.`
+      : `These inspection reports do not contain the same ${resultNoun}.`
     : isComparing
       ? 'Comparing PDF images...'
       : leftUpload.file || rightUpload.file
@@ -618,7 +673,7 @@ export default function QualityControl() {
 
               <section
                 className={`rounded-[20px] border px-5 py-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] ${
-                  canCompare && matchingPair
+                  canCompare && comparison.allImagesMatch
                     ? 'border-[#9bd2b3] bg-[#f0fbf5]'
                     : canCompare
                       ? 'border-[#f1c1bd] bg-[#fff6f5]'
@@ -627,12 +682,6 @@ export default function QualityControl() {
               >
                 <p className="text-[13px] font-black uppercase tracking-[0.02em] text-[rgba(21,24,33,0.55)]">Result</p>
                 <p className="mt-1 text-[22px] font-black leading-tight text-[var(--deshazo-text)]">{resultText}</p>
-                {matchingPair ? (
-                  <p className="mt-2 text-[14px] font-semibold text-[rgba(21,24,33,0.62)]">
-                    Match: left page {matchingPair.leftImage.pageNumber}, image {matchingPair.leftImage.imageNumber}; right page{' '}
-                    {matchingPair.rightImage.pageNumber}, image {matchingPair.rightImage.imageNumber}.
-                  </p>
-                ) : null}
               </section>
             </div>
           </div>
