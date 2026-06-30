@@ -215,6 +215,11 @@ function isKnownStatus(value: string) {
   )
 }
 
+function isCustomStatusValue(status: string) {
+  const normalizedStatus = normalizeStatus(status)
+  return Boolean(normalizedStatus) && !isKnownStatus(normalizedStatus)
+}
+
 function getStatusTone(status: string): ConditionTone {
   const value = normalizeStatus(status)
   if (isSatisfactoryStatus(value)) return 'success'
@@ -319,7 +324,10 @@ function hasLongCategoryText(value?: string | null) {
 }
 
 function hasLongDetailRows(section: ResolvedSection) {
-  return section.points.some((point) => hasLongCategoryText(point.name))
+  return section.points.some((point) => (
+    hasLongCategoryText(point.name) ||
+    (isCustomStatusValue(getPointDisplayValue(point)) && hasLongCategoryText(getPointDisplayValue(point)))
+  ))
 }
 
 function hasLongActionItems(items: SectionedItem[]) {
@@ -1218,12 +1226,16 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
             <div class="detail-grid ${longTextLayout ? 'detail-grid-long' : ''}">
               ${section.points
                 .map(
-                  (point) => `
-                    <div class="detail-row">
+                  (point) => {
+                    const status = getPointDisplayValue(point)
+                    const isCustomStatus = isCustomStatusValue(status)
+                    return `
+                    <div class="detail-row ${isCustomStatus ? 'detail-row-custom-value' : ''}">
                       <div class="detail-label">${escapeHtml(point.name ?? 'Inspection point')}</div>
-                      <div class="${toneClass(point)}">${renderStatusLabel(getPointDisplayValue(point))}</div>
+                      <div class="${toneClass(point)}">${renderStatusLabel(status)}</div>
                     </div>
-                  `,
+                  `
+                  },
                 )
                 .join('')}
             </div>
@@ -1236,7 +1248,11 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
     if (hasLongDetailRows(section)) {
       return 38 + section.points.reduce((total, point) => {
         const labelHeight = Math.ceil(getTextLength(point.name ?? 'Inspection point') / 84) * 14
-        return total + Math.max(26, labelHeight + 10)
+        const status = getPointDisplayValue(point)
+        const customStatusHeight = isCustomStatusValue(status)
+          ? Math.max(18, Math.ceil(getTextLength(status) / 86) * 14)
+          : 0
+        return total + Math.max(26, labelHeight + customStatusHeight + 12)
       }, 0)
     }
     const visualRows = Math.ceil(section.points.length / 3)
@@ -1842,9 +1858,11 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 6px; font-size: 12px; font-weight: 700; }
     .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 14px; }
     .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 7px; min-height: 21px; font-size: 12px; }
+    .detail-row-custom-value { grid-template-columns: minmax(0, 1fr); align-items: start; }
     .detail-label { min-width: 0; line-height: 1.18; }
     .detail-grid-long { display: block; }
     .detail-grid-long .detail-row { grid-template-columns: minmax(0, 1fr) 118px; min-height: 35px; gap: 14px; padding: 7px 10px; border-bottom: 1px solid #dadada; font-size: 11.5px; }
+    .detail-grid-long .detail-row-custom-value { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
     .detail-grid-long .detail-row:last-child { border-bottom: 0; }
     .detail-grid-long .detail-label { line-height: 1.14; }
     .detail-grid-long .status { width: 112px; min-height: 21px; }
@@ -1867,6 +1885,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .status-danger { background: #f7c7c7; color: #a61616; }
     .status-monitor { background: #fbf4bf; color: #8b7a00; }
     .status-plain { justify-self: end; width: auto; min-width: 16px; background: transparent; color: #171821; font-weight: 700; }
+    .detail-row-custom-value .status-plain { justify-self: stretch; width: 100%; min-width: 0; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.22; }
     .page2-header { display: grid; grid-template-columns: 250px 1fr; align-items: start; gap: 24px; padding: 0 0 9px; border-bottom: 3px solid #f0aa2e; }
     .page2-brand { font-size: 30px; font-weight: 900; letter-spacing: -1px; line-height: .9; color: #050505; }
     .page2-brand span { color: #f0aa2e; }
