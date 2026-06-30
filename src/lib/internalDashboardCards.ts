@@ -24,6 +24,12 @@ export const internalDashboardCards = [
     href: '/equipment-notebook-llm',
   },
   {
+    eyebrow: 'Inspection QA',
+    title: 'Quality Control',
+    description: 'Compare uploaded inspection report PDFs to check whether they contain the same photos.',
+    href: '/quality-control',
+  },
+  {
     eyebrow: 'Portals',
     title: 'Customer Portals',
     description: 'Search the master customer list and open each customer portal dashboard directly.',
