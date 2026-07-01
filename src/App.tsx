@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/Login'
 import QuoteLogin from './pages/QuoteLogin'
@@ -34,6 +34,54 @@ function PageLoader() {
       <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
         Loading...
       </div>
+    </div>
+  )
+}
+
+function SupportWidget() {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[80] flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+      {isOpen ? (
+        <div
+          role="status"
+          className="w-[min(340px,calc(100vw-2rem))] rounded-xl border border-[var(--deshazo-border)] bg-white p-4 text-[var(--deshazo-text)] shadow-[0_20px_50px_-24px_rgba(21,24,33,0.35)]"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-extrabold text-[var(--deshazo-blue)]">Contact us</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-[rgba(21,24,33,0.72)]">
+                Please contact{' '}
+                <a
+                  href="mailto:danieljones@blockstampsf.com"
+                  className="break-all font-extrabold text-[var(--deshazo-blue)] underline decoration-[rgba(47,86,166,0.28)] underline-offset-4 hover:text-[var(--deshazo-blue-deep)]"
+                >
+                  danieljones@blockstampsf.com
+                </a>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] text-lg font-bold leading-none text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface-2)]"
+              aria-label="Close contact help"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        className="inline-flex max-w-full items-center gap-2 rounded-full border border-[rgba(255,255,255,0.7)] bg-[var(--deshazo-blue)] px-4 py-3 text-sm font-extrabold text-white shadow-[0_18px_40px_-20px_rgba(47,86,166,0.65)] transition hover:bg-[var(--deshazo-blue-deep)] focus:outline-none focus:ring-4 focus:ring-[rgba(47,86,166,0.22)] sm:px-5"
+        aria-expanded={isOpen}
+      >
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/16 text-base">?</span>
+        <span className="min-w-0 whitespace-normal text-left leading-5">Having trouble..?</span>
+      </button>
     </div>
   )
 }
@@ -84,6 +132,7 @@ function App() {
           <Route path="/editable-inspection-report" element={<EditableInspectionReport />} />
           <Route path="*" element={<Navigate to="/wabash/login" replace />} />
         </Routes>
+        <SupportWidget />
       </Suspense>
     </BrowserRouter>
   )
