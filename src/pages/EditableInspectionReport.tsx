@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isConfigured } from '../lib/supabase'
 import {
+  dedupeImportedMenuItems,
   deleteInspectionMenuItem,
   getInspectionMenuItems,
   getInspectionMenuItemBranches,
@@ -89,10 +90,64 @@ type PendingAddMenuLineItem = {
 
 type RelatedDocument = EditableInspectionDocument
 
+const relatedDocumentSpecialNames = new Set(['Original Inspection Report', 'Original Inspection', 'Master Service Agreement'])
+
+const getRelatedDocumentDedupeKey = (document: RelatedDocument) => {
+  if (relatedDocumentSpecialNames.has(document.name)) return `special:${document.name}`
+  if (document.fileName && document.fileSize > 0) return `file:${document.fileName.toLowerCase()}:${document.fileSize}`
+  if (document.filePath) return `path:${document.filePath}`
+  return `id:${document.id}`
+}
+
+const dedupeRelatedDocuments = (documents: RelatedDocument[]) => {
+  const seenKeys = new Set<string>()
+
+  return documents.filter((document) => {
+    const key = getRelatedDocumentDedupeKey(document)
+    if (seenKeys.has(key)) return false
+
+    seenKeys.add(key)
+    return true
+  })
+}
+
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ')
 
 const getPdfFiles = (files: Iterable<File>) =>
   Array.from(files).filter((file) => file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf')
+
+const getFileSha256 = async (file: File) => {
+  if (!globalThis.crypto?.subtle) return ''
+
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+const getRelatedDocumentStableKey = async (file: File, fallbackPath: string) => {
+  const fileHash = await getFileSha256(file)
+  return fileHash
+    ? `pdf-sha256:${fileHash}`
+    : `pdf-file:${fallbackPath}:${file.size}:${file.lastModified}`
+}
+
+const getRelatedDocumentsMessageClassName = (message: string) => {
+  const normalizedMessage = message.toLowerCase()
+  const isErrorMessage =
+    normalizedMessage.includes('already uploaded')
+    || normalizedMessage.includes('already existed')
+    || normalizedMessage.includes('no duplicate')
+    || normalizedMessage.includes('failed')
+    || normalizedMessage.includes('not configured')
+    || normalizedMessage.includes('could not')
+
+  if (isErrorMessage) {
+    return 'mt-2 rounded-md border border-[#f2b8b8] bg-[#fff1f1] px-3 py-2 text-[12px] font-black leading-tight text-[#a82727] shadow-[0_10px_24px_-20px_rgba(168,39,39,0.72)]'
+  }
+
+  return 'mt-2 rounded-md border border-[#cfe6d5] bg-[#f3fbf5] px-3 py-2 text-[12px] font-bold leading-tight text-[#286239] shadow-[0_10px_24px_-20px_rgba(40,98,57,0.52)]'
+}
 
 type QuoteBlockVisibility = {
   contact: boolean
@@ -1723,7 +1778,7 @@ const createMasterServiceAgreementFile = (craneIdentifier = defaultCraneIdentifi
 const normalizeMenuItemSections = (sections: MenuItemSection[]) => {
   const usedItemIds = new Set<string>()
 
-  const items = sections.flatMap((section) =>
+  const items = dedupeImportedMenuItems(sections.flatMap((section) =>
     section.items.map((item) => {
       const itemId = item.id && !usedItemIds.has(item.id) ? item.id : createMenuItemId()
       usedItemIds.add(itemId)
@@ -1733,7 +1788,7 @@ const normalizeMenuItemSections = (sections: MenuItemSection[]) => {
         id: itemId,
       }
     }),
-  )
+  ))
 
   return [{ title: menuItemsSectionTitle, items }]
 }
@@ -3412,12 +3467,14 @@ export default function EditableInspectionReport() {
         const savedDocuments = await getEditableInspectionDocuments()
         if (!active) return
 
-        const nextDocuments = quoteInspectionDocument
-          ? [
-              quoteInspectionDocument,
-              ...savedDocuments.filter((document) => !['Original Inspection', 'Original Inspection Report'].includes(document.name)),
-            ]
-          : savedDocuments
+        const nextDocuments = dedupeRelatedDocuments(
+          quoteInspectionDocument
+            ? [
+                quoteInspectionDocument,
+                ...savedDocuments.filter((document) => !['Original Inspection', 'Original Inspection Report'].includes(document.name)),
+              ]
+            : savedDocuments,
+        )
 
         setRelatedDocuments(nextDocuments)
         setRelatedDocumentsMessage(`${nextDocuments.length} PDF${nextDocuments.length === 1 ? '' : 's'} saved.`)
@@ -3648,6 +3705,8 @@ export default function EditableInspectionReport() {
     setRelatedDocumentsMessage(`Queued ${files.length} PDF${files.length === 1 ? '' : 's'} for Supabase and Extend.`)
 
     const uploadedDocuments: RelatedDocument[] = []
+    const reusedDocuments: RelatedDocument[] = []
+    const workflowSubmittedDocuments: RelatedDocument[] = []
     const failedUploads: string[] = []
     const failedWorkflowSubmissions: string[] = []
 
@@ -3660,17 +3719,27 @@ export default function EditableInspectionReport() {
       )
 
       try {
+        const stableKey = await getRelatedDocumentStableKey(file, relativePath)
         const uploadedDocument = await uploadEditableInspectionDocument({
           file,
           name: getDocumentNameFromFile(file.name),
           description: getUploadDescription(source, relativePath),
           source,
-          stableKey: `${source}:${relativePath}:${file.size}:${file.lastModified}`,
+          stableKey,
           submitToVendorInvoiceWorkflow: true,
           craneIdentifier: currentCraneIdentifier,
         })
 
-        uploadedDocuments.push(uploadedDocument)
+        if (uploadedDocument.alreadyExisted) {
+          reusedDocuments.push(uploadedDocument)
+        } else {
+          uploadedDocuments.push(uploadedDocument)
+        }
+
+        if (uploadedDocument.workflowSubmitted) {
+          workflowSubmittedDocuments.push(uploadedDocument)
+        }
+
         if (uploadedDocument.workflowSubmissionError) {
           failedWorkflowSubmissions.push(`${file.name}: ${uploadedDocument.workflowSubmissionError}`)
         }
@@ -3678,8 +3747,10 @@ export default function EditableInspectionReport() {
         setRelatedDocuments((currentDocuments) => {
           const nextDocumentMap = new Map(currentDocuments.map((document) => [document.id, document]))
           nextDocumentMap.set(uploadedDocument.id, uploadedDocument)
-          return Array.from(nextDocumentMap.values()).sort((firstDocument, secondDocument) =>
-            secondDocument.createdAt.localeCompare(firstDocument.createdAt),
+          return dedupeRelatedDocuments(
+            Array.from(nextDocumentMap.values()).sort((firstDocument, secondDocument) =>
+              secondDocument.createdAt.localeCompare(firstDocument.createdAt),
+            ),
           )
         })
       } catch (error) {
@@ -3688,26 +3759,35 @@ export default function EditableInspectionReport() {
       }
     }
 
-    if (uploadedDocuments.length > 0) {
+    if (workflowSubmittedDocuments.length > 0) {
       refreshMenuItemsAfterPdfUpload()
     }
 
     if (failedUploads.length > 0) {
       setRelatedDocumentsMessage(
-        `${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved. ${failedUploads.length} failed before saving: ${failedUploads[0]}`,
+        `${uploadedDocuments.length} new PDF${uploadedDocuments.length === 1 ? '' : 's'} saved. ${reusedDocuments.length} already existed. ${failedUploads.length} failed before saving: ${failedUploads[0]}`,
       )
       return
     }
 
     if (failedWorkflowSubmissions.length > 0) {
       setRelatedDocumentsMessage(
-        `${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase. ${failedWorkflowSubmissions.length} Extend submission${failedWorkflowSubmissions.length === 1 ? '' : 's'} failed: ${failedWorkflowSubmissions[0]}`,
+        `${uploadedDocuments.length} new PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase. ${reusedDocuments.length} already existed. ${failedWorkflowSubmissions.length} Extend submission${failedWorkflowSubmissions.length === 1 ? '' : 's'} failed: ${failedWorkflowSubmissions[0]}`,
+      )
+      return
+    }
+
+    if (uploadedDocuments.length > 0) {
+      setRelatedDocumentsMessage(
+        `${uploadedDocuments.length} new PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase and sent to Extend. ${reusedDocuments.length} already existed.`,
       )
       return
     }
 
     setRelatedDocumentsMessage(
-      `${uploadedDocuments.length} PDF${uploadedDocuments.length === 1 ? '' : 's'} saved to Supabase and sent to Extend.`,
+      reusedDocuments.length === 1
+        ? 'This vendor PDF is already uploaded. No duplicate file was saved.'
+        : `${reusedDocuments.length} vendor PDFs are already uploaded. No duplicate files were saved.`,
     )
   }
 
@@ -4544,7 +4624,9 @@ export default function EditableInspectionReport() {
                     </button>
                   </div>
                   {relatedDocumentsMessage ? (
-                    <div className="mt-2 text-[12px] font-semibold text-[#747b8a]">{relatedDocumentsMessage}</div>
+                    <div className={getRelatedDocumentsMessageClassName(relatedDocumentsMessage)}>
+                      {relatedDocumentsMessage}
+                    </div>
                   ) : null}
                   {menuItemsRefreshProgress.active ? (
                     <div className="mt-3">

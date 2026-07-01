@@ -125,9 +125,41 @@ function mapMenuItemsRows(userId: string, rows: EditableInspectionMenuItemsRow[]
 
   return {
     userId,
-    menuSections: [{ title: 'Menu Items', items }],
+    menuSections: [{ title: 'Menu Items', items: dedupeImportedMenuItems(items) }],
     updatedAt,
   }
+}
+
+function normalizeMenuItemText(value: string | null | undefined) {
+  return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function normalizeMenuItemMoney(value: string | number | null | undefined) {
+  const numericValue = Number(String(value ?? '').replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(numericValue) ? numericValue.toFixed(2) : '0.00'
+}
+
+function getImportedMenuItemDedupeKey(item: InspectionMenuItem) {
+  return [
+    normalizeMenuItemText(item.label),
+    normalizeMenuItemText(item.description),
+    normalizeMenuItemMoney(item.internalCost ?? item.rate),
+    normalizeMenuItemMoney(item.customerPrice ?? item.rate),
+    normalizeDNumbers(item.dNumbers ?? []).join(','),
+  ].join('|')
+}
+
+export function dedupeImportedMenuItems(items: InspectionMenuItem[]) {
+  const seenImportedKeys = new Set<string>()
+
+  return items.filter((item) => {
+    const importedKey = getImportedMenuItemDedupeKey(item)
+    if (!importedKey) return true
+    if (seenImportedKeys.has(importedKey)) return false
+
+    seenImportedKeys.add(importedKey)
+    return true
+  })
 }
 
 function flattenMenuSections(

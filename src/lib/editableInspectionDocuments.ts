@@ -18,6 +18,8 @@ export type EditableInspectionDocument = {
   source: string
   url: string
   createdAt: string
+  alreadyExisted?: boolean
+  workflowSubmitted?: boolean
   workflowSubmissionError?: string
 }
 
@@ -161,7 +163,10 @@ async function addWorkflowSubmissionStatus(
 ) {
   try {
     await submitPdfToVendorInvoiceWorkflow(file, fileName, userId, document, craneIdentifier)
-    return document
+    return {
+      ...document,
+      workflowSubmitted: true,
+    }
   } catch (error) {
     return {
       ...document,
@@ -199,6 +204,7 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
   }
 
   const userId = await getCurrentUserId()
+  const fileName = sanitizeFileName(input.file.name)
 
   if (input.stableKey) {
     const { data: existingDocument, error: existingError } = await supabase
@@ -213,17 +219,43 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
     }
 
     if (existingDocument) {
-      if (input.submitToVendorInvoiceWorkflow) {
-        return addWorkflowSubmissionStatus(
-          await mapDocumentRow(existingDocument as EditableInspectionDocumentRow),
-          input.file,
-          sanitizeFileName(input.file.name),
-          userId,
-          input.craneIdentifier,
-        )
+      return {
+        ...(await mapDocumentRow(existingDocument as EditableInspectionDocumentRow)),
+        alreadyExisted: true,
       }
+    }
+  }
 
-      return mapDocumentRow(existingDocument as EditableInspectionDocumentRow)
+  const { data: matchingDocuments, error: matchingError } = await supabase
+    .from('editable_inspection_documents')
+    .select('id, document_name, description, file_path, original_file_name, file_size, source, created_at')
+    .eq('user_id', userId)
+    .eq('original_file_name', fileName)
+    .eq('file_size', input.file.size)
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (matchingError) {
+    throw new Error(matchingError.message)
+  }
+
+  const matchingDocument = matchingDocuments?.[0]
+  if (matchingDocument) {
+    if (input.stableKey) {
+      const { error: stableKeyUpdateError } = await supabase
+        .from('editable_inspection_documents')
+        .update({ stable_key: input.stableKey })
+        .eq('id', matchingDocument.id)
+        .eq('user_id', userId)
+
+      if (stableKeyUpdateError) {
+        throw new Error(stableKeyUpdateError.message)
+      }
+    }
+
+    return {
+      ...(await mapDocumentRow(matchingDocument as EditableInspectionDocumentRow)),
+      alreadyExisted: true,
     }
   }
 
@@ -232,7 +264,6 @@ export async function uploadEditableInspectionDocument(input: UploadEditableInsp
     throw new Error('Document could not be saved because this browser could not create a document id.')
   }
 
-  const fileName = sanitizeFileName(input.file.name)
   const filePath = `${userId}/${documentId}/${fileName}`
 
   const { error: uploadError } = await supabase.storage
