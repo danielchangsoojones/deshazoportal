@@ -202,7 +202,7 @@ function isMonitorStatus(value: string) {
 }
 
 function isSafetyStatus(value: string) {
-  return value === 'SAFETY' || value.includes('DO NOT OPERATE') || value.includes('UNSAFE')
+  return value === 'SAFETY' || value === 'SAFTY' || value.includes('DO NOT OPERATE') || value.includes('UNSAFE')
 }
 
 function isKnownStatus(value: string) {
@@ -1130,7 +1130,7 @@ function toneClass(point: DeshazoInspectionPoint) {
   if (tone === 'neutral' && status && !isKnownStatus(status)) return 'status status-plain'
   if (tone === 'neutral') return 'status status-neutral'
   if (tone === 'monitor') return 'status status-monitor status-with-icons'
-  if (isSafetyStatus(status)) return 'status status-danger status-long-label'
+  if (isSafetyStatus(status)) return 'status status-safety status-with-icons'
   return 'status status-danger status-with-icons'
 }
 
@@ -1140,8 +1140,15 @@ function page2StatusClass(status: string) {
   if (tone === 'neutral' && normalizeStatus(status) && !isKnownStatus(normalizeStatus(status))) return 'page2-point-status page2-status-plain'
   if (tone === 'neutral') return 'page2-point-status page2-status-neutral'
   if (tone === 'monitor') return 'page2-point-status page2-status-monitor status-with-icons'
-  if (isSafetyStatus(normalizeStatus(status))) return 'page2-point-status page2-status-danger status-long-label'
+  if (isSafetyStatus(normalizeStatus(status))) return 'page2-point-status page2-status-safety status-with-icons'
   return 'page2-point-status page2-status-danger status-with-icons'
+}
+
+function actionPillClass(status: string) {
+  const normalizedStatus = normalizeStatus(status)
+  if (isSafetyStatus(normalizedStatus)) return 'action-pill action-pill-safety status-with-icons'
+  if (isMonitorStatus(normalizedStatus)) return 'action-pill action-pill-monitor status-with-icons'
+  return 'action-pill action-pill-repair status-with-icons'
 }
 
 function renderStatusLabel(status: string) {
@@ -1153,9 +1160,13 @@ function renderStatusLabel(status: string) {
       : isKnownStatus(normalizedStatus)
         ? toTitleCase(status)
         : status.trim() || '-'
-  if (!isRepairStatus(normalizedStatus) && !isMonitorStatus(normalizedStatus)) return escapeHtml(label)
+  if (!isRepairStatus(normalizedStatus) && !isMonitorStatus(normalizedStatus) && !isSafetyStatus(normalizedStatus)) return escapeHtml(label)
 
-  const iconClass = isMonitorStatus(normalizedStatus) ? 'status-icon-monitor' : 'status-icon-repair'
+  const iconClass = isSafetyStatus(normalizedStatus)
+    ? 'status-icon-safety'
+    : isMonitorStatus(normalizedStatus)
+      ? 'status-icon-monitor'
+      : 'status-icon-repair'
   return `
     <span class="status-icon ${iconClass}"></span>
     <span>${escapeHtml(label)}</span>
@@ -1635,7 +1646,7 @@ export function getDeshazoInspectionReportHtml(report: DeshazoSavedInspectionRep
       (item) => `
         <div class="mini-action-row">
           <div class="mini-action-label">${escapeHtml(item.sectionName)}:<br />${escapeHtml(item.label)}</div>
-          <div class="mini-action-status"><span class="action-pill status-with-icons">${renderStatusLabel(item.status)}</span></div>
+          <div class="mini-action-status"><span class="${actionPillClass(item.status)}">${renderStatusLabel(item.status)}</span></div>
         </div>
       `,
     )
@@ -1853,6 +1864,9 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .mini-action-grid-long .mini-action-status { justify-content: flex-end; }
     .mini-action-grid-long .action-pill { width: 102px; min-height: 19px; font-size: 10px; }
     .action-pill { display: inline-grid; grid-auto-flow: column; align-items: center; justify-content: center; box-sizing: border-box; width: 82px; min-height: 18px; padding: 2px 5px; background: #f7d4d4; color: #8d1111; font-size: 9.5px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; overflow: visible; }
+    .action-pill-repair { background: #f7d4d4; color: #8d1111; }
+    .action-pill-monitor { background: #fbf4bf; color: #8b7a00; }
+    .action-pill-safety { background: #fff0e3; color: #8a2f12; }
     .overview-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; font-size: 12px; }
     .detail-section { padding-top: 11px; margin-top: 11px; border-top: 1px solid #dadada; break-inside: avoid; }
     .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 6px; font-size: 12px; font-weight: 700; }
@@ -1877,6 +1891,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .status-icon-monitor { width: 12px; height: 12px; }
     .status-icon-monitor::before { content: ""; position: absolute; left: 2px; top: 0; width: 8px; height: 11px; background: currentColor; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
     .status-icon-monitor::after { content: ""; position: absolute; left: 3px; top: 5px; width: 6px; height: 1px; background: #fbf4bf; box-shadow: 0 3px 0 #fbf4bf; }
+    .status-icon-safety { background: currentColor; clip-path: polygon(50% 0, 88% 14%, 82% 62%, 50% 100%, 18% 62%, 12% 14%); }
     .status-camera { position: relative; display: inline-block; flex: 0 0 auto; width: 11px; height: 8px; border-radius: 2px; background: currentColor; }
     .status-camera::before { content: ""; position: absolute; left: 2px; top: -2px; width: 4px; height: 2px; border-radius: 1px 1px 0 0; background: currentColor; }
     .status-camera::after { content: ""; position: absolute; left: 4px; top: 2px; width: 3px; height: 3px; border-radius: 50%; background: #fff; opacity: .9; }
@@ -1884,6 +1899,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .status-danger { background: #f7c7c7; color: #a61616; }
     .status-monitor { background: #fbf4bf; color: #8b7a00; }
+    .status-safety { background: #fff0e3; color: #8a2f12; }
     .status-plain { justify-self: end; width: auto; min-width: 16px; background: transparent; color: #171821; font-weight: 700; }
     .detail-row-custom-value .status-plain { justify-self: stretch; width: 100%; min-width: 0; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.22; }
     .page2-header { display: grid; grid-template-columns: 250px 1fr; align-items: start; gap: 24px; padding: 0 0 9px; border-bottom: 3px solid #f0aa2e; }
@@ -1897,7 +1913,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-continuation .detail-section:first-child { margin-top: 0; }
     .page2-title { margin-left: 5px; padding-bottom: 11px; border-bottom: 1px solid #b81717; font-size: 15px; font-weight: 700; line-height: 1.05; text-transform: uppercase; color: #171821; }
     .page2-title-repair { color: #b81717; }
-    .page2-title-safety { color: #b81717; }
+    .page2-title-safety { color: #c86f00; }
     .page2-title-after-list { margin-top: 22px; }
     .page2-title-notes { margin-top: 22px; }
     .page2-title-pictures { margin-top: 22px; border-bottom-color: #d8d8d8; color: #171821; }
@@ -1921,6 +1937,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .page2-status-danger { background: #e8c7c9; color: #9d1c1c; }
     .page2-status-monitor { background: #fbf4bf; color: #8b7a00; }
+    .page2-status-safety { background: #fff0e3; color: #8a2f12; }
     .page2-status-plain { min-width: 16px; margin-left: 0; background: transparent; color: #171821; font-weight: 700; }
     .page2-action-photos { display: grid; grid-template-columns: repeat(3, 164px); gap: 8px 10px; margin: 9px 0 0 18px; }
     .page2-action-photo { position: relative; width: 164px; height: 132px; margin: 0; background: #ecdcdc; overflow: hidden; }
