@@ -178,6 +178,53 @@ export type ExternalInspectionReportQuoteImportResult = {
   }>
 }
 
+type ExternalInspectionPointLike = {
+  condition?: unknown
+  status?: unknown
+  value?: unknown
+  name?: unknown
+  title?: unknown
+  notes?: unknown
+  remarks?: unknown
+  photos?: unknown
+}
+
+type ExternalInspectionSectionLike = {
+  name?: unknown
+  points?: unknown
+}
+
+type ExternalInspectionLike = {
+  type?: unknown
+  sections?: unknown
+}
+
+type ExternalCraneReportLike = {
+  crane?: {
+    contactCode?: unknown
+    contact_code?: unknown
+    description?: unknown
+    name?: unknown
+    structure?: { type?: unknown }
+    structureType?: unknown
+  }
+  inspections?: unknown
+}
+
+type ExternalInspectionReportRow = {
+  work_order_id: number
+  raw_payload: {
+    cranes?: ExternalCraneReportLike[]
+  } | null
+}
+
+type QuoteSafetyReconcileUpdate = {
+  id: string
+  safety_count: number
+  extraction_data: Record<string, unknown>
+  repair_sections: unknown[]
+}
+
 export type ExternalCraneDNumberQuoteCreateResult = {
   dNumber: string
   runId: string
@@ -350,6 +397,219 @@ function chunkValues<T>(values: T[], size: number) {
   }
 
   return chunks
+}
+
+const ensureArray = <T = unknown>(value: unknown): T[] => (Array.isArray(value) ? value as T[] : [])
+
+function getPlainText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function cleanInspectionLabel(value: unknown, structureType?: unknown) {
+  const structure = getPlainText(structureType) || 'Structure'
+
+  return getPlainText(value)
+    .replace(/\{\{\s*(?:Trolley\s+)?Hoist\s*<\s*index\s*>\s*\}\}/gi, 'Trolley Hoist')
+    .replace(/\{\{\s*craneStructureType\.name\s*\}\}/gi, structure)
+    .replace(/\bcraneStructureType\.name\b/gi, structure)
+    .replace(/\{\{\s*([^{}<>]+?)\s*\}\}/g, '$1')
+    .replace(/\s*:\s*/g, ': ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function classifyQuoteCondition(condition: unknown) {
+  const normalized = String(condition || '').trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized.includes('repair')) return 'repair'
+  if (
+    normalized.includes('safety') ||
+    normalized.includes('monitor') ||
+    normalized.includes('do not operate') ||
+    normalized.includes('unsafe')
+  ) {
+    return 'safety'
+  }
+  return null
+}
+
+function getSafetyMonitorStatus(condition: unknown) {
+  const normalized = String(condition || '').trim().toLowerCase()
+  return normalized.includes('monitor') ? 'Monitor' : 'Safety'
+}
+
+function getPointNote(point: ExternalInspectionPointLike) {
+  const directNotes = getPlainText(point.notes)
+  if (directNotes) return directNotes
+
+  return ensureArray<Record<string, unknown>>(point.remarks)
+    .map((remark) => getPlainText(remark.content) || getPlainText(remark.note) || getPlainText(remark.text))
+    .filter(Boolean)
+    .join(' ')
+}
+
+function normalizeSectionMergeText(value: unknown) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function getSectionStatusBucket(status: unknown) {
+  const normalized = normalizeSectionMergeText(status)
+  if (normalized.includes('repair')) return 'repair'
+  if (
+    normalized.includes('monitor') ||
+    normalized.includes('safety') ||
+    normalized.includes('do not operate') ||
+    normalized.includes('unsafe')
+  ) {
+    return 'safety'
+  }
+  return normalized
+}
+
+function getRepairSectionMergeKey(section: { title?: unknown; status?: unknown } | null | undefined) {
+  return [normalizeSectionMergeText(section?.title), getSectionStatusBucket(section?.status)]
+    .filter(Boolean)
+    .join(':')
+}
+
+function getSourceSafetyItemsByDNumber(rawPayload: ExternalInspectionReportRow['raw_payload']) {
+  const itemsByDNumber = new Map<string, Array<Record<string, unknown>>>()
+
+  ensureArray<ExternalCraneReportLike>(rawPayload?.cranes).forEach((craneReport) => {
+    const crane = craneReport.crane ?? {}
+    const dNumber = getPlainText(crane.contactCode || crane.contact_code).toUpperCase()
+    if (!dNumber) return
+
+    const structureType = crane.structure?.type || crane.structureType
+    const safetyItems: Array<Record<string, unknown>> = []
+
+    ensureArray<ExternalInspectionLike>(craneReport.inspections).forEach((inspection) => {
+      ensureArray<ExternalInspectionSectionLike>(inspection.sections).forEach((section) => {
+        const sectionName = cleanInspectionLabel(section.name || inspection.type || dNumber, structureType)
+
+        ensureArray<ExternalInspectionPointLike>(section.points).forEach((point) => {
+          const condition = point.condition ?? point.status ?? point.value ?? null
+          if (classifyQuoteCondition(condition) !== 'safety') return
+
+          safetyItems.push({
+            section_name: sectionName,
+            component_name: cleanInspectionLabel(point.name || point.title, structureType),
+            condition: String(condition || ''),
+            status: getSafetyMonitorStatus(condition),
+            note: cleanInspectionLabel(getPointNote(point), structureType),
+            photos: ensureArray(point.photos),
+          })
+        })
+      })
+    })
+
+    itemsByDNumber.set(dNumber, safetyItems)
+  })
+
+  return itemsByDNumber
+}
+
+function buildSafetyRepairSections(
+  item: JobsQuotingItemRow,
+  workOrderId: number,
+  safetyItems: Array<Record<string, unknown>>,
+) {
+  const existingSections = Array.isArray(item.repair_sections) ? item.repair_sections : []
+  const existingKeys = new Set(
+    existingSections
+      .map((section) => getRepairSectionMergeKey(section as { title?: unknown; status?: unknown }))
+      .filter(Boolean),
+  )
+  const dNumber = String(item.d_number || '').trim().toLowerCase()
+  const additions = safetyItems
+    .map((safetyItem, index) => {
+      const sectionName = getPlainText(safetyItem.section_name)
+      const componentName = getPlainText(safetyItem.component_name)
+      return {
+        id: `external-work-order-${workOrderId}-d-number-${dNumber}-safety-${index}`,
+        title: [sectionName, componentName].filter(Boolean).join(': ') || `Inspection Item ${existingSections.length + index + 1}`,
+        description: getPlainText(safetyItem.note),
+        status: getPlainText(safetyItem.status) || 'Safety',
+        lineItems: [],
+      }
+    })
+    .filter((section) => {
+      const key = getRepairSectionMergeKey(section)
+      if (!key || existingKeys.has(key)) return false
+      existingKeys.add(key)
+      return true
+    })
+
+  return additions.length > 0 ? [...existingSections, ...additions] : existingSections
+}
+
+async function reconcileExternalQuoteImportResult(result: ExternalInspectionReportQuoteImportResult) {
+  const client = requireSupabase()
+  const workOrderIds = Array.from(
+    new Set(
+      result.results
+        .map((row) => Number(row.workOrderId))
+        .filter((workOrderId) => Number.isFinite(workOrderId) && workOrderId > 0),
+    ),
+  )
+
+  if (workOrderIds.length === 0) return
+
+  const { data: reportRows, error: reportError } = await client
+    .from('deshazo_external_inspection_reports')
+    .select('work_order_id, raw_payload')
+    .in('work_order_id', workOrderIds)
+
+  if (reportError) throw new Error(reportError.message)
+
+  const sourceItemsByWorkOrderId = new Map<number, Map<string, Array<Record<string, unknown>>>>()
+  ;((reportRows ?? []) as ExternalInspectionReportRow[]).forEach((row) => {
+    sourceItemsByWorkOrderId.set(Number(row.work_order_id), getSourceSafetyItemsByDNumber(row.raw_payload))
+  })
+
+  const { data: quoteRows, error: quoteError } = await client
+    .from('jobs_quoting_items')
+    .select(jobsQuotingItemSelect)
+    .in('deshazo_external_inspection_report_work_order_id', workOrderIds)
+
+  if (quoteError) throw new Error(quoteError.message)
+
+  const updates = ((quoteRows ?? []) as JobsQuotingItemRow[]).reduce<QuoteSafetyReconcileUpdate[]>(
+    (nextUpdates, item) => {
+      const workOrderId = Number(item.deshazo_external_inspection_report_work_order_id)
+      const dNumber = String(item.d_number || '').trim().toUpperCase()
+      const safetyItems = sourceItemsByWorkOrderId.get(workOrderId)?.get(dNumber) ?? []
+      if ((item.safety_count ?? 0) === safetyItems.length) return nextUpdates
+
+      const nextExtractionData = {
+        ...(item.extraction_data ?? {}),
+        safety_count: safetyItems.length,
+        safety_and_monitor_items: safetyItems,
+      }
+
+      nextUpdates.push({
+        id: item.id,
+        safety_count: safetyItems.length,
+        extraction_data: nextExtractionData,
+        repair_sections: buildSafetyRepairSections(item, workOrderId, safetyItems),
+      })
+      return nextUpdates
+    },
+    [],
+  )
+
+  for (const update of updates) {
+    const { error } = await client
+      .from('jobs_quoting_items')
+      .update({
+        safety_count: update.safety_count,
+        extraction_data: update.extraction_data,
+        repair_sections: update.repair_sections,
+      })
+      .eq('id', update.id)
+
+    if (error) throw new Error(error.message)
+  }
 }
 
 async function fetchAllPages<Row>(buildQuery: (from: number, to: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>) {
@@ -698,7 +958,9 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
     throw new Error(message)
   }
 
-  return body as ExternalInspectionReportQuoteImportResult
+  const result = body as ExternalInspectionReportQuoteImportResult
+  await reconcileExternalQuoteImportResult(result)
+  return result
 }
 
 export async function createJobQuotingItemFromExternalCraneDNumber(dNumber: string): Promise<ExternalCraneDNumberQuoteCreateResult> {

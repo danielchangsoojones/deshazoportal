@@ -66,6 +66,9 @@ type RepairSectionTone = {
   statusBackground: string
   statusText: string
   statusIcon: string
+  statusIconShape: 'circle' | 'shield'
+  statusIconLabel: string
+  showCamera: boolean
 }
 
 type MenuItem = InspectionMenuItem
@@ -185,7 +188,7 @@ const reportAutosaveIntervalMs = 10 * 1000
 const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
 const menuSearchDebounceMs = 300
-const defaultCraneIdentifier = 'D200235'
+const defaultCraneIdentifier = ''
 const masterServiceAgreementStableKey = 'built-in:master-service-agreement'
 const estimateSummaryRuntimePageBreakIds = new Set([
   'estimate-summary-header',
@@ -254,31 +257,31 @@ ${additionalNotesFooter}`
 const defaultReport: ReportData = {
   logoName: 'DESHAZO',
   logoTagline: 'CRANES / SERVICE / AUTOMATION',
-  branch: 'DESHAZO Branch: 018 Dallas',
+  branch: 'DESHAZO Branch: ---',
   phone: 'Branch Contact Phone: ---',
   title: 'QUOTE PROPOSAL',
-  summary: 'D200235 performed by: Calvin Waller',
-  type: 'Type: Frequent',
-  date: 'Date: Mar 24, 2026',
-  structure: 'Structure: Gantry',
-  description: 'Description: Portable Gantry',
-  customer: 'Customer',
-  purchaseOrder: 'Purchase Order: S2P1215028',
-  jobNumber: 'Job #: 0270357',
-  location: 'Location: Building 2',
-  customerAddress: 'Customer Address: 500 Commerce Blvd',
+  summary: '---',
+  type: 'Type: ---',
+  date: 'Date: ---',
+  structure: 'Structure: ---',
+  description: 'Description: ---',
+  customer: 'Customer: ---',
+  purchaseOrder: 'Purchase Order: ---',
+  jobNumber: 'Job #: ---',
+  location: 'Location: ---',
+  customerAddress: 'Customer Address: ---',
   manufacturerLabel: 'Manufacturer:',
   serialLabel: 'Serial Number:',
   capacityLabel: 'Capacity:',
   modelLabel: 'Model #:',
-  manufacturerCrane: 'Crane: superior crane corporation',
-  serialCrane: 'Crane: 02716',
-  capacityCrane: 'Crane: 2 Ton',
-  modelCrane: 'Crane: Na',
-  manufacturerHoist: 'Hoist 1: Coffing',
-  serialHoist: 'Hoist 1: 8PA596L',
-  capacityHoist: 'Hoist 1: 1 Ton',
-  modelHoist: 'Hoist 1: ELC2016.3',
+  manufacturerCrane: 'Crane: ---',
+  serialCrane: 'Crane: ---',
+  capacityCrane: 'Crane: ---',
+  modelCrane: 'Crane: ---',
+  manufacturerHoist: 'Hoist 1: ---',
+  serialHoist: 'Hoist 1: ---',
+  capacityHoist: 'Hoist 1: ---',
+  modelHoist: 'Hoist 1: ---',
   manufacturerHoist2: 'Hoist 2: ---',
   serialHoist2: 'Hoist 2: ---',
   capacityHoist2: 'Hoist 2: ---',
@@ -307,7 +310,7 @@ const blankReport: ReportData = {
   ...defaultReport,
   branch: 'DESHAZO Branch: ---',
   phone: 'Branch Contact Phone: ---',
-  summary: 'D',
+  summary: '---',
   type: 'Type: ---',
   date: 'Date: ---',
   structure: 'Structure: ---',
@@ -357,40 +360,18 @@ const createDefaultRepairCostSections = (repairId: string): CostSection[] => [
   },
 ]
 
-const defaultRepairSections: RepairSection[] = [
-  {
-    id: 'under-running-bridge-wheels',
-    title: 'Under Running Bridge: Wheels',
-    description: 'Inspect wheel tread wear and flange condition. Confirm wheel bearings rotate freely under load.',
-    status: 'Repair',
-    lineItems: [],
-    costSections: createDefaultRepairCostSections('under-running-bridge-wheels'),
-  },
-  {
-    id: 'under-running-bridge-conductors',
-    title: 'Under Running Bridge: Conductors/Festoon System',
-    description: 'Replace damaged festoon cable carrier hardware. Verify conductor alignment through full bridge travel.',
-    status: 'Repair',
-    lineItems: [],
-    costSections: createDefaultRepairCostSections('under-running-bridge-conductors'),
-  },
-  {
-    id: 'hoist-1-festoons',
-    title: 'Hoist 1: Festoons',
-    description: 'Repair loose festoon trolley and check cable strain relief.',
-    status: 'Repair',
-    lineItems: [],
-    costSections: createDefaultRepairCostSections('hoist-1-festoons'),
-  },
-]
+type RepairSectionKind = 'repair' | 'monitor' | 'safety'
 
-const repairSectionTones: Record<'repair' | 'monitor', RepairSectionTone> = {
+const repairSectionTones: Record<RepairSectionKind, RepairSectionTone> = {
   repair: {
     sectionBackground: 'bg-[#f4e3e3]',
     sectionBorder: 'border-[#e1caca]',
     statusBackground: 'bg-[#efc9c9]',
     statusText: 'text-[#7d1515]',
     statusIcon: 'bg-[#af0f0f]',
+    statusIconShape: 'circle',
+    statusIconLabel: '!',
+    showCamera: false,
   },
   monitor: {
     sectionBackground: 'bg-[#f6edbf]',
@@ -398,11 +379,31 @@ const repairSectionTones: Record<'repair' | 'monitor', RepairSectionTone> = {
     statusBackground: 'bg-[#efe09a]',
     statusText: 'text-[#6f5a00]',
     statusIcon: 'bg-[#a88a00]',
+    statusIconShape: 'circle',
+    statusIconLabel: '!',
+    showCamera: false,
+  },
+  safety: {
+    sectionBackground: 'bg-[#fff0e3]',
+    sectionBorder: 'border-[#efc48e]',
+    statusBackground: 'bg-[#fff0e3]',
+    statusText: 'text-[#8a2f12]',
+    statusIcon: 'bg-[#d27600]',
+    statusIconShape: 'shield',
+    statusIconLabel: '',
+    showCamera: true,
   },
 }
 
-const getRepairSectionTone = (status: string) =>
-  status.toLowerCase().includes('monitor') ? repairSectionTones.monitor : repairSectionTones.repair
+const getRepairSectionKind = (status: string): RepairSectionKind => {
+  if (/safety|safty|unsafe|do not operate/i.test(status)) return 'safety'
+  if (/monitor/i.test(status)) return 'monitor'
+  return 'repair'
+}
+
+const getRepairSectionTone = (status: string) => repairSectionTones[getRepairSectionKind(status)]
+
+const formatRepairSectionStatus = (status: string) => (status.trim() || 'Repair').toUpperCase()
 
 const defaultCostSections: CostSection[] = [
   {
@@ -807,7 +808,7 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
   const capacityHoist4 = getTopLevelExtractedText(data, ['capacity_hoist_4', 'capacityHoist4'])
   const modelHoist4 = getTopLevelExtractedText(data, ['model_hoist_4', 'modelHoist4'])
   const report = {
-    ...defaultReport,
+    ...blankReport,
     branch: formatReportValue('DESHAZO Branch', branch, '---'),
     phone: formatReportValue('Branch Contact Phone', branchContactPhone, '---'),
     summary: [dNumber || '---', performedBy ? `performed by: ${performedBy}` : ''].filter(Boolean).join(' '),
@@ -1201,12 +1202,15 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
     reportData.scopeOfWorkHeader || 'Scope of Work',
     reportData.scopeOfWork || '---',
     '',
-    'Repair Items',
   ]
 
-  repairSections.forEach((section) => {
+  const repairAndMonitorSections = repairSections.filter((section) => getRepairSectionKind(section.status) !== 'safety')
+  const safetySections = repairSections.filter((section) => getRepairSectionKind(section.status) === 'safety')
+
+  lines.push('ACTION LIST - REPAIR ITEMS')
+  repairAndMonitorSections.forEach((section) => {
     const repairLabel = [section.title, section.description].filter((value) => value?.trim()).join(' - ')
-    lines.push('', `${repairLabel} (${section.status || 'Repair'})`)
+    lines.push('', `${repairLabel} (${formatRepairSectionStatus(section.status)})`)
     section.costSections.forEach((costSection) => {
       lines.push(costSection.title)
       costSection.lineItems.forEach((lineItem) => {
@@ -1214,6 +1218,20 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
       })
     })
   })
+
+  if (safetySections.length > 0) {
+    lines.push('', 'SAFETY ITEMS')
+    safetySections.forEach((section) => {
+      const repairLabel = [section.title, section.description].filter((value) => value?.trim()).join(' - ')
+      lines.push('', `${repairLabel} (${formatRepairSectionStatus(section.status)})`)
+      section.costSections.forEach((costSection) => {
+        lines.push(costSection.title)
+        costSection.lineItems.forEach((lineItem) => {
+          lines.push(getPdfLineItemSummary(lineItem))
+        })
+      })
+    })
+  }
 
   lines.push('', 'Estimate Summary')
   costSections.forEach((section) => {
@@ -1349,8 +1367,10 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
         ),
       0,
     )
-    const repairMarkup = repairSections
-      .map((section) => {
+    const repairAndMonitorSections = repairSections.filter((section) => getRepairSectionKind(section.status) !== 'safety')
+    const safetySections = repairSections.filter((section) => getRepairSectionKind(section.status) === 'safety')
+    const renderRepairSectionMarkup = (section: RepairSection) => {
+        const sectionKind = getRepairSectionKind(section.status)
         const repairCostMarkup = section.costSections
           .map((costSection) => `
             <div class="nested-title">${escapeHtml(costSection.title)}</div>
@@ -1375,10 +1395,10 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
           .join('')
 
         return `
-          <section class="quote-section repair-section">
+          <section class="quote-section ${sectionKind}-section">
           <div class="section-title">
             <span>${escapeHtml([section.title, section.description].filter((value) => value?.trim()).join(' - '))}</span>
-            <span class="status">${escapeHtml(section.status || 'Repair')}</span>
+            <span class="status status-${sectionKind}">${escapeHtml(formatRepairSectionStatus(section.status))}</span>
           </div>
           ${repairCostMarkup}
           <table>
@@ -1391,8 +1411,9 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
           </table>
         </section>
         `
-      })
-      .join('')
+      }
+    const repairMarkup = repairAndMonitorSections.map(renderRepairSectionMarkup).join('')
+    const safetyMarkup = safetySections.map(renderRepairSectionMarkup).join('')
 
     const costMarkup = costSections
       .map((section) => `
@@ -1477,8 +1498,9 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
           <p>${escapeHtml(reportData.scopeOfWork || '---')}</p>
         </section>
 
-        <h2 class="band">Repair Items</h2>
+        <h2 class="band">ACTION LIST - REPAIR ITEMS</h2>
         ${repairMarkup}
+        ${safetyMarkup ? `<h2 class="band band-safety">SAFETY ITEMS</h2>${safetyMarkup}` : ''}
 
         <h2 class="band">Estimate Summary</h2>
         ${costMarkup}
@@ -1670,6 +1692,11 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             margin-top: 12px;
             border: 1px solid #d4d4d4;
           }
+          .band-safety {
+            color: #c86f00;
+            border-color: #efb369;
+            background: #fff7ee;
+          }
           .quote-section {
             border-right: 1px solid #d4d4d4;
             border-bottom: 1px solid #d4d4d4;
@@ -1690,7 +1717,9 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
           }
           .estimate-title { color: #273f7a; text-transform: uppercase; }
           .repair-section { background: #f4e3e3; }
-          .repair-section table { background: #fff; }
+          .monitor-section { background: #f6edbf; }
+          .safety-section { background: #fff0e3; }
+          .repair-section table, .monitor-section table, .safety-section table { background: #fff; }
           .nested-title {
             border-top: 1px solid #d8d8d8;
             border-bottom: 1px solid #d8d8d8;
@@ -1710,6 +1739,36 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
             text-align: left;
           }
           .status::before { content: "!"; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; margin-right: 4px; border-radius: 50%; background: #af0f0f; color: #fff; font-size: 8px; font-weight: 900; }
+          .status-monitor {
+            background: #efe09a;
+            color: #6f5a00;
+          }
+          .status-monitor::before {
+            background: #a88a00;
+          }
+          .status-safety {
+            display: inline-flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 5px;
+            background: #fff0e3;
+            color: #8a2f12;
+          }
+          .status-safety::before {
+            content: "";
+            border-radius: 0;
+            background: #d27600;
+            clip-path: polygon(50% 0, 88% 14%, 82% 62%, 50% 100%, 18% 62%, 12% 14%);
+          }
+          .status-safety::after {
+            content: "";
+            display: inline-block;
+            width: 12px;
+            height: 9px;
+            border-radius: 2px;
+            background: #d27600;
+            box-shadow: inset 4px 3px 0 -2px #fff;
+          }
           table { width: 100%; border-collapse: collapse; table-layout: fixed; }
           th {
             background: #fbfbfb;
@@ -1937,7 +1996,7 @@ const normalizeRepairSections = (sections: RepairSection[], reportData?: Record<
   })
 
 const normalizeReport = (report: ReportData) => {
-  const nextReport = { ...defaultReport, ...report }
+  const nextReport = { ...blankReport, ...report }
 
   if (nextReport.title === 'INSPECTION REPORT') nextReport.title = defaultReport.title
   if (!nextReport.scopeOfWorkHeader?.trim()) nextReport.scopeOfWorkHeader = defaultReport.scopeOfWorkHeader
@@ -1995,6 +2054,37 @@ const hasSavedEditableReportPayload = (item: JobsQuotingItem) =>
 
 const isBlankQuoteItem = (item: JobsQuotingItem) => item.splitType === 'blank_quote'
 
+const getRepairSectionMergeKey = (section: RepairSection) =>
+  [section.title, getRepairSectionKind(section.status)]
+    .map((value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' '))
+    .filter(Boolean)
+    .join(':')
+
+const mergeMissingExtractedRepairSections = (savedSections: RepairSection[], extractedSections: RepairSection[]) => {
+  if (savedSections.length === 0 || extractedSections.length === 0) return savedSections
+
+  const savedKeys = new Set(savedSections.map(getRepairSectionMergeKey).filter(Boolean))
+  const missingSections = extractedSections.filter((section) => {
+    const key = getRepairSectionMergeKey(section)
+    return key && !savedKeys.has(key)
+  })
+
+  return missingSections.length > 0 ? [...savedSections, ...missingSections] : savedSections
+}
+
+const hasExtractedRepairSectionItems = (item: JobsQuotingItem) =>
+  [
+    'repair_items',
+    'repairItems',
+    'action_items',
+    'actionItems',
+    'safety_and_monitor_items',
+    'safetyMonitorItems',
+    'safety_monitor_items',
+    'safety_items',
+    'safetyItems',
+  ].some((key) => getExtractedArray(item.extractionData, [key]).length > 0)
+
 const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableInspectionReportPayload => {
   if (isBlankQuoteItem(item)) {
     return {
@@ -2018,6 +2108,10 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
 
   if (hasSavedEditableReportPayload(item)) {
     const repairSections = item.repairSections as RepairSection[]
+    const repairSectionsWithExtractedItems = mergeMissingExtractedRepairSections(
+      repairSections,
+      hasExtractedRepairSectionItems(item) ? buildRepairSectionsFromJobsQuotingItem(item) : [],
+    )
     const legacyRepairCostSections = (item.costSections as CostSection[]).filter(isRepairScopedCostSection)
     const remainingCostSections = (item.costSections as CostSection[]).filter((section) => !isRepairScopedCostSection(section))
     const costSections = normalizeEstimateCostSections(remainingCostSections)
@@ -2034,10 +2128,10 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
     return {
       reportData: addReportSummaryCraneContext(applyQuoteItemColumnIdentifiersToReport(item.reportData, item)),
       repairSections: shouldMoveLegacyCostsIntoFirstRepair
-        ? repairSections.map((section, index) =>
+        ? repairSectionsWithExtractedItems.map((section, index) =>
             index === 0 ? { ...section, costSections: legacyRepairCostSections } : section,
           )
-        : item.repairSections,
+        : repairSectionsWithExtractedItems,
       costSections,
       blockVisibility: item.pageLayoutVisibility.blockVisibility,
       estimateNoteVisibility: item.pageLayoutVisibility.estimateNoteVisibility,
@@ -2394,6 +2488,7 @@ export default function EditableInspectionReport() {
   const editableReportIdParam = searchParams.get('editableReportId')?.trim() || ''
   const validJobsQuotingItemId = isUuid(jobsQuotingItemId) ? jobsQuotingItemId : ''
   const validEditableReportIdParam = isUuid(editableReportIdParam) ? editableReportIdParam : ''
+  const hasSelectedEditableReportSource = Boolean(validJobsQuotingItemId || validEditableReportIdParam)
   const menuDatabaseSyncReady = useRef(false)
   const skipNextMenuDatabaseSave = useRef(false)
   const reportHydrationReady = useRef(false)
@@ -2463,28 +2558,34 @@ export default function EditableInspectionReport() {
     isConfigured ? 'Loading menu items from the server.' : 'Supabase is not configured. Menu items are saved locally.',
   )
   const [report, setReport] = useState<ReportData>(() => {
+    if (hasSelectedEditableReportSource) return addReportSummaryCraneContext(blankReport)
+
     const savedReport = window.localStorage.getItem(storageKey)
 
-    if (!savedReport) return addReportSummaryCraneContext(defaultReport)
+    if (!savedReport) return addReportSummaryCraneContext(blankReport)
 
     try {
       return addReportSummaryCraneContext(normalizeReport(JSON.parse(savedReport) as ReportData))
     } catch {
-      return addReportSummaryCraneContext(defaultReport)
+      return addReportSummaryCraneContext(blankReport)
     }
   })
   const [repairSections, setRepairSections] = useState<RepairSection[]>(() => {
+    if (hasSelectedEditableReportSource) return []
+
     const savedSections = window.localStorage.getItem(repairStorageKey)
 
-    if (!savedSections) return defaultRepairSections
+    if (!savedSections) return []
 
     try {
       return normalizeRepairSections(JSON.parse(savedSections) as RepairSection[])
     } catch {
-      return defaultRepairSections
+      return []
     }
   })
   const [costSections, setCostSections] = useState<CostSection[]>(() => {
+    if (hasSelectedEditableReportSource) return defaultCostSections
+
     const savedSections = window.localStorage.getItem(costStorageKey)
 
     if (!savedSections) return defaultCostSections
@@ -2570,6 +2671,7 @@ export default function EditableInspectionReport() {
   const currentCraneIdentifier = useMemo(() => getCraneIdentifierFromReport(report), [report])
   const currentMenuDNumber = useMemo(() => getDNumberFromReport(report), [report])
   const currentJobNumber = useMemo(() => getJobNumberDisplayFromReport(report), [report])
+  const isEditableReportLoading = hasSelectedEditableReportSource && reportDatabaseStatus === 'loading'
   const menuSearchBranchesLabel = useMemo(
     () =>
       menuSearchBranches.length > 0
@@ -3037,8 +3139,8 @@ export default function EditableInspectionReport() {
           setReportDatabaseStatus('saved')
         } else {
           applyEditableReportPayload({
-            reportData: defaultReport,
-            repairSections: defaultRepairSections,
+            reportData: blankReport,
+            repairSections: [],
             costSections: defaultCostSections,
             blockVisibility: defaultBlockVisibility,
             estimateNoteVisibility: defaultEstimateNoteVisibility,
@@ -3066,8 +3168,8 @@ export default function EditableInspectionReport() {
       } catch {
         if (!active) return
         applyEditableReportPayload({
-          reportData: defaultReport,
-          repairSections: defaultRepairSections,
+          reportData: blankReport,
+          repairSections: [],
           costSections: defaultCostSections,
           blockVisibility: defaultBlockVisibility,
           estimateNoteVisibility: defaultEstimateNoteVisibility,
@@ -5197,6 +5299,13 @@ export default function EditableInspectionReport() {
             </div>
 
             <div className="report-document relative">
+              {isEditableReportLoading ? (
+                <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-[var(--bg)]/95 px-4 text-center">
+                  <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
+                    Fetching report information...
+                  </div>
+                </div>
+              ) : null}
               {Array.from({ length: runtimePageCount }, (_, pageIndex) => (
                 <div
                   key={pageIndex}
@@ -5370,15 +5479,25 @@ export default function EditableInspectionReport() {
                         </div>
                         <div className="space-y-0.5">
                           <div className={`flex items-center justify-between gap-1.5 ${sectionTone.statusBackground} px-1.5 py-0.5 ${sectionTone.statusText}`}>
-                            <span className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full ${sectionTone.statusIcon} text-[9px] font-black text-white`}>
-                              !
+                            <span
+                              className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center ${
+                                sectionTone.statusIconShape === 'circle' ? 'rounded-full' : ''
+                              } ${sectionTone.statusIcon} text-[9px] font-black text-white`}
+                              style={sectionTone.statusIconShape === 'shield'
+                                ? { clipPath: 'polygon(50% 0, 88% 14%, 82% 62%, 50% 100%, 18% 62%, 12% 14%)' }
+                                : undefined}
+                            >
+                              {sectionTone.statusIconLabel}
                             </span>
                             <EditableValue
                               label={`${section.title} status`}
-                              value={section.status}
+                              value={formatRepairSectionStatus(section.status)}
                               onChange={(value) => updateRepairSection(section.id, 'status', value)}
                               className="min-w-0 flex-1 text-[11px] font-black leading-tight"
                             />
+                            {sectionTone.showCamera ? (
+                              <span className={`relative h-2.5 w-3.5 shrink-0 rounded-[2px] ${sectionTone.statusIcon} before:absolute before:left-0.5 before:top-[-2px] before:h-0.5 before:w-1.5 before:rounded-t-[2px] before:bg-current after:absolute after:left-[5px] after:top-[3px] after:h-1 after:w-1 after:rounded-full after:bg-white/90`} />
+                            ) : null}
                           </div>
                           {repairSections.length > 1 ? (
                             <button
