@@ -1,4 +1,5 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useRef, useState } from 'react'
+import type { PointerEvent } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/Login'
 import QuoteLogin from './pages/QuoteLogin'
@@ -40,9 +41,101 @@ function PageLoader() {
 
 function SupportWidget() {
   const [isOpen, setIsOpen] = useState(false)
+  const [positionTop, setPositionTop] = useState<number | null>(() => {
+    const savedPosition = window.localStorage.getItem('supportWidgetTop')
+    if (savedPosition) {
+      const parsedTop = Number(savedPosition)
+      if (Number.isFinite(parsedTop)) return parsedTop
+    }
+
+    const oldSavedPosition = window.localStorage.getItem('supportWidgetPosition')
+    if (!oldSavedPosition) return null
+
+    try {
+      const parsedPosition = JSON.parse(oldSavedPosition) as { top?: number }
+      if (typeof parsedPosition.top === 'number') {
+        window.localStorage.setItem('supportWidgetTop', String(parsedPosition.top))
+        window.localStorage.removeItem('supportWidgetPosition')
+        return parsedPosition.top
+      }
+    } catch {
+      return null
+    }
+
+    return null
+  })
+  const dragState = useRef<{
+    pointerId: number
+    startY: number
+    originTop: number
+    moved: boolean
+  } | null>(null)
+  const suppressClick = useRef(false)
+
+  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return
+
+    const widget = event.currentTarget.closest('[data-support-widget]') as HTMLDivElement | null
+    if (!widget) return
+
+    const rect = widget.getBoundingClientRect()
+    dragState.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      originTop: rect.top,
+      moved: false,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = dragState.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+
+    const deltaY = event.clientY - drag.startY
+    if (Math.abs(deltaY) > 4) {
+      drag.moved = true
+    }
+
+    if (!drag.moved) return
+
+    const widget = event.currentTarget.closest('[data-support-widget]') as HTMLDivElement | null
+    if (!widget) return
+
+    const margin = 12
+    const maxTop = Math.max(margin, window.innerHeight - widget.offsetHeight - margin)
+    const nextTop = Math.min(Math.max(margin, drag.originTop + deltaY), maxTop)
+
+    setPositionTop(nextTop)
+    window.localStorage.setItem('supportWidgetTop', String(nextTop))
+  }
+
+  const handlePointerUp = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = dragState.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+
+    suppressClick.current = drag.moved
+    dragState.current = null
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  const handleWidgetClick = () => {
+    if (suppressClick.current) {
+      suppressClick.current = false
+      return
+    }
+
+    setIsOpen((open) => !open)
+  }
 
   return (
-    <div className="fixed bottom-4 right-4 z-[80] flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+    <div
+      data-support-widget
+      className={`fixed right-4 z-[80] flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 sm:right-6 ${
+        positionTop === null ? 'bottom-4 sm:bottom-6' : ''
+      }`}
+      style={positionTop === null ? undefined : { top: positionTop }}
+    >
       {isOpen ? (
         <div
           role="status"
@@ -75,12 +168,17 @@ function SupportWidget() {
 
       <button
         type="button"
-        onClick={() => setIsOpen((open) => !open)}
-        className="inline-flex max-w-full items-center gap-2 rounded-full border border-[rgba(255,255,255,0.7)] bg-[var(--deshazo-blue)] px-4 py-3 text-sm font-extrabold text-white shadow-[0_18px_40px_-20px_rgba(47,86,166,0.65)] transition hover:bg-[var(--deshazo-blue-deep)] focus:outline-none focus:ring-4 focus:ring-[rgba(47,86,166,0.22)] sm:px-5"
+        onClick={handleWidgetClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="inline-flex max-w-full cursor-move touch-none select-none items-center gap-2 rounded-full border border-[rgba(255,255,255,0.7)] bg-[var(--deshazo-blue)] px-4 py-3 text-sm font-extrabold text-white shadow-[0_18px_40px_-20px_rgba(47,86,166,0.65)] transition hover:bg-[var(--deshazo-blue-deep)] focus:outline-none focus:ring-4 focus:ring-[rgba(47,86,166,0.22)] sm:px-5"
         aria-expanded={isOpen}
+        title="Click for support, or drag to move"
       >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/16 text-base">?</span>
-        <span className="min-w-0 whitespace-normal text-left leading-5">Having trouble..?</span>
+        <span className="min-w-0 whitespace-normal text-left leading-5">Having trouble?</span>
       </button>
     </div>
   )
