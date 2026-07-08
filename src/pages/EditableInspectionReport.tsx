@@ -1338,7 +1338,7 @@ const getTemplateLineItemRows = (
     `)
     .join('')
 
-const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
+const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[], documentTitle = 'Combined Editable Inspection Reports') => {
   const reportMarkup = sources.map((source) => {
     const reportData = addReportSummaryCraneContext(normalizeReport(source.payload.reportData))
     const repairSections = getPrintableRepairSections(getVisibleRepairSections(
@@ -1523,7 +1523,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[]) => {
   return `<!doctype html>
     <html>
       <head>
-        <title>Combined Editable Inspection Reports</title>
+        <title>${escapeHtml(documentTitle)}</title>
         <style>
           @page { size: 8.5in 11in; margin: 0.45in; }
           * { box-sizing: border-box; }
@@ -4370,18 +4370,56 @@ export default function EditableInspectionReport() {
     }
   }, [normalizedCurrentJobNumber])
 
-  const printEditableReport = () => {
-    const previousTitle = document.title
-    document.title = currentReportName || 'DESHAZO Quote Proposal'
+  const printReportSources = (
+    sources: CombinedReportPdfSource[],
+    {
+      documentTitle,
+      fallbackFilename,
+      openedMessage,
+    }: {
+      documentTitle?: string
+      fallbackFilename: string
+      openedMessage: string
+    },
+  ) => {
+    const printWindow = window.open('', '_blank')
 
-    const restoreTitle = () => {
-      document.title = previousTitle
-      window.removeEventListener('afterprint', restoreTitle)
+    if (printWindow) {
+      printWindow.document.write(getCombinedReportTemplateHtml(sources, documentTitle))
+      printWindow.document.close()
+      printWindow.focus()
+      printWindow.setTimeout(() => {
+        printWindow.print()
+      }, 250)
+      setJobReportPrintDownloadMessage(openedMessage)
+      return
     }
 
-    window.addEventListener('afterprint', restoreTitle)
-    window.print()
-    window.setTimeout(restoreTitle, 1000)
+    const blob = createCombinedReportsPdfBlob(sources)
+    const downloadUrl = URL.createObjectURL(blob)
+    const downloadLink = document.createElement('a')
+    downloadLink.href = downloadUrl
+    downloadLink.download = fallbackFilename
+    document.body.appendChild(downloadLink)
+    downloadLink.click()
+    downloadLink.remove()
+    URL.revokeObjectURL(downloadUrl)
+    setJobReportPrintDownloadMessage('Popup blocked. Downloaded a simplified PDF instead.')
+  }
+
+  const printEditableReport = () => {
+    printReportSources(
+      [{
+        dNumber: getDNumberFromReport(report) || 'Unknown D Number',
+        reportName: currentReportName,
+        payload: currentEditableReportPayload,
+      }],
+      {
+        documentTitle: currentReportName || 'DESHAZO Quote Proposal',
+        fallbackFilename: `${(currentReportName || 'editable-inspection-report').replace(/\s+/g, '-').toLowerCase()}.pdf`,
+        openedMessage: 'Opened current report for PDF download.',
+      },
+    )
   }
 
   const openJobReportPrintMenu = async () => {
@@ -4424,29 +4462,10 @@ export default function EditableInspectionReport() {
       return
     }
 
-    const printWindow = window.open('', '_blank')
-
-    if (printWindow) {
-      printWindow.document.write(getCombinedReportTemplateHtml(selectedSources))
-      printWindow.document.close()
-      printWindow.focus()
-      printWindow.setTimeout(() => {
-        printWindow.print()
-      }, 250)
-      setJobReportPrintDownloadMessage(`Opened ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'} for PDF download.`)
-      return
-    }
-
-    const blob = createCombinedReportsPdfBlob(selectedSources)
-    const downloadUrl = URL.createObjectURL(blob)
-    const downloadLink = document.createElement('a')
-    downloadLink.href = downloadUrl
-    downloadLink.download = `editable-inspection-reports-${normalizedCurrentJobNumber || 'selected'}.pdf`
-    document.body.appendChild(downloadLink)
-    downloadLink.click()
-    downloadLink.remove()
-    URL.revokeObjectURL(downloadUrl)
-    setJobReportPrintDownloadMessage('Popup blocked. Downloaded a simplified PDF instead.')
+    printReportSources(selectedSources, {
+      fallbackFilename: `editable-inspection-reports-${normalizedCurrentJobNumber || 'selected'}.pdf`,
+      openedMessage: `Opened ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'} for PDF download.`,
+    })
   }
 
   const selectJobReportPrintOption = (option: (typeof jobReportPrintOptions)[number]) => {
