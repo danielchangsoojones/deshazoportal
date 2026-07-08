@@ -41,29 +41,7 @@ function PageLoader() {
 
 function SupportWidget() {
   const [isOpen, setIsOpen] = useState(false)
-  const [positionTop, setPositionTop] = useState<number | null>(() => {
-    const savedPosition = window.localStorage.getItem('supportWidgetTop')
-    if (savedPosition) {
-      const parsedTop = Number(savedPosition)
-      if (Number.isFinite(parsedTop)) return parsedTop
-    }
-
-    const oldSavedPosition = window.localStorage.getItem('supportWidgetPosition')
-    if (!oldSavedPosition) return null
-
-    try {
-      const parsedPosition = JSON.parse(oldSavedPosition) as { top?: number }
-      if (typeof parsedPosition.top === 'number') {
-        window.localStorage.setItem('supportWidgetTop', String(parsedPosition.top))
-        window.localStorage.removeItem('supportWidgetPosition')
-        return parsedPosition.top
-      }
-    } catch {
-      return null
-    }
-
-    return null
-  })
+  const [positionTop, setPositionTop] = useState<number | null>(null)
   const dragState = useRef<{
     pointerId: number
     startY: number
@@ -107,7 +85,6 @@ function SupportWidget() {
     const nextTop = Math.min(Math.max(margin, drag.originTop + deltaY), maxTop)
 
     setPositionTop(nextTop)
-    window.localStorage.setItem('supportWidgetTop', String(nextTop))
   }
 
   const handlePointerUp = (event: PointerEvent<HTMLButtonElement>) => {
