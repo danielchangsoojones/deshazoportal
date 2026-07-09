@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { isConfigured } from '../lib/supabase'
+import type { User } from '@supabase/supabase-js'
+import ProfileMenu from '../components/ProfileMenu'
+import { isConfigured, supabase } from '../lib/supabase'
 import {
   dedupeImportedMenuItems,
   deleteInspectionMenuItem,
@@ -30,6 +32,11 @@ import {
   type EditableInspectionReport,
   type EditableInspectionReportPayload,
 } from '../lib/editableInspectionReports'
+import {
+  getCurrentUserProfile,
+  getDefaultUserProfile,
+  type UserProfile,
+} from '../lib/userProfile'
 import { getUserDisplayNames } from '../lib/userTags'
 
 type ReportData = Record<string, string>
@@ -232,11 +239,26 @@ const defaultEstimateNoteVisibility: EstimateNoteVisibility = {
 const legacyScopeOfWorkSample =
   'Remove 2 old Budgit 2 ton hoists and install (2) new 2 ton Harrington chain hoist model: NER2M020LD-LD specs are listed below for hoists.'
 
-const additionalNotesFooter = `Jeffrey R. Melton
+const legacyAdditionalNotesFooter = `Jeffrey R. Melton
 Assistant Service Manager
 513-903-6405-C
 DESHAZO
 CRANES / SERVICE / AUTOMATION`
+
+const getProfileSignatureName = (profile: UserProfile | null) => profile?.name.trim() || 'Portal User'
+const getProfileSignatureEmail = (profile: UserProfile | null) => profile?.email.trim() || ''
+const getProfileSignaturePhone = (profile: UserProfile | null) => profile?.phone.trim() || ''
+
+const buildAdditionalNotesFooter = (profile: UserProfile | null) =>
+  [
+    getProfileSignatureName(profile),
+    'Assistant Service Manager',
+    getProfileSignaturePhone(profile),
+    'DESHAZO',
+    'CRANES / SERVICE / AUTOMATION',
+  ]
+    .filter(Boolean)
+    .join('\n')
 
 const defaultAdditionalNotesBody = `1. Quote is subject to DeSHAZO General Terms and Conditions, available at http://www.deshazo.com/terms.
 2. Unless specified in Scope of Work, all work is to be performed during normal working hours, Monday- Friday.
@@ -250,9 +272,25 @@ const defaultAdditionalNotesBody = `1. Quote is subject to DeSHAZO General Terms
 
 DeSHAZO appreciates the opportunity to provide you with this quotation. If you have any questions, please feel free to email me at jmelton@deshazo.com`
 
-const defaultAdditionalNotes = `${defaultAdditionalNotesBody}
+const buildDefaultAdditionalNotesBody = (profile: UserProfile | null) => {
+  const email = getProfileSignatureEmail(profile)
+  if (!email) return defaultAdditionalNotesBody
 
-${additionalNotesFooter}`
+  return defaultAdditionalNotesBody.replace('jmelton@deshazo.com', email)
+}
+
+const buildDefaultAdditionalNotes = (profile: UserProfile | null = null) => `${buildDefaultAdditionalNotesBody(profile)}
+
+${buildAdditionalNotesFooter(profile)}`
+
+const replaceAdditionalNotesSignature = (value: string, profile: UserProfile | null) => {
+  const { body, hasFooter } = splitAdditionalNotesFooter(value, profile)
+  if (!hasFooter) return value
+
+  return `${normalizeAdditionalNotesSignatureBody(body, profile)}
+
+${buildAdditionalNotesFooter(profile)}`
+}
 
 const defaultReport: ReportData = {
   logoName: 'DESHAZO',
@@ -303,7 +341,7 @@ const defaultReport: ReportData = {
   estimateTopNote: 'Top note: Add estimate context here.',
   estimateBottomNote: 'Bottom note: Add estimate terms here.',
   notesHeader: 'Additional Notes',
-  notes: defaultAdditionalNotes,
+  notes: buildDefaultAdditionalNotes(),
 }
 
 const blankReport: ReportData = {
@@ -344,7 +382,7 @@ const blankReport: ReportData = {
   contactName: '',
   contactEmail: '',
   contactPhone: '',
-  notes: defaultAdditionalNotes,
+  notes: buildDefaultAdditionalNotes(),
 }
 
 const createDefaultRepairCostSections = (repairId: string): CostSection[] => [
@@ -845,7 +883,7 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
     contactEmail: customerContactEmail,
     contactPhone: customerContactPhone,
     scopeOfWork: '',
-    notes: defaultAdditionalNotes,
+    notes: buildDefaultAdditionalNotes(),
   }
 
   return addReportSummaryCraneContext(report)
@@ -1073,28 +1111,39 @@ const escapeHtml = (value: string | number) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
 
-const splitAdditionalNotesFooter = (value: string) => {
+const splitAdditionalNotesFooter = (value: string, profile: UserProfile | null = null) => {
   const normalizedValue = value.trimEnd()
-  if (!normalizedValue.endsWith(additionalNotesFooter)) {
+  const activeFooter = buildAdditionalNotesFooter(profile)
+  const footer = [activeFooter, legacyAdditionalNotesFooter].find((candidate) => normalizedValue.endsWith(candidate))
+  if (!footer) {
     return { body: value, hasFooter: false }
   }
 
   return {
-    body: normalizedValue.slice(0, -additionalNotesFooter.length).trimEnd(),
+    body: normalizedValue.slice(0, -footer.length).trimEnd(),
     hasFooter: true,
   }
 }
 
-const renderAdditionalNotesHtml = (value: string) => {
-  const { body, hasFooter } = splitAdditionalNotesFooter(value || '---')
+const normalizeAdditionalNotesSignatureBody = (body: string, profile: UserProfile | null) => {
+  const email = getProfileSignatureEmail(profile)
+  if (!email) return body
+
+  return body.replace('jmelton@deshazo.com', email)
+}
+
+const renderAdditionalNotesHtml = (value: string, profile: UserProfile | null = null) => {
+  const { body, hasFooter } = splitAdditionalNotesFooter(value || '---', profile)
+  const signatureName = getProfileSignatureName(profile)
+  const signaturePhone = getProfileSignaturePhone(profile)
 
   return `
-    ${body ? `<p>${escapeHtml(body)}</p>` : ''}
+    ${body ? `<p>${escapeHtml(normalizeAdditionalNotesSignatureBody(body, profile))}</p>` : ''}
     ${hasFooter ? `
       <div class="notes-footer">
-        <div class="notes-footer-name">Jeffrey R. Melton</div>
+        <div class="notes-footer-name">${escapeHtml(signatureName)}</div>
         <div class="notes-footer-title">Assistant Service Manager</div>
-        <div class="notes-footer-phone">513-903-6405-C</div>
+        ${signaturePhone ? `<div class="notes-footer-phone">${escapeHtml(signaturePhone)}</div>` : ''}
         <img class="notes-footer-logo" src="/deshazo-logo.png" alt="DESHAZO" />
         <div class="notes-footer-tagline">
           <span>CRANES</span><strong>/</strong><span>SERVICE</span><strong>/</strong><span>AUTOMATION</span>
@@ -1164,7 +1213,7 @@ const getPdfLineItemSummary = (lineItem: RepairLineItem, sectionId?: string, set
   ].join(' | ')
 }
 
-const getReportPdfLines = (source: CombinedReportPdfSource) => {
+const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile | null = null) => {
   const { payload } = source
   const reportData = payload.reportData
   const repairSections = getPrintableRepairSections(getVisibleRepairSections(
@@ -1254,13 +1303,20 @@ const getReportPdfLines = (source: CombinedReportPdfSource) => {
     0,
   )
 
-  lines.push('', `Grand Total: ${formatMoney(repairTotal + costTotal)}`, '', reportData.notesHeader || 'Additional Notes', reportData.notes || '---')
+  const { body, hasFooter } = splitAdditionalNotesFooter(reportData.notes || '---', profile)
+  lines.push('', `Grand Total: ${formatMoney(repairTotal + costTotal)}`, '', reportData.notesHeader || 'Additional Notes')
+  lines.push(normalizeAdditionalNotesSignatureBody(body || '---', profile))
+  if (hasFooter) {
+    lines.push('', getProfileSignatureName(profile), 'Assistant Service Manager')
+    if (getProfileSignaturePhone(profile)) lines.push(getProfileSignaturePhone(profile))
+    lines.push('DESHAZO', 'CRANES / SERVICE / AUTOMATION')
+  }
   return lines
 }
 
-const createCombinedReportsPdfBlob = (sources: CombinedReportPdfSource[]) => {
+const createCombinedReportsPdfBlob = (sources: CombinedReportPdfSource[], profile: UserProfile | null = null) => {
   const pageLineSets = sources.flatMap((source) =>
-    chunkPdfLines(getReportPdfLines(source)).map((lines, pageIndex) => ({
+    chunkPdfLines(getReportPdfLines(source, profile)).map((lines, pageIndex) => ({
       title: `${source.dNumber} - ${source.reportName}${pageIndex > 0 ? ` (continued ${pageIndex + 1})` : ''}`,
       lines,
     })),
@@ -1338,7 +1394,11 @@ const getTemplateLineItemRows = (
     `)
     .join('')
 
-const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[], documentTitle = 'Combined Editable Inspection Reports') => {
+const getCombinedReportTemplateHtml = (
+  sources: CombinedReportPdfSource[],
+  documentTitle = 'Combined Editable Inspection Reports',
+  profile: UserProfile | null = null,
+) => {
   const reportMarkup = sources.map((source) => {
     const reportData = addReportSummaryCraneContext(normalizeReport(source.payload.reportData))
     const repairSections = getPrintableRepairSections(getVisibleRepairSections(
@@ -1514,7 +1574,7 @@ const getCombinedReportTemplateHtml = (sources: CombinedReportPdfSource[], docum
 
         <section class="notes">
           <h2>${escapeHtml(reportData.notesHeader || 'Additional Notes')}</h2>
-          <div class="notes-body">${renderAdditionalNotesHtml(reportData.notes || '---')}</div>
+          <div class="notes-body">${renderAdditionalNotesHtml(reportData.notes || '---', profile)}</div>
         </section>
       </article>
     `
@@ -2005,8 +2065,8 @@ const normalizeReport = (report: ReportData) => {
   if (nextReport.contactEmail === 'Email: ---') nextReport.contactEmail = ''
   if (nextReport.contactPhone === 'Phone: ---') nextReport.contactPhone = ''
   if (nextReport.notesHeader === 'Notes') nextReport.notesHeader = defaultReport.notesHeader
-  if (!nextReport.notes?.trim()) nextReport.notes = defaultAdditionalNotes
-  if (nextReport.notes?.trimEnd() === defaultAdditionalNotesBody) nextReport.notes = defaultAdditionalNotes
+  if (!nextReport.notes?.trim()) nextReport.notes = buildDefaultAdditionalNotes()
+  if (nextReport.notes?.trimEnd() === defaultAdditionalNotesBody) nextReport.notes = buildDefaultAdditionalNotes()
   nextReport.summary = normalizeProtectedReportField('summary', nextReport.summary ?? '')
   nextReport.jobNumber = normalizeProtectedReportField('jobNumber', nextReport.jobNumber ?? '')
 
@@ -2297,17 +2357,19 @@ function renderLinkifiedText(value: string) {
   })
 }
 
-function renderAdditionalNotesContent(value: string) {
-  const { body, hasFooter } = splitAdditionalNotesFooter(value || '---')
+function renderAdditionalNotesContent(value: string, profile: UserProfile | null = null) {
+  const { body, hasFooter } = splitAdditionalNotesFooter(value || '---', profile)
+  const signatureName = getProfileSignatureName(profile)
+  const signaturePhone = getProfileSignaturePhone(profile)
 
   return (
     <div>
-      {body ? <div className="whitespace-pre-wrap">{renderLinkifiedText(body)}</div> : null}
+      {body ? <div className="whitespace-pre-wrap">{renderLinkifiedText(normalizeAdditionalNotesSignatureBody(body, profile))}</div> : null}
       {hasFooter ? (
         <div className="mt-5 text-[#222]">
-          <div className="text-[20px] font-black leading-tight">Jeffrey R. Melton</div>
+          <div className="text-[20px] font-black leading-tight">{signatureName}</div>
           <div className="mt-1.5 text-[17px] font-medium leading-tight">Assistant Service Manager</div>
-          <div className="mt-2 text-[20px] font-black leading-tight text-black">513-903-6405-C</div>
+          {signaturePhone ? <div className="mt-2 text-[20px] font-black leading-tight text-black">{signaturePhone}</div> : null}
           <img src="/deshazo-logo.png" alt="DESHAZO" className="mt-5 h-auto w-[126px]" />
           <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-medium leading-tight text-[#777]">
             <span>CRANES</span>
@@ -2529,6 +2591,8 @@ export default function EditableInspectionReport() {
   const [jobReportPrintLoading, setJobReportPrintLoading] = useState(false)
   const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
   const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -2672,6 +2736,49 @@ export default function EditableInspectionReport() {
   const currentMenuDNumber = useMemo(() => getDNumberFromReport(report), [report])
   const currentJobNumber = useMemo(() => getJobNumberDisplayFromReport(report), [report])
   const isEditableReportLoading = hasSelectedEditableReportSource && reportDatabaseStatus === 'loading'
+
+  useEffect(() => {
+    if (!isConfigured || !supabase) return
+
+    let active = true
+    supabase.auth.getUser().then(({ data }) => {
+      if (active) setCurrentUser(data.user)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!currentUser) {
+      setUserProfile(null)
+      return
+    }
+
+    let active = true
+    getCurrentUserProfile(currentUser)
+      .then((profile) => {
+        if (active) setUserProfile(profile)
+      })
+      .catch(() => {
+        if (active) setUserProfile(getDefaultUserProfile(currentUser))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [currentUser])
+
+  useEffect(() => {
+    if (!userProfile) return
+
+    setReport((currentReport) => {
+      const nextNotes = replaceAdditionalNotesSignature(currentReport.notes || '', userProfile)
+      if (nextNotes === currentReport.notes) return currentReport
+      return { ...currentReport, notes: nextNotes }
+    })
+  }, [userProfile])
   const menuSearchBranchesLabel = useMemo(
     () =>
       menuSearchBranches.length > 0
@@ -4385,7 +4492,7 @@ export default function EditableInspectionReport() {
     const printWindow = window.open('', '_blank')
 
     if (printWindow) {
-      printWindow.document.write(getCombinedReportTemplateHtml(sources, documentTitle))
+      printWindow.document.write(getCombinedReportTemplateHtml(sources, documentTitle, userProfile))
       printWindow.document.close()
       printWindow.focus()
       printWindow.setTimeout(() => {
@@ -4395,7 +4502,7 @@ export default function EditableInspectionReport() {
       return
     }
 
-    const blob = createCombinedReportsPdfBlob(sources)
+    const blob = createCombinedReportsPdfBlob(sources, userProfile)
     const downloadUrl = URL.createObjectURL(blob)
     const downloadLink = document.createElement('a')
     downloadLink.href = downloadUrl
@@ -4488,6 +4595,11 @@ export default function EditableInspectionReport() {
       return
     }
     window.open(reportUrl.toString(), '_blank', 'noopener,noreferrer')
+  }
+
+  const handleSignOut = async () => {
+    if (supabase) await supabase.auth.signOut()
+    navigate('/quotelogin')
   }
 
   return (
@@ -4967,6 +5079,14 @@ export default function EditableInspectionReport() {
                 </div>
               ) : null}
             </div>
+            {currentUser ? (
+              <ProfileMenu
+                user={currentUser}
+                onSignOut={handleSignOut}
+                onProfileUpdated={(profile) => setUserProfile(profile)}
+                tone="light"
+              />
+            ) : null}
           </div>
         </div>
       </header>
@@ -6109,7 +6229,7 @@ export default function EditableInspectionReport() {
                 onChange={updateField}
                 multiline
                 linkify
-                renderReadOnly={renderAdditionalNotesContent}
+                renderReadOnly={(value) => renderAdditionalNotesContent(value, userProfile)}
                 className="min-h-[96px] px-3 py-3 text-[15px] font-semibold"
               />
             </section>

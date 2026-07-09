@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
+import ProfileMenu from '../components/ProfileMenu'
 import { supabase, isConfigured } from '../lib/supabase'
 import {
   createBlankJobQuotingItem,
@@ -669,6 +670,11 @@ export default function JobsQuotingList() {
     })
   }, [navigate])
 
+  const handleSignOut = async () => {
+    if (supabase) await supabase.auth.signOut()
+    navigate('/quotelogin')
+  }
+
   const loadQuotingData = useCallback(async (sectionId?: string) => {
     setLoading(true)
     setItemsLoading(true)
@@ -1220,6 +1226,7 @@ export default function JobsQuotingList() {
           >
             Create New
           </button>
+          <ProfileMenu user={user} onSignOut={handleSignOut} tone="light" />
           {uploadMenuOpen ? (
             <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
               <form
