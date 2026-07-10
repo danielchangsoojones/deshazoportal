@@ -13,6 +13,17 @@ export type MockOpenItem = {
   total: number
 }
 
+export type MockLocationAnalytics = {
+  location: string
+  total_units: number
+  total_invoices: number
+  average_invoice_cost: number
+  total_invoice_cost: number
+  total_equipment_cost: number
+  total_labor_cost: number
+  total_parts_cost: number
+}
+
 // Local placeholder data for the Spend page. This intentionally has no API or
 // database dependency so every analytics panel can render in development.
 export const mockToplineSpend = {
@@ -82,4 +93,14 @@ export const mockTopOpenItems: MockOpenItem[] = [
   { label: 'Runway Alignment', total: 15 },
   { label: 'Hook Block', total: 13 },
   { label: 'Warning Device', total: 11 },
+]
+
+export const mockLocationAnalytics: MockLocationAnalytics[] = [
+  { location: 'Birmingham', total_units: 86, total_invoices: 118, average_invoice_cost: 3844, total_invoice_cost: 453600, total_equipment_cost: 174200, total_labor_cost: 201400, total_parts_cost: 78000 },
+  { location: 'Huntsville', total_units: 64, total_invoices: 82, average_invoice_cost: 3999, total_invoice_cost: 327900, total_equipment_cost: 121900, total_labor_cost: 147500, total_parts_cost: 58500 },
+  { location: 'Mobile', total_units: 58, total_invoices: 71, average_invoice_cost: 4152, total_invoice_cost: 294800, total_equipment_cost: 110300, total_labor_cost: 132900, total_parts_cost: 51600 },
+  { location: 'Montgomery', total_units: 49, total_invoices: 61, average_invoice_cost: 4203, total_invoice_cost: 256400, total_equipment_cost: 98200, total_labor_cost: 113700, total_parts_cost: 44500 },
+  { location: 'Tuscaloosa', total_units: 42, total_invoices: 54, average_invoice_cost: 4143, total_invoice_cost: 223700, total_equipment_cost: 86200, total_labor_cost: 98300, total_parts_cost: 39200 },
+  { location: 'Decatur', total_units: 35, total_invoices: 42, average_invoice_cost: 4069, total_invoice_cost: 170900, total_equipment_cost: 65600, total_labor_cost: 75500, total_parts_cost: 29800 },
+  { location: 'Dothan', total_units: 31, total_invoices: 38, average_invoice_cost: 5266, total_invoice_cost: 200100, total_equipment_cost: 76400, total_labor_cost: 87100, total_parts_cost: 36600 },
 ]

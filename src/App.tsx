@@ -144,6 +144,7 @@ function App() {
           <Route path="/equipment-notebook-llm" element={<EquipmentNotebookLLM />} />
           <Route path="/quote-analytics" element={<QuoteAnalytics />} />
           <Route path="/spend" element={<Spend />} />
+          <Route path="/location-comparison" element={<LocationComparison />} />
           <Route path="/top-cranes" element={<TopCranes />} />
           <Route path="/quality-control" element={<QualityControl />} />
           <Route path="/:customer">
