@@ -1,24 +1,24 @@
 @import "tailwindcss";
 
 :root {
-  --deshazo-blue: #2f56a6;
-  --deshazo-blue-deep: #24488f;
-  --deshazo-blue-soft: #7f97db;
-  --deshazo-surface: #eef3ff;
-  --deshazo-surface-2: #e4ecff;
-  --deshazo-border: #dbe3f5;
-  --deshazo-text: #151821;
-  --deshazo-muted: #8b90a2;
+  --deshazo-blue: #061849;
+  --deshazo-blue-deep: #041236;
+  --deshazo-blue-soft: #3f63b5;
+  --deshazo-surface: #edf3ff;
+  --deshazo-surface-2: #dce8ff;
+  --deshazo-border: #cfd8ea;
+  --deshazo-text: #07122f;
+  --deshazo-muted: #6f7891;
   --deshazo-white: #ffffff;
 
   --text: var(--deshazo-muted);
   --text-h: var(--deshazo-text);
-  --bg: #f8f9fd;
+  --bg: #f4f7fb;
   --border: var(--deshazo-border);
-  --code-bg: #eef2fb;
+  --code-bg: #e8eefb;
   --accent: var(--deshazo-blue);
-  --accent-bg: rgba(47, 86, 166, 0.1);
-  --accent-border: rgba(47, 86, 166, 0.24);
+  --accent-bg: rgba(6, 24, 73, 0.1);
+  --accent-border: rgba(6, 24, 73, 0.24);
   --social-bg: rgba(236, 241, 251, 0.75);
   --shadow:
     rgba(28, 43, 87, 0.08) 0 20px 40px -24px, rgba(28, 43, 87, 0.12) 0 10px 24px -18px;

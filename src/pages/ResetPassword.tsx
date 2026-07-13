@@ -69,15 +69,15 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--bg)] px-4">
+      <div className="w-full max-w-md rounded-2xl border border-[var(--deshazo-border)] bg-white p-8 shadow-[0_24px_70px_-44px_rgba(6,24,73,0.45)]">
         <h1
           className="mb-1 text-2xl font-semibold"
           style={{ color: 'var(--deshazo-blue)' }}
         >
           Reset password
         </h1>
-        <p className="mb-6 text-sm text-gray-600">Choose a new password for your portal account</p>
+        <p className="mb-6 text-sm text-[rgba(7,18,47,0.68)]">Choose a new password for your portal account</p>
 
         {error && (
           <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
@@ -93,7 +93,7 @@ export default function ResetPassword() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label className="mb-1 block text-sm font-medium text-[rgba(7,18,47,0.76)]">
               New password
             </label>
             <input
@@ -103,12 +103,12 @@ export default function ResetPassword() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               disabled={!sessionReady || loading}
-              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+              className="w-full rounded-lg border border-[var(--deshazo-border)] bg-white px-4 py-2.5 text-sm text-[var(--deshazo-text)] placeholder:text-[rgba(7,18,47,0.38)] focus:outline-none focus:ring-2 focus:border-[var(--deshazo-blue)] focus:ring-[rgba(6,24,73,0.16)] disabled:opacity-60"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label className="mb-1 block text-sm font-medium text-[rgba(7,18,47,0.76)]">
               Confirm new password
             </label>
             <input
@@ -118,21 +118,21 @@ export default function ResetPassword() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="••••••••"
               disabled={!sessionReady || loading}
-              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+              className="w-full rounded-lg border border-[var(--deshazo-border)] bg-white px-4 py-2.5 text-sm text-[var(--deshazo-text)] placeholder:text-[rgba(7,18,47,0.38)] focus:outline-none focus:ring-2 focus:border-[var(--deshazo-blue)] focus:ring-[rgba(6,24,73,0.16)] disabled:opacity-60"
             />
           </div>
 
           <button
             type="submit"
             disabled={!sessionReady || loading}
-            className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors"
+            className="w-full py-2.5 px-4 bg-[var(--deshazo-blue)] hover:bg-[var(--deshazo-blue-deep)] disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors"
           >
             {loading ? 'Updating…' : 'Update password'}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-gray-600">
-          <Link to={customerPath('/login')} className="font-medium text-indigo-600 hover:underline">
+        <p className="mt-6 text-center text-sm text-[rgba(7,18,47,0.68)]">
+          <Link to={customerPath('/login')} className="font-medium text-[var(--deshazo-blue)] hover:underline">
             Back to sign in
           </Link>
         </p>

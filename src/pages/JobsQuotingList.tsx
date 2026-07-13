@@ -1124,8 +1124,8 @@ export default function JobsQuotingList() {
 
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#e8eaef] px-4">
-        <div className="rounded-md border border-[#dfe4ef] bg-white px-6 py-4 text-sm font-black text-[#273f7a] shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
+      <div className="flex min-h-screen items-center justify-center bg-[#edf1f7] px-4">
+        <div className="rounded-md border border-[#d3dbea] bg-white px-6 py-4 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
           Loading jobs quoting...
         </div>
       </div>
@@ -1139,8 +1139,8 @@ export default function JobsQuotingList() {
   const totalSafetyItems = filteredItems.reduce((total, item) => total + item.safetyCount, 0)
 
   return (
-    <div className="min-h-screen bg-[#e8eaef] text-[#111]">
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-[linear-gradient(90deg,#3cb9c5_0%,#7a35e8_100%)] px-4 text-white shadow-sm">
+    <div className="min-h-screen bg-[#edf1f7] text-[var(--deshazo-text)]">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-[var(--deshazo-blue)] px-4 text-white shadow-sm">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -1172,15 +1172,15 @@ export default function JobsQuotingList() {
               onChange={(event) => setExternalJobNumberInput(event.currentTarget.value)}
               disabled={busy}
               placeholder="Job #"
-              className="h-9 w-[132px] rounded-md border border-white/30 bg-white/95 px-3 text-xs font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-white focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-9 w-[132px] rounded-md border border-white/30 bg-white/95 px-3 text-xs font-black text-[var(--deshazo-text)] outline-none transition placeholder:text-[#7a808e] focus:border-white focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60"
             />
             <button
               type="submit"
               disabled={busy || !externalJobNumberInput.trim()}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-white/30 bg-white px-3 text-xs font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-white/30 bg-white px-3 text-xs font-black text-[var(--deshazo-blue)] transition hover:bg-[#e6efff] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {externalJobImporting ? (
-                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#d6cbed] border-t-[#35245f]" />
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#c8d5f2] border-t-[var(--deshazo-blue)]" />
               ) : null}
               <span>{externalJobImporting ? 'Importing' : 'Import Job'}</span>
             </button>
@@ -1221,22 +1221,22 @@ export default function JobsQuotingList() {
             type="button"
             disabled={busy}
             onClick={() => setUploadMenuOpen((currentOpen) => !currentOpen)}
-            className="rounded-md bg-white px-4 py-2 text-sm font-black text-[#35245f] transition hover:bg-[#f3efff] disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] transition hover:bg-[#e6efff] disabled:cursor-not-allowed disabled:opacity-60"
             aria-expanded={uploadMenuOpen}
           >
             Create New
           </button>
           <ProfileMenu user={user} onSignOut={handleSignOut} tone="light" />
           {uploadMenuOpen ? (
-            <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#dfe4ef] bg-white p-2 text-[#111] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+            <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#d3dbea] bg-white p-2 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
               <form
-                className="mb-2 rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2 md:hidden"
+                className="mb-2 rounded-md border border-[#d3dbea] bg-[#f8fbff] p-2 md:hidden"
                 onSubmit={(event) => {
                   event.preventDefault()
                   importExternalInspectionReportsForJob()
                 }}
               >
-                <div className="text-[12px] font-black uppercase text-[#273f7a]">Import Synced Job</div>
+                <div className="text-[12px] font-black uppercase text-[var(--deshazo-blue)]">Import Synced Job</div>
                 <div className="mt-2 flex gap-2">
                   <label className="sr-only" htmlFor="external-job-number-import-mobile">
                     Job number
@@ -1248,12 +1248,12 @@ export default function JobsQuotingList() {
                     onChange={(event) => setExternalJobNumberInput(event.currentTarget.value)}
                     disabled={busy}
                     placeholder="Job number"
-                    className="min-w-0 flex-1 rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[12px] font-bold text-[#1f2430] outline-none focus:border-[#273f7a]"
+                    className="min-w-0 flex-1 rounded-md border border-[#c7d1e2] bg-white px-3 py-2 text-[12px] font-bold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
                   />
                   <button
                     type="submit"
                     disabled={busy || !externalJobNumberInput.trim()}
-                    className="inline-flex items-center gap-2 rounded-md bg-[#273f7a] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-md bg-[var(--deshazo-blue)] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {externalJobImporting ? (
                       <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -1262,17 +1262,17 @@ export default function JobsQuotingList() {
                   </button>
                 </div>
               </form>
-              <div className="rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
-                <div className="text-[12px] font-black uppercase text-[#273f7a]">Create New</div>
+              <div className="rounded-md border border-[#d3dbea] bg-[#f8fbff] p-2">
+                <div className="text-[12px] font-black uppercase text-[var(--deshazo-blue)]">Create New</div>
                 <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <button
                     type="button"
                     disabled={busy}
                     onClick={createBlankQuoteItem}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {createBlankSubmitting ? (
-                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#d6cbed] border-t-[#273f7a]" />
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#c8d5f2] border-t-[var(--deshazo-blue)]" />
                     ) : null}
                     <span>Create Blank</span>
                   </button>
@@ -1280,7 +1280,7 @@ export default function JobsQuotingList() {
                     type="button"
                     disabled={busy}
                     onClick={openCreateDNumberModal}
-                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Create with D Number
                   </button>
@@ -1288,7 +1288,7 @@ export default function JobsQuotingList() {
                     type="button"
                     disabled={busy}
                     onClick={() => extractPdfInputRef.current?.click()}
-                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Upload PDF
                   </button>
@@ -1296,7 +1296,7 @@ export default function JobsQuotingList() {
                     type="button"
                     disabled={busy}
                     onClick={() => splitFolderInputRef.current?.click()}
-                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Choose Folder
                   </button>
@@ -1304,7 +1304,7 @@ export default function JobsQuotingList() {
                     type="button"
                     disabled={busy}
                     onClick={() => giantPdfInputRef.current?.click()}
-                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Giant PDF
                   </button>
@@ -1317,10 +1317,10 @@ export default function JobsQuotingList() {
 
       {createDNumberModalOpen ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#111827]/45 px-4">
-          <div className="w-full max-w-[420px] rounded-md border border-[#dfe4ef] bg-white p-5 text-[#111] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
+          <div className="w-full max-w-[420px] rounded-md border border-[#d3dbea] bg-white p-5 text-[var(--deshazo-text)] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-[18px] font-black leading-tight text-[#1f2430]">Create with D Number</h2>
+                <h2 className="text-[18px] font-black leading-tight text-[var(--deshazo-text)]">Create with D Number</h2>
                 <p className="mt-1 text-[13px] font-semibold leading-5 text-[#5b606b]">
                   Create a blank quote report with header details from Shazo external crane data.
                 </p>
@@ -1329,7 +1329,7 @@ export default function JobsQuotingList() {
                 type="button"
                 disabled={createDNumberSubmitting}
                 onClick={closeCreateDNumberModal}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#cfd6e5] bg-white text-[18px] font-black leading-none text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#c7d1e2] bg-white text-[18px] font-black leading-none text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                 aria-label="Close create with D number"
               >
                 ×
@@ -1343,7 +1343,7 @@ export default function JobsQuotingList() {
                 createQuoteItemFromDNumber()
               }}
             >
-              <label className="text-[12px] font-black uppercase text-[#273f7a]" htmlFor="create-d-number-input">
+              <label className="text-[12px] font-black uppercase text-[var(--deshazo-blue)]" htmlFor="create-d-number-input">
                 D Number
               </label>
               <input
@@ -1354,21 +1354,21 @@ export default function JobsQuotingList() {
                 disabled={createDNumberSubmitting}
                 placeholder="D123456"
                 autoFocus
-                className="mt-2 h-11 w-full rounded-md border border-[#cfd6e5] bg-white px-3 text-[14px] font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-[#273f7a] focus:ring-2 focus:ring-[#273f7a]/15 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-2 h-11 w-full rounded-md border border-[#c7d1e2] bg-white px-3 text-[14px] font-black text-[var(--deshazo-text)] outline-none transition placeholder:text-[#7a808e] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[rgba(6,24,73,0.16)] disabled:cursor-not-allowed disabled:opacity-60"
               />
               <div className="mt-5 flex justify-end gap-2">
                 <button
                   type="button"
                   disabled={createDNumberSubmitting}
                   onClick={closeCreateDNumberModal}
-                  className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={createDNumberSubmitting || !createDNumberInput.trim()}
-                  className="inline-flex min-w-[92px] items-center justify-center gap-2 rounded-md bg-[#273f7a] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-w-[92px] items-center justify-center gap-2 rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {createDNumberSubmitting ? (
                     <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -1383,10 +1383,10 @@ export default function JobsQuotingList() {
 
       {markResultItem ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#111827]/45 px-4">
-          <div className="w-full max-w-[460px] rounded-md border border-[#dfe4ef] bg-white p-5 text-[#111] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
+          <div className="w-full max-w-[460px] rounded-md border border-[#d3dbea] bg-white p-5 text-[var(--deshazo-text)] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <h2 className="text-[18px] font-black leading-tight text-[#1f2430]">Mark Result</h2>
+                <h2 className="text-[18px] font-black leading-tight text-[var(--deshazo-text)]">Mark Result</h2>
                 <p className="mt-1 truncate text-[13px] font-semibold leading-5 text-[#5b606b]">
                   {getItemDNumber(markResultItem) || getItemFileName(markResultItem)}
                 </p>
@@ -1395,17 +1395,17 @@ export default function JobsQuotingList() {
                 type="button"
                 disabled={markResultSubmitting}
                 onClick={closeMarkResultModal}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#cfd6e5] bg-white text-[18px] font-black leading-none text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#c7d1e2] bg-white text-[18px] font-black leading-none text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                 aria-label="Close mark result"
               >
                 ×
               </button>
             </div>
 
-            <div className="mt-5 rounded-md border border-[#dfe4ef] bg-[#fbfcff] px-3 py-3">
+            <div className="mt-5 rounded-md border border-[#d3dbea] bg-[#f8fbff] px-3 py-3">
               <div className="flex items-center justify-between gap-3 text-[13px] font-bold text-[#4d5360]">
                 <span>Quote Total Amount</span>
-                <span className="text-[16px] font-black text-[#273f7a]">{formatMoney(markResultQuoteTotal)}</span>
+                <span className="text-[16px] font-black text-[var(--deshazo-blue)]">{formatMoney(markResultQuoteTotal)}</span>
               </div>
             </div>
 
@@ -1417,17 +1417,17 @@ export default function JobsQuotingList() {
               }}
             >
               <fieldset disabled={markResultSubmitting} className="space-y-3">
-                <legend className="text-[12px] font-black uppercase text-[#273f7a]">Win Status</legend>
-                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-[#cfd6e5] bg-white px-3 py-3 text-[13px] font-black text-[#1f2430] transition hover:bg-[#f5f7ff]">
+                <legend className="text-[12px] font-black uppercase text-[var(--deshazo-blue)]">Win Status</legend>
+                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-[#c7d1e2] bg-white px-3 py-3 text-[13px] font-black text-[var(--deshazo-text)] transition hover:bg-[#eef4ff]">
                   <input
                     type="checkbox"
                     checked={markResultStatus === 'won'}
                     onChange={(event) => setMarkResultStatus(event.currentTarget.checked ? 'won' : 'pending')}
-                    className="h-4 w-4 accent-[#273f7a]"
+                    className="h-4 w-4 accent-[var(--deshazo-blue)]"
                   />
                   Won
                 </label>
-                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-[#cfd6e5] bg-white px-3 py-3 text-[13px] font-black text-[#1f2430] transition hover:bg-[#f5f7ff]">
+                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-[#c7d1e2] bg-white px-3 py-3 text-[13px] font-black text-[var(--deshazo-text)] transition hover:bg-[#eef4ff]">
                   <input
                     type="checkbox"
                     checked={markResultStatus === 'lost'}
@@ -1438,7 +1438,7 @@ export default function JobsQuotingList() {
                 </label>
               </fieldset>
 
-              <label className="mt-5 block text-[12px] font-black uppercase text-[#273f7a]" htmlFor="mark-result-amount-won">
+              <label className="mt-5 block text-[12px] font-black uppercase text-[var(--deshazo-blue)]" htmlFor="mark-result-amount-won">
                 Amount Won
               </label>
               <input
@@ -1449,7 +1449,7 @@ export default function JobsQuotingList() {
                 onChange={(event) => setMarkResultAmountWon(event.currentTarget.value)}
                 disabled={markResultSubmitting || markResultStatus !== 'won'}
                 placeholder={formatMoney(markResultQuoteTotal)}
-                className="mt-2 h-11 w-full rounded-md border border-[#cfd6e5] bg-white px-3 text-[14px] font-black text-[#1f2430] outline-none transition placeholder:text-[#7a808e] focus:border-[#273f7a] focus:ring-2 focus:ring-[#273f7a]/15 disabled:cursor-not-allowed disabled:bg-[#f3f4f8] disabled:opacity-70"
+                className="mt-2 h-11 w-full rounded-md border border-[#c7d1e2] bg-white px-3 text-[14px] font-black text-[var(--deshazo-text)] outline-none transition placeholder:text-[#7a808e] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[rgba(6,24,73,0.16)] disabled:cursor-not-allowed disabled:bg-[#f4f7fb] disabled:opacity-70"
               />
 
               <div className="mt-5 flex justify-end gap-2">
@@ -1457,14 +1457,14 @@ export default function JobsQuotingList() {
                   type="button"
                   disabled={markResultSubmitting}
                   onClick={closeMarkResultModal}
-                  className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={markResultSubmitting}
-                  className="inline-flex min-w-[92px] items-center justify-center gap-2 rounded-md bg-[#273f7a] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[#1f3262] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-w-[92px] items-center justify-center gap-2 rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {markResultSubmitting ? (
                     <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -1477,9 +1477,9 @@ export default function JobsQuotingList() {
         </div>
       ) : null}
 
-      <main className="flex h-[calc(100vh-56px)] overflow-hidden bg-[#f3f4f8]">
+      <main className="flex h-[calc(100vh-56px)] overflow-hidden bg-[#f4f7fb]">
         <aside
-          className={`relative hidden shrink-0 flex-col border-r border-[#d9dce5] bg-[#fbfcff] shadow-sm transition-[width] duration-200 lg:flex ${
+          className={`relative hidden shrink-0 flex-col border-r border-[#d3dbea] bg-[#f8fbff] shadow-sm transition-[width] duration-200 lg:flex ${
             inspectionRunsCollapsed ? 'w-[42px]' : 'w-[300px]'
           }`}
         >
@@ -1487,7 +1487,7 @@ export default function JobsQuotingList() {
             <button
               type="button"
               onClick={toggleInspectionRunsCollapsed}
-              className="flex h-full w-full items-center justify-center bg-white text-[#273f7a] transition hover:bg-[#f5f7ff]"
+              className="flex h-full w-full items-center justify-center bg-white text-[var(--deshazo-blue)] transition hover:bg-[#eef4ff]"
               aria-label="Open job sections"
               title="Open job sections"
             >
@@ -1500,14 +1500,14 @@ export default function JobsQuotingList() {
               <button
                 type="button"
                 onClick={toggleInspectionRunsCollapsed}
-                className="absolute right-[-15px] top-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[#d4dbea] bg-white text-[17px] font-black text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
+                className="absolute right-[-15px] top-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[#c8d5ea] bg-white text-[17px] font-black text-[var(--deshazo-blue)] shadow-sm transition hover:bg-[#eef4ff]"
                 aria-label="Hide job sections"
                 title="Hide job sections"
               >
                 ‹
               </button>
-              <div className="border-b border-[#d9dce5] px-4 py-5">
-                <p className="text-[16px] font-black text-[#1f2430]">Job Sections</p>
+              <div className="border-b border-[#d3dbea] px-4 py-5">
+                <p className="text-[16px] font-black text-[var(--deshazo-text)]">Job Sections</p>
                 <p className="mt-1 text-[12px] font-semibold leading-tight text-[#747b8a]">
                   Select all jobs or one job section.
                 </p>
@@ -1515,7 +1515,7 @@ export default function JobsQuotingList() {
                   type="button"
                   disabled={busy || loading}
                   onClick={() => loadQuotingData(selectedJobSectionId)}
-                  className="mt-4 flex w-full items-center justify-center rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-4 flex w-full items-center justify-center rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Reload Jobs
                 </button>
@@ -1528,16 +1528,16 @@ export default function JobsQuotingList() {
                     onClick={() => setSelectedJobSectionId(allJobsSectionId)}
                     className={`w-full rounded-md border px-3 py-3 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition ${
                       selectedJobSectionId === allJobsSectionId
-                        ? 'border-[#9bb0dc] bg-[#f5f7ff]'
-                        : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]'
+                        ? 'border-[#8aa3d8] bg-[#eef4ff]'
+                        : 'border-[#d3dbea] bg-white hover:border-[#8aa3d8] hover:bg-[#eef4ff]'
                     }`}
                   >
-                    <span className="block text-[13px] font-black leading-tight text-[#273f7a]">
+                    <span className="block text-[13px] font-black leading-tight text-[var(--deshazo-blue)]">
                       All Jobs
                     </span>
                     <span className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold text-[#747b8a]">
                       <span>Recently changed first</span>
-                      <span className="rounded-sm bg-[#eef3ff] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a]">
+                      <span className="rounded-sm bg-[#e6efff] px-2 py-1 text-[10px] font-black uppercase text-[var(--deshazo-blue)]">
                         {jobSectionGroups.length}
                       </span>
                     </span>
@@ -1550,11 +1550,11 @@ export default function JobsQuotingList() {
                       onClick={() => setSelectedJobSectionId(jobSection.id)}
                       className={`w-full rounded-md border px-3 py-3 text-left shadow-[0_8px_20px_-18px_rgba(31,36,48,0.45)] transition ${
                         selectedJobSectionId === jobSection.id
-                          ? 'border-[#9bb0dc] bg-[#f5f7ff]'
-                          : 'border-[#dde3ef] bg-white hover:border-[#9bb0dc] hover:bg-[#f5f7ff]'
+                          ? 'border-[#8aa3d8] bg-[#eef4ff]'
+                          : 'border-[#d3dbea] bg-white hover:border-[#8aa3d8] hover:bg-[#eef4ff]'
                       }`}
                     >
-                      <span className="block truncate text-[13px] font-black leading-tight text-[#273f7a]">
+                      <span className="block truncate text-[13px] font-black leading-tight text-[var(--deshazo-blue)]">
                         {jobSection.jobNumber ? `Job ${jobSection.jobNumber}` : 'Job number not found'}
                       </span>
                       <span className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold text-[#747b8a]">
@@ -1562,7 +1562,7 @@ export default function JobsQuotingList() {
                           {jobSection.items.length} report{jobSection.items.length === 1 ? '' : 's'}
                           {jobSection.dNumber ? ` • ${jobSection.dNumber}` : ''}
                         </span>
-                        <span className="rounded-sm bg-[#eef3ff] px-2 py-1 text-[10px] font-black uppercase text-[#273f7a]">
+                        <span className="rounded-sm bg-[#e6efff] px-2 py-1 text-[10px] font-black uppercase text-[var(--deshazo-blue)]">
                           {jobSection.repairCount + jobSection.safetyCount}
                         </span>
                       </span>
@@ -1570,7 +1570,7 @@ export default function JobsQuotingList() {
                   ))}
 
                   {!loading && jobSectionGroups.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-[#cfd6e5] bg-white px-3 py-8 text-center text-[12px] font-bold text-[#747b8a]">
+                    <div className="rounded-md border border-dashed border-[#c7d1e2] bg-white px-3 py-8 text-center text-[12px] font-bold text-[#747b8a]">
                       No quote jobs yet.
                     </div>
                   ) : null}
@@ -1583,7 +1583,7 @@ export default function JobsQuotingList() {
         <section className="min-w-0 flex-1 overflow-auto px-5 py-5 sm:px-8">
           <div className="mb-4 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
-              <h1 className="text-[clamp(24px,2.4vw,34px)] font-black leading-tight tracking-normal text-[#1f2430]">
+              <h1 className="text-[clamp(24px,2.4vw,34px)] font-black leading-tight tracking-normal text-[var(--deshazo-text)]">
                 Jobs Quoting List
               </h1>
               <p className="mt-2 max-w-[72ch] text-[15px] font-semibold leading-6 text-[#5b606b]">
@@ -1591,10 +1591,10 @@ export default function JobsQuotingList() {
               </p>
             </div>
 
-            <div className="grid min-w-[280px] grid-cols-2 overflow-hidden rounded-md border border-[#dfe4ef] bg-white shadow-[0_16px_44px_-36px_rgba(15,23,42,0.55)]">
-              <div className="border-r border-[#dfe4ef] px-4 py-3">
+            <div className="grid min-w-[280px] grid-cols-2 overflow-hidden rounded-md border border-[#d3dbea] bg-white shadow-[0_16px_44px_-36px_rgba(15,23,42,0.55)]">
+              <div className="border-r border-[#d3dbea] px-4 py-3">
                 <p className="text-[11px] font-black uppercase text-[#747b8a]">Repairs</p>
-                <p className="mt-1 text-2xl font-black text-[#273f7a]">{jobsListLoading ? '...' : totalRepairItems}</p>
+                <p className="mt-1 text-2xl font-black text-[var(--deshazo-blue)]">{jobsListLoading ? '...' : totalRepairItems}</p>
               </div>
               <div className="px-4 py-3">
                 <p className="text-[11px] font-black uppercase text-[#747b8a]">Safety</p>
@@ -1604,20 +1604,20 @@ export default function JobsQuotingList() {
           </div>
 
           {message ? (
-            <div className="mb-4 rounded-md border border-[#cfd9ef] bg-[#f4f7ff] px-4 py-3 text-[13px] font-bold text-[#273f7a]">
+            <div className="mb-4 rounded-md border border-[#c8d5ea] bg-[#eef4ff] px-4 py-3 text-[13px] font-bold text-[var(--deshazo-blue)]">
               {message}
             </div>
           ) : null}
 
           <div className="lg:hidden">
-            <section className="mb-4 rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-3 shadow-[0_16px_44px_-36px_rgba(15,23,42,0.45)]">
+            <section className="mb-4 rounded-md border border-[#d3dbea] bg-[#f8fbff] p-3 shadow-[0_16px_44px_-36px_rgba(15,23,42,0.45)]">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="text-[15px] font-black text-[#1f2430]">Job Sections</h2>
+                <h2 className="text-[15px] font-black text-[var(--deshazo-text)]">Job Sections</h2>
                 <button
                   type="button"
                   disabled={busy || loading}
                   onClick={() => loadQuotingData(selectedJobSectionId)}
-                  className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:opacity-60"
+                  className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:opacity-60"
                 >
                   Reload
                 </button>
@@ -1625,7 +1625,7 @@ export default function JobsQuotingList() {
               <select
                 value={selectedJobSectionId}
                 onChange={(event) => setSelectedJobSectionId(event.currentTarget.value)}
-                className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none focus:border-[#273f7a]"
+                className="w-full rounded-md border border-[#c7d1e2] bg-white px-3 py-2 text-[13px] font-bold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
               >
                 <option value={allJobsSectionId}>All Jobs - Recently changed first</option>
                 {jobSectionGroups.map((jobSection) => (
@@ -1637,11 +1637,11 @@ export default function JobsQuotingList() {
             </section>
           </div>
 
-          <section className="min-w-0 overflow-hidden rounded-md border border-[#dfe4ef] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
-              <div className="flex flex-col justify-between gap-3 border-b border-[#dfe4ef] bg-[#fbfcff] px-5 py-4 lg:flex-row lg:items-center">
+          <section className="min-w-0 overflow-hidden rounded-md border border-[#d3dbea] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
+              <div className="flex flex-col justify-between gap-3 border-b border-[#d3dbea] bg-[#f8fbff] px-5 py-4 lg:flex-row lg:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <h2 className="text-[20px] font-black tracking-normal text-[#1f2430]">
+                    <h2 className="text-[20px] font-black tracking-normal text-[var(--deshazo-text)]">
                       {selectedJobSectionId === allJobsSectionId
                         ? quoteJobListScope === 'current'
                           ? 'Current Quote Jobs'
@@ -1650,7 +1650,7 @@ export default function JobsQuotingList() {
                           ? `Job ${selectedJobSection.jobNumber}`
                           : 'Job number not found'}
                     </h2>
-                    <div className="inline-grid w-fit grid-cols-2 overflow-hidden rounded-md border border-[#cfd6e5] bg-white p-0.5 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.5)]">
+                    <div className="inline-grid w-fit grid-cols-2 overflow-hidden rounded-md border border-[#c7d1e2] bg-white p-0.5 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.5)]">
                       {(['current', 'all'] as const).map((scope) => (
                         <button
                           key={scope}
@@ -1658,8 +1658,8 @@ export default function JobsQuotingList() {
                           onClick={() => showQuoteJobScope(scope)}
                           className={`min-w-[82px] rounded-[4px] px-3 py-1.5 text-[12px] font-black capitalize transition ${
                             quoteJobListScope === scope && selectedJobSectionId === allJobsSectionId
-                              ? 'bg-[#273f7a] text-white shadow-sm'
-                              : 'text-[#273f7a] hover:bg-[#edf2fb]'
+                              ? 'bg-[var(--deshazo-blue)] text-white shadow-sm'
+                              : 'text-[var(--deshazo-blue)] hover:bg-[#e8eefb]'
                           }`}
                           aria-pressed={quoteJobListScope === scope && selectedJobSectionId === allJobsSectionId}
                         >
@@ -1687,7 +1687,7 @@ export default function JobsQuotingList() {
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.currentTarget.value)}
                     placeholder="Search D-number or job number..."
-                    className="w-full rounded-md border border-[#cfd6e5] bg-white px-3 py-2 text-[13px] font-bold text-[#1f2430] outline-none transition placeholder:text-[#8b91a1] focus:border-[#273f7a] focus:ring-2 focus:ring-[#dbe5ff]"
+                    className="w-full rounded-md border border-[#c7d1e2] bg-white px-3 py-2 text-[13px] font-bold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#8b91a1] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[#dbe5ff]"
                   />
                 </div>
               </div>
@@ -1695,7 +1695,7 @@ export default function JobsQuotingList() {
               <div className="overflow-x-hidden">
                 <table className="w-full table-fixed border-collapse text-left">
                   <thead>
-                    <tr className="border-b border-[#dfe4ef] bg-[#f4f6fb] text-[11px] font-black uppercase text-[#747b8a]">
+                    <tr className="border-b border-[#d3dbea] bg-[#eef2f8] text-[11px] font-black uppercase text-[#747b8a]">
                       <th className="w-[28%] px-3 py-3">D-number</th>
                       <th className="w-[14%] px-3 py-3">Job Type</th>
                       <th className="w-[11%] px-2 py-3 text-center">Date Modified</th>
@@ -1711,8 +1711,8 @@ export default function JobsQuotingList() {
                       <tr>
                         <td colSpan={8} className="px-5 py-16">
                           <div className="mx-auto flex max-w-xs flex-col items-center justify-center text-center">
-                            <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#dfe4ef] border-t-[#273f7a]" />
-                            <p className="mt-4 text-sm font-black text-[#1f2430]">Loading quote jobs...</p>
+                            <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#d3dbea] border-t-[var(--deshazo-blue)]" />
+                            <p className="mt-4 text-sm font-black text-[var(--deshazo-text)]">Loading quote jobs...</p>
                             <p className="mt-1 text-xs font-semibold text-[#747b8a]">
                               Preparing the selected report list.
                             </p>
@@ -1721,10 +1721,10 @@ export default function JobsQuotingList() {
                       </tr>
                     ) : paginatedJobGroups.map((jobGroup) => (
                       <Fragment key={jobGroup.id}>
-                        <tr className="border-y border-[#d7deeb] bg-[#f7f9fd]">
+                        <tr className="border-y border-[#d3dbea] bg-[#f7f9fd]">
                           <td className="px-3 py-3 align-middle" colSpan={4}>
                             <div className="min-w-0">
-                              <p className="text-[15px] font-black leading-tight text-[#1f2430]">
+                              <p className="text-[15px] font-black leading-tight text-[var(--deshazo-text)]">
                                 {jobGroup.jobNumber ? `Job ${jobGroup.jobNumber}` : 'Job number not found'}
                               </p>
                               <p className="mt-1 text-[12px] font-bold text-[#747b8a]">
@@ -1733,13 +1733,13 @@ export default function JobsQuotingList() {
                               </p>
                             </div>
                           </td>
-                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#273f7a]">
+                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[var(--deshazo-blue)]">
                             {jobGroup.repairCount}
                           </td>
                           <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#a2472f]">
                             {jobGroup.safetyCount}
                           </td>
-                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[#111]">
+                          <td className="px-1 py-3 text-center align-middle text-lg font-black text-[var(--deshazo-text)]">
                             {jobGroup.priorityCount}
                           </td>
                           <td className="px-3 py-3 text-center align-middle text-[12px] font-bold text-[#4d5360]">
@@ -1749,15 +1749,15 @@ export default function JobsQuotingList() {
                         {jobGroup.items.map((item) => (
                           <tr
                             key={item.id}
-                            className="border-b border-[#e4e8f1] transition hover:bg-[#fbfcff] last:border-b-0"
+                            className="border-b border-[#e2e8f2] transition hover:bg-[#f8fbff] last:border-b-0"
                           >
                             <td className="px-3 py-4 align-top">
-                              <span className="block whitespace-normal break-words text-sm font-black leading-snug text-[#1f2430]">
+                              <span className="block whitespace-normal break-words text-sm font-black leading-snug text-[var(--deshazo-text)]">
                                 {getItemDNumberDisplay(item)}
                               </span>
                             </td>
                             <td className="px-3 py-4 align-top">
-                              <span className="inline-flex max-w-full items-center rounded-sm border border-[#cfd9ee] bg-[#edf3ff] px-2.5 py-1 text-[12px] font-black leading-snug text-[#273f7a]">
+                              <span className="inline-flex max-w-full items-center rounded-sm border border-[#c8d5ea] bg-[#e6efff] px-2.5 py-1 text-[12px] font-black leading-snug text-[var(--deshazo-blue)]">
                                 <span className="truncate">{formatJobTypeTag(item.jobType)}</span>
                               </span>
                             </td>
@@ -1769,13 +1769,13 @@ export default function JobsQuotingList() {
                                 {getItemUploaderName(item) || '-'}
                               </span>
                             </td>
-                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[#273f7a]">
+                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[var(--deshazo-blue)]">
                               {item.repairCount}
                             </td>
                             <td className="px-1 py-4 text-center align-top text-lg font-black text-[#a2472f]">
                               {item.safetyCount}
                             </td>
-                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[#111]">
+                            <td className="px-1 py-4 text-center align-top text-lg font-black text-[var(--deshazo-text)]">
                               {item.priorityCount}
                             </td>
                             <td className="px-3 py-4 text-center align-top">
@@ -1784,7 +1784,7 @@ export default function JobsQuotingList() {
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(item.id)}`)}
-                                    className="inline-flex whitespace-nowrap rounded-md bg-[#273f7a] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[#1f3262]"
+                                    className="inline-flex whitespace-nowrap rounded-md bg-[var(--deshazo-blue)] px-2 py-2 text-[11px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)]"
                                   >
                                     Edit Quote
                                   </button>
@@ -1792,7 +1792,7 @@ export default function JobsQuotingList() {
                                     type="button"
                                     onClick={() => setOpenItemSettingsId((currentId) => currentId === item.id ? null : item.id)}
                                     disabled={deletingItemIds.has(item.id)}
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-[15px] font-black leading-none text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-[15px] font-black leading-none text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                                     aria-label="Quote settings"
                                     title="Quote settings"
                                   >
@@ -1804,12 +1804,12 @@ export default function JobsQuotingList() {
                                   {itemResults[item.id]?.amountWon != null ? ` • ${formatMoney(itemResults[item.id].amountWon ?? 0)}` : ''}
                                 </div>
                                 {openItemSettingsId === item.id ? (
-                                  <div className="mt-2 w-[150px] rounded-md border border-[#dfe4ef] bg-white p-2 text-left shadow-[0_14px_34px_-28px_rgba(15,23,42,0.5)]">
+                                  <div className="mt-2 w-[150px] rounded-md border border-[#d3dbea] bg-white p-2 text-left shadow-[0_14px_34px_-28px_rgba(15,23,42,0.5)]">
                                     <button
                                       type="button"
                                       onClick={() => openMarkResultModal(item)}
                                       disabled={deletingItemIds.has(item.id)}
-                                      className="mb-2 w-full rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-left text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-60"
+                                      className="mb-2 w-full rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-left text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                                     >
                                       Mark Result
                                     </button>
@@ -1834,7 +1834,7 @@ export default function JobsQuotingList() {
 
                 {!jobsListLoading && sortedJobGroups.length === 0 ? (
                   <div className="px-5 py-16 text-center">
-                    <p className="text-base font-black text-[#1f2430]">
+                    <p className="text-base font-black text-[var(--deshazo-text)]">
                       {searchQuery.trim()
                         ? 'No matching quote reports.'
                         : selectedJobSectionId === allJobsSectionId && quoteJobListScope === 'current'
@@ -1852,7 +1852,7 @@ export default function JobsQuotingList() {
                 ) : null}
 
                 {!jobsListLoading && sortedJobGroups.length > 0 ? (
-                  <div className="flex flex-col gap-3 border-t border-[#dfe4ef] bg-[#fbfcff] px-5 py-4 text-[12px] font-bold text-[#747b8a] sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-3 border-t border-[#d3dbea] bg-[#f8fbff] px-5 py-4 text-[12px] font-bold text-[#747b8a] sm:flex-row sm:items-center sm:justify-between">
                     <span>
                       Showing jobs {pageFirstJob}-{pageLastJob} of {sortedJobGroups.length} ({filteredItems.length} inspection report{filteredItems.length === 1 ? '' : 's'})
                     </span>
@@ -1862,7 +1862,7 @@ export default function JobsQuotingList() {
                           type="button"
                           disabled={safeCurrentPage === 1}
                           onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Previous
                         </button>
@@ -1873,7 +1873,7 @@ export default function JobsQuotingList() {
                           type="button"
                           disabled={safeCurrentPage === pageCount}
                           onClick={() => setCurrentPage((page) => Math.min(pageCount, page + 1))}
-                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Next
                         </button>
