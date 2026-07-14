@@ -1,26 +1,16 @@
-import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { supabase, isConfigured } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
-  getAvgMoM,
-  getLocationSpend,
-  getMoMSpend,
-  getSpendTypes,
-  getTopIssue,
-  getTopLineSpendAnalytics,
-  type LocationSpendAnalytics,
-  type MoMSpendAnalytics,
-  isPortalApiConfigured,
-  type SpendTypeAnalytics,
-  type TopIssueAnalytics,
-  type TopLineSpendAnalytics,
-} from '../lib/portalApi'
+  mockAverageInvoiceSpend,
+  mockLocationSpend,
+  mockMonthlySpend,
+  mockServiceTypeSpend,
+  mockToplineSpend,
+  mockTopOpenItems,
+} from '../lib/mockSpendAnalytics'
 import { useCustomerPath } from '../lib/customerRouting'
-import { getCurrentUserTag } from '../lib/userTags'
-import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -34,14 +24,6 @@ const menuItems = [
   { label: 'Add User', href: '/add-user' },
   { label: 'Contact Us', href: '/contact-us' },
 ]
-
-const defaultToplineSpend: TopLineSpendAnalytics = {
-  total_equipment_spend: 0,
-  total_labor_spend: 0,
-  total_spend: 0,
-  total_invoices: 0,
-  topline_start_str: 'since....',
-}
 
 const buildBlueShades = (count: number) => {
   if (count <= 0) return []
@@ -59,23 +41,6 @@ const formatMonthLabel = (value: string) => {
   if (!trimmed) return value
   return trimmed.slice(0, 3).replace(/^./, (char) => char.toUpperCase())
 }
-
-const formatLocationLabel = (value: string) =>
-  value
-    .split('_')
-    .map((part) => (part ? part[0]!.toUpperCase() + part.slice(1) : part))
-    .join(' ')
-
-const formatCategoryLabel = (value: string) =>
-  value.trim().toLowerCase() === 'undefined'
-    ? 'undefined'
-    :
-  value
-    .trim()
-    .split(/[_\s]+/)
-    .filter(Boolean)
-    .map((part) => part[0]!.toUpperCase() + part.slice(1))
-    .join(' ') || 'Unknown'
 
 const buildUniqueChartColors = (count: number) =>
   Array.from({ length: count }, (_, index) => {
@@ -104,255 +69,17 @@ const getBarHeight = (value: number, maxValue: number, plotHeight?: number) => {
 }
 
 export default function Spend() {
-  const [user, setUser] = useState<User | null>(null)
-  const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
-  const [toplineSpend, setToplineSpend] = useState<TopLineSpendAnalytics>(defaultToplineSpend)
-  const [toplineLoading, setToplineLoading] = useState(true)
-  const [toplineError, setToplineError] = useState('')
-  const [serviceTypeData, setServiceTypeData] = useState<Array<{ label: string; value: number; color: string; spend: number }>>([])
-  const [serviceTypeLoading, setServiceTypeLoading] = useState(true)
-  const [serviceTypeError, setServiceTypeError] = useState('')
-  const [momSpendData, setMomSpendData] = useState<MoMSpendAnalytics[]>([])
-  const [momSpendLoading, setMomSpendLoading] = useState(true)
-  const [momSpendError, setMomSpendError] = useState('')
-  const [avgMoMData, setAvgMoMData] = useState<MoMSpendAnalytics[]>([])
-  const [avgMoMLoading, setAvgMoMLoading] = useState(true)
-  const [avgMoMError, setAvgMoMError] = useState('')
-  const [locationSpendData, setLocationSpendData] = useState<Array<{ label: string; value: number; color: string; spend: number }>>([])
-  const [locationSpendLoading, setLocationSpendLoading] = useState(true)
-  const [locationSpendError, setLocationSpendError] = useState('')
-  const [topIssueData, setTopIssueData] = useState<Array<{ label: string; total: number }>>([])
-  const [topIssueLoading, setTopIssueLoading] = useState(true)
-  const [topIssueError, setTopIssueError] = useState('')
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Spend')
 
-  useEffect(() => {
-    if (!isConfigured || !supabase) {
-      navigate(customerPath('/login'))
-      return
-    }
-    supabase.auth.getUser().then(async ({ data }) => {
-      if (!data.user) {
-        navigate(customerPath('/login'))
-      } else {
-        const userTag = await getCurrentUserTag(data.user.id)
-        if (userTag !== 'developer') {
-          setAuthLoading(false)
-          navigate(customerPath('/dashboard'))
-          return
-        }
-        setUser(data.user)
-      }
-      setAuthLoading(false)
-    })
-  }, [customerPath, navigate])
-
-  useEffect(() => {
-    if (!user) return
-
-    const controller = new AbortController()
-
-    const loadTopline = async () => {
-      try {
-        setToplineLoading(true)
-        setToplineError('')
-        const data = await getTopLineSpendAnalytics(controller.signal)
-        setToplineSpend(data)
-      } catch (err) {
-        if (controller.signal.aborted) return
-        setToplineError(err instanceof Error ? err.message : 'Unable to load spend summary.')
-      } finally {
-        if (!controller.signal.aborted) {
-          setToplineLoading(false)
-        }
-      }
-    }
-
-    loadTopline()
-
-    return () => controller.abort()
-  }, [user])
-
-  useEffect(() => {
-    if (!user) return
-
-    const controller = new AbortController()
-
-    const loadMoMSpend = async () => {
-      try {
-        setMomSpendLoading(true)
-        setMomSpendError('')
-        const data = await getMoMSpend(controller.signal)
-        setMomSpendData(data)
-      } catch (err) {
-        if (controller.signal.aborted) return
-        setMomSpendError(err instanceof Error ? err.message : 'Unable to load month over month spend.')
-      } finally {
-        if (!controller.signal.aborted) {
-          setMomSpendLoading(false)
-        }
-      }
-    }
-
-    loadMoMSpend()
-
-    return () => controller.abort()
-  }, [user])
-
-  useEffect(() => {
-    if (!user) return
-
-    const controller = new AbortController()
-
-    const loadAvgMoM = async () => {
-      try {
-        setAvgMoMLoading(true)
-        setAvgMoMError('')
-        const data = await getAvgMoM(controller.signal)
-        setAvgMoMData(data)
-      } catch (err) {
-        if (controller.signal.aborted) return
-        setAvgMoMError(err instanceof Error ? err.message : 'Unable to load average invoice amounts.')
-      } finally {
-        if (!controller.signal.aborted) {
-          setAvgMoMLoading(false)
-        }
-      }
-    }
-
-    loadAvgMoM()
-
-    return () => controller.abort()
-  }, [user])
-
-  useEffect(() => {
-    if (!user) return
-
-    const controller = new AbortController()
-
-    const loadTopIssue = async () => {
-      try {
-        setTopIssueLoading(true)
-        setTopIssueError('')
-        const data = await getTopIssue(controller.signal)
-        const mapped = data.map((item: TopIssueAnalytics) => ({
-          label: formatCategoryLabel(item.category),
-          total: item.total,
-        }))
-        setTopIssueData(mapped)
-      } catch (err) {
-        if (controller.signal.aborted) return
-        setTopIssueError(err instanceof Error ? err.message : 'Unable to load top issue analytics.')
-      } finally {
-        if (!controller.signal.aborted) {
-          setTopIssueLoading(false)
-        }
-      }
-    }
-
-    loadTopIssue()
-
-    return () => controller.abort()
-  }, [user])
-
-  useEffect(() => {
-    if (!user) return
-
-    const controller = new AbortController()
-
-    const loadLocationSpend = async () => {
-      try {
-        setLocationSpendLoading(true)
-        setLocationSpendError('')
-        const data = await getLocationSpend(controller.signal)
-        const total = data.reduce((sum, item) => sum + item.spend, 0)
-        const colors = buildUniqueChartColors(data.length)
-
-        const mapped = data.map((item: LocationSpendAnalytics, index: number) => ({
-          label: formatLocationLabel(item.location),
-          value: total > 0 ? Number(((item.spend / total) * 100).toFixed(2)) : 0,
-          color: colors[index] ?? `hsl(${(index * 31) % 360} 62% 56%)`,
-          spend: item.spend,
-        }))
-
-        setLocationSpendData(mapped)
-      } catch (err) {
-        if (controller.signal.aborted) return
-        setLocationSpendError(err instanceof Error ? err.message : 'Unable to load location spend.')
-      } finally {
-        if (!controller.signal.aborted) {
-          setLocationSpendLoading(false)
-        }
-      }
-    }
-
-    loadLocationSpend()
-
-    return () => controller.abort()
-  }, [user])
-
-  useEffect(() => {
-    if (!user) return
-
-    const controller = new AbortController()
-
-    const loadSpendTypes = async () => {
-      try {
-        setServiceTypeLoading(true)
-        setServiceTypeError('')
-        const data = await getSpendTypes(controller.signal)
-        const total = data.reduce((sum, item) => sum + item.spend, 0)
-        const colors = buildBlueShades(data.length)
-
-        const mapped = data.map((item: SpendTypeAnalytics, index: number) => ({
-          label: item.category,
-          value: total > 0 ? Number(((item.spend / total) * 100).toFixed(2)) : 0,
-          color: colors[index] ?? 'hsl(221 68% 52%)',
-          spend: item.spend,
-        }))
-
-        setServiceTypeData(mapped)
-      } catch (err) {
-        if (controller.signal.aborted) return
-        setServiceTypeError(err instanceof Error ? err.message : 'Unable to load spend types.')
-      } finally {
-        if (!controller.signal.aborted) {
-          setServiceTypeLoading(false)
-        }
-      }
-    }
-
-    loadSpendTypes()
-
-    return () => controller.abort()
-  }, [user])
-
-  const handleSignOut = async () => {
-    if (supabase) await supabase.auth.signOut()
+  const handleSignOut = () => {
     navigate(customerPath('/login'))
   }
-
-  if (authLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
-        <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
-          Loading spend page...
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) return null
-
-  const fullName =
-    user.user_metadata?.full_name ||
-    user.user_metadata?.name ||
-    user.email?.split('@')[0] ||
-    'Portal User'
+  const fullName = 'Developer Preview'
+  const userEmail = 'local@deshazo.test'
   const initials = fullName
     .split(' ')
     .filter(Boolean)
@@ -360,8 +87,25 @@ export default function Spend() {
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
 
-  const hasServiceTypeData = serviceTypeData.length > 0 && serviceTypeData.some((segment) => segment.spend > 0)
-  const hasLocationSpendData = locationSpendData.length > 0 && locationSpendData.some((segment) => segment.spend > 0)
+  const serviceTypeTotal = mockServiceTypeSpend.reduce((sum, item) => sum + item.spend, 0)
+  const serviceTypeColors = buildBlueShades(mockServiceTypeSpend.length)
+  const serviceTypeData = mockServiceTypeSpend.map((item, index) => ({
+    ...item,
+    value: Number(((item.spend / serviceTypeTotal) * 100).toFixed(2)),
+    color: serviceTypeColors[index] ?? 'hsl(221 68% 52%)',
+  }))
+  const locationSpendTotal = mockLocationSpend.reduce((sum, item) => sum + item.spend, 0)
+  const locationColors = buildUniqueChartColors(mockLocationSpend.length)
+  const locationSpendData = mockLocationSpend.map((item, index) => ({
+    ...item,
+    value: Number(((item.spend / locationSpendTotal) * 100).toFixed(2)),
+    color: locationColors[index] ?? `hsl(${(index * 31) % 360} 62% 56%)`,
+  }))
+  const toplineSpend = mockToplineSpend
+  const momSpendData = mockMonthlySpend
+  const avgMoMData = mockAverageInvoiceSpend
+  const topIssueData = mockTopOpenItems
+
   const maxMoMSpend = momSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
   const maxAvgMoM = avgMoMData.reduce((max, item) => Math.max(max, item.spend), 0)
   const maxTopIssue = topIssueData.reduce((max, item) => Math.max(max, item.total), 0)
@@ -383,7 +127,7 @@ export default function Spend() {
           </button>
 
           <div className="hidden text-right text-sm text-white/85 sm:block">
-            Signed in as <span className="font-semibold text-white">{user.email}</span>
+            Signed in as <span className="font-semibold text-white">{userEmail}</span>
           </div>
         </div>
       </header>
@@ -437,7 +181,7 @@ export default function Spend() {
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-[15px] font-bold text-[var(--deshazo-text)]">{fullName}</p>
-                    <p className="truncate text-[14px] text-[rgba(21,24,33,0.55)]">{user.email}</p>
+                    <p className="truncate text-[14px] text-[rgba(21,24,33,0.55)]">{userEmail}</p>
                   </div>
                 </div>
                 <button
@@ -473,24 +217,12 @@ export default function Spend() {
           </div>
 
           <div className="space-y-6">
-            {!isPortalApiConfigured && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                Add `VITE_PORTAL_PARSE_REST_API_KEY` to load live spend analytics.
-              </div>
-            )}
-
-            {toplineError && (
-              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {toplineError}
-              </div>
-            )}
-
             <section className="grid gap-4 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)] md:grid-cols-2 xl:grid-cols-4">
               {[
-                ['Total Invoices', toplineLoading ? '...' : toplineSpend.total_invoices.toLocaleString()],
-                ['Total Spend', toplineLoading ? '...' : formatCurrency(toplineSpend.total_spend)],
-                ['Labor Spend', toplineLoading ? '...' : formatCurrency(toplineSpend.total_labor_spend)],
-                ['Equipment Spend', toplineLoading ? '...' : formatCurrency(toplineSpend.total_equipment_spend)],
+                ['Total Invoices', toplineSpend.total_invoices.toLocaleString()],
+                ['Total Spend', formatCurrency(toplineSpend.total_spend)],
+                ['Labor Spend', formatCurrency(toplineSpend.total_labor_spend)],
+                ['Equipment Spend', formatCurrency(toplineSpend.total_equipment_spend)],
               ].map(([label, value]) => (
                 <article key={label} className="rounded-xl px-2 py-1">
                   <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{label}</p>
@@ -498,7 +230,7 @@ export default function Spend() {
                     {value}
                   </p>
                   <p className="mt-1 text-sm font-medium text-[rgba(21,24,33,0.45)]">
-                    {toplineLoading ? 'Loading...' : toplineSpend.topline_start_str}
+                    {toplineSpend.topline_start_str}
                   </p>
                 </article>
               ))}
@@ -507,32 +239,21 @@ export default function Spend() {
             <section className="grid gap-4 xl:grid-cols-2">
               <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By Service Type</h2>
-                {serviceTypeError && (
-                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {serviceTypeError}
-                  </div>
-                )}
                 <div className="mt-6 flex flex-col items-center justify-center gap-5">
-                  {hasServiceTypeData ? (
-                    <div
-                      className="relative h-44 w-44 rounded-full"
-                      style={{ background: buildConicGradient(serviceTypeData) }}
-                    >
-                      <div className="absolute left-1/2 top-1/2 flex h-24 w-24 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-center text-[11px] font-semibold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
-                        {/* Breakdown */}
-                      </div>
+                  <div
+                    className="relative h-44 w-44 rounded-full"
+                    style={{ background: buildConicGradient(serviceTypeData) }}
+                  >
+                    <div className="absolute left-1/2 top-1/2 flex h-24 w-24 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-center text-[11px] font-semibold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
+                      Service mix
                     </div>
-                  ) : (
-                    <div className="flex h-44 w-44 items-center justify-center rounded-full border-2 border-dashed border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                      {serviceTypeLoading ? 'Loading...' : 'No data available'}
-                    </div>
-                  )}
+                  </div>
                   <div className="flex flex-wrap items-center justify-center gap-5 text-sm">
-                    {(hasServiceTypeData ? serviceTypeData : []).map((segment) => (
+                    {serviceTypeData.map((segment) => (
                       <div key={segment.label} className="flex items-center gap-2">
                         <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: segment.color }} />
                         <span className="text-[rgba(21,24,33,0.66)]">
-                          {segment.label} {hasServiceTypeData ? `(${segment.value}%)` : ''}
+                          {segment.label} ({segment.value}%)
                         </span>
                       </div>
                     ))}
@@ -542,22 +263,8 @@ export default function Spend() {
 
               <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend</h2>
-                {momSpendError && (
-                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {momSpendError}
-                  </div>
-                )}
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
-                  {momSpendLoading ? (
-                    <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                      Loading...
-                    </div>
-                  ) : momSpendData.length === 0 ? (
-                    <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                      No data available
-                    </div>
-                  ) : (
-                    <div className="scrollbar-hidden overflow-x-auto">
+                  <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
                           <div className="relative">
@@ -596,29 +303,14 @@ export default function Spend() {
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                  </div>
                 </div>
               </article>
 
               <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Avg. Invoice Amount</h2>
-                {avgMoMError && (
-                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {avgMoMError}
-                  </div>
-                )}
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
-                  {avgMoMLoading ? (
-                    <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                      Loading...
-                    </div>
-                  ) : avgMoMData.length === 0 ? (
-                    <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                      No data available
-                    </div>
-                  ) : (
-                    <div className="scrollbar-hidden overflow-x-auto">
+                  <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
                           <div className="relative">
@@ -657,41 +349,24 @@ export default function Spend() {
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                  </div>
                 </div>
               </article>
 
               <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By Location</h2>
-                {locationSpendError && (
-                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {locationSpendError}
-                  </div>
-                )}
                 <div className="mt-6 flex flex-col items-center justify-center gap-5">
-                  {hasLocationSpendData ? (
-                    <>
-                      <div
-                        className="h-44 w-44 rounded-full"
-                        style={{ background: buildConicGradient(locationSpendData) }}
-                      />
-                      <div className="grid w-full grid-cols-1 gap-2 text-xs sm:grid-cols-2 xl:grid-cols-3">
-                        {locationSpendData.map((segment) => (
-                          <div key={segment.label} className="flex items-center gap-2">
-                            <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: segment.color }} />
-                            <span className="truncate text-[rgba(21,24,33,0.66)]">
-                              {segment.label} ({segment.value}%)
-                            </span>
-                          </div>
-                        ))}
+                  <div className="h-44 w-44 rounded-full" style={{ background: buildConicGradient(locationSpendData) }} />
+                  <div className="grid w-full grid-cols-1 gap-2 text-xs sm:grid-cols-2 xl:grid-cols-3">
+                    {locationSpendData.map((segment) => (
+                      <div key={segment.label} className="flex items-center gap-2">
+                        <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: segment.color }} />
+                        <span className="truncate text-[rgba(21,24,33,0.66)]">
+                          {segment.label} ({segment.value}%)
+                        </span>
                       </div>
-                    </>
-                  ) : (
-                    <div className="flex h-44 w-44 items-center justify-center rounded-full border-2 border-dashed border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                      {locationSpendLoading ? 'Loading...' : 'No data available'}
-                    </div>
-                  )}
+                    ))}
+                  </div>
                 </div>
               </article>
             </section>
@@ -700,22 +375,8 @@ export default function Spend() {
               <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">
                 Top 10 Open Items Over Past 6 Months
               </h2>
-              {topIssueError && (
-                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {topIssueError}
-                </div>
-              )}
               <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
-                {topIssueLoading ? (
-                  <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                    Loading...
-                  </div>
-                ) : topIssueData.length === 0 ? (
-                  <div className="flex h-52 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                    No data available
-                  </div>
-                ) : (
-                  <>
+                <>
                     <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
@@ -781,8 +442,7 @@ export default function Spend() {
                       <span className="h-3 w-3 rounded-sm bg-[var(--deshazo-blue)]" />
                       <span>total</span>
                     </div>
-                  </>
-                )}
+                </>
               </div>
             </article>
           </div>
