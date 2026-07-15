@@ -27,6 +27,7 @@ const JobsQuotingList = lazy(() => import('./pages/JobsQuotingList'))
 const AssetFleet = lazy(() => import('./pages/AssetFleet'))
 const AssetFleetAssets = lazy(() => import('./pages/AssetFleetAssets'))
 const AssetInfo = lazy(() => import('./pages/AssetInfo'))
+const CustomerQuotes = lazy(() => import('./pages/CustomerQuotes'))
 
 function PageLoader() {
   return (
@@ -134,6 +135,7 @@ function App() {
       <Route path="asset-fleet" element={<AssetFleet />} />
       <Route path="asset-fleet-assets" element={<AssetFleetAssets />} />
       <Route path="asset-info" element={<AssetInfo />} />
+      <Route path="customer-quotes" element={<CustomerQuotes />} />
     </>
   )
 
