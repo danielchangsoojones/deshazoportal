@@ -88,6 +88,8 @@ const inspectionMenuItemsSelect = `
   updated_at
 `
 
+let currentUserIdPromise: Promise<string> | null = null
+
 function createMenuItemId() {
   return globalThis.crypto?.randomUUID?.()
 }
@@ -228,17 +230,20 @@ async function getCurrentUserId() {
     throw new Error('Supabase is not configured.')
   }
 
-  const { data, error } = await supabase.auth.getUser()
-
-  if (error) {
-    throw new Error(error.message)
+  if (!currentUserIdPromise) {
+    currentUserIdPromise = supabase.auth.getUser()
+      .then(({ data, error }) => {
+        if (error) throw new Error(error.message)
+        if (!data.user) throw new Error('Sign in to save menu items.')
+        return data.user.id
+      })
+      .catch((error) => {
+        currentUserIdPromise = null
+        throw error
+      })
   }
 
-  if (!data.user) {
-    throw new Error('Sign in to save menu items.')
-  }
-
-  return data.user.id
+  return currentUserIdPromise
 }
 
 export async function getInspectionMenuItems(dNumber?: string) {

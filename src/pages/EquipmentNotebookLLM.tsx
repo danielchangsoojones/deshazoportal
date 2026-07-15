@@ -505,10 +505,11 @@ export default function EquipmentNotebookLLM() {
 
   const startNewChat = () => {
     const session = starterSession()
-    setSessions([session])
+    setSessions((current) => [session, ...current])
     setActiveSessionId(session.id)
-    setChatView('overview')
+    setChatView('chat')
     setMessage('')
+    setContextWarning('')
   }
 
   const handleReferenceClick = (citationId: number | null, page: number | null, citations: NotebookCitation[] = latestCitations) => {

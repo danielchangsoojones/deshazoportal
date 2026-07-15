@@ -973,6 +973,7 @@ export async function createJobQuotingItemFromExternalCraneDNumber(dNumber: stri
     throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
   }
 
+  const accessToken = await getAccessToken()
   const url = new URL('/api/external/jobs-quoting/from-d-number', deshazoExternalApiBaseUrl)
   url.searchParams.set('dNumber', normalizedDNumber)
   const response = await fetch(url.toString(), {
@@ -981,6 +982,7 @@ export async function createJobQuotingItemFromExternalCraneDNumber(dNumber: stri
       Accept: 'application/json',
       'Content-Type': 'application/json',
       'X-API-Key': deshazoExternalApiKey,
+      'X-Supabase-Access-Token': accessToken,
     },
     body: JSON.stringify({ dNumber: normalizedDNumber }),
   })
@@ -1009,6 +1011,7 @@ export async function createBlankJobQuotingItem(): Promise<BlankQuoteCreateResul
     throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
   }
 
+  const accessToken = await getAccessToken()
   const url = new URL('/api/external/jobs-quoting/from-blank', deshazoExternalApiBaseUrl)
   const response = await fetch(url.toString(), {
     method: 'POST',
@@ -1016,6 +1019,7 @@ export async function createBlankJobQuotingItem(): Promise<BlankQuoteCreateResul
       Accept: 'application/json',
       'Content-Type': 'application/json',
       'X-API-Key': deshazoExternalApiKey,
+      'X-Supabase-Access-Token': accessToken,
     },
     body: JSON.stringify({}),
   })
