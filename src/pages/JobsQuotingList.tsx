@@ -348,8 +348,16 @@ function getItemSearchText(item: JobsQuotingItem) {
     .join(' ')
 }
 
+function normalizeDisplayJobNumber(value: string) {
+  const normalizedValue = value.trim()
+  if (!normalizedValue || normalizedValue === '---') return ''
+
+  const withoutLabel = normalizedValue.replace(/^job\s*#?\s*:\s*/i, '').trim()
+  return withoutLabel === '---' ? '' : withoutLabel
+}
+
 function getItemJobNumber(item: JobsQuotingItem) {
-  return (item.jobNumber || getExtractionValue(item.extractionData, 'job_number')).trim()
+  return normalizeDisplayJobNumber(item.jobNumber || getExtractionValue(item.extractionData, 'job_number'))
 }
 
 function normalizeJobNumberForMatch(jobNumber: string) {
@@ -419,6 +427,8 @@ function getItemJobGroupKey(item: JobsQuotingItem) {
 
   const dNumber = getItemDNumber(item)
   if (dNumber) return `d-number:${dNumber.toLowerCase()}`
+
+  if (item.splitType === 'blank_quote') return `blank:${item.id}`
 
   return `document:${item.documentName.trim().toLowerCase() || item.id}`
 }
@@ -517,6 +527,7 @@ export default function JobsQuotingList() {
   const extractPdfInputRef = useRef<HTMLInputElement>(null)
   const splitFolderInputRef = useRef<HTMLInputElement>(null)
   const giantPdfInputRef = useRef<HTMLInputElement>(null)
+  const blankQuoteCreateInFlight = useRef(false)
   const navigate = useNavigate()
 
   const runsById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs])
@@ -1043,6 +1054,8 @@ export default function JobsQuotingList() {
   }
 
   const createBlankQuoteItem = async () => {
+    if (blankQuoteCreateInFlight.current) return
+    blankQuoteCreateInFlight.current = true
     setBusy(true)
     setCreateBlankSubmitting(true)
     setUploadMenuOpen(false)
@@ -1055,6 +1068,7 @@ export default function JobsQuotingList() {
     } catch (error) {
       setMessage(getFriendlyImportErrorMessage(error))
     } finally {
+      blankQuoteCreateInFlight.current = false
       setCreateBlankSubmitting(false)
       setBusy(false)
     }
@@ -1368,10 +1382,10 @@ export default function JobsQuotingList() {
                 <button
                   type="submit"
                   disabled={createDNumberSubmitting || !createDNumberInput.trim()}
-                  className="inline-flex min-w-[92px] items-center justify-center gap-2 rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-w-[112px] items-center justify-center gap-2 rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {createDNumberSubmitting ? (
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                   ) : null}
                   Submit
                 </button>
