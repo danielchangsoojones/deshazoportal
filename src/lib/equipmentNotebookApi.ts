@@ -16,7 +16,7 @@ async function fetchNotebook(path: string, init?: RequestInit) {
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(
-        `Notebook API is unreachable at ${notebookApiUrl}. Start the notebook API server or set VITE_EQUIPMENT_NOTEBOOK_API_URL to the running API. If the server is already running, check its CORS settings.`,
+        `Notebook API is unreachable at ${notebookApiUrl}. Start the notebook API server or set VITE_EQUIPMENT_NOTEBOOK_API_URL to the running API.`,
       )
     }
     throw error
