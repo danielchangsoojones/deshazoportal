@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
-import { getUserDisplayName } from '../lib/userProfile'
 import { getCurrentUserTag } from '../lib/userTags'
+import {
+  type DeshazoAppUser,
+  deshazoAppLogout,
+  deshazoAppSignIn,
+  deshazoAppValidate,
+  getDeshazoAppUserName,
+} from '../lib/deshazoAppAuth'
 
 type MenuSection = {
   id: string
@@ -85,8 +92,14 @@ function ProfileSilhouette() {
 
 export default function FullApplication() {
   const [user, setUser] = useState<User | null>(null)
+  const [deshazoUser, setDeshazoUser] = useState<DeshazoAppUser | null>(null)
+  const [deshazoChecking, setDeshazoChecking] = useState(true)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
   const [serviceLocation, setServiceLocation] = useState('all')
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [signingIn, setSigningIn] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -111,7 +124,47 @@ export default function FullApplication() {
     })
   }, [navigate])
 
+  // Once the portal (Supabase) developer check passes, check for a live DeShazo
+  // application session. This is a separate login from the portal's Supabase auth.
+  useEffect(() => {
+    if (!user) return
+
+    let cancelled = false
+    setDeshazoChecking(true)
+    deshazoAppValidate()
+      .then((sessionUser) => {
+        if (!cancelled) setDeshazoUser(sessionUser)
+      })
+      .catch(() => {
+        if (!cancelled) setDeshazoUser(null)
+      })
+      .finally(() => {
+        if (!cancelled) setDeshazoChecking(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [user])
+
+  const handleDeshazoSignIn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setLoginError('')
+    setSigningIn(true)
+    try {
+      const sessionUser = await deshazoAppSignIn(loginEmail.trim(), loginPassword)
+      setDeshazoUser(sessionUser)
+      setLoginPassword('')
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Sign in failed.')
+    } finally {
+      setSigningIn(false)
+    }
+  }
+
   const handleSignOut = async () => {
+    await deshazoAppLogout()
+    setDeshazoUser(null)
     if (supabase) await supabase.auth.signOut()
     navigate('/quotelogin')
   }
@@ -121,6 +174,71 @@ export default function FullApplication() {
   }
 
   if (!user) return null
+
+  if (deshazoChecking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#eaf2ff] text-[#46515e]">
+        <div className="rounded-2xl border border-[#cfd6dc] bg-white px-6 py-4 text-sm font-semibold text-[#0a3b2a] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
+          Checking DeShazo session...
+        </div>
+      </div>
+    )
+  }
+
+  if (!deshazoUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#eaf2ff] px-4 text-[#46515e]">
+        <div className="w-full max-w-[380px] rounded-2xl bg-white px-7 py-8 shadow-[0_24px_60px_-40px_rgba(47,86,166,0.5)]">
+          <div className="flex justify-center">
+            <img src="/deshazo-logo.png" alt="DeShazo" className="h-auto w-[170px]" />
+          </div>
+          <p className="mt-6 text-center text-[15px] font-bold text-[#3b4652]">Sign in to DeShazo</p>
+          <p className="mt-1 text-center text-[12px] leading-4 text-[#5d6874]">
+            Log in with your DeShazo application account to load the full application.
+          </p>
+
+          <form className="mt-6 space-y-3" onSubmit={handleDeshazoSignIn}>
+            <label className="block">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#6d7482]">Email</span>
+              <input
+                type="email"
+                autoComplete="username"
+                required
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+                className="mt-1 h-10 w-full rounded-md border border-[#cfd6dc] bg-white px-3 text-[13px] text-[#404a54] outline-none transition focus:border-[#0a3b2a]"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#6d7482]">Password</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                className="mt-1 h-10 w-full rounded-md border border-[#cfd6dc] bg-white px-3 text-[13px] text-[#404a54] outline-none transition focus:border-[#0a3b2a]"
+              />
+            </label>
+
+            {loginError ? (
+              <p className="rounded-md border border-[#f0c8c8] bg-[#fdf1f1] px-3 py-2 text-[12px] font-semibold text-[#b23b3b]">
+                {loginError}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={signingIn}
+              className="h-10 w-full rounded-md bg-[#0a3b2a] text-[13px] font-bold text-white transition hover:bg-[#0b4632] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {signingIn ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-screen bg-[#eaf2ff] text-[#46515e]">
@@ -133,8 +251,8 @@ export default function FullApplication() {
           <div className="h-[76px] w-[76px]">
             <ProfileSilhouette />
           </div>
-          <p className="mt-1 text-[13px] font-bold leading-5 text-[#4b5560]">{getUserDisplayName(user)}</p>
-          <p className="text-[12px] leading-4 text-[#5d6874]">Regional Manager</p>
+          <p className="mt-1 text-[13px] font-bold leading-5 text-[#4b5560]">{getDeshazoAppUserName(deshazoUser)}</p>
+          <p className="text-[12px] leading-4 text-[#5d6874]">{deshazoUser.role?.name || 'DeShazo User'}</p>
           <p className="mt-1 text-[11px] leading-[17px] text-[#5d6874]">
             032 Richmond, 028 Cincinnati, 017
             <br />

@@ -12,6 +12,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/notebook-api/, '/api/notebook'),
       },
+      '/deshazo-api': {
+        target: 'https://deshazo-api.belovedrobot.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/deshazo-api/, '/api'),
+      },
     },
   },
 })
