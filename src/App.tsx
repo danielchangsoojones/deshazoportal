@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Login from './pages/Login'
 import QuoteLogin from './pages/QuoteLogin'
 import Signup from './pages/Signup'
@@ -28,6 +28,7 @@ const AssetFleet = lazy(() => import('./pages/AssetFleet'))
 const AssetFleetAssets = lazy(() => import('./pages/AssetFleetAssets'))
 const AssetInfo = lazy(() => import('./pages/AssetInfo'))
 const CustomerQuotes = lazy(() => import('./pages/CustomerQuotes'))
+const FullApplication = lazy(() => import('./pages/FullApplication'))
 
 function PageLoader() {
   return (
@@ -42,6 +43,7 @@ function PageLoader() {
 function SupportWidget() {
   const [isOpen, setIsOpen] = useState(false)
   const [isHidden, setIsHidden] = useState(false)
+  const location = useLocation()
 
   const handleWidgetClick = () => {
     setIsOpen((open) => !open)
@@ -52,7 +54,7 @@ function SupportWidget() {
     setIsHidden(true)
   }
 
-  if (isHidden) return null
+  if (isHidden || location.pathname === '/full-application') return null
 
   return (
     <div
@@ -157,6 +159,7 @@ function App() {
           <Route path="/quotelogin" element={<QuoteLogin />} />
           <Route path="/deshazo-internal-dashboard" element={<DeshazoInternalDashboard />} />
           <Route path="/dashazo-internal-dashboard" element={<Navigate to="/deshazo-internal-dashboard" replace />} />
+          <Route path="/full-application" element={<FullApplication />} />
           <Route path="/customer-portals" element={<CustomerPortals />} />
           <Route path="/jobsquotinglist" element={<JobsQuotingList />} />
           <Route path="/inspection-report-template" element={<EditableInspectionReport />} />

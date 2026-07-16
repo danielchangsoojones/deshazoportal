@@ -1,5 +1,12 @@
 export const internalDashboardCards = [
   {
+    eyebrow: 'Dev Module',
+    title: 'Full Application',
+    description: 'Open a blank workspace for full application development.',
+    href: '/full-application',
+    developerOnly: true,
+  },
+  {
     eyebrow: 'Quotes',
     title: 'Quote List',
     description: 'Review imported quote reports, edit saved quote proposals, and refresh synced inspection work.',
@@ -37,17 +44,21 @@ export const internalDashboardCards = [
   },
 ]
 
-export function getInternalDashboardMenuItems(activeHref: string) {
+export function getInternalDashboardMenuItems(activeHref: string, includeDeveloperOnly = false) {
   return [
     {
       label: 'Internal Dashboard',
       active: activeHref === '/deshazo-internal-dashboard',
       href: '/deshazo-internal-dashboard',
+      developerOnly: false,
     },
-    ...internalDashboardCards.map((card) => ({
-      label: card.title,
-      active: card.href === activeHref,
-      href: card.href,
-    })),
+    ...internalDashboardCards
+      .filter((card) => includeDeveloperOnly || !card.developerOnly)
+      .map((card) => ({
+        label: card.title,
+        active: card.href === activeHref,
+        href: card.href,
+        developerOnly: card.developerOnly,
+      })),
   ]
 }

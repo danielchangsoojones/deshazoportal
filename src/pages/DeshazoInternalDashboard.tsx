@@ -2,20 +2,28 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import DNumberSearchBar from '../components/DNumberSearchBar'
+import { DeveloperBadge } from '../components/DeveloperBadge'
 import ProfileMenu from '../components/ProfileMenu'
 import { getInternalDashboardMenuItems, internalDashboardCards } from '../lib/internalDashboardCards'
 import { supabase, isConfigured } from '../lib/supabase'
 import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 import { usePortalMenu } from '../lib/usePortalMenu'
 
 export default function DeshazoInternalDashboard() {
   const [user, setUser] = useState<User | null>(null)
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
   const menuItems = useMemo(
-    () => getInternalDashboardMenuItems('/deshazo-internal-dashboard'),
-    [],
+    () => getInternalDashboardMenuItems('/deshazo-internal-dashboard', userTag === 'developer'),
+    [userTag],
+  )
+
+  const visibleCards = useMemo(
+    () => internalDashboardCards.filter((card) => userTag === 'developer' || !card.developerOnly),
+    [userTag],
   )
 
   useEffect(() => {
@@ -23,10 +31,12 @@ export default function DeshazoInternalDashboard() {
       navigate('/quotelogin')
       return
     }
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
         navigate('/quotelogin')
       } else {
+        const nextUserTag = await getCurrentUserTag(data.user.id).catch(() => null)
+        setUserTag(nextUserTag)
         setUser(data.user)
       }
     })
@@ -80,7 +90,7 @@ export default function DeshazoInternalDashboard() {
                       }`}
                     >
                       <span>{item.label}</span>
-                      <span className="text-[12px] font-semibold text-[rgba(21,24,33,0.4)]" />
+                      {item.developerOnly ? <DeveloperBadge /> : null}
                     </Link>
                   ))}
                 </nav>
@@ -119,7 +129,7 @@ export default function DeshazoInternalDashboard() {
           </div>
 
           <section className="grid w-full grid-cols-1 gap-x-8 gap-y-8 md:grid-cols-2 xl:grid-cols-3">
-            {internalDashboardCards.map((card) => (
+            {visibleCards.map((card) => (
               <article
                 key={card.title}
                 className="group relative flex min-h-[260px] flex-col overflow-hidden rounded-[26px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.8)_0%,var(--deshazo-surface)_100%)] px-6 pb-5 pt-5 text-left shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_26px_48px_-34px_rgba(47,86,166,0.42)]"
@@ -127,7 +137,7 @@ export default function DeshazoInternalDashboard() {
                 <div className="absolute inset-x-0 top-0 h-1.5 bg-[linear-gradient(90deg,var(--deshazo-blue)_0%,var(--deshazo-blue-soft)_100%)] opacity-90" />
                 <div className="mb-4 flex items-center justify-between gap-3 pt-1">
                   <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{card.eyebrow}</p>
-                  <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--deshazo-blue)] shadow-[0_10px_24px_-22px_rgba(47,86,166,0.5)]" />
+                  {card.developerOnly ? <DeveloperBadge /> : null}
                 </div>
                 <h2 className="text-[clamp(28px,2.3vw,32px)] font-extrabold leading-[1.08] text-[var(--deshazo-text)]">
                   {card.title}
