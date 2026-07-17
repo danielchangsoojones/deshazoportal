@@ -97,6 +97,9 @@ function ProfileSilhouette() {
 
 export default function FullApplication() {
   const location = useLocation()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    typeof window !== 'undefined' && window.localStorage.getItem('deshazo-full-application-sidebar-collapsed') === 'true',
+  )
   const [user, setUser] = useState<User | null>(null)
   const [deshazoUser, setDeshazoUser] = useState<DeshazoAppUser | null>(null)
   const [deshazoChecking, setDeshazoChecking] = useState(true)
@@ -113,6 +116,10 @@ export default function FullApplication() {
   const navigate = useNavigate()
   const { workOrderId: workOrderIdParam } = useParams()
   const workOrderId = workOrderIdParam ? Number(workOrderIdParam) : null
+
+  useEffect(() => {
+    window.localStorage.setItem('deshazo-full-application-sidebar-collapsed', String(sidebarCollapsed))
+  }, [sidebarCollapsed])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -269,12 +276,27 @@ export default function FullApplication() {
 
   return (
     <div className="flex min-h-screen bg-[#f4f7fb] text-[var(--deshazo-text)]">
-      <aside className="min-h-screen w-[272px] shrink-0 border-r border-[#d3dbea] bg-[#f8fbff] px-4 pb-8 pt-6 shadow-sm">
-        <div className="flex justify-center">
-          <img src="/deshazo-logo.png" alt="DeShazo" className="h-auto w-[180px]" />
+      <aside className={`relative min-h-screen shrink-0 border-r border-[#d3dbea] bg-[#f8fbff] pb-8 pt-6 shadow-sm transition-[width,padding] duration-200 ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-[272px] px-4'}`}>
+        <button
+          type="button"
+          aria-label={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
+          title={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
+          aria-expanded={!sidebarCollapsed}
+          onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          className="absolute -right-3 top-6 z-50 flex h-7 w-7 items-center justify-center rounded-full border border-[#c7d1e2] bg-white text-[15px] font-black text-[var(--deshazo-blue)] shadow-sm transition hover:bg-[#eef4ff]"
+        >
+          {sidebarCollapsed ? '›' : '‹'}
+        </button>
+
+        <div className="flex h-[52px] items-center justify-center overflow-hidden">
+          {sidebarCollapsed ? (
+            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--deshazo-blue)] text-lg font-black text-white" aria-label="DeShazo">D</span>
+          ) : (
+            <img src="/deshazo-logo.png" alt="DeShazo" className="h-auto w-[180px]" />
+          )}
         </div>
 
-        <div className="mt-7 flex flex-col items-center text-center">
+        <div className={`${sidebarCollapsed ? 'hidden' : 'mt-7 flex'} flex-col items-center text-center`}>
           <div className="h-[76px] w-[76px]">
             <ProfileSilhouette />
           </div>
@@ -287,7 +309,7 @@ export default function FullApplication() {
           </p>
         </div>
 
-        <div className="relative mt-5">
+        <div className={`${sidebarCollapsed ? 'hidden' : 'relative mt-5'}`}>
           <select
             aria-label="Service location"
             value={serviceLocationId ?? 'all'}
@@ -303,28 +325,38 @@ export default function FullApplication() {
           <span aria-hidden="true" className="pointer-events-none absolute right-0 top-2 h-6 w-8 border-l border-[#d7dde2] text-center text-[15px] leading-5 text-[#9da7b0]">⌄</span>
         </div>
 
-        <nav aria-label="Full application navigation" className="mt-5 space-y-3">
+        <nav aria-label="Full application navigation" className={`${sidebarCollapsed ? 'mt-5 space-y-2' : 'mt-5 space-y-3'}`}>
           {menuSections.map((section) => {
             const isOpen = openSections[section.id]
             return (
               <section key={section.id}>
                 <button
                   type="button"
-                  aria-expanded={isOpen}
+                  aria-expanded={!sidebarCollapsed && isOpen}
                   aria-controls={`${section.id}-items`}
-                  onClick={() => toggleSection(section.id)}
-                  className="flex w-full items-center gap-3 px-3 py-1 text-left text-[13px] font-bold text-[var(--deshazo-text)] transition hover:text-[var(--deshazo-blue)]"
+                  title={sidebarCollapsed ? section.label : undefined}
+                  onClick={() => {
+                    if (sidebarCollapsed) {
+                      setSidebarCollapsed(false)
+                      setOpenSections((current) => ({ ...current, [section.id]: true }))
+                    } else {
+                      toggleSection(section.id)
+                    }
+                  }}
+                  className={`flex w-full items-center py-1 text-left text-[13px] font-bold text-[var(--deshazo-text)] transition hover:text-[var(--deshazo-blue)] ${sidebarCollapsed ? 'justify-center px-2' : 'gap-3 px-3'}`}
                 >
                   <span className="text-[var(--deshazo-blue)]"><MenuIcon icon={section.icon} /></span>
-                  <span>{section.label}</span>
-                  <svg aria-hidden="true" viewBox="0 0 16 16" className={`ml-auto h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="m4 6 4 4 4-4" />
-                  </svg>
+                  {sidebarCollapsed ? null : <>
+                    <span>{section.label}</span>
+                    <svg aria-hidden="true" viewBox="0 0 16 16" className={`ml-auto h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="m4 6 4 4 4-4" />
+                    </svg>
+                  </>}
                 </button>
 
                 <div
                   id={`${section.id}-items`}
-                  className={`grid transition-[grid-template-rows,opacity] duration-200 ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+                  className={`grid transition-[grid-template-rows,opacity] duration-200 ${isOpen && !sidebarCollapsed ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
                 >
                   <div className="overflow-hidden">
                     <ul className="space-y-0.5 pb-1 pl-[38px] pt-1">
@@ -360,10 +392,11 @@ export default function FullApplication() {
           <button
             type="button"
             onClick={handleSignOut}
-            className="flex w-full items-center gap-3 px-3 py-1 text-left text-[13px] font-bold text-[var(--deshazo-text)] transition hover:text-[var(--deshazo-blue)]"
+            title={sidebarCollapsed ? 'Logout' : undefined}
+            className={`flex w-full items-center py-1 text-left text-[13px] font-bold text-[var(--deshazo-text)] transition hover:text-[var(--deshazo-blue)] ${sidebarCollapsed ? 'justify-center px-2' : 'gap-3 px-3'}`}
           >
             <span className="text-[var(--deshazo-blue)]"><MenuIcon icon="logout" /></span>
-            <span>Logout</span>
+            {sidebarCollapsed ? null : <span>Logout</span>}
           </button>
         </nav>
       </aside>
