@@ -12,6 +12,8 @@ import {
   getDeshazoAppUserName,
 } from '../lib/deshazoAppAuth'
 import JobCostReport from '../components/JobCostReport'
+import WorkOrdersAll from '../components/WorkOrdersAll'
+import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
   id: string
@@ -96,8 +98,9 @@ export default function FullApplication() {
   const [deshazoUser, setDeshazoUser] = useState<DeshazoAppUser | null>(null)
   const [deshazoChecking, setDeshazoChecking] = useState(true)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
-  const [activeItem, setActiveItem] = useState('reports:Job Cost Report')
-  const [serviceLocation, setServiceLocation] = useState('all')
+  const [activeItem, setActiveItem] = useState('work-orders:All')
+  const [serviceLocationId, setServiceLocationId] = useState<number | null>(null)
+  const [serviceLocations, setServiceLocations] = useState<DeshazoServiceLocation[]>([])
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -148,6 +151,21 @@ export default function FullApplication() {
       cancelled = true
     }
   }, [user])
+
+  useEffect(() => {
+    if (!deshazoUser) return
+    let cancelled = false
+    getDeshazoServiceLocations()
+      .then((locations) => {
+        if (!cancelled) setServiceLocations(locations)
+      })
+      .catch(() => {
+        if (!cancelled) setServiceLocations([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [deshazoUser])
 
   const handleDeshazoSignIn = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -265,14 +283,14 @@ export default function FullApplication() {
         <div className="relative mt-5">
           <select
             aria-label="Service location"
-            value={serviceLocation}
-            onChange={(event) => setServiceLocation(event.target.value)}
+            value={serviceLocationId ?? 'all'}
+            onChange={(event) => setServiceLocationId(event.target.value === 'all' ? null : Number(event.target.value))}
             className="h-10 w-full appearance-none border border-[#cfd6dc] bg-white pl-3 pr-14 text-[11px] text-[#404a54] outline-none transition focus:border-[#8797a7]"
           >
             <option value="all">All Service Locations</option>
-            <option value="richmond">032 Richmond</option>
-            <option value="cincinnati">028 Cincinnati</option>
-            <option value="northeast">017 Northeast</option>
+            {serviceLocations.map((location) => (
+              <option key={location.id} value={location.id}>{location.name}</option>
+            ))}
           </select>
           <span aria-hidden="true" className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-[15px] text-[#bbc2c8]">×</span>
           <span aria-hidden="true" className="pointer-events-none absolute right-0 top-2 h-6 w-8 border-l border-[#d7dde2] text-center text-[15px] leading-5 text-[#9da7b0]">⌄</span>
@@ -340,7 +358,9 @@ export default function FullApplication() {
       </aside>
 
       <main aria-label="Full application workspace" className="min-h-screen min-w-0 flex-1">
-        {activeItem === 'reports:Job Cost Report' ? (
+        {activeItem === 'work-orders:All' ? (
+          <WorkOrdersAll serviceLocationId={serviceLocationId} />
+        ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
         ) : (
           <div className="flex min-h-screen items-center justify-center px-6 text-center text-[13px] text-[#7a8592]">
