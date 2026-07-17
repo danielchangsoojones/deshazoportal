@@ -35,7 +35,7 @@ export type DeshazoAppUser = {
   [key: string]: unknown
 }
 
-async function deshazoAppFetch(path: string, init?: RequestInit) {
+export async function deshazoAppFetch(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers)
   headers.set('web-version', webVersion)
   if (init?.body) headers.set('Content-Type', 'application/json')

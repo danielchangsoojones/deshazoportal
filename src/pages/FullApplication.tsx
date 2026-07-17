@@ -11,6 +11,7 @@ import {
   deshazoAppValidate,
   getDeshazoAppUserName,
 } from '../lib/deshazoAppAuth'
+import JobCostReport from '../components/JobCostReport'
 
 type MenuSection = {
   id: string
@@ -95,6 +96,7 @@ export default function FullApplication() {
   const [deshazoUser, setDeshazoUser] = useState<DeshazoAppUser | null>(null)
   const [deshazoChecking, setDeshazoChecking] = useState(true)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
+  const [activeItem, setActiveItem] = useState('reports:Job Cost Report')
   const [serviceLocation, setServiceLocation] = useState('all')
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
@@ -301,16 +303,24 @@ export default function FullApplication() {
                 >
                   <div className="overflow-hidden">
                     <ul className="space-y-0.5 pb-1 pl-[38px] pt-1">
-                      {section.items.map((item) => (
-                        <li key={item}>
-                          <button
-                            type="button"
-                            className="w-full py-1 text-left text-[11px] leading-[17px] text-[#53606d] transition hover:text-[#0a3b2a]"
-                          >
-                            {item}
-                          </button>
-                        </li>
-                      ))}
+                      {section.items.map((item) => {
+                        const itemKey = `${section.id}:${item}`
+                        const isActive = activeItem === itemKey
+                        return (
+                          <li key={item}>
+                            <button
+                              type="button"
+                              aria-current={isActive ? 'page' : undefined}
+                              onClick={() => setActiveItem(itemKey)}
+                              className={`w-full py-1 text-left text-[11px] leading-[17px] transition hover:text-[#0a3b2a] ${
+                                isActive ? 'font-bold text-[#0a3b2a]' : 'text-[#53606d]'
+                              }`}
+                            >
+                              {item}
+                            </button>
+                          </li>
+                        )
+                      })}
                     </ul>
                   </div>
                 </div>
@@ -329,7 +339,15 @@ export default function FullApplication() {
         </nav>
       </aside>
 
-      <main aria-label="Full application workspace" className="min-h-screen min-w-0 flex-1" />
+      <main aria-label="Full application workspace" className="min-h-screen min-w-0 flex-1">
+        {activeItem === 'reports:Job Cost Report' ? (
+          <JobCostReport />
+        ) : (
+          <div className="flex min-h-screen items-center justify-center px-6 text-center text-[13px] text-[#7a8592]">
+            This section is not built yet.
+          </div>
+        )}
+      </main>
     </div>
   )
 }
