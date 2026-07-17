@@ -3,11 +3,23 @@ import { deshazoAppFetch } from './deshazoAppAuth'
 export type DeshazoScheduleResource = {
   id: string | number
   title?: string
+  name?: string
+  employeeName?: string
   group?: string
   backgroundColor?: string
   color?: string
+  textColor?: string
   serviceLocationName?: string
   order?: number
+  extendedProps?: {
+    title?: string
+    name?: string
+    employeeName?: string
+    group?: string
+    backgroundColor?: string
+    color?: string
+    textColor?: string
+  }
 }
 
 export type DeshazoScheduleTooltipData = {

@@ -114,6 +114,28 @@ function eventResources(event: DeshazoScheduleEvent) {
   return event.resourceId == null ? [] : [String(event.resourceId)]
 }
 
+function resourceGroup(resource: DeshazoScheduleResource) {
+  return resource.group?.trim() || resource.extendedProps?.group?.trim() || 'Without group'
+}
+
+function resourceLabel(resource: DeshazoScheduleResource) {
+  return resource.title?.trim()
+    || resource.name?.trim()
+    || resource.employeeName?.trim()
+    || resource.extendedProps?.title?.trim()
+    || resource.extendedProps?.name?.trim()
+    || resource.extendedProps?.employeeName?.trim()
+    || 'Unnamed technician'
+}
+
+function resourceCellStyle(resource: DeshazoScheduleResource): React.CSSProperties {
+  const backgroundColor = resource.backgroundColor || resource.extendedProps?.backgroundColor || '#ffffff'
+  const textColor = resource.textColor
+    || resource.extendedProps?.textColor
+    || (backgroundColor === '#ffffff' ? '#112920' : resource.color || resource.extendedProps?.color || '#ffffff')
+  return { backgroundColor, color: textColor }
+}
+
 function EventInfo({ data, onClose, onOpenWorkOrder }: { data: DeshazoScheduleTooltipData; onClose: () => void; onOpenWorkOrder: (id: number) => void }) {
   const workOrder = data.workOrderTrip?.workOrder
   const workOrderId = data.workOrderTrip?.workOrderId || workOrder?.id
@@ -193,7 +215,7 @@ export default function WorkOrdersSchedule({ serviceLocationId, onOpenWorkOrder 
   const groupedResources = useMemo(() => {
     const groups = new Map<string, DeshazoScheduleResource[]>()
     resources.forEach((resource) => {
-      const group = resource.group || 'Without group'
+      const group = resourceGroup(resource)
       const groupResources = groups.get(group) || []
       groupResources.push(resource)
       groups.set(group, groupResources)
@@ -223,7 +245,7 @@ export default function WorkOrdersSchedule({ serviceLocationId, onOpenWorkOrder 
         <span className="rounded-full border border-[#c8d5ea] bg-[#eef4ff] px-3 py-1 text-[11px] font-black text-[var(--deshazo-blue)]">Read-only schedule</span>
       </header>
 
-      <section className="mt-5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[#d3dbea] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
+      <section className="relative mt-5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[#d3dbea] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
         <div className="flex flex-col gap-3 border-b border-[#d3dbea] bg-[#f8fbff] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <select value={mode} onChange={(event) => { const nextMode = event.target.value as ScheduleMode; setMode(nextMode); setAnchor(new Date()) }} className="h-9 rounded-md border border-[#c7d1e2] bg-white px-3 text-[12px] font-black text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]">
             <option value="week">This Week</option>
@@ -240,6 +262,16 @@ export default function WorkOrdersSchedule({ serviceLocationId, onOpenWorkOrder 
 
         {error ? <p className="m-4 rounded-md border border-[#f0c4bd] bg-[#fff7f5] px-4 py-3 text-[13px] font-bold text-[#a2472f]">{error}</p> : null}
 
+        {loading ? (
+          <div className="absolute inset-x-0 bottom-0 top-[64px] z-50 flex items-center justify-center bg-[#f8fbff]/90 backdrop-blur-[1px]" role="status" aria-live="polite" aria-label="Loading schedule">
+            <div className="rounded-md border border-[#d3dbea] bg-white px-8 py-6 text-center shadow-[0_24px_70px_-34px_rgba(17,24,39,0.38)]">
+              <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#d3dbea] border-t-[var(--deshazo-blue)]" />
+              <p className="mt-4 text-[13px] font-black text-[var(--deshazo-text)]">Loading schedule...</p>
+              <p className="mt-1 text-[11px] font-semibold text-[#747b8a]">Fetching technicians and work orders</p>
+            </div>
+          </div>
+        ) : null}
+
         <div className="min-h-[560px] flex-1 overflow-auto">
           <div style={{ minWidth: `${200 + days.length * 72}px` }}>
             <div className="sticky top-0 z-30 flex border-b border-[#d3dbea] bg-[#eef2f8]">
@@ -249,7 +281,7 @@ export default function WorkOrdersSchedule({ serviceLocationId, onOpenWorkOrder 
               </div>
             </div>
 
-            {loading ? <div className="flex min-h-[460px] items-center justify-center"><div className="text-center"><div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-[#d3dbea] border-t-[var(--deshazo-blue)]" /><p className="mt-3 text-[12px] font-black text-[var(--deshazo-text)]">Loading schedule...</p></div></div> : groupedResources.length ? groupedResources.map(([group, groupResources]) => (
+            {groupedResources.length ? groupedResources.map(([group, groupResources]) => (
               <section key={group}>
                 <div className="sticky left-0 z-20 flex border-b border-[#c8d5ea] bg-[#e6efff]">
                   <div className="sticky left-0 z-20 w-[200px] shrink-0 border-r border-[#c8d5ea] bg-[#e6efff] px-3 py-2 text-[11px] font-black text-[var(--deshazo-blue)]">⌄ &nbsp;{group}</div>
@@ -259,12 +291,12 @@ export default function WorkOrdersSchedule({ serviceLocationId, onOpenWorkOrder 
                   const resourceEvents = events.filter((event) => eventResources(event).includes(String(resource.id)))
                   return (
                     <div key={String(resource.id)} className="flex min-h-[44px] border-b border-[#e2e8f2] hover:bg-[#f8fbff]">
-                      <div className="sticky left-0 z-10 flex w-[200px] shrink-0 items-center border-r border-[#d3dbea] px-3 py-2 text-[11px] font-bold" style={{ backgroundColor: resource.backgroundColor || '#ffffff', color: resource.color || '#07122f' }}>{resource.title || 'Unnamed technician'}</div>
+                      <div className="sticky left-0 z-10 flex w-[200px] shrink-0 items-center border-r border-[#d3dbea] px-3 py-2 text-[11px] font-bold" style={resourceCellStyle(resource)}>{resourceLabel(resource)}</div>
                       <div className="relative flex-1 bg-[repeating-linear-gradient(to_right,transparent_0,transparent_calc((100%_/_var(--schedule-days))_-_1px),#e2e8f2_calc((100%_/_var(--schedule-days))_-_1px),#e2e8f2_calc(100%_/_var(--schedule-days)))]" style={{ '--schedule-days': days.length } as React.CSSProperties}>
                         {resourceEvents.map((event) => {
                           const tooltip = eventTooltip(event)
                           const workOrderId = eventWorkOrderId(event)
-                          return <button key={String(event.id)} type="button" title={eventLabel(event)} onClick={() => tooltip ? setSelectedEvent(tooltip) : workOrderId ? onOpenWorkOrder(workOrderId) : undefined} className="absolute top-1.5 z-[2] h-8 truncate rounded-sm border px-2 text-left text-[10px] font-black shadow-sm transition hover:z-[3] hover:brightness-95" style={{ ...eventPosition(event), backgroundColor: event.backgroundColor || event.color || '#818181', borderColor: event.borderColor || event.backgroundColor || event.color || '#818181', color: event.textColor || '#ffffff' }}>{eventLabel(event)}</button>
+                          return <button key={String(event.id)} type="button" title={eventLabel(event)} onClick={() => tooltip ? setSelectedEvent(tooltip) : workOrderId ? onOpenWorkOrder(workOrderId) : undefined} className="absolute top-1.5 z-[2] h-8 truncate rounded-sm border px-2 text-left text-[10px] font-black text-white shadow-sm transition hover:z-[3] hover:brightness-95" style={{ ...eventPosition(event), backgroundColor: event.backgroundColor || event.color || '#818181', borderColor: event.borderColor || event.backgroundColor || event.color || '#818181', color: '#ffffff' }}>{eventLabel(event)}</button>
                         })}
                       </div>
                     </div>
