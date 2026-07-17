@@ -164,7 +164,10 @@ function App() {
           <Route path="/full-application/work-orders/pending" element={<FullApplication />} />
           <Route path="/full-application/work-orders/scheduled" element={<FullApplication />} />
           <Route path="/full-application/work-orders/in-progress" element={<FullApplication />} />
+          <Route path="/full-application/work-orders/waiting-for-parts" element={<FullApplication />} />
+          <Route path="/full-application/work-orders/completed" element={<FullApplication />} />
           <Route path="/full-application/calendar/schedule" element={<FullApplication />} />
+          <Route path="/full-application/calendar/recurring-jobs" element={<FullApplication />} />
           <Route path="/full-application/work-orders/:workOrderId/details" element={<FullApplication />} />
           <Route path="/customer-portals" element={<CustomerPortals />} />
           <Route path="/jobsquotinglist" element={<JobsQuotingList />} />

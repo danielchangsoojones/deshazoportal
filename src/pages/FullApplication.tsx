@@ -15,6 +15,7 @@ import JobCostReport from '../components/JobCostReport'
 import WorkOrdersAll from '../components/WorkOrdersAll'
 import WorkOrderDetails from '../components/WorkOrderDetails'
 import WorkOrdersSchedule from '../components/WorkOrdersSchedule'
+import RecurringWorkOrders from '../components/RecurringWorkOrders'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
@@ -107,6 +108,8 @@ export default function FullApplication() {
   const [activeItem, setActiveItem] = useState(() =>
     location.pathname.endsWith('/calendar/schedule')
       ? 'calendar:Schedule'
+      : location.pathname.endsWith('/calendar/recurring-jobs')
+        ? 'calendar:Recurring Jobs'
       : location.pathname.endsWith('/work-orders/recently-added')
         ? 'work-orders:Recently Added'
         : location.pathname.endsWith('/work-orders/pending')
@@ -115,7 +118,11 @@ export default function FullApplication() {
             ? 'work-orders:Scheduled'
             : location.pathname.endsWith('/work-orders/in-progress')
               ? 'work-orders:In-Progress'
-              : 'work-orders:All',
+              : location.pathname.endsWith('/work-orders/waiting-for-parts')
+                ? 'work-orders:Waiting For Parts'
+                : location.pathname.endsWith('/work-orders/completed')
+                  ? 'work-orders:Completed'
+                  : 'work-orders:All',
   )
   const [serviceLocationId, setServiceLocationId] = useState<number | null>(null)
   const [serviceLocations, setServiceLocations] = useState<DeshazoServiceLocation[]>([])
@@ -381,10 +388,13 @@ export default function FullApplication() {
                               onClick={() => {
                                 setActiveItem(itemKey)
                                 if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
+                                else if (itemKey === 'calendar:Recurring Jobs') navigate('/full-application/calendar/recurring-jobs')
                                 else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
                                 else if (itemKey === 'work-orders:To Be Scheduled') navigate('/full-application/work-orders/pending')
                                 else if (itemKey === 'work-orders:Scheduled') navigate('/full-application/work-orders/scheduled')
                                 else if (itemKey === 'work-orders:In-Progress') navigate('/full-application/work-orders/in-progress')
+                                else if (itemKey === 'work-orders:Waiting For Parts') navigate('/full-application/work-orders/waiting-for-parts')
+                                else if (itemKey === 'work-orders:Completed') navigate('/full-application/work-orders/completed')
                                 else if (itemKey === 'work-orders:All' || workOrderId) navigate('/full-application')
                               }}
                               className={`w-full rounded-sm px-2 py-1 text-left text-[11px] leading-[17px] transition hover:bg-[#eef4ff] hover:text-[var(--deshazo-blue)] ${
@@ -421,7 +431,7 @@ export default function FullApplication() {
             workOrderId={workOrderId}
             onBack={() => {
               const returnTo = new URLSearchParams(location.search).get('returnTo')
-              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : returnTo === 'in-progress' ? '/full-application/work-orders/in-progress' : '/full-application')
+              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recurring-jobs' ? '/full-application/calendar/recurring-jobs' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : returnTo === 'in-progress' ? '/full-application/work-orders/in-progress' : returnTo === 'waiting-for-parts' ? '/full-application/work-orders/waiting-for-parts' : returnTo === 'completed' ? '/full-application/work-orders/completed' : '/full-application')
             }}
           />
         ) : activeItem === 'work-orders:All' ? (
@@ -459,10 +469,29 @@ export default function FullApplication() {
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=in-progress`)}
           />
+        ) : activeItem === 'work-orders:Waiting For Parts' ? (
+          <WorkOrdersAll
+            key="waiting-for-parts-work-orders"
+            statusName="Waiting for parts"
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=waiting-for-parts`)}
+          />
+        ) : activeItem === 'work-orders:Completed' ? (
+          <WorkOrdersAll
+            key="completed-work-orders"
+            statusName="Completed"
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=completed`)}
+          />
         ) : activeItem === 'calendar:Schedule' ? (
           <WorkOrdersSchedule
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=schedule`)}
+          />
+        ) : activeItem === 'calendar:Recurring Jobs' ? (
+          <RecurringWorkOrders
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=recurring-jobs`)}
           />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
