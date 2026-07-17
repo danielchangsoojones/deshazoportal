@@ -12,6 +12,8 @@ const DEFAULT_PAGE_SIZE = 25
 type WorkOrdersAllProps = {
   serviceLocationId: number | null
   onOpenWorkOrder: (workOrderId: number) => void
+  recent?: boolean
+  statusName?: string
 }
 
 function formatCount(value: number | undefined) {
@@ -82,7 +84,7 @@ function paginationPages(currentPage: number, totalPages: number) {
   return Array.from(pages).sort((left, right) => left - right)
 }
 
-export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: WorkOrdersAllProps) {
+export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder, recent = false, statusName }: WorkOrdersAllProps) {
   const [workOrders, setWorkOrders] = useState<DeshazoWorkOrder[]>([])
   const [count, setCount] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
@@ -129,13 +131,17 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: Wo
     setError('')
     try {
       // Keep the status lookup in the read path to match production and warm the session data.
-      await getDeshazoWorkOrderStatuses()
+      const statuses = await getDeshazoWorkOrderStatuses()
+      const statusId = statusName ? statuses.find((status) => status.name.toLowerCase() === statusName.toLowerCase())?.id : null
+      if (statusName && !statusId) throw new Error(`${statusName} work order status was not found.`)
       const result = await getDeshazoWorkOrders({
         search: submittedSearch,
         page: page - 1,
         pageSize,
         sortBy,
         direction,
+        statusId,
+        recent,
         serviceLocationId,
       })
       setWorkOrders(result.data)
@@ -150,7 +156,7 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: Wo
     } finally {
       setLoading(false)
     }
-  }, [direction, page, pageSize, serviceLocationId, sortBy, submittedSearch])
+  }, [direction, page, pageSize, recent, serviceLocationId, sortBy, statusName, submittedSearch])
 
   useEffect(() => {
     void loadWorkOrders()
@@ -192,7 +198,7 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: Wo
               <h1 className="text-[22px] font-semibold text-[var(--deshazo-text)]">Work Orders</h1>
               <span className="text-[12px] text-[#747b8a]">({loading ? '' : formatCount(count)})</span>
             </div>
-            <span className="mt-1 inline-flex rounded-full bg-[var(--deshazo-blue)] px-3 py-0.5 text-[11px] font-bold text-white">All</span>
+            <span className="mt-1 inline-flex rounded-full bg-[var(--deshazo-blue)] px-3 py-0.5 text-[11px] font-bold text-white">{recent ? 'Recently Added' : statusName || 'All'}</span>
           </div>
 
           <div className="flex items-center gap-3">

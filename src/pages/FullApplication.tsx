@@ -105,7 +105,13 @@ export default function FullApplication() {
   const [deshazoChecking, setDeshazoChecking] = useState(true)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
   const [activeItem, setActiveItem] = useState(() =>
-    location.pathname.endsWith('/calendar/schedule') ? 'calendar:Schedule' : 'work-orders:All',
+    location.pathname.endsWith('/calendar/schedule')
+      ? 'calendar:Schedule'
+      : location.pathname.endsWith('/work-orders/recently-added')
+        ? 'work-orders:Recently Added'
+        : location.pathname.endsWith('/work-orders/scheduled')
+          ? 'work-orders:Scheduled'
+        : 'work-orders:All',
   )
   const [serviceLocationId, setServiceLocationId] = useState<number | null>(null)
   const [serviceLocations, setServiceLocations] = useState<DeshazoServiceLocation[]>([])
@@ -371,6 +377,8 @@ export default function FullApplication() {
                               onClick={() => {
                                 setActiveItem(itemKey)
                                 if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
+                                else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
+                                else if (itemKey === 'work-orders:Scheduled') navigate('/full-application/work-orders/scheduled')
                                 else if (itemKey === 'work-orders:All' || workOrderId) navigate('/full-application')
                               }}
                               className={`w-full rounded-sm px-2 py-1 text-left text-[11px] leading-[17px] transition hover:bg-[#eef4ff] hover:text-[var(--deshazo-blue)] ${
@@ -405,12 +413,30 @@ export default function FullApplication() {
         {workOrderId && Number.isInteger(workOrderId) ? (
           <WorkOrderDetails
             workOrderId={workOrderId}
-            onBack={() => navigate(new URLSearchParams(location.search).get('returnTo') === 'schedule' ? '/full-application/calendar/schedule' : '/full-application')}
+            onBack={() => {
+              const returnTo = new URLSearchParams(location.search).get('returnTo')
+              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : '/full-application')
+            }}
           />
         ) : activeItem === 'work-orders:All' ? (
           <WorkOrdersAll
+            key="all-work-orders"
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details`)}
+          />
+        ) : activeItem === 'work-orders:Recently Added' ? (
+          <WorkOrdersAll
+            key="recent-work-orders"
+            recent
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=recently-added`)}
+          />
+        ) : activeItem === 'work-orders:Scheduled' ? (
+          <WorkOrdersAll
+            key="scheduled-work-orders"
+            statusName="Scheduled"
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=scheduled`)}
           />
         ) : activeItem === 'calendar:Schedule' ? (
           <WorkOrdersSchedule
