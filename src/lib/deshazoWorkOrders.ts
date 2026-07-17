@@ -4,6 +4,7 @@ export type DeshazoWorkOrderEmployee = {
   id?: number
   isLead?: boolean
   disabledAt?: string | null
+  employeeWorkDays?: DeshazoEmployeeWorkDay[]
   employee?: {
     id?: number
     firstName?: string
@@ -11,6 +12,45 @@ export type DeshazoWorkOrderEmployee = {
     preferredName?: string
     isActive?: boolean
   }
+}
+
+export type DeshazoWorkTime = {
+  id?: number
+  hours?: number | string | null
+  overtimeHours?: number | string | null
+  startTime?: string | null
+  endTime?: string | null
+  note?: string | null
+}
+
+export type DeshazoEmployeeWorkDay = {
+  id?: number
+  date?: string | null
+  isLeadDay?: boolean
+  hours?: number | string | null
+  overtimeHours?: number | string | null
+  workTimes?: DeshazoWorkTime[]
+  jsa?: {
+    status?: string | null
+    updatedAt?: string | null
+    author?: { firstName?: string; lastName?: string } | null
+  } | null
+  jsaAnswers?: Array<{
+    id?: number
+    answer?: string | boolean | null
+    createdAt?: string | null
+    author?: { firstName?: string; lastName?: string } | null
+    jsaItem?: { id?: number; content?: string | null } | null
+  }>
+  materialsOrdered?: Array<{ id?: number; received?: boolean; material?: { name?: string | null }; quantity?: number | string | null }>
+  workOrderMaterials?: Array<{ id?: number; material?: { name?: string | null }; quantity?: number | string | null; note?: string | null }>
+  workOrderServiceNotes?: Array<{ id?: number; note?: string | null; serviceNote?: string | null }>
+  attachments?: Array<{ id?: number; name?: string | null; fileName?: string | null }>
+  signatureURL?: string | null
+  signatureCustomerName?: string | null
+  signatureNotProvidedReason?: string | null
+  signatureDate?: string | null
+  updatedAt?: string | null
 }
 
 export type DeshazoWorkOrderTrip = {
@@ -42,6 +82,7 @@ export type DeshazoWorkOrder = {
   workOrderTrips?: DeshazoWorkOrderTrip[]
   customerPONo?: string | null
   quotedJob?: boolean
+  isNewTimeEntry?: boolean
   createdAt?: string | null
   status?: { id?: number; name?: string | null } | null
   statusLog?: Array<{
@@ -66,6 +107,33 @@ export type DeshazoWorkOrder = {
     email?: string | null
     phone?: string | null
   }>
+  postContract?: {
+    id?: number
+    note?: string | null
+    signatureUrl?: string | null
+    signatureName?: string | null
+    signatureDate?: string | null
+    updatedAt?: string | null
+    customerNotPresent?: boolean
+    customerNotPresentReason?: string | null
+    postContractQuestions?: Array<{
+      id?: number
+      name?: string | null
+      postContractAnswer?: { answer?: string | null } | null
+    }>
+  } | null
+}
+
+export type DeshazoCraneInspection = {
+  id: number
+  workOrderCraneId?: number
+  status?: string | null
+  type?: string | null
+  employeeWorkDay?: {
+    workOrderEmployee?: {
+      employee?: { firstName?: string; lastName?: string } | null
+    } | null
+  } | null
 }
 
 export type DeshazoWorkOrdersResponse = {
@@ -151,4 +219,10 @@ export async function getDeshazoWorkOrderStatuses() {
 export async function getDeshazoWorkOrderById(id: number): Promise<DeshazoWorkOrder> {
   if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid work order ID.')
   return getOnlyJson<DeshazoWorkOrder>(`/work-orders/${id}?id=${id}`)
+}
+
+export async function getDeshazoCraneInspections(params: { workOrderTripId: number; date: string }) {
+  const query = buildProductionQuery({ workOrderTripId: params.workOrderTripId, date: params.date, pageSize: 999 })
+  const body = await getOnlyJson<DeshazoCraneInspection[] | { data?: DeshazoCraneInspection[] }>(`/crane-inspections?${query}`)
+  return Array.isArray(body) ? body : Array.isArray(body.data) ? body.data : []
 }
