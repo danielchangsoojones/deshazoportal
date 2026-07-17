@@ -109,6 +109,8 @@ export default function FullApplication() {
       ? 'calendar:Schedule'
       : location.pathname.endsWith('/work-orders/recently-added')
         ? 'work-orders:Recently Added'
+        : location.pathname.endsWith('/work-orders/pending')
+          ? 'work-orders:To Be Scheduled'
         : location.pathname.endsWith('/work-orders/scheduled')
           ? 'work-orders:Scheduled'
         : 'work-orders:All',
@@ -378,6 +380,7 @@ export default function FullApplication() {
                                 setActiveItem(itemKey)
                                 if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
                                 else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
+                                else if (itemKey === 'work-orders:To Be Scheduled') navigate('/full-application/work-orders/pending')
                                 else if (itemKey === 'work-orders:Scheduled') navigate('/full-application/work-orders/scheduled')
                                 else if (itemKey === 'work-orders:All' || workOrderId) navigate('/full-application')
                               }}
@@ -415,7 +418,7 @@ export default function FullApplication() {
             workOrderId={workOrderId}
             onBack={() => {
               const returnTo = new URLSearchParams(location.search).get('returnTo')
-              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : '/full-application')
+              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : '/full-application')
             }}
           />
         ) : activeItem === 'work-orders:All' ? (
@@ -430,6 +433,14 @@ export default function FullApplication() {
             recent
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=recently-added`)}
+          />
+        ) : activeItem === 'work-orders:To Be Scheduled' ? (
+          <WorkOrdersAll
+            key="pending-work-orders"
+            statusName="Pending"
+            listLabel="To Be Scheduled"
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=pending`)}
           />
         ) : activeItem === 'work-orders:Scheduled' ? (
           <WorkOrdersAll

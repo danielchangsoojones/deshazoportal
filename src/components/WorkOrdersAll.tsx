@@ -14,6 +14,7 @@ type WorkOrdersAllProps = {
   onOpenWorkOrder: (workOrderId: number) => void
   recent?: boolean
   statusName?: string
+  listLabel?: string
 }
 
 function formatCount(value: number | undefined) {
@@ -84,7 +85,7 @@ function paginationPages(currentPage: number, totalPages: number) {
   return Array.from(pages).sort((left, right) => left - right)
 }
 
-export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder, recent = false, statusName }: WorkOrdersAllProps) {
+export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder, recent = false, statusName, listLabel }: WorkOrdersAllProps) {
   const [workOrders, setWorkOrders] = useState<DeshazoWorkOrder[]>([])
   const [count, setCount] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
@@ -177,9 +178,8 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder, rece
 
   return (
     <div className="px-5 py-5 lg:px-7">
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Work order status totals">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="Work order status totals">
         {[
-          ['To Be Scheduled', kpis.pending],
           ['Scheduled', kpis.scheduled],
           ['Waiting On Parts', kpis.waitingOnParts],
           ['In Progress', kpis.inProgress],
@@ -198,7 +198,7 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder, rece
               <h1 className="text-[22px] font-semibold text-[var(--deshazo-text)]">Work Orders</h1>
               <span className="text-[12px] text-[#747b8a]">({loading ? '' : formatCount(count)})</span>
             </div>
-            <span className="mt-1 inline-flex rounded-full bg-[var(--deshazo-blue)] px-3 py-0.5 text-[11px] font-bold text-white">{recent ? 'Recently Added' : statusName || 'All'}</span>
+            <span className="mt-1 inline-flex rounded-full bg-[var(--deshazo-blue)] px-3 py-0.5 text-[11px] font-bold text-white">{listLabel || (recent ? 'Recently Added' : statusName || 'All')}</span>
           </div>
 
           <div className="flex items-center gap-3">
