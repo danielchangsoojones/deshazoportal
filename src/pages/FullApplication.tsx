@@ -111,9 +111,11 @@ export default function FullApplication() {
         ? 'work-orders:Recently Added'
         : location.pathname.endsWith('/work-orders/pending')
           ? 'work-orders:To Be Scheduled'
-        : location.pathname.endsWith('/work-orders/scheduled')
-          ? 'work-orders:Scheduled'
-        : 'work-orders:All',
+          : location.pathname.endsWith('/work-orders/scheduled')
+            ? 'work-orders:Scheduled'
+            : location.pathname.endsWith('/work-orders/in-progress')
+              ? 'work-orders:In-Progress'
+              : 'work-orders:All',
   )
   const [serviceLocationId, setServiceLocationId] = useState<number | null>(null)
   const [serviceLocations, setServiceLocations] = useState<DeshazoServiceLocation[]>([])
@@ -382,6 +384,7 @@ export default function FullApplication() {
                                 else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
                                 else if (itemKey === 'work-orders:To Be Scheduled') navigate('/full-application/work-orders/pending')
                                 else if (itemKey === 'work-orders:Scheduled') navigate('/full-application/work-orders/scheduled')
+                                else if (itemKey === 'work-orders:In-Progress') navigate('/full-application/work-orders/in-progress')
                                 else if (itemKey === 'work-orders:All' || workOrderId) navigate('/full-application')
                               }}
                               className={`w-full rounded-sm px-2 py-1 text-left text-[11px] leading-[17px] transition hover:bg-[#eef4ff] hover:text-[var(--deshazo-blue)] ${
@@ -418,7 +421,7 @@ export default function FullApplication() {
             workOrderId={workOrderId}
             onBack={() => {
               const returnTo = new URLSearchParams(location.search).get('returnTo')
-              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : '/full-application')
+              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : returnTo === 'in-progress' ? '/full-application/work-orders/in-progress' : '/full-application')
             }}
           />
         ) : activeItem === 'work-orders:All' ? (
@@ -448,6 +451,13 @@ export default function FullApplication() {
             statusName="Scheduled"
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=scheduled`)}
+          />
+        ) : activeItem === 'work-orders:In-Progress' ? (
+          <WorkOrdersAll
+            key="in-progress-work-orders"
+            statusName="In Progress"
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=in-progress`)}
           />
         ) : activeItem === 'calendar:Schedule' ? (
           <WorkOrdersSchedule
