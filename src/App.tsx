@@ -54,7 +54,7 @@ function SupportWidget() {
     setIsHidden(true)
   }
 
-  if (isHidden || location.pathname === '/full-application') return null
+  if (isHidden || location.pathname.startsWith('/full-application')) return null
 
   return (
     <div
@@ -160,6 +160,7 @@ function App() {
           <Route path="/deshazo-internal-dashboard" element={<DeshazoInternalDashboard />} />
           <Route path="/dashazo-internal-dashboard" element={<Navigate to="/deshazo-internal-dashboard" replace />} />
           <Route path="/full-application" element={<FullApplication />} />
+          <Route path="/full-application/calendar/schedule" element={<FullApplication />} />
           <Route path="/full-application/work-orders/:workOrderId/details" element={<FullApplication />} />
           <Route path="/customer-portals" element={<CustomerPortals />} />
           <Route path="/jobsquotinglist" element={<JobsQuotingList />} />

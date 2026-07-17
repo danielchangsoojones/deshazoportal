@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { getCurrentUserTag } from '../lib/userTags'
@@ -14,6 +14,7 @@ import {
 import JobCostReport from '../components/JobCostReport'
 import WorkOrdersAll from '../components/WorkOrdersAll'
 import WorkOrderDetails from '../components/WorkOrderDetails'
+import WorkOrdersSchedule from '../components/WorkOrdersSchedule'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
@@ -95,11 +96,14 @@ function ProfileSilhouette() {
 }
 
 export default function FullApplication() {
+  const location = useLocation()
   const [user, setUser] = useState<User | null>(null)
   const [deshazoUser, setDeshazoUser] = useState<DeshazoAppUser | null>(null)
   const [deshazoChecking, setDeshazoChecking] = useState(true)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
-  const [activeItem, setActiveItem] = useState('work-orders:All')
+  const [activeItem, setActiveItem] = useState(() =>
+    location.pathname.endsWith('/calendar/schedule') ? 'calendar:Schedule' : 'work-orders:All',
+  )
   const [serviceLocationId, setServiceLocationId] = useState<number | null>(null)
   const [serviceLocations, setServiceLocations] = useState<DeshazoServiceLocation[]>([])
   const [loginEmail, setLoginEmail] = useState('')
@@ -334,7 +338,8 @@ export default function FullApplication() {
                               aria-current={isActive ? 'page' : undefined}
                               onClick={() => {
                                 setActiveItem(itemKey)
-                                if (itemKey === 'work-orders:All' && workOrderId) navigate('/full-application')
+                                if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
+                                else if (itemKey === 'work-orders:All' || workOrderId) navigate('/full-application')
                               }}
                               className={`w-full rounded-sm px-2 py-1 text-left text-[11px] leading-[17px] transition hover:bg-[#eef4ff] hover:text-[var(--deshazo-blue)] ${
                                 isActive ? 'bg-[#e6efff] font-black text-[var(--deshazo-blue)]' : 'font-semibold text-[#747b8a]'
@@ -365,11 +370,19 @@ export default function FullApplication() {
 
       <main aria-label="Full application workspace" className="min-h-screen min-w-0 flex-1">
         {workOrderId && Number.isInteger(workOrderId) ? (
-          <WorkOrderDetails workOrderId={workOrderId} onBack={() => navigate('/full-application')} />
+          <WorkOrderDetails
+            workOrderId={workOrderId}
+            onBack={() => navigate(new URLSearchParams(location.search).get('returnTo') === 'schedule' ? '/full-application/calendar/schedule' : '/full-application')}
+          />
         ) : activeItem === 'work-orders:All' ? (
           <WorkOrdersAll
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details`)}
+          />
+        ) : activeItem === 'calendar:Schedule' ? (
+          <WorkOrdersSchedule
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=schedule`)}
           />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
