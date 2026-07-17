@@ -1,16 +1,23 @@
 import { deshazoAppFetch } from './deshazoAppAuth'
 
 export type DeshazoWorkOrderEmployee = {
+  id?: number
+  isLead?: boolean
   disabledAt?: string | null
   employee?: {
+    id?: number
     firstName?: string
     lastName?: string
     preferredName?: string
+    isActive?: boolean
   }
 }
 
 export type DeshazoWorkOrderTrip = {
+  id?: number
   tripNumber?: number
+  startDate?: string | null
+  endDate?: string | null
   workOrderEmployees?: DeshazoWorkOrderEmployee[]
 }
 
@@ -33,6 +40,32 @@ export type DeshazoWorkOrder = {
   startDate?: string | null
   endDate?: string | null
   workOrderTrips?: DeshazoWorkOrderTrip[]
+  customerPONo?: string | null
+  quotedJob?: boolean
+  createdAt?: string | null
+  status?: { id?: number; name?: string | null } | null
+  statusLog?: Array<{
+    status?: { id?: number; name?: string | null } | null
+    createdAt?: string | null
+    isManualUpdate?: string | null
+    author?: { firstName?: string; lastName?: string } | null
+    updateAuthor?: { firstName?: string; lastName?: string } | null
+  }>
+  workOrderCranes?: Array<{
+    id?: number
+    crane?: {
+      id?: number
+      ContactCode?: string | null
+      contactCode?: string | null
+      description?: string | null
+    } | null
+  }>
+  customerContacts?: Array<{
+    id?: number
+    name?: string | null
+    email?: string | null
+    phone?: string | null
+  }>
 }
 
 export type DeshazoWorkOrdersResponse = {
@@ -113,4 +146,9 @@ export async function getDeshazoWorkOrderStatuses() {
     '/work-order-status',
   )
   return Array.isArray(body) ? body : Array.isArray(body.data) ? body.data : []
+}
+
+export async function getDeshazoWorkOrderById(id: number): Promise<DeshazoWorkOrder> {
+  if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid work order ID.')
+  return getOnlyJson<DeshazoWorkOrder>(`/work-orders/${id}?id=${id}`)
 }

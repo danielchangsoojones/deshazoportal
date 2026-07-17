@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { getCurrentUserTag } from '../lib/userTags'
@@ -13,6 +13,7 @@ import {
 } from '../lib/deshazoAppAuth'
 import JobCostReport from '../components/JobCostReport'
 import WorkOrdersAll from '../components/WorkOrdersAll'
+import WorkOrderDetails from '../components/WorkOrderDetails'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
@@ -106,6 +107,8 @@ export default function FullApplication() {
   const [loginError, setLoginError] = useState('')
   const [signingIn, setSigningIn] = useState(false)
   const navigate = useNavigate()
+  const { workOrderId: workOrderIdParam } = useParams()
+  const workOrderId = workOrderIdParam ? Number(workOrderIdParam) : null
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -358,8 +361,13 @@ export default function FullApplication() {
       </aside>
 
       <main aria-label="Full application workspace" className="min-h-screen min-w-0 flex-1">
-        {activeItem === 'work-orders:All' ? (
-          <WorkOrdersAll serviceLocationId={serviceLocationId} />
+        {workOrderId && Number.isInteger(workOrderId) ? (
+          <WorkOrderDetails workOrderId={workOrderId} onBack={() => navigate('/full-application')} />
+        ) : activeItem === 'work-orders:All' ? (
+          <WorkOrdersAll
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details`)}
+          />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
         ) : (

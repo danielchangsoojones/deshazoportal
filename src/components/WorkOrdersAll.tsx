@@ -11,6 +11,7 @@ const DEFAULT_PAGE_SIZE = 25
 
 type WorkOrdersAllProps = {
   serviceLocationId: number | null
+  onOpenWorkOrder: (workOrderId: number) => void
 }
 
 function formatCount(value: number | undefined) {
@@ -81,7 +82,7 @@ function paginationPages(currentPage: number, totalPages: number) {
   return Array.from(pages).sort((left, right) => left - right)
 }
 
-export default function WorkOrdersAll({ serviceLocationId }: WorkOrdersAllProps) {
+export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: WorkOrdersAllProps) {
   const [workOrders, setWorkOrders] = useState<DeshazoWorkOrder[]>([])
   const [count, setCount] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
@@ -248,15 +249,23 @@ export default function WorkOrdersAll({ serviceLocationId }: WorkOrdersAllProps)
                 <tr><td colSpan={8} className="px-4 py-12 text-center font-semibold text-[#7b8793]">Loading work orders...</td></tr>
               ) : workOrders.length ? (
                 workOrders.map((workOrder) => (
-                  <tr key={workOrder.id} className="border-b border-[#edf1f5] odd:bg-[#fbfcfe] hover:bg-[#f4f8fc]">
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-[#34495e]">{workOrder.jobNo || '-'}</td>
+                  <tr
+                    key={workOrder.id}
+                    onClick={() => onOpenWorkOrder(workOrder.id)}
+                    className="cursor-pointer border-b border-[#edf1f5] odd:bg-[#fbfcfe] hover:bg-[#edf5fb]"
+                  >
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-[#315d87]">
+                      <button type="button" className="font-semibold hover:underline" onClick={(event) => { event.stopPropagation(); onOpenWorkOrder(workOrder.id) }}>
+                        {workOrder.jobNo || '-'}
+                      </button>
+                    </td>
                     <td className="px-4 py-3"><span className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-bold ${typeBadgeClass(workOrder.jobType)}`}>{workOrder.jobType || '-'}</span></td>
                     <td className="max-w-[230px] truncate px-4 py-3 text-[#46515e]">{workOrder.customerWorkOrder?.customerName || '-'}</td>
                     <td className="max-w-[280px] truncate px-4 py-3 text-[#46515e]" title={formatAddress(workOrder)}>{formatAddress(workOrder)}</td>
                     <td className="max-w-[300px] truncate px-4 py-3 text-[#46515e]" title={workOrder.svcCommentText || workOrder.comment || '-'}>{workOrder.svcCommentText || workOrder.comment || '-'}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-[#46515e]">{workOrder.serviceLocation?.name || '-'}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-[#46515e]">{formatDateRange(workOrder)}</td>
-                    <td className="px-4 py-3"><button type="button" onClick={() => setSelectedAssignment(workOrder)} className="whitespace-nowrap rounded-md bg-[#0a3b2a] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-[#0b4632]">Show Assigned</button></td>
+                    <td className="px-4 py-3"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedAssignment(workOrder) }} className="whitespace-nowrap rounded-md bg-[#0a3b2a] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-[#0b4632]">Show Assigned</button></td>
                   </tr>
                 ))
               ) : (
