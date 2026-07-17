@@ -68,7 +68,7 @@ function assignedEmployees(workOrder: DeshazoWorkOrder) {
 
 function typeBadgeClass(jobType?: string | null) {
   const type = (jobType || '').toLowerCase()
-  if (type.includes('inspection')) return 'border-[#b8c9f5] bg-[#eef3ff] text-[#315aa7]'
+  if (type.includes('inspection')) return 'border-[#b8c9f5] bg-[#eef3ff] text-[var(--deshazo-blue)]'
   if (type.includes('warranty')) return 'border-[#d3d8e2] bg-[#f4f6fa] text-[#616a78]'
   if (type.includes('service')) return 'border-[#b8dece] bg-[#edf8f3] text-[#367861]'
   return 'border-[#f6d58e] bg-[#fff7e8] text-[#a96d09]'
@@ -178,21 +178,21 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: Wo
           ['Waiting On Parts', kpis.waitingOnParts],
           ['In Progress', kpis.inProgress],
         ].map(([label, value]) => (
-          <div key={String(label)} className="rounded-sm border border-[#d7e1eb] bg-white px-4 pt-4 shadow-[0_8px_24px_rgba(55,78,108,0.04)]">
-            <p className="border-b border-[#e3e8ee] pb-2 text-center text-[11px] font-semibold uppercase tracking-[0.02em] text-[#4b5662]">{label}</p>
-            <p className="py-3 text-center text-[20px] font-medium text-[#46515e]">{formatCount(value as number | undefined)}</p>
+          <div key={String(label)} className="rounded-sm border border-[#d3dbea] bg-white px-4 pt-4 shadow-[0_8px_24px_rgba(55,78,108,0.04)]">
+            <p className="border-b border-[#d3dbea] pb-2 text-center text-[11px] font-semibold uppercase tracking-[0.02em] text-[#4b5662]">{label}</p>
+            <p className="py-3 text-center text-[20px] font-medium text-[var(--deshazo-text)]">{formatCount(value as number | undefined)}</p>
           </div>
         ))}
       </section>
 
-      <section className="mt-5 overflow-hidden rounded-sm border border-[#d7e1eb] bg-white shadow-[0_10px_28px_rgba(55,78,108,0.05)]">
-        <header className="flex flex-col gap-4 border-b border-[#e3e8ee] px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+      <section className="mt-5 overflow-hidden rounded-sm border border-[#d3dbea] bg-white shadow-[0_10px_28px_rgba(55,78,108,0.05)]">
+        <header className="flex flex-col gap-4 border-b border-[#d3dbea] px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-[22px] font-semibold text-[#35414d]">Work Orders</h1>
-              <span className="text-[12px] text-[#89939d]">({loading ? '' : formatCount(count)})</span>
+              <h1 className="text-[22px] font-semibold text-[var(--deshazo-text)]">Work Orders</h1>
+              <span className="text-[12px] text-[#747b8a]">({loading ? '' : formatCount(count)})</span>
             </div>
-            <span className="mt-1 inline-flex rounded-full bg-[#0a3b2a] px-3 py-0.5 text-[11px] font-bold text-white">All</span>
+            <span className="mt-1 inline-flex rounded-full bg-[var(--deshazo-blue)] px-3 py-0.5 text-[11px] font-bold text-white">All</span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -203,7 +203,7 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: Wo
                 maxLength={50}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search for a work order number.."
-                className="h-9 w-full rounded-md border border-[#cfd6dc] bg-white pl-3 pr-10 text-[12px] text-[#404a54] outline-none transition focus:border-[#0a3b2a]"
+                className="h-9 w-full rounded-md border border-[#c7d1e2] bg-white pl-3 pr-10 text-[12px] text-[var(--deshazo-text)] outline-none transition focus:border-[var(--deshazo-blue)]"
               />
               <span aria-hidden="true" className="absolute right-0 top-0 flex h-9 w-9 items-center justify-center rounded-r-md bg-[#647688] text-white">⌕</span>
             </label>
@@ -223,7 +223,7 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: Wo
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1280px] border-collapse text-left text-[12px]">
             <thead>
-              <tr className="border-b border-[#e4eaf1] bg-white text-[11px] font-semibold text-[#7b8793]">
+              <tr className="border-b border-[#d3dbea] bg-white text-[11px] font-semibold text-[#747b8a]">
                 {[
                   ['jobNo', 'Work Order #'],
                   ['jobType', 'Type'],
@@ -236,7 +236,7 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: Wo
                 ].map(([field, label]) => (
                   <th key={String(label)} className="whitespace-nowrap px-4 py-3">
                     {field ? (
-                      <button type="button" onClick={() => changeSort(String(field))} className="font-semibold hover:text-[#0a3b2a]">
+                      <button type="button" onClick={() => changeSort(String(field))} className="font-semibold hover:text-[var(--deshazo-blue)]">
                         {label} {sortBy === field ? (direction === 'asc' ? '↑' : '↓') : ''}
                       </button>
                     ) : label}
@@ -246,57 +246,57 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: Wo
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-12 text-center font-semibold text-[#7b8793]">Loading work orders...</td></tr>
+                <tr><td colSpan={8} className="px-4 py-12 text-center font-semibold text-[#747b8a]">Loading work orders...</td></tr>
               ) : workOrders.length ? (
                 workOrders.map((workOrder) => (
                   <tr
                     key={workOrder.id}
                     onClick={() => onOpenWorkOrder(workOrder.id)}
-                    className="cursor-pointer border-b border-[#edf1f5] odd:bg-[#fbfcfe] hover:bg-[#edf5fb]"
+                    className="cursor-pointer border-b border-[#e2e8f2] odd:bg-[#f8fbff] hover:bg-[#eef4ff]"
                   >
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-[#315d87]">
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-[var(--deshazo-blue)]">
                       <button type="button" className="font-semibold hover:underline" onClick={(event) => { event.stopPropagation(); onOpenWorkOrder(workOrder.id) }}>
                         {workOrder.jobNo || '-'}
                       </button>
                     </td>
                     <td className="px-4 py-3"><span className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-bold ${typeBadgeClass(workOrder.jobType)}`}>{workOrder.jobType || '-'}</span></td>
-                    <td className="max-w-[230px] truncate px-4 py-3 text-[#46515e]">{workOrder.customerWorkOrder?.customerName || '-'}</td>
-                    <td className="max-w-[280px] truncate px-4 py-3 text-[#46515e]" title={formatAddress(workOrder)}>{formatAddress(workOrder)}</td>
-                    <td className="max-w-[300px] truncate px-4 py-3 text-[#46515e]" title={workOrder.svcCommentText || workOrder.comment || '-'}>{workOrder.svcCommentText || workOrder.comment || '-'}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-[#46515e]">{workOrder.serviceLocation?.name || '-'}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-[#46515e]">{formatDateRange(workOrder)}</td>
-                    <td className="px-4 py-3"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedAssignment(workOrder) }} className="whitespace-nowrap rounded-md bg-[#0a3b2a] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-[#0b4632]">Show Assigned</button></td>
+                    <td className="max-w-[230px] truncate px-4 py-3 text-[var(--deshazo-text)]">{workOrder.customerWorkOrder?.customerName || '-'}</td>
+                    <td className="max-w-[280px] truncate px-4 py-3 text-[var(--deshazo-text)]" title={formatAddress(workOrder)}>{formatAddress(workOrder)}</td>
+                    <td className="max-w-[300px] truncate px-4 py-3 text-[var(--deshazo-text)]" title={workOrder.svcCommentText || workOrder.comment || '-'}>{workOrder.svcCommentText || workOrder.comment || '-'}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-[var(--deshazo-text)]">{workOrder.serviceLocation?.name || '-'}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-[var(--deshazo-text)]">{formatDateRange(workOrder)}</td>
+                    <td className="px-4 py-3"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedAssignment(workOrder) }} className="whitespace-nowrap rounded-md bg-[var(--deshazo-blue)] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-[var(--deshazo-blue-deep)]">Show Assigned</button></td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-[#65717d]">No results</td></tr>
+                <tr><td colSpan={8} className="px-4 py-12 text-center text-[#747b8a]">No results</td></tr>
               )}
             </tbody>
           </table>
         </div>
 
-        <footer className="flex flex-col gap-3 border-t border-[#e3e8ee] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <footer className="flex flex-col gap-3 border-t border-[#d3dbea] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <select
             aria-label="Rows per page"
             value={pageSize}
             onChange={(event) => setPageSize(Number(event.target.value))}
-            className="h-8 w-[76px] rounded-md border border-[#cfd6dc] bg-white px-2 text-[12px] text-[#46515e]"
+            className="h-8 w-[76px] rounded-md border border-[#c7d1e2] bg-white px-2 text-[12px] text-[var(--deshazo-text)]"
           >
             {[25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
           </select>
 
           <nav aria-label="Pagination" className="flex flex-wrap items-center justify-center gap-1">
-            <button type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="h-8 rounded-md border border-[#d2dae3] px-3 text-[12px] disabled:opacity-40">‹</button>
+            <button type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="h-8 rounded-md border border-[#bdc4d3] px-3 text-[12px] disabled:opacity-40">‹</button>
             {visiblePages.map((visiblePage, index) => {
               const previous = visiblePages[index - 1]
               return (
                 <span key={visiblePage} className="contents">
-                  {previous && visiblePage - previous > 1 ? <span className="px-1 text-[#83909d]">…</span> : null}
-                  <button type="button" aria-current={visiblePage === page ? 'page' : undefined} onClick={() => setPage(visiblePage)} className={`h-8 min-w-8 rounded-md border px-2 text-[12px] ${visiblePage === page ? 'border-[#0a3b2a] bg-[#0a3b2a] font-bold text-white' : 'border-[#d2dae3] bg-white text-[#53606d]'}`}>{visiblePage}</button>
+                  {previous && visiblePage - previous > 1 ? <span className="px-1 text-[#747b8a]">…</span> : null}
+                  <button type="button" aria-current={visiblePage === page ? 'page' : undefined} onClick={() => setPage(visiblePage)} className={`h-8 min-w-8 rounded-md border px-2 text-[12px] ${visiblePage === page ? 'border-[var(--deshazo-blue)] bg-[var(--deshazo-blue)] font-bold text-white' : 'border-[#bdc4d3] bg-white text-[#4d5360]'}`}>{visiblePage}</button>
                 </span>
               )
             })}
-            <button type="button" disabled={page === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="h-8 rounded-md border border-[#d2dae3] px-3 text-[12px] disabled:opacity-40">›</button>
+            <button type="button" disabled={page === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="h-8 rounded-md border border-[#bdc4d3] px-3 text-[12px] disabled:opacity-40">›</button>
           </nav>
         </footer>
       </section>
@@ -304,19 +304,19 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder }: Wo
       {selectedAssignment ? (
         <div role="dialog" aria-modal="true" aria-labelledby="assignment-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-[#1c2733]/45 px-4" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelectedAssignment(null) }}>
           <div className="w-full max-w-md rounded-lg bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[#e1e7ed] px-5 py-4">
-              <h2 id="assignment-title" className="text-[16px] font-bold text-[#34414d]">Work Order Assignations</h2>
-              <button type="button" aria-label="Close" onClick={() => setSelectedAssignment(null)} className="text-[24px] leading-none text-[#7b8793]">×</button>
+            <div className="flex items-center justify-between border-b border-[#d3dbea] px-5 py-4">
+              <h2 id="assignment-title" className="text-[16px] font-bold text-[var(--deshazo-text)]">Work Order Assignations</h2>
+              <button type="button" aria-label="Close" onClick={() => setSelectedAssignment(null)} className="text-[24px] leading-none text-[#747b8a]">×</button>
             </div>
             <div className="max-h-[55vh] overflow-auto px-5 py-4 text-[13px]">
               {assignmentGroups.length ? assignmentGroups.map((group, index) => (
                 <section key={`${group.tripNumber ?? 'trip'}-${index}`} className="mb-4 last:mb-0">
-                  <h3 className="bg-[#f1f5f8] px-3 py-2 font-bold text-[#46515e]">Trip {group.tripNumber ?? index + 1}</h3>
-                  {group.employees.length ? group.employees.map((employee) => <p key={employee} className="border-b border-[#edf1f5] px-3 py-2 text-[#53606d]">{employee}</p>) : <p className="px-3 py-2 text-[#89939d]">No active assignments</p>}
+                  <h3 className="bg-[#eef2f8] px-3 py-2 font-bold text-[var(--deshazo-text)]">Trip {group.tripNumber ?? index + 1}</h3>
+                  {group.employees.length ? group.employees.map((employee) => <p key={employee} className="border-b border-[#e2e8f2] px-3 py-2 text-[#4d5360]">{employee}</p>) : <p className="px-3 py-2 text-[#747b8a]">No active assignments</p>}
                 </section>
-              )) : <p className="text-[#89939d]">No assignments found.</p>}
+              )) : <p className="text-[#747b8a]">No assignments found.</p>}
             </div>
-            <div className="flex justify-end border-t border-[#e1e7ed] px-5 py-3"><button type="button" onClick={() => setSelectedAssignment(null)} className="rounded-md bg-[#0a3b2a] px-4 py-2 text-[12px] font-bold text-white">Close</button></div>
+            <div className="flex justify-end border-t border-[#d3dbea] px-5 py-3"><button type="button" onClick={() => setSelectedAssignment(null)} className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[12px] font-bold text-white">Close</button></div>
           </div>
         </div>
       ) : null}

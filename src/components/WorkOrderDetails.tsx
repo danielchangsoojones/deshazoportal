@@ -53,8 +53,8 @@ function StatusTimeline({ workOrder, statuses }: { workOrder: DeshazoWorkOrder; 
     : ['Pending', 'Scheduled', 'In Progress', 'Waiting for parts', 'Completed', 'Ready to Invoice', 'Invoiced'].map((name, index) => ({ id: index, name }))
 
   return (
-    <section className="overflow-x-auto border-t border-[#e1e7ed] px-5 pb-6 pt-5">
-      <h2 className="text-center text-[18px] font-semibold text-[#35414d]">Work Order Status</h2>
+    <section className="overflow-x-auto border-t border-[#d3dbea] px-5 pb-6 pt-5">
+      <h2 className="text-center text-[18px] font-semibold text-[var(--deshazo-text)]">Work Order Status</h2>
       <div className="mt-6 min-w-[880px]">
         <div className="mx-8 border-t-2 border-[#d9e1e8]" />
         <div className="-mt-[13px] flex justify-between">
@@ -66,9 +66,9 @@ function StatusTimeline({ workOrder, statuses }: { workOrder: DeshazoWorkOrder; 
             const active = workOrder.status?.name === status.name
             return (
               <div key={status.id} className="flex w-[120px] flex-col items-center text-center">
-                <span className={`h-6 w-6 rounded-full border-4 border-white shadow ${active ? 'bg-[#3b8c6b]' : 'bg-[#e4e9ee]'}`} />
-                <span className={`mt-2 rounded-full px-2.5 py-1 text-[10px] font-bold ${active ? 'bg-[#3b8c6b] text-white' : 'bg-[#eef1f4] text-[#7c8792]'}`}>{status.name}</span>
-                {date ? <span className="mt-2 text-[10px] leading-4 text-[#7c8792]">{formatDateTime(date)}{log ? <><br />By {personName(author)}</> : null}</span> : null}
+                <span className={`h-6 w-6 rounded-full border-4 border-white shadow ${active ? 'bg-[var(--deshazo-blue)]' : 'bg-[#d3dbea]'}`} />
+                <span className={`mt-2 rounded-full px-2.5 py-1 text-[10px] font-bold ${active ? 'bg-[var(--deshazo-blue)] text-white' : 'bg-[#eef2f8] text-[#747b8a]'}`}>{status.name}</span>
+                {date ? <span className="mt-2 text-[10px] leading-4 text-[#747b8a]">{formatDateTime(date)}{log ? <><br />By {personName(author)}</> : null}</span> : null}
               </div>
             )
           })}
@@ -79,7 +79,7 @@ function StatusTimeline({ workOrder, statuses }: { workOrder: DeshazoWorkOrder; 
 }
 
 function CraneIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 32 32" className="h-7 w-7 text-[#0a3b2a]" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M5 27V5h10M5 9h20M17 9v6m0 0h5m-2 0v7a3 3 0 0 1-6 0" /><path d="m10 5 4 4M25 9l-4 4" /></svg>
+  return <svg aria-hidden="true" viewBox="0 0 32 32" className="h-7 w-7 text-[var(--deshazo-blue)]" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M5 27V5h10M5 9h20M17 9v6m0 0h5m-2 0v7a3 3 0 0 1-6 0" /><path d="m10 5 4 4M25 9l-4 4" /></svg>
 }
 
 export default function WorkOrderDetails({ workOrderId, onBack }: WorkOrderDetailsProps) {
@@ -112,72 +112,72 @@ export default function WorkOrderDetails({ workOrderId, onBack }: WorkOrderDetai
     [workOrder],
   )
 
-  if (loading) return <div className="flex min-h-[70vh] items-center justify-center text-[13px] font-semibold text-[#6d7884]">Loading work order...</div>
+  if (loading) return <div className="flex min-h-[70vh] items-center justify-center text-[13px] font-semibold text-[#747b8a]">Loading work order...</div>
 
   if (!workOrder || error) {
-    return <div className="p-7"><button type="button" onClick={onBack} className="rounded-md bg-[#0a3b2a] px-4 py-2 text-[12px] font-bold text-white">← Back</button><p className="mt-4 rounded-md border border-[#f0c8c8] bg-[#fdf1f1] px-4 py-3 text-[13px] font-semibold text-[#b23b3b]">{error || 'Work order not found.'}</p></div>
+    return <div className="p-7"><button type="button" onClick={onBack} className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[12px] font-bold text-white">← Back</button><p className="mt-4 rounded-md border border-[#f0c8c8] bg-[#fdf1f1] px-4 py-3 text-[13px] font-semibold text-[#b23b3b]">{error || 'Work order not found.'}</p></div>
   }
 
   return (
     <div className="px-5 py-5 lg:px-7">
       <header className="mb-4 flex items-start justify-between">
         <div>
-          <h1 className="text-[22px] font-semibold text-[#35414d]">Work Order Information</h1>
-          <button type="button" onClick={onBack} className="mt-2 rounded-md bg-[#0a3b2a] px-3 py-1.5 text-[11px] font-bold text-white">← Back</button>
+          <h1 className="text-[22px] font-semibold text-[var(--deshazo-text)]">Work Order Information</h1>
+          <button type="button" onClick={onBack} className="mt-2 rounded-md bg-[var(--deshazo-blue)] px-3 py-1.5 text-[11px] font-bold text-white">← Back</button>
         </div>
         <span className="rounded-full border border-[#b8dece] bg-[#edf8f3] px-3 py-1 text-[11px] font-bold text-[#367861]">Read-only view</span>
       </header>
 
-      <section className="overflow-hidden rounded-sm border border-[#d7e1eb] bg-white shadow-[0_10px_28px_rgba(55,78,108,0.05)]">
+      <section className="overflow-hidden rounded-sm border border-[#d3dbea] bg-white shadow-[0_10px_28px_rgba(55,78,108,0.05)]">
         <div className="flex flex-col justify-between gap-5 px-5 py-5 lg:flex-row">
           <div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[18px] font-semibold text-[#35414d]">
-              <span>Customer: <span className="text-[#315d87]">{workOrder.customerWorkOrder?.customerName || '-'}</span></span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[18px] font-semibold text-[var(--deshazo-text)]">
+              <span>Customer: <span className="text-[var(--deshazo-blue)]">{workOrder.customerWorkOrder?.customerName || '-'}</span></span>
               {workOrder.customerWorkOrder && 'customerNo' in workOrder.customerWorkOrder ? <span className="text-[13px] text-[#88939e]">{String(workOrder.customerWorkOrder.customerNo || '')}</span> : null}
             </div>
-            <p className="mt-2 text-[12px] text-[#53606d]">Customer Location: <span className="text-[#7c8792]">{formatAddress(workOrder)}</span></p>
-            {workOrder.quotedJob ? <span className="mt-3 inline-flex rounded-full bg-[#0a3b2a] px-3 py-1 text-[10px] font-bold text-white">Quoted Job</span> : null}
+            <p className="mt-2 text-[12px] text-[#4d5360]">Customer Location: <span className="text-[#747b8a]">{formatAddress(workOrder)}</span></p>
+            {workOrder.quotedJob ? <span className="mt-3 inline-flex rounded-full bg-[var(--deshazo-blue)] px-3 py-1 text-[10px] font-bold text-white">Quoted Job</span> : null}
           </div>
           <div className="text-left lg:text-right">
-            <p className="text-[18px] font-semibold text-[#35414d]">Work Order #: <span className="text-[#7c8792]">{workOrder.jobNo || `Without WO# (${workOrder.id})`}</span></p>
-            <p className="mt-2 text-[12px] text-[#53606d]">Service Location: <span className="text-[#7c8792]">{workOrder.serviceLocation?.name || '-'}</span></p>
+            <p className="text-[18px] font-semibold text-[var(--deshazo-text)]">Work Order #: <span className="text-[#747b8a]">{workOrder.jobNo || `Without WO# (${workOrder.id})`}</span></p>
+            <p className="mt-2 text-[12px] text-[#4d5360]">Service Location: <span className="text-[#747b8a]">{workOrder.serviceLocation?.name || '-'}</span></p>
           </div>
         </div>
 
         <StatusTimeline workOrder={workOrder} statuses={statuses} />
       </section>
 
-      <nav className="mt-4 flex border-b border-[#d7e1eb] text-[12px] font-semibold text-[#697581]" aria-label="Work order detail sections">
-        <span className="border-b-2 border-[#0a3b2a] px-4 py-3 text-[#0a3b2a]">Job Details</span>
+      <nav className="mt-4 flex border-b border-[#d3dbea] text-[12px] font-semibold text-[#747b8a]" aria-label="Work order detail sections">
+        <span className="border-b-2 border-[var(--deshazo-blue)] px-4 py-3 text-[var(--deshazo-blue)]">Job Details</span>
         <span className="px-4 py-3">Work Performed</span>
         <span className="px-4 py-3">Reports</span>
       </nav>
 
-      <section className="border border-t-0 border-[#d7e1eb] bg-white px-5 py-5">
+      <section className="border border-t-0 border-[#d3dbea] bg-white px-5 py-5">
         <div>
-          <h2 className="border-b border-[#dfe5eb] pb-2 text-[18px] font-semibold text-[#35414d]">Work Order Schedule</h2>
-          <div className="mt-4 flex items-center gap-5 text-[12px]"><span className="w-[150px] font-semibold underline">WO Dates</span><span className="rounded-md border border-[#d8e1ea] bg-[#f6faff] px-4 py-2 font-semibold text-[#53606d]">{formatDate(workOrder.startDate)} <span className="px-2 text-[#99a3ad]">to</span> {formatDate(workOrder.endDate)}</span></div>
+          <h2 className="border-b border-[#d3dbea] pb-2 text-[18px] font-semibold text-[var(--deshazo-text)]">Work Order Schedule</h2>
+          <div className="mt-4 flex items-center gap-5 text-[12px]"><span className="w-[150px] font-semibold underline">WO Dates</span><span className="rounded-md border border-[#c7d1e2] bg-[#f8fbff] px-4 py-2 font-semibold text-[#4d5360]">{formatDate(workOrder.startDate)} <span className="px-2 text-[#99a3ad]">to</span> {formatDate(workOrder.endDate)}</span></div>
 
           {trips.map((trip, index) => (
-            <article key={trip.id ?? index} className="mt-4 overflow-hidden rounded-md border border-[#cad8e5]">
-              <h3 className="bg-[#0a3b2a] px-4 py-2.5 text-[12px] font-bold text-white">Trip {trip.tripNumber ?? index + 1}</h3>
-              <div className="bg-[#f8fafc] px-4 py-4">
-                <div className="flex items-center gap-5 text-[12px]"><span className="w-[130px] font-semibold underline">Trip Dates</span><span className="rounded-md border border-[#d8e1ea] bg-white px-4 py-2">{formatDate(trip.startDate)} <span className="px-2 text-[#99a3ad]">to</span> {formatDate(trip.endDate)}</span></div>
-                <div className="mt-4 flex items-start gap-5 text-[12px]"><span className="w-[130px] shrink-0 font-semibold underline">Assigned Techs</span><div className="flex flex-wrap gap-2">{(trip.workOrderEmployees ?? []).filter((employee) => !employee.disabledAt).map((assignment, employeeIndex) => <span key={assignment.id ?? employeeIndex} className="rounded-md border border-[#d8e1ea] bg-white px-3 py-2 text-[#53606d]">{assignment.isLead ? '★ ' : ''}{[assignment.employee?.firstName, assignment.employee?.lastName].filter(Boolean).join(' ') || 'Unknown technician'}</span>)}</div></div>
+            <article key={trip.id ?? index} className="mt-4 overflow-hidden rounded-md border border-[#c8d5ea]">
+              <h3 className="bg-[var(--deshazo-blue)] px-4 py-2.5 text-[12px] font-bold text-white">Trip {trip.tripNumber ?? index + 1}</h3>
+              <div className="bg-[#f8fbff] px-4 py-4">
+                <div className="flex items-center gap-5 text-[12px]"><span className="w-[130px] font-semibold underline">Trip Dates</span><span className="rounded-md border border-[#c7d1e2] bg-white px-4 py-2">{formatDate(trip.startDate)} <span className="px-2 text-[#99a3ad]">to</span> {formatDate(trip.endDate)}</span></div>
+                <div className="mt-4 flex items-start gap-5 text-[12px]"><span className="w-[130px] shrink-0 font-semibold underline">Assigned Techs</span><div className="flex flex-wrap gap-2">{(trip.workOrderEmployees ?? []).filter((employee) => !employee.disabledAt).map((assignment, employeeIndex) => <span key={assignment.id ?? employeeIndex} className="rounded-md border border-[#c7d1e2] bg-white px-3 py-2 text-[#4d5360]">{assignment.isLead ? '★ ' : ''}{[assignment.employee?.firstName, assignment.employee?.lastName].filter(Boolean).join(' ') || 'Unknown technician'}</span>)}</div></div>
               </div>
             </article>
           ))}
         </div>
 
         <div className="mt-7">
-          <h2 className="border-b border-[#dfe5eb] pb-2 text-[18px] font-semibold text-[#35414d]">Work Order Details</h2>
+          <h2 className="border-b border-[#d3dbea] pb-2 text-[18px] font-semibold text-[var(--deshazo-text)]">Work Order Details</h2>
           <dl className="mt-5 grid grid-cols-[150px_minmax(0,1fr)] gap-x-5 gap-y-6 text-[12px]">
-            <dt className="font-semibold underline">Service Requested</dt><dd className="text-[#53606d]">{workOrder.svcCommentText || workOrder.comment || 'Not Provided'}</dd>
-            <dt className="font-semibold underline">PO#</dt><dd className="text-[#53606d]">{workOrder.customerPONo || '-'}</dd>
-            <dt className="font-semibold underline">Cranes</dt><dd className="flex flex-wrap gap-2">{workOrder.workOrderCranes?.length ? workOrder.workOrderCranes.map((item, index) => <span key={item.id ?? index} className="flex min-w-[92px] flex-col items-center rounded-md border border-[#d8e1ea] bg-[#f8fafc] px-3 py-2 text-[10px] font-semibold text-[#53606d]"><CraneIcon />{item.crane?.ContactCode || item.crane?.contactCode || item.crane?.description || 'D# Not Set'}</span>) : <span className="text-[#7c8792]">No Cranes</span>}</dd>
-            <dt className="border-b border-[#e1e7ed] pb-5 font-semibold underline">Job Type</dt><dd className="border-b border-[#e1e7ed] pb-5"><span className="rounded-full bg-[#315d87] px-3 py-1 text-[10px] font-bold text-white">{workOrder.jobType || '-'}</span></dd>
-            <dt className="font-semibold underline">Customer Location</dt><dd className="text-[#53606d]">{formatAddress(workOrder)}</dd>
-            <dt className="font-semibold underline">Customer Contacts</dt><dd className="flex flex-wrap gap-3">{workOrder.customerContacts?.length ? workOrder.customerContacts.map((contact, index) => <div key={contact.id ?? index} className="min-w-[190px] overflow-hidden rounded-md border border-[#d8e1ea] text-center"><p className="bg-[#f0f4f7] px-3 py-2 font-semibold text-[#35414d]">{contact.name || '-'}</p><p className="px-3 pt-2 text-[10px] text-[#697581]">{contact.email || '-'}</p><p className="px-3 pb-2 text-[10px] text-[#697581]">{contact.phone || '-'}</p></div>) : <span className="text-[#7c8792]">No Contacts</span>}</dd>
+            <dt className="font-semibold underline">Service Requested</dt><dd className="text-[#4d5360]">{workOrder.svcCommentText || workOrder.comment || 'Not Provided'}</dd>
+            <dt className="font-semibold underline">PO#</dt><dd className="text-[#4d5360]">{workOrder.customerPONo || '-'}</dd>
+            <dt className="font-semibold underline">Cranes</dt><dd className="flex flex-wrap gap-2">{workOrder.workOrderCranes?.length ? workOrder.workOrderCranes.map((item, index) => <span key={item.id ?? index} className="flex min-w-[92px] flex-col items-center rounded-md border border-[#c7d1e2] bg-[#f8fbff] px-3 py-2 text-[10px] font-semibold text-[#4d5360]"><CraneIcon />{item.crane?.ContactCode || item.crane?.contactCode || item.crane?.description || 'D# Not Set'}</span>) : <span className="text-[#747b8a]">No Cranes</span>}</dd>
+            <dt className="border-b border-[#d3dbea] pb-5 font-semibold underline">Job Type</dt><dd className="border-b border-[#d3dbea] pb-5"><span className="rounded-full bg-[var(--deshazo-blue)] px-3 py-1 text-[10px] font-bold text-white">{workOrder.jobType || '-'}</span></dd>
+            <dt className="font-semibold underline">Customer Location</dt><dd className="text-[#4d5360]">{formatAddress(workOrder)}</dd>
+            <dt className="font-semibold underline">Customer Contacts</dt><dd className="flex flex-wrap gap-3">{workOrder.customerContacts?.length ? workOrder.customerContacts.map((contact, index) => <div key={contact.id ?? index} className="min-w-[190px] overflow-hidden rounded-md border border-[#c7d1e2] text-center"><p className="bg-[#eef2f8] px-3 py-2 font-semibold text-[var(--deshazo-text)]">{contact.name || '-'}</p><p className="px-3 pt-2 text-[10px] text-[#747b8a]">{contact.email || '-'}</p><p className="px-3 pb-2 text-[10px] text-[#747b8a]">{contact.phone || '-'}</p></div>) : <span className="text-[#747b8a]">No Contacts</span>}</dd>
           </dl>
         </div>
       </section>

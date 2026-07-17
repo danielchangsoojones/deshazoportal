@@ -88,8 +88,8 @@ function MenuIcon({ icon }: { icon: MenuSection['icon'] | 'logout' }) {
 function ProfileSilhouette() {
   return (
     <svg aria-hidden="true" viewBox="0 0 80 80" className="h-full w-full">
-      <circle cx="40" cy="40" r="39" fill="#e7f1ff" stroke="#c9d6e5" />
-      <path d="M40 14c-10.1 0-15.2 6-15.2 15.1 0 2.3.6 4.3 1.5 6.1-.8.6-1.1 1.7-.8 3.1.4 2.1 1.4 3.8 2.8 4.4.9 4.4 3.2 8.1 6.4 10.1v4.1c-2.5 3.1-8.5 4-12.8 6.8-2.2 1.4-3.7 3.8-4.7 6.3a39 39 0 0 0 45.6 0c-1-2.5-2.5-4.9-4.7-6.3-4.3-2.8-10.3-3.7-12.8-6.8v-4.1c3.2-2 5.5-5.7 6.4-10.1 1.4-.6 2.4-2.3 2.8-4.4.3-1.4 0-2.5-.8-3.1.9-1.8 1.5-3.8 1.5-6.1C55.2 20 50.1 14 40 14Z" fill="#4d5155" />
+      <circle cx="40" cy="40" r="39" fill="#eef4ff" stroke="#c8d5ea" />
+      <path d="M40 14c-10.1 0-15.2 6-15.2 15.1 0 2.3.6 4.3 1.5 6.1-.8.6-1.1 1.7-.8 3.1.4 2.1 1.4 3.8 2.8 4.4.9 4.4 3.2 8.1 6.4 10.1v4.1c-2.5 3.1-8.5 4-12.8 6.8-2.2 1.4-3.7 3.8-4.7 6.3a39 39 0 0 0 45.6 0c-1-2.5-2.5-4.9-4.7-6.3-4.3-2.8-10.3-3.7-12.8-6.8v-4.1c3.2-2 5.5-5.7 6.4-10.1 1.4-.6 2.4-2.3 2.8-4.4.3-1.4 0-2.5-.8-3.1.9-1.8 1.5-3.8 1.5-6.1C55.2 20 50.1 14 40 14Z" fill="#061849" />
     </svg>
   )
 }
@@ -200,8 +200,8 @@ export default function FullApplication() {
 
   if (deshazoChecking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#eaf2ff] text-[#46515e]">
-        <div className="rounded-2xl border border-[#cfd6dc] bg-white px-6 py-4 text-sm font-semibold text-[#0a3b2a] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
+      <div className="flex min-h-screen items-center justify-center bg-[#edf1f7] text-[var(--deshazo-text)]">
+        <div className="rounded-md border border-[#d3dbea] bg-white px-6 py-4 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
           Checking DeShazo session...
         </div>
       </div>
@@ -210,37 +210,37 @@ export default function FullApplication() {
 
   if (!deshazoUser) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#eaf2ff] px-4 text-[#46515e]">
-        <div className="w-full max-w-[380px] rounded-2xl bg-white px-7 py-8 shadow-[0_24px_60px_-40px_rgba(47,86,166,0.5)]">
+      <div className="flex min-h-screen items-center justify-center bg-[#edf1f7] px-4 text-[var(--deshazo-text)]">
+        <div className="w-full max-w-[380px] rounded-md border border-[#d3dbea] bg-white px-7 py-8 shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
           <div className="flex justify-center">
             <img src="/deshazo-logo.png" alt="DeShazo" className="h-auto w-[170px]" />
           </div>
-          <p className="mt-6 text-center text-[15px] font-bold text-[#3b4652]">Sign in to DeShazo</p>
-          <p className="mt-1 text-center text-[12px] leading-4 text-[#5d6874]">
+          <p className="mt-6 text-center text-[15px] font-black text-[var(--deshazo-text)]">Sign in to DeShazo</p>
+          <p className="mt-1 text-center text-[12px] font-semibold leading-4 text-[#747b8a]">
             Log in with your DeShazo application account to load the full application.
           </p>
 
           <form className="mt-6 space-y-3" onSubmit={handleDeshazoSignIn}>
             <label className="block">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#6d7482]">Email</span>
+              <span className="text-[11px] font-black uppercase tracking-[0.04em] text-[var(--deshazo-blue)]">Email</span>
               <input
                 type="email"
                 autoComplete="username"
                 required
                 value={loginEmail}
                 onChange={(event) => setLoginEmail(event.target.value)}
-                className="mt-1 h-10 w-full rounded-md border border-[#cfd6dc] bg-white px-3 text-[13px] text-[#404a54] outline-none transition focus:border-[#0a3b2a]"
+                className="mt-1 h-10 w-full rounded-md border border-[#c7d1e2] bg-white px-3 text-[13px] font-bold text-[var(--deshazo-text)] outline-none transition focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[rgba(6,24,73,0.16)]"
               />
             </label>
             <label className="block">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#6d7482]">Password</span>
+              <span className="text-[11px] font-black uppercase tracking-[0.04em] text-[var(--deshazo-blue)]">Password</span>
               <input
                 type="password"
                 autoComplete="current-password"
                 required
                 value={loginPassword}
                 onChange={(event) => setLoginPassword(event.target.value)}
-                className="mt-1 h-10 w-full rounded-md border border-[#cfd6dc] bg-white px-3 text-[13px] text-[#404a54] outline-none transition focus:border-[#0a3b2a]"
+                className="mt-1 h-10 w-full rounded-md border border-[#c7d1e2] bg-white px-3 text-[13px] font-bold text-[var(--deshazo-text)] outline-none transition focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[rgba(6,24,73,0.16)]"
               />
             </label>
 
@@ -253,7 +253,7 @@ export default function FullApplication() {
             <button
               type="submit"
               disabled={signingIn}
-              className="h-10 w-full rounded-md bg-[#0a3b2a] text-[13px] font-bold text-white transition hover:bg-[#0b4632] disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-10 w-full rounded-md bg-[var(--deshazo-blue)] text-[13px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {signingIn ? 'Signing in...' : 'Sign In'}
             </button>
@@ -264,8 +264,8 @@ export default function FullApplication() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#eaf2ff] text-[#46515e]">
-      <aside className="min-h-screen w-[272px] shrink-0 bg-white px-4 pb-8 pt-6 shadow-[8px_0_24px_rgba(74,102,139,0.04)]">
+    <div className="flex min-h-screen bg-[#f4f7fb] text-[var(--deshazo-text)]">
+      <aside className="min-h-screen w-[272px] shrink-0 border-r border-[#d3dbea] bg-[#f8fbff] px-4 pb-8 pt-6 shadow-sm">
         <div className="flex justify-center">
           <img src="/deshazo-logo.png" alt="DeShazo" className="h-auto w-[180px]" />
         </div>
@@ -274,9 +274,9 @@ export default function FullApplication() {
           <div className="h-[76px] w-[76px]">
             <ProfileSilhouette />
           </div>
-          <p className="mt-1 text-[13px] font-bold leading-5 text-[#4b5560]">{getDeshazoAppUserName(deshazoUser)}</p>
-          <p className="text-[12px] leading-4 text-[#5d6874]">{deshazoUser.role?.name || 'DeShazo User'}</p>
-          <p className="mt-1 text-[11px] leading-[17px] text-[#5d6874]">
+          <p className="mt-1 text-[13px] font-black leading-5 text-[var(--deshazo-text)]">{getDeshazoAppUserName(deshazoUser)}</p>
+          <p className="text-[12px] font-semibold leading-4 text-[#747b8a]">{deshazoUser.role?.name || 'DeShazo User'}</p>
+          <p className="mt-1 text-[11px] font-semibold leading-[17px] text-[#747b8a]">
             032 Richmond, 028 Cincinnati, 017
             <br />
             Northeast
@@ -288,7 +288,7 @@ export default function FullApplication() {
             aria-label="Service location"
             value={serviceLocationId ?? 'all'}
             onChange={(event) => setServiceLocationId(event.target.value === 'all' ? null : Number(event.target.value))}
-            className="h-10 w-full appearance-none border border-[#cfd6dc] bg-white pl-3 pr-14 text-[11px] text-[#404a54] outline-none transition focus:border-[#8797a7]"
+            className="h-10 w-full appearance-none rounded-md border border-[#c7d1e2] bg-white pl-3 pr-14 text-[11px] font-bold text-[var(--deshazo-text)] outline-none transition focus:border-[var(--deshazo-blue)]"
           >
             <option value="all">All Service Locations</option>
             {serviceLocations.map((location) => (
@@ -309,9 +309,9 @@ export default function FullApplication() {
                   aria-expanded={isOpen}
                   aria-controls={`${section.id}-items`}
                   onClick={() => toggleSection(section.id)}
-                  className="flex w-full items-center gap-3 px-3 py-1 text-left text-[13px] font-medium text-[#46515e] transition hover:text-[#0b3829]"
+                  className="flex w-full items-center gap-3 px-3 py-1 text-left text-[13px] font-bold text-[var(--deshazo-text)] transition hover:text-[var(--deshazo-blue)]"
                 >
-                  <span className="text-[#0a3b2a]"><MenuIcon icon={section.icon} /></span>
+                  <span className="text-[var(--deshazo-blue)]"><MenuIcon icon={section.icon} /></span>
                   <span>{section.label}</span>
                   <svg aria-hidden="true" viewBox="0 0 16 16" className={`ml-auto h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5">
                     <path d="m4 6 4 4 4-4" />
@@ -332,9 +332,12 @@ export default function FullApplication() {
                             <button
                               type="button"
                               aria-current={isActive ? 'page' : undefined}
-                              onClick={() => setActiveItem(itemKey)}
-                              className={`w-full py-1 text-left text-[11px] leading-[17px] transition hover:text-[#0a3b2a] ${
-                                isActive ? 'font-bold text-[#0a3b2a]' : 'text-[#53606d]'
+                              onClick={() => {
+                                setActiveItem(itemKey)
+                                if (itemKey === 'work-orders:All' && workOrderId) navigate('/full-application')
+                              }}
+                              className={`w-full rounded-sm px-2 py-1 text-left text-[11px] leading-[17px] transition hover:bg-[#eef4ff] hover:text-[var(--deshazo-blue)] ${
+                                isActive ? 'bg-[#e6efff] font-black text-[var(--deshazo-blue)]' : 'font-semibold text-[#747b8a]'
                               }`}
                             >
                               {item}
@@ -352,9 +355,9 @@ export default function FullApplication() {
           <button
             type="button"
             onClick={handleSignOut}
-            className="flex w-full items-center gap-3 px-3 py-1 text-left text-[13px] font-medium text-[#46515e] transition hover:text-[#0a3b2a]"
+            className="flex w-full items-center gap-3 px-3 py-1 text-left text-[13px] font-bold text-[var(--deshazo-text)] transition hover:text-[var(--deshazo-blue)]"
           >
-            <span className="text-[#0a3b2a]"><MenuIcon icon="logout" /></span>
+            <span className="text-[var(--deshazo-blue)]"><MenuIcon icon="logout" /></span>
             <span>Logout</span>
           </button>
         </nav>
