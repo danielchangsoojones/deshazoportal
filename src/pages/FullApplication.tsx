@@ -38,8 +38,6 @@ const menuSections: MenuSection[] = [
       'In-Progress',
       'Waiting For Parts',
       'Completed',
-      'Ready to Invoice',
-      'Invoiced',
     ],
   },
   {
