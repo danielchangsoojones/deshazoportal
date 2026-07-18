@@ -16,6 +16,7 @@ import WorkOrdersAll from '../components/WorkOrdersAll'
 import WorkOrderDetails from '../components/WorkOrderDetails'
 import WorkOrdersSchedule from '../components/WorkOrdersSchedule'
 import RecurringWorkOrders from '../components/RecurringWorkOrders'
+import CustomersList from '../components/CustomersList'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
@@ -108,6 +109,8 @@ export default function FullApplication() {
       ? 'calendar:Schedule'
       : location.pathname.endsWith('/calendar/recurring-jobs')
         ? 'calendar:Recurring Jobs'
+        : location.pathname.endsWith('/customers/all')
+          ? 'customers:Customers'
       : location.pathname.endsWith('/work-orders/recently-added')
         ? 'work-orders:Recently Added'
         : location.pathname.endsWith('/work-orders/pending')
@@ -387,6 +390,7 @@ export default function FullApplication() {
                                 setActiveItem(itemKey)
                                 if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
                                 else if (itemKey === 'calendar:Recurring Jobs') navigate('/full-application/calendar/recurring-jobs')
+                                else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
                                 else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
                                 else if (itemKey === 'work-orders:To Be Scheduled') navigate('/full-application/work-orders/pending')
                                 else if (itemKey === 'work-orders:Scheduled') navigate('/full-application/work-orders/scheduled')
@@ -491,6 +495,8 @@ export default function FullApplication() {
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=recurring-jobs`)}
           />
+        ) : activeItem === 'customers:Customers' ? (
+          <CustomersList serviceLocationId={serviceLocationId} roleId={deshazoUser.roleId} />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
         ) : (
