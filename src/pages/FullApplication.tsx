@@ -20,6 +20,7 @@ import CustomersList from '../components/CustomersList'
 import CranesList from '../components/CranesList'
 import PayrollReport from '../components/PayrollReport'
 import DailyWorktimeReport from '../components/DailyWorktimeReport'
+import RecoveryReport from '../components/RecoveryReport'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
@@ -114,6 +115,8 @@ export default function FullApplication() {
         ? 'reports:Payroll'
         : location.pathname.endsWith('/report/daily-worktime')
           ? 'reports:Technician Daily Report'
+          : location.pathname.endsWith('/report/recovery')
+            ? 'reports:Recovery Report'
       : location.pathname.endsWith('/calendar/recurring-jobs')
         ? 'calendar:Recurring Jobs'
         : location.pathname.endsWith('/customers/all')
@@ -400,6 +403,7 @@ export default function FullApplication() {
                                 if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
                                 else if (itemKey === 'reports:Payroll') navigate('/full-application/report/payroll')
                                 else if (itemKey === 'reports:Technician Daily Report') navigate('/full-application/report/daily-worktime')
+                                else if (itemKey === 'reports:Recovery Report') navigate('/full-application/report/recovery')
                                 else if (itemKey === 'calendar:Recurring Jobs') navigate('/full-application/calendar/recurring-jobs')
                                 else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
                                 else if (itemKey === 'customers:Cranes') navigate('/full-application/customers/cranes')
@@ -521,6 +525,8 @@ export default function FullApplication() {
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=daily-worktime`)}
           />
+        ) : activeItem === 'reports:Recovery Report' ? (
+          <RecoveryReport serviceLocationId={serviceLocationId} />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
         ) : (
