@@ -163,6 +163,7 @@ export type DeshazoWorkOrderListParams = {
   statusId?: number | null
   recent?: boolean
   serviceLocationId?: number | null
+  craneId?: number | null
 }
 
 function buildProductionQuery(params: Record<string, string | number | boolean | null | undefined>) {
@@ -195,6 +196,7 @@ export async function getDeshazoWorkOrders(
     statusId: params.statusId,
     recent: params.recent,
     serviceLocationId: params.serviceLocationId,
+    craneId: params.craneId,
   })
   const body = await getOnlyJson<Partial<DeshazoWorkOrdersResponse>>(`/work-orders${query ? `?${query}` : ''}`)
   return {
@@ -202,6 +204,12 @@ export async function getDeshazoWorkOrders(
     count: Number(body.count) || 0,
     totalPages: Math.max(1, Number(body.totalPages) || 1),
   }
+}
+
+export async function getDeshazoCraneWorkOrders(params: { craneId: number; serviceLocationId?: number | null }) {
+  const query = buildProductionQuery({ craneId: params.craneId, serviceLocationId: params.serviceLocationId })
+  const body = await getOnlyJson<DeshazoWorkOrder[] | { data?: DeshazoWorkOrder[] }>(`/work-orders?${query}`)
+  return Array.isArray(body) ? body : Array.isArray(body.data) ? body.data : []
 }
 
 export async function getDeshazoWorkOrderKpis(serviceLocationId?: number | null) {

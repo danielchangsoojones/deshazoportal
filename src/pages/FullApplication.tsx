@@ -17,6 +17,7 @@ import WorkOrderDetails from '../components/WorkOrderDetails'
 import WorkOrdersSchedule from '../components/WorkOrdersSchedule'
 import RecurringWorkOrders from '../components/RecurringWorkOrders'
 import CustomersList from '../components/CustomersList'
+import CranesList from '../components/CranesList'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
@@ -111,6 +112,8 @@ export default function FullApplication() {
         ? 'calendar:Recurring Jobs'
         : location.pathname.endsWith('/customers/all')
           ? 'customers:Customers'
+          : location.pathname.endsWith('/customers/cranes')
+            ? 'customers:Cranes'
       : location.pathname.endsWith('/work-orders/recently-added')
         ? 'work-orders:Recently Added'
         : location.pathname.endsWith('/work-orders/pending')
@@ -391,6 +394,7 @@ export default function FullApplication() {
                                 if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
                                 else if (itemKey === 'calendar:Recurring Jobs') navigate('/full-application/calendar/recurring-jobs')
                                 else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
+                                else if (itemKey === 'customers:Cranes') navigate('/full-application/customers/cranes')
                                 else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
                                 else if (itemKey === 'work-orders:To Be Scheduled') navigate('/full-application/work-orders/pending')
                                 else if (itemKey === 'work-orders:Scheduled') navigate('/full-application/work-orders/scheduled')
@@ -433,7 +437,7 @@ export default function FullApplication() {
             workOrderId={workOrderId}
             onBack={() => {
               const returnTo = new URLSearchParams(location.search).get('returnTo')
-              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recurring-jobs' ? '/full-application/calendar/recurring-jobs' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : returnTo === 'in-progress' ? '/full-application/work-orders/in-progress' : returnTo === 'waiting-for-parts' ? '/full-application/work-orders/waiting-for-parts' : returnTo === 'completed' ? '/full-application/work-orders/completed' : '/full-application')
+              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recurring-jobs' ? '/full-application/calendar/recurring-jobs' : returnTo === 'cranes' ? '/full-application/customers/cranes' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : returnTo === 'in-progress' ? '/full-application/work-orders/in-progress' : returnTo === 'waiting-for-parts' ? '/full-application/work-orders/waiting-for-parts' : returnTo === 'completed' ? '/full-application/work-orders/completed' : '/full-application')
             }}
           />
         ) : activeItem === 'work-orders:All' ? (
@@ -497,6 +501,11 @@ export default function FullApplication() {
           />
         ) : activeItem === 'customers:Customers' ? (
           <CustomersList serviceLocationId={serviceLocationId} roleId={deshazoUser.roleId} />
+        ) : activeItem === 'customers:Cranes' ? (
+          <CranesList
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=cranes`)}
+          />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
         ) : (
