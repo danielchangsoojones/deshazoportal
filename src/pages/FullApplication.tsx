@@ -18,6 +18,7 @@ import WorkOrdersSchedule from '../components/WorkOrdersSchedule'
 import RecurringWorkOrders from '../components/RecurringWorkOrders'
 import CustomersList from '../components/CustomersList'
 import CranesList from '../components/CranesList'
+import PayrollReport from '../components/PayrollReport'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
@@ -108,6 +109,8 @@ export default function FullApplication() {
   const [activeItem, setActiveItem] = useState(() =>
     location.pathname.endsWith('/calendar/schedule')
       ? 'calendar:Schedule'
+      : location.pathname.endsWith('/report/payroll')
+        ? 'reports:Payroll'
       : location.pathname.endsWith('/calendar/recurring-jobs')
         ? 'calendar:Recurring Jobs'
         : location.pathname.endsWith('/customers/all')
@@ -392,6 +395,7 @@ export default function FullApplication() {
                               onClick={() => {
                                 setActiveItem(itemKey)
                                 if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
+                                else if (itemKey === 'reports:Payroll') navigate('/full-application/report/payroll')
                                 else if (itemKey === 'calendar:Recurring Jobs') navigate('/full-application/calendar/recurring-jobs')
                                 else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
                                 else if (itemKey === 'customers:Cranes') navigate('/full-application/customers/cranes')
@@ -506,6 +510,8 @@ export default function FullApplication() {
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=cranes`)}
           />
+        ) : activeItem === 'reports:Payroll' ? (
+          <PayrollReport serviceLocationId={serviceLocationId} />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
         ) : (
