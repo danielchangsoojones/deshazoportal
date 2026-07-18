@@ -19,6 +19,7 @@ import RecurringWorkOrders from '../components/RecurringWorkOrders'
 import CustomersList from '../components/CustomersList'
 import CranesList from '../components/CranesList'
 import PayrollReport from '../components/PayrollReport'
+import DailyWorktimeReport from '../components/DailyWorktimeReport'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
@@ -111,6 +112,8 @@ export default function FullApplication() {
       ? 'calendar:Schedule'
       : location.pathname.endsWith('/report/payroll')
         ? 'reports:Payroll'
+        : location.pathname.endsWith('/report/daily-worktime')
+          ? 'reports:Technician Daily Report'
       : location.pathname.endsWith('/calendar/recurring-jobs')
         ? 'calendar:Recurring Jobs'
         : location.pathname.endsWith('/customers/all')
@@ -396,6 +399,7 @@ export default function FullApplication() {
                                 setActiveItem(itemKey)
                                 if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
                                 else if (itemKey === 'reports:Payroll') navigate('/full-application/report/payroll')
+                                else if (itemKey === 'reports:Technician Daily Report') navigate('/full-application/report/daily-worktime')
                                 else if (itemKey === 'calendar:Recurring Jobs') navigate('/full-application/calendar/recurring-jobs')
                                 else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
                                 else if (itemKey === 'customers:Cranes') navigate('/full-application/customers/cranes')
@@ -441,7 +445,7 @@ export default function FullApplication() {
             workOrderId={workOrderId}
             onBack={() => {
               const returnTo = new URLSearchParams(location.search).get('returnTo')
-              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recurring-jobs' ? '/full-application/calendar/recurring-jobs' : returnTo === 'cranes' ? '/full-application/customers/cranes' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : returnTo === 'in-progress' ? '/full-application/work-orders/in-progress' : returnTo === 'waiting-for-parts' ? '/full-application/work-orders/waiting-for-parts' : returnTo === 'completed' ? '/full-application/work-orders/completed' : '/full-application')
+              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recurring-jobs' ? '/full-application/calendar/recurring-jobs' : returnTo === 'cranes' ? '/full-application/customers/cranes' : returnTo === 'daily-worktime' ? '/full-application/report/daily-worktime' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : returnTo === 'in-progress' ? '/full-application/work-orders/in-progress' : returnTo === 'waiting-for-parts' ? '/full-application/work-orders/waiting-for-parts' : returnTo === 'completed' ? '/full-application/work-orders/completed' : '/full-application')
             }}
           />
         ) : activeItem === 'work-orders:All' ? (
@@ -512,6 +516,11 @@ export default function FullApplication() {
           />
         ) : activeItem === 'reports:Payroll' ? (
           <PayrollReport serviceLocationId={serviceLocationId} />
+        ) : activeItem === 'reports:Technician Daily Report' ? (
+          <DailyWorktimeReport
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=daily-worktime`)}
+          />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
         ) : (
