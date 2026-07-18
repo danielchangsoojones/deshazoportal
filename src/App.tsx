@@ -174,6 +174,7 @@ function App() {
           <Route path="/full-application/report/daily-worktime" element={<FullApplication />} />
           <Route path="/full-application/report/recovery" element={<FullApplication />} />
           <Route path="/full-application/report/daily-usage-report" element={<FullApplication />} />
+          <Route path="/full-application/report/pay-cor" element={<FullApplication />} />
           <Route path="/full-application/work-orders/:workOrderId/details" element={<FullApplication />} />
           <Route path="/customer-portals" element={<CustomerPortals />} />
           <Route path="/jobsquotinglist" element={<JobsQuotingList />} />

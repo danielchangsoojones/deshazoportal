@@ -22,6 +22,7 @@ import PayrollReport from '../components/PayrollReport'
 import DailyWorktimeReport from '../components/DailyWorktimeReport'
 import RecoveryReport from '../components/RecoveryReport'
 import DailyUsageReport from '../components/DailyUsageReport'
+import PayCorReport from '../components/PayCorReport'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
@@ -120,6 +121,8 @@ export default function FullApplication() {
             ? 'reports:Recovery Report'
             : location.pathname.endsWith('/report/daily-usage-report')
               ? 'reports:Daily Usage Report'
+              : location.pathname.endsWith('/report/pay-cor')
+                ? 'reports:PayCor'
       : location.pathname.endsWith('/calendar/recurring-jobs')
         ? 'calendar:Recurring Jobs'
         : location.pathname.endsWith('/customers/all')
@@ -408,6 +411,7 @@ export default function FullApplication() {
                                 else if (itemKey === 'reports:Technician Daily Report') navigate('/full-application/report/daily-worktime')
                                 else if (itemKey === 'reports:Recovery Report') navigate('/full-application/report/recovery')
                                 else if (itemKey === 'reports:Daily Usage Report') navigate('/full-application/report/daily-usage-report')
+                                else if (itemKey === 'reports:PayCor') navigate('/full-application/report/pay-cor')
                                 else if (itemKey === 'calendar:Recurring Jobs') navigate('/full-application/calendar/recurring-jobs')
                                 else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
                                 else if (itemKey === 'customers:Cranes') navigate('/full-application/customers/cranes')
@@ -533,6 +537,8 @@ export default function FullApplication() {
           <RecoveryReport serviceLocationId={serviceLocationId} />
         ) : activeItem === 'reports:Daily Usage Report' ? (
           <DailyUsageReport serviceLocationId={serviceLocationId} />
+        ) : activeItem === 'reports:PayCor' ? (
+          <PayCorReport serviceLocationId={serviceLocationId} />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
         ) : (
