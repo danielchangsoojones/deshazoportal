@@ -29,7 +29,7 @@ import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/
 type MenuSection = {
   id: string
   label: string
-  icon: 'home' | 'calendar' | 'users' | 'reports' | 'safety' | 'admin'
+  icon: 'home' | 'calendar' | 'users' | 'quote' | 'reports' | 'safety' | 'admin'
   items: string[]
 }
 
@@ -61,6 +61,12 @@ const menuSections: MenuSection[] = [
     items: ['Customers', 'Cranes'],
   },
   {
+    id: 'quoting',
+    label: 'Quoting',
+    icon: 'quote',
+    items: ['Quote List'],
+  },
+  {
     id: 'safety',
     label: 'Safety',
     icon: 'safety',
@@ -88,6 +94,7 @@ function MenuIcon({ icon }: { icon: MenuSection['icon'] | 'logout' }) {
     calendar: <path d="M5 3v3m14-3v3M4 8h16M5 5h14a2 2 0 0 1 2 2v13H3V7a2 2 0 0 1 2-2Z" />,
     users: <path d="M16 19v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V19m7-8a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm8-1a3 3 0 1 0 0-6m5 15v-1.5a4 4 0 0 0-3-3.7" />,
     reports: <path d="M3 5h18v4H3V5Zm2 4h14v12H5V9Zm5 4h4" />,
+    quote: <path d="M6 3h9l4 4v14H6V3Zm9 0v5h4M9 12h7m-7 4h5M3 7v11" />,
     safety: <path d="M12 3 4.8 6v5.4c0 4.6 2.9 8.2 7.2 9.6 4.3-1.4 7.2-5 7.2-9.6V6L12 3Zm-3.2 9 2 2 4.5-4.5" />,
     admin: <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0-5v2m0 13v2m8.5-8.5h-2m-13 0h-2m14.5-6-1.4 1.4M7.4 16.6 6 18m12 0-1.4-1.4M7.4 7.4 6 6" />,
     logout: <path d="M14 8V4H4v16h10v-4m-3-4h10m-3-3 3 3-3 3" />,
@@ -119,7 +126,9 @@ export default function FullApplication() {
   const [deshazoChecking, setDeshazoChecking] = useState(true)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
   const [activeItem, setActiveItem] = useState(() =>
-    location.pathname.endsWith('/safety')
+    location.pathname.endsWith('/quoting/quotes')
+      ? 'quoting:Quote List'
+      : location.pathname.endsWith('/safety')
       ? 'safety:Overview'
       : location.pathname.endsWith('/calendar/schedule')
       ? 'calendar:Schedule'
@@ -426,6 +435,7 @@ export default function FullApplication() {
                                 else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
                                 else if (itemKey === 'customers:Cranes') navigate('/full-application/customers/cranes')
                                 else if (itemKey === 'safety:Overview') navigate('/full-application/safety')
+                                else if (itemKey === 'quoting:Quote List') navigate('/jobsquotinglist')
                                 else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
                                 else if (itemKey === 'work-orders:To Be Scheduled') navigate('/full-application/work-orders/pending')
                                 else if (itemKey === 'work-orders:Scheduled') navigate('/full-application/work-orders/scheduled')
