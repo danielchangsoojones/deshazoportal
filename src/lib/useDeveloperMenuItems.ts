@@ -8,7 +8,7 @@ type PortalMenuItem = {
   href?: string
 }
 
-const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Document Reports'])
+const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Document Reports', 'Customer Quotes'])
 
 export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], activeKey: string) {
   const [userTag, setUserTag] = useState<UserTag | null>(null)

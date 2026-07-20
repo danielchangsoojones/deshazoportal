@@ -48,6 +48,13 @@ const portalCards = [
     oldDb: true,
   },
   {
+    eyebrow: 'Service',
+    title: 'Customer Quotes',
+    description: 'Create and manage quotes for customer service work.',
+    href: '/customer-quotes',
+    developerOnly: true,
+  },
+  {
     eyebrow: 'Reports',
     title: 'Custom Reports',
     description: 'Download a csv of the data to use on your own computer.',
