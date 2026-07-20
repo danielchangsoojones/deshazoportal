@@ -210,7 +210,7 @@ const splitRow = (line: string) =>
 
 const linkReferences = (html: string) =>
   html
-    .replace(/\[(?:P)?(\d+)\]/g, '<button class="notebook-ref" data-ref="$1" type="button">P$1</button>')
+    .replace(/\[(?:P)?(\d+)\]/g, '<button class="notebook-ref" data-ref="$1" type="button">Ref $1</button>')
     .replace(
       /(^|[>\s(,;:])P(\d+)(?=([<,\s.;:)]|$))/g,
       '$1<button class="notebook-ref" data-page="$2" type="button">P$2</button>',
@@ -293,9 +293,9 @@ Create an AI Overview for a service coordinator. Keep it practical and concise:
 - If the quote or inspection does not provide enough equipment identity to safely select parts, say exactly what must be confirmed before ordering.
 - Do not mix repair facts from another inspection unless explicitly asked.`
 
-const buildGreenFileContext = (query: string) => {
+const rankGreenFileEntries = (query: string) => {
   const queryTokens = new Set(tokenize(query))
-  const rankedEntries = greenFileSections
+  return greenFileSections
     .flatMap((section) =>
       section.manuals.flatMap((manual) =>
         manual.entries.map((entry) => {
@@ -308,13 +308,21 @@ const buildGreenFileContext = (query: string) => {
       ),
     )
     .sort((left, right) => right.score - left.score)
+}
 
-  const selectedEntries = rankedEntries.some((item) => item.score > 0)
-    ? rankedEntries.filter((item) => item.score > 0).slice(0, 16)
+const selectGreenFileEntries = (query: string, limit = 16) => {
+  const rankedEntries = rankGreenFileEntries(query)
+
+  return rankedEntries.some((item) => item.score > 0)
+    ? rankedEntries.filter((item) => item.score > 0).slice(0, limit)
     : greenFileManuals.map((manual) => {
         const section = greenFileSections.find((candidate) => candidate.manuals.some((item) => item.id === manual.id))!
         return { section, manual, entry: manual.entries[0], score: 0 }
-      })
+      }).slice(0, limit)
+}
+
+const buildGreenFileContext = (query: string) => {
+  const selectedEntries = selectGreenFileEntries(query)
 
   const indexLines = selectedEntries.map(({ section, manual, entry }) =>
     `- ${section.title} > ${manual.shortTitle} (${manual.manufacturer}, ${manual.documentNumber}) > ${entry.label}, page ${entry.page}${entry.partNumber ? `, part or assembly ${entry.partNumber}` : ''}: ${entry.details}`,
@@ -326,6 +334,37 @@ The complete Green File contains ${greenFileManuals.length} controlled manuals a
 Relevant indexed entries:
 ${indexLines.join('\n')}
 When referring to an indexed item, name its manual and page so the user can open it from the Green File Index. Do not imply demo part numbers are approved for a different crane.`
+}
+
+const buildGreenFileFallbackAnswer = (query: string) => {
+  const matches = selectGreenFileEntries(query, 5)
+  const citations: NotebookCitation[] = matches.map(({ manual, entry }, index) => ({
+    id: index + 1,
+    title: manual.title,
+    page: entry.page,
+    document_type: 'manual',
+    quote: entry.details,
+    source: `green-file/${demoCrane.id}/${manual.documentNumber}.pdf`,
+  }))
+  const cleanCell = (value: string) => value.replace(/\|/g, ' and ')
+  const rows = matches.map(({ section, manual, entry }, index) =>
+    `| ${cleanCell(section.title)} | ${cleanCell(entry.label)} | ${cleanCell(manual.shortTitle)} | Page ${entry.page} [${index + 1}] | ${cleanCell(entry.partNumber ?? 'Confirm model and serial before ordering')} |`,
+  )
+
+  return {
+    answer_markdown: [
+      '**Green File indexed response**',
+      '',
+      'The hosted notebook chat is temporarily unavailable, so this response is using the bundled controlled-manual index. Select any page reference below to open the official manual.',
+      '',
+      '| System section | Relevant item | Manual | Reference | Part or next check |',
+      '| --- | --- | --- | --- | --- |',
+      ...rows,
+      '',
+      `These references apply to demo crane **${demoCrane.id}**. Confirm the installed model, capacity, voltage, and serial number before purchasing or replacing equipment.`,
+    ].join('\n'),
+    citations,
+  }
 }
 
 const messageReferencesOverview = (value: string) =>
@@ -961,18 +1000,28 @@ export default function EquipmentNotebookLLM() {
             : item,
         ),
       }))
-    } catch (error) {
+    } catch {
+      const fallback = buildGreenFileFallbackAnswer(prompt)
+      const firstCitation = fallback.citations[0]
+      const firstFallbackSource = firstCitation
+        ? sources.find((source) => sourceMatchesCitation(source, firstCitation))
+        : undefined
+
+      if (firstFallbackSource && firstCitation) {
+        setActiveSourceIndex(firstFallbackSource.index)
+        setActiveExternalPdfUrl('')
+        setActiveExternalPdfName('')
+        goToPage(firstCitation.page)
+      }
+
       updateActiveSession((session) => ({
         ...session,
         messages: session.messages.map((item) =>
           item.id === pendingId
             ? {
                 ...item,
-                content:
-                  error instanceof Error
-                    ? `The notebook API could not answer yet: ${error.message}`
-                    : 'The notebook API could not answer yet.',
-                citations: [],
+                content: fallback.answer_markdown,
+                citations: fallback.citations,
                 rankedSources: rankedSources.slice(0, 4),
               }
             : item,
