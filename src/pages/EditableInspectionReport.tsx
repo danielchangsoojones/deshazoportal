@@ -22,6 +22,7 @@ import {
   type EditableInspectionDocument,
 } from '../lib/editableInspectionDocuments'
 import {
+  deleteJobsQuotingItem,
   getJobsQuotingItem,
   getJobsQuotingItemPdfUrl,
   type JobsQuotingItem,
@@ -259,6 +260,8 @@ const buildAdditionalNotesFooter = (profile: UserProfile | null) =>
   ]
     .filter(Boolean)
     .join('\n')
+
+const fallbackAdditionalNotesFooter = buildAdditionalNotesFooter(null)
 
 const defaultAdditionalNotesBody = `1. Quote is subject to DeSHAZO General Terms and Conditions, available at http://www.deshazo.com/terms.
 2. Unless specified in Scope of Work, all work is to be performed during normal working hours, Monday- Friday.
@@ -737,11 +740,35 @@ const replaceReportSummaryDNumber = (summary: string, dNumber: string) => {
   return `${normalizedDNumber} ${normalizedSummary}`
 }
 
+const getOriginalInspectionReportJobNumber = (item: JobsQuotingItem) =>
+  removeReportValueLabel(
+    item.jobNumber ||
+    getTopLevelExtractedText(item.extractionData, ['job_number', 'jobNumber', 'Job Number', 'Job #']),
+  ).replace(/^#\s*/, '').trim()
+
+const getOriginalInspectionReportJobNumberLine = (jobNumber: string) =>
+  `Original inspection report job number: ${jobNumber}`
+
+const upsertOriginalInspectionReportJobNumberInScope = (scopeOfWork: string, item: JobsQuotingItem) => {
+  const originalJobNumber = getOriginalInspectionReportJobNumber(item)
+  if (!originalJobNumber) return scopeOfWork
+
+  const nextLine = getOriginalInspectionReportJobNumberLine(originalJobNumber)
+  const existingLinePattern = /^Original inspection report job number:\s*.*$/im
+  if (existingLinePattern.test(scopeOfWork)) {
+    return scopeOfWork.replace(existingLinePattern, nextLine)
+  }
+
+  const trimmedScopeOfWork = scopeOfWork.trim()
+  return trimmedScopeOfWork ? `${nextLine}\n\n${trimmedScopeOfWork}` : nextLine
+}
+
 const applyQuoteItemColumnIdentifiersToReport = (reportData: ReportData, item: JobsQuotingItem) => ({
   ...reportData,
   summary: item.dNumber ? replaceReportSummaryDNumber(reportData.summary, item.dNumber) : reportData.summary,
   jobNumber: item.jobNumber ? ensureJobNumberPrefix(item.jobNumber) : reportData.jobNumber,
   type: item.jobType || reportData.type,
+  scopeOfWork: upsertOriginalInspectionReportJobNumberInScope(reportData.scopeOfWork || '', item),
 })
 
 const getEditableReportDisplayName = (
@@ -1114,7 +1141,9 @@ const escapeHtml = (value: string | number) =>
 const splitAdditionalNotesFooter = (value: string, profile: UserProfile | null = null) => {
   const normalizedValue = value.trimEnd()
   const activeFooter = buildAdditionalNotesFooter(profile)
-  const footer = [activeFooter, legacyAdditionalNotesFooter].find((candidate) => normalizedValue.endsWith(candidate))
+  const footer = [activeFooter, fallbackAdditionalNotesFooter, legacyAdditionalNotesFooter].find((candidate) =>
+    normalizedValue.endsWith(candidate),
+  )
   if (!footer) {
     return { body: value, hasFooter: false }
   }
@@ -2542,14 +2571,38 @@ function PencilIcon() {
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
-export default function EditableInspectionReport() {
+type EditableInspectionReportProps = {
+  embeddedJobPage?: boolean
+  embeddedJobsQuotingItemId?: string
+  embeddedJobPageNumber?: number
+  inheritedCurrentUser?: User | null
+  inheritedUserProfile?: UserProfile | null
+  registerEmbeddedReportSave?: (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => () => void
+}
+
+export default function EditableInspectionReport({
+  embeddedJobPage = false,
+  embeddedJobsQuotingItemId = '',
+  embeddedJobPageNumber = 1,
+  inheritedCurrentUser = null,
+  inheritedUserProfile = null,
+  registerEmbeddedReportSave,
+}: EditableInspectionReportProps = {}) {
   const generatedId = useRef(1000)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const jobsQuotingItemId = searchParams.get('jobsQuotingItemId')?.trim() || ''
+  const jobsQuotingItemId = embeddedJobsQuotingItemId || searchParams.get('jobsQuotingItemId')?.trim() || ''
   const editableReportIdParam = searchParams.get('editableReportId')?.trim() || ''
+  const jobItemIdsParam = embeddedJobPage ? '' : searchParams.get('jobItemIds')?.trim() || ''
   const validJobsQuotingItemId = isUuid(jobsQuotingItemId) ? jobsQuotingItemId : ''
   const validEditableReportIdParam = isUuid(editableReportIdParam) ? editableReportIdParam : ''
+  const parsedJobItemIds = jobItemIdsParam.split(',').map((itemId) => itemId.trim()).filter(isUuid)
+  const jobEditItemIds = parsedJobItemIds.length > 0
+    ? Array.from(new Set(parsedJobItemIds))
+    : validJobsQuotingItemId
+      ? [validJobsQuotingItemId]
+      : []
+  const isJobEditMode = !embeddedJobPage && jobEditItemIds.length > 1
   const hasSelectedEditableReportSource = Boolean(validJobsQuotingItemId || validEditableReportIdParam)
   const menuDatabaseSyncReady = useRef(false)
   const skipNextMenuDatabaseSave = useRef(false)
@@ -2557,6 +2610,8 @@ export default function EditableInspectionReport() {
   const skipNextReportDatabaseSave = useRef(false)
   const pendingReportChanges = useRef(false)
   const reportAutosaveInFlight = useRef(false)
+  const embeddedReportSaveTimeout = useRef<number | undefined>(undefined)
+  const embeddedReportSaveHandlers = useRef(new Map<string, () => Promise<EditableInspectionReport | null>>())
   const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
@@ -2591,8 +2646,8 @@ export default function EditableInspectionReport() {
   const [jobReportPrintLoading, setJobReportPrintLoading] = useState(false)
   const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
   const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [currentUser, setCurrentUser] = useState<User | null>(inheritedCurrentUser)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(inheritedUserProfile)
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
   )
@@ -2604,6 +2659,8 @@ export default function EditableInspectionReport() {
   const [runtimePageBreaks, setRuntimePageBreaks] = useState<Record<string, number>>({})
   const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [isReportEditing, setIsReportEditing] = useState(false)
+  const [deletedJobItemIds, setDeletedJobItemIds] = useState<Set<string>>(() => new Set())
+  const visibleJobEditItemIds = jobEditItemIds.filter((itemId) => !deletedJobItemIds.has(itemId))
   const [menuItemsRefreshProgress, setMenuItemsRefreshProgress] = useState<MenuItemsRefreshProgress>({
     active: false,
     percent: 0,
@@ -2738,6 +2795,11 @@ export default function EditableInspectionReport() {
   const isEditableReportLoading = hasSelectedEditableReportSource && reportDatabaseStatus === 'loading'
 
   useEffect(() => {
+    if (embeddedJobPage) {
+      setCurrentUser(inheritedCurrentUser)
+      return
+    }
+
     if (!isConfigured || !supabase) return
 
     let active = true
@@ -2748,9 +2810,14 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [])
+  }, [embeddedJobPage, inheritedCurrentUser])
 
   useEffect(() => {
+    if (embeddedJobPage) {
+      setUserProfile(inheritedUserProfile)
+      return
+    }
+
     if (!currentUser) {
       setUserProfile(null)
       return
@@ -2768,7 +2835,7 @@ export default function EditableInspectionReport() {
     return () => {
       active = false
     }
-  }, [currentUser])
+  }, [currentUser, embeddedJobPage, inheritedUserProfile])
 
   useEffect(() => {
     if (!userProfile) return
@@ -2857,6 +2924,7 @@ export default function EditableInspectionReport() {
     () => jobReportPrintOptions.map((option) => option.id),
     [jobReportPrintOptions],
   )
+  const isJobEditContextLoading = isJobEditMode && isConfigured && (!currentUser || !userProfile)
   const allJobReportPrintOptionsSelected = useMemo(
     () =>
       jobReportPrintOptionIds.length > 0
@@ -3214,6 +3282,49 @@ export default function EditableInspectionReport() {
     saveCurrentEditableReportNowRef.current = saveCurrentEditableReportNow
   }, [saveCurrentEditableReportNow])
 
+  const flushPendingEditableReportSave = useCallback(async () => {
+    if (
+      !isConfigured ||
+      !currentJobsQuotingItemId ||
+      !reportHydrationReady.current ||
+      reportAutosaveInFlight.current ||
+      !pendingReportChanges.current
+    ) {
+      return null
+    }
+
+    if (embeddedReportSaveTimeout.current) {
+      window.clearTimeout(embeddedReportSaveTimeout.current)
+      embeddedReportSaveTimeout.current = undefined
+    }
+
+    reportAutosaveInFlight.current = true
+    try {
+      return await saveCurrentEditableReportNowRef.current()
+    } finally {
+      reportAutosaveInFlight.current = false
+    }
+  }, [currentJobsQuotingItemId])
+
+  const registerEmbeddedReportSaveHandler = useCallback(
+    (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => {
+      embeddedReportSaveHandlers.current.set(itemId, saveReport)
+
+      return () => {
+        if (embeddedReportSaveHandlers.current.get(itemId) === saveReport) {
+          embeddedReportSaveHandlers.current.delete(itemId)
+        }
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!embeddedJobPage || !validJobsQuotingItemId || !registerEmbeddedReportSave) return
+
+    return registerEmbeddedReportSave(validJobsQuotingItemId, () => saveCurrentEditableReportNowRef.current())
+  }, [embeddedJobPage, registerEmbeddedReportSave, validJobsQuotingItemId])
+
   useEffect(() => {
     if (!isConfigured) {
       reportHydrationReady.current = true
@@ -3321,7 +3432,49 @@ export default function EditableInspectionReport() {
   }, [currentEditableReportPayload, reportDatabaseStatus])
 
   useEffect(() => {
-    if (!isConfigured || !currentJobsQuotingItemId) return
+    if (
+      !embeddedJobPage ||
+      !isConfigured ||
+      !currentJobsQuotingItemId ||
+      !reportHydrationReady.current ||
+      !pendingReportChanges.current
+    ) {
+      return
+    }
+
+    if (embeddedReportSaveTimeout.current) {
+      window.clearTimeout(embeddedReportSaveTimeout.current)
+    }
+
+    embeddedReportSaveTimeout.current = window.setTimeout(() => {
+      void flushPendingEditableReportSave().catch((error) => {
+        setReportDatabaseStatus('error')
+        console.error('Embedded editable report could not be saved.', error)
+      })
+    }, databaseSyncIdleDelayMs)
+
+    return () => {
+      if (embeddedReportSaveTimeout.current) {
+        window.clearTimeout(embeddedReportSaveTimeout.current)
+        embeddedReportSaveTimeout.current = undefined
+      }
+    }
+  }, [currentEditableReportPayload, currentJobsQuotingItemId, embeddedJobPage, flushPendingEditableReportSave, reportDatabaseStatus])
+
+  useEffect(() => {
+    if (!embeddedJobPage) return
+
+    return () => {
+      if (pendingReportChanges.current) {
+        void flushPendingEditableReportSave().catch((error) => {
+          console.error('Embedded editable report could not be saved before closing.', error)
+        })
+      }
+    }
+  }, [embeddedJobPage, flushPendingEditableReportSave])
+
+  useEffect(() => {
+    if (!isConfigured || !currentJobsQuotingItemId || isJobEditMode) return
 
     const autosaveTimer = window.setInterval(() => {
       if (!reportHydrationReady.current || reportAutosaveInFlight.current) return
@@ -3338,7 +3491,29 @@ export default function EditableInspectionReport() {
     }, reportAutosaveIntervalMs)
 
     return () => window.clearInterval(autosaveTimer)
-  }, [currentJobsQuotingItemId])
+  }, [currentJobsQuotingItemId, isJobEditMode])
+
+  const deleteJobEditItem = useCallback(async (itemId: string) => {
+    const confirmed = window.confirm('Delete this D number from the job?')
+    if (!confirmed) return
+
+    setDeletedJobItemIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+      nextIds.add(itemId)
+      return nextIds
+    })
+
+    try {
+      await deleteJobsQuotingItem(itemId)
+    } catch (error) {
+      setDeletedJobItemIds((currentIds) => {
+        const nextIds = new Set(currentIds)
+        nextIds.delete(itemId)
+        return nextIds
+      })
+      window.alert(error instanceof Error ? error.message : 'D number could not be deleted.')
+    }
+  }, [])
 
   useLayoutEffect(() => {
     const contentElement = reportContentRef.current
@@ -4436,6 +4611,26 @@ export default function EditableInspectionReport() {
   }, [])
 
   const saveEditableReportFromButton = () => {
+    if (isJobEditMode) {
+      const saveHandlers = visibleJobEditItemIds
+        .map((itemId) => embeddedReportSaveHandlers.current.get(itemId))
+        .filter((saveHandler): saveHandler is () => Promise<EditableInspectionReport | null> => Boolean(saveHandler))
+
+      if (saveHandlers.length === 0) return
+
+      setReportDatabaseStatus('saving')
+      Promise.all(saveHandlers.map((saveHandler) => saveHandler()))
+        .then(() => {
+          setReportDatabaseStatus('saved')
+          flashSaveButtonMessage()
+        })
+        .catch((error) => {
+          setReportDatabaseStatus('error')
+          console.error('Editable job reports could not be saved.', error)
+        })
+      return
+    }
+
     saveCurrentEditableReportNow()
       .then((savedReport) => {
         if (savedReport) flashSaveButtonMessage()
@@ -4604,7 +4799,7 @@ export default function EditableInspectionReport() {
 
   return (
     <div
-      className="min-h-screen bg-[#e8eaef] text-[#111]"
+      className={cx('min-h-screen bg-[#e8eaef] text-[#111]', embeddedJobPage && 'embedded-job-report min-h-0 bg-transparent')}
       onDragEnter={handlePagePdfDragEnter}
       onDragOver={handlePagePdfDragOver}
       onDragLeave={handlePagePdfDragLeave}
@@ -4691,6 +4886,29 @@ export default function EditableInspectionReport() {
 
           .report-content-layer:focus-within .report-runtime-page-break.mt-6 {
             margin-top: 1.5rem !important;
+          }
+
+          .embedded-job-report > header {
+            display: none;
+          }
+
+          .embedded-job-report > .editor-workspace {
+            display: block;
+            height: auto;
+            min-height: 0;
+            overflow: visible;
+            background: transparent;
+          }
+
+          .embedded-job-report > .editor-workspace > aside {
+            display: none;
+          }
+
+          .embedded-job-report > .editor-workspace > .canvas-stage {
+            display: block;
+            overflow: visible;
+            padding: 0;
+            background: transparent;
           }
 
           @media print {
@@ -5288,10 +5506,45 @@ export default function EditableInspectionReport() {
         </aside>
 
         <main className="canvas-stage min-w-0 flex-1 overflow-auto bg-[linear-gradient(180deg,var(--deshazo-surface)_0%,var(--bg)_100%)] px-8 py-7">
+          {isJobEditMode ? (
+            <div className="mx-auto flex w-fit flex-col gap-10">
+              {isJobEditContextLoading ? (
+                <div className="rounded-md border border-[var(--deshazo-border)] bg-white px-6 py-5 text-center text-sm font-bold text-[#273f7a] shadow-[0_14px_30px_-28px_rgba(47,86,166,0.42)]">
+                  Loading job reports...
+                </div>
+              ) : visibleJobEditItemIds.length > 0 ? (
+                visibleJobEditItemIds.map((itemId, itemIndex) => (
+                  <section key={itemId} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void deleteJobEditItem(itemId)
+                      }}
+                      className="report-toolbar absolute right-3 top-[66px] z-20 rounded-md border border-[#e5b4a6] bg-[#fff7f4] px-3 py-2 text-[12px] font-black text-[#ad452f] shadow-[0_12px_28px_-20px_rgba(141,50,32,0.55)] transition hover:border-[#d88974] hover:bg-[#fff0eb]"
+                    >
+                      Delete D Number
+                    </button>
+                    <EditableInspectionReport
+                      embeddedJobPage
+                      embeddedJobsQuotingItemId={itemId}
+                      embeddedJobPageNumber={itemIndex + 1}
+                      inheritedCurrentUser={currentUser}
+                      inheritedUserProfile={userProfile}
+                      registerEmbeddedReportSave={registerEmbeddedReportSaveHandler}
+                    />
+                  </section>
+                ))
+              ) : (
+                <div className="rounded-md border border-[var(--deshazo-border)] bg-white px-6 py-5 text-center text-sm font-bold text-[#747b8a]">
+                  All D numbers have been removed from this job.
+                </div>
+              )}
+            </div>
+          ) : (
           <div className="mx-auto w-fit">
             <div className="report-toolbar mb-3 flex items-center justify-between rounded-[14px] border border-[var(--deshazo-border)] bg-white/80 px-4 py-3 text-[rgba(21,24,33,0.62)] shadow-[0_14px_30px_-28px_rgba(47,86,166,0.42)]">
               <div className="text-[16px] font-black text-[var(--deshazo-text)]">
-                Page 1 <span className="font-bold text-[rgba(21,24,33,0.55)]">- Quote proposal</span>
+                Page {embeddedJobPageNumber} <span className="font-bold text-[rgba(21,24,33,0.55)]">- Quote proposal</span>
               </div>
               <div className="relative">
                 <button
@@ -5461,6 +5714,12 @@ export default function EditableInspectionReport() {
                 window.setTimeout(() => {
                   if (!reportContentRef.current?.contains(document.activeElement)) {
                     setIsReportEditing(false)
+                    if (embeddedJobPage && pendingReportChanges.current) {
+                      void flushPendingEditableReportSave().catch((error) => {
+                        setReportDatabaseStatus('error')
+                        console.error('Embedded editable report could not be saved after editing.', error)
+                      })
+                    }
                   }
                 })
               }}
@@ -6238,6 +6497,7 @@ export default function EditableInspectionReport() {
         </article>
             </div>
           </div>
+          )}
       </main>
     </div>
     {menuSettingsOpen ? (
