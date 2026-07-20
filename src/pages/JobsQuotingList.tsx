@@ -505,6 +505,7 @@ export default function JobsQuotingList() {
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
   const [createDNumberModalOpen, setCreateDNumberModalOpen] = useState(false)
   const [openItemSettingsId, setOpenItemSettingsId] = useState<string | null>(null)
+  const [openJobSettingsId, setOpenJobSettingsId] = useState<string | null>(null)
   const [deletingItemIds, setDeletingItemIds] = useState<Set<string>>(() => new Set())
   const [externalJobNumberInput, setExternalJobNumberInput] = useState('')
   const [externalJobImporting, setExternalJobImporting] = useState(false)
@@ -512,6 +513,8 @@ export default function JobsQuotingList() {
   const [createDNumberSubmitting, setCreateDNumberSubmitting] = useState(false)
   const [createBlankSubmitting, setCreateBlankSubmitting] = useState(false)
   const [markResultItemId, setMarkResultItemId] = useState<string | null>(null)
+  const [markResultJobItemIds, setMarkResultJobItemIds] = useState<string[]>([])
+  const [markResultJobLabel, setMarkResultJobLabel] = useState('')
   const [markResultStatus, setMarkResultStatus] = useState<JobsQuotingItemResultStatus>('pending')
   const [markResultAmountWon, setMarkResultAmountWon] = useState('')
   const [markResultSubmitting, setMarkResultSubmitting] = useState(false)
@@ -611,7 +614,14 @@ export default function JobsQuotingList() {
   const pageFirstJob = sortedJobGroups.length === 0 ? 0 : pageStartIndex + 1
   const pageLastJob = Math.min(pageStartIndex + paginatedJobGroups.length, sortedJobGroups.length)
   const markResultItem = markResultItemId ? items.find((item) => item.id === markResultItemId) ?? null : null
-  const markResultQuoteTotal = markResultItem ? getQuoteTotalAmount(markResultItem) : 0
+  const markResultJobItems = markResultJobItemIds
+    .map((itemId) => items.find((item) => item.id === itemId) ?? null)
+    .filter((item): item is JobsQuotingItem => Boolean(item))
+  const markResultTargetItems = markResultItem ? [markResultItem] : markResultJobItems
+  const markResultTargetLabel = markResultItem
+    ? getItemDNumber(markResultItem) || getItemFileName(markResultItem)
+    : markResultJobLabel
+  const markResultQuoteTotal = markResultTargetItems.reduce((total, item) => total + getQuoteTotalAmount(item), 0)
 
   const showQuoteJobScope = (scope: QuoteJobListScope) => {
     setQuoteJobListScope(scope)
@@ -827,6 +837,42 @@ export default function JobsQuotingList() {
       setDeletingItemIds((currentIds) => {
         const nextIds = new Set(currentIds)
         nextIds.delete(item.id)
+        return nextIds
+      })
+    }
+  }
+
+  const deleteQuoteJob = async (jobGroup: JobsQuotingJobGroup) => {
+    const jobLabel = jobGroup.jobNumber ? `job ${jobGroup.jobNumber}` : 'this job'
+    const confirmed = window.confirm(`Delete ${jobLabel}? This will delete all ${jobGroup.items.length} quote proposal${jobGroup.items.length === 1 ? '' : 's'} in this job.`)
+    if (!confirmed) return
+
+    const itemIds = jobGroup.items.map((item) => item.id)
+    setDeletingItemIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+      itemIds.forEach((itemId) => nextIds.add(itemId))
+      return nextIds
+    })
+    setOpenJobSettingsId(null)
+    setMessage(`Deleting ${jobLabel}.`)
+
+    try {
+      await Promise.all(jobGroup.items.map((item) => deleteJobsQuotingItem(item.id)))
+      setItems((currentItems) => currentItems.filter((currentItem) => !itemIds.includes(currentItem.id)))
+      setItemResults((currentResults) => {
+        const nextResults = { ...currentResults }
+        itemIds.forEach((itemId) => {
+          delete nextResults[itemId]
+        })
+        return nextResults
+      })
+      setMessage(`Deleted ${jobLabel}.`)
+    } catch (error) {
+      setMessage(getFriendlyErrorMessage(error))
+    } finally {
+      setDeletingItemIds((currentIds) => {
+        const nextIds = new Set(currentIds)
+        itemIds.forEach((itemId) => nextIds.delete(itemId))
         return nextIds
       })
     }
@@ -1078,7 +1124,10 @@ export default function JobsQuotingList() {
     const existingResult = itemResults[item.id]
     const quoteTotalAmount = getQuoteTotalAmount(item)
     setOpenItemSettingsId(null)
+    setOpenJobSettingsId(null)
     setMarkResultItemId(item.id)
+    setMarkResultJobItemIds([])
+    setMarkResultJobLabel('')
     setMarkResultStatus(existingResult?.winStatus ?? 'pending')
     setMarkResultAmountWon(
       existingResult?.amountWon != null
@@ -1090,15 +1139,37 @@ export default function JobsQuotingList() {
     setMessage('')
   }
 
+  const openMarkJobResultModal = (jobGroup: JobsQuotingJobGroup) => {
+    const itemIds = jobGroup.items.map((item) => item.id)
+    const existingResults = itemIds.map((itemId) => itemResults[itemId]).filter(Boolean)
+    const firstStatus = existingResults[0]?.winStatus
+    const sharedStatus = firstStatus && existingResults.every((result) => result.winStatus === firstStatus)
+      ? firstStatus
+      : 'pending'
+    const jobQuoteTotal = jobGroup.items.reduce((total, item) => total + getQuoteTotalAmount(item), 0)
+    const existingAmountWon = existingResults.reduce((total, result) => total + (result.amountWon ?? 0), 0)
+
+    setOpenItemSettingsId(null)
+    setOpenJobSettingsId(null)
+    setMarkResultItemId(null)
+    setMarkResultJobItemIds(itemIds)
+    setMarkResultJobLabel(jobGroup.jobNumber ? `Job ${jobGroup.jobNumber}` : 'Job number not found')
+    setMarkResultStatus(sharedStatus)
+    setMarkResultAmountWon(existingAmountWon > 0 ? String(existingAmountWon) : sharedStatus === 'won' ? String(jobQuoteTotal) : '')
+    setMessage('')
+  }
+
   const closeMarkResultModal = () => {
     if (markResultSubmitting) return
     setMarkResultItemId(null)
+    setMarkResultJobItemIds([])
+    setMarkResultJobLabel('')
     setMarkResultStatus('pending')
     setMarkResultAmountWon('')
   }
 
   const saveMarkResult = async () => {
-    if (!markResultItem) return
+    if (markResultTargetItems.length === 0) return
 
     const normalizedAmountWon = markResultStatus === 'won' ? parseMoney(markResultAmountWon) : null
     if (markResultStatus === 'won' && (!normalizedAmountWon || normalizedAmountWon <= 0)) {
@@ -1107,20 +1178,34 @@ export default function JobsQuotingList() {
     }
 
     setMarkResultSubmitting(true)
-    setMessage(`Saving result for ${getItemDNumber(markResultItem) || getItemFileName(markResultItem)}.`)
+    setMessage(`Saving result for ${markResultTargetLabel}.`)
 
     try {
-      const result = await saveJobsQuotingItemResult({
-        jobQuoteItemId: markResultItem.id,
-        quoteTotalAmount: markResultQuoteTotal,
-        winStatus: markResultStatus,
-        amountWon: normalizedAmountWon,
-      })
-      setItemResults((currentResults) => ({ ...currentResults, [result.jobQuoteItemId]: result }))
+      const savedResults = await Promise.all(markResultTargetItems.map((item) => {
+        const itemQuoteTotal = getQuoteTotalAmount(item)
+        const itemAmountWon = normalizedAmountWon == null
+          ? null
+          : markResultTargetItems.length === 1 || markResultQuoteTotal <= 0
+            ? normalizedAmountWon
+            : normalizedAmountWon * (itemQuoteTotal / markResultQuoteTotal)
+
+        return saveJobsQuotingItemResult({
+          jobQuoteItemId: item.id,
+          quoteTotalAmount: itemQuoteTotal,
+          winStatus: markResultStatus,
+          amountWon: itemAmountWon,
+        })
+      }))
+      setItemResults((currentResults) => ({
+        ...currentResults,
+        ...Object.fromEntries(savedResults.map((result) => [result.jobQuoteItemId, result])),
+      }))
       setMarkResultItemId(null)
+      setMarkResultJobItemIds([])
+      setMarkResultJobLabel('')
       setMarkResultStatus('pending')
       setMarkResultAmountWon('')
-      setMessage(`Marked quote result as ${result.winStatus}.`)
+      setMessage(`Marked ${markResultTargetLabel} result as ${markResultStatus}.`)
     } catch (error) {
       setMessage(getFriendlyErrorMessage(error))
     } finally {
@@ -1395,14 +1480,15 @@ export default function JobsQuotingList() {
         </div>
       ) : null}
 
-      {markResultItem ? (
+      {markResultTargetItems.length > 0 ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#111827]/45 px-4">
           <div className="w-full max-w-[460px] rounded-md border border-[#d3dbea] bg-white p-5 text-[var(--deshazo-text)] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <h2 className="text-[18px] font-black leading-tight text-[var(--deshazo-text)]">Mark Result</h2>
                 <p className="mt-1 truncate text-[13px] font-semibold leading-5 text-[#5b606b]">
-                  {getItemDNumber(markResultItem) || getItemFileName(markResultItem)}
+                  {markResultTargetLabel}
+                  {markResultJobItemIds.length > 0 ? ` • ${markResultJobItemIds.length} quote proposals` : ''}
                 </p>
               </div>
               <button
@@ -1758,19 +1844,51 @@ export default function JobsQuotingList() {
                           </td>
                           <td className="px-3 py-3 text-center align-middle text-[12px] font-bold text-[#4d5360]">
                             <div className="flex flex-col items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const params = new URLSearchParams()
-                                  params.set('jobsQuotingItemId', jobGroup.items[0].id)
-                                  params.set('jobItemIds', jobGroup.items.map((item) => item.id).join(','))
-                                  if (jobGroup.jobNumber) params.set('jobNumber', jobGroup.jobNumber)
-                                  navigate(`/editable-inspection-report?${params.toString()}`)
-                                }}
-                                className="inline-flex whitespace-nowrap rounded-md bg-[var(--deshazo-blue)] px-3 py-2 text-[11px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)]"
-                              >
-                                Edit Job
-                              </button>
+                              <div className="inline-flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const params = new URLSearchParams()
+                                    params.set('jobsQuotingItemId', jobGroup.items[0].id)
+                                    params.set('jobItemIds', jobGroup.items.map((item) => item.id).join(','))
+                                    if (jobGroup.jobNumber) params.set('jobNumber', jobGroup.jobNumber)
+                                    navigate(`/editable-inspection-report?${params.toString()}`)
+                                  }}
+                                  className="inline-flex whitespace-nowrap rounded-md bg-[var(--deshazo-blue)] px-3 py-2 text-[11px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)]"
+                                >
+                                  Edit Job
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenJobSettingsId((currentId) => currentId === jobGroup.id ? null : jobGroup.id)}
+                                  disabled={jobGroup.items.some((item) => deletingItemIds.has(item.id))}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-[15px] font-black leading-none text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                                  aria-label="Job settings"
+                                  title="Job settings"
+                                >
+                                  ⚙
+                                </button>
+                              </div>
+                              {openJobSettingsId === jobGroup.id ? (
+                                <div className="w-[150px] rounded-md border border-[#d3dbea] bg-white p-2 text-left shadow-[0_14px_34px_-28px_rgba(15,23,42,0.5)]">
+                                  <button
+                                    type="button"
+                                    onClick={() => openMarkJobResultModal(jobGroup)}
+                                    disabled={jobGroup.items.some((item) => deletingItemIds.has(item.id))}
+                                    className="mb-2 w-full rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-left text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    Mark Result
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteQuoteJob(jobGroup)}
+                                    disabled={jobGroup.items.some((item) => deletingItemIds.has(item.id))}
+                                    className="w-full rounded-md border border-[#f0c4bd] bg-[#fff7f5] px-3 py-2 text-left text-[12px] font-black text-[#a2472f] transition hover:bg-[#ffece8] disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {jobGroup.items.some((item) => deletingItemIds.has(item.id)) ? 'Deleting...' : 'Delete Job'}
+                                  </button>
+                                </div>
+                              ) : null}
                               <span>Modified {formatDate(jobGroup.modifiedAt)}</span>
                             </div>
                           </td>
