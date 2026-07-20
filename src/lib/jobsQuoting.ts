@@ -241,6 +241,7 @@ export type BlankQuoteCreateResult = {
 
 const supabasePageSize = 1000
 const runIdFilterChunkSize = 100
+let currentUserIdPromise: Promise<string> | null = null
 
 function mapRun(row: JobsQuotingRunRow): JobsQuotingRun {
   return {
@@ -638,17 +639,21 @@ async function fetchAllPages<Row>(buildQuery: (from: number, to: number) => Prom
 
 async function getCurrentUserId() {
   const client = requireSupabase()
-  const { data, error } = await client.auth.getUser()
 
-  if (error) {
-    throw new Error(error.message)
+  if (!currentUserIdPromise) {
+    currentUserIdPromise = client.auth.getUser()
+      .then(({ data, error }) => {
+        if (error) throw new Error(error.message)
+        if (!data.user) throw new Error('Sign in to use job quoting.')
+        return data.user.id
+      })
+      .catch((error) => {
+        currentUserIdPromise = null
+        throw error
+      })
   }
 
-  if (!data.user) {
-    throw new Error('Sign in to use job quoting.')
-  }
-
-  return data.user.id
+  return currentUserIdPromise
 }
 
 async function getAccessToken() {

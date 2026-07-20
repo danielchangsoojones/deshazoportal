@@ -1757,7 +1757,22 @@ export default function JobsQuotingList() {
                             {jobGroup.priorityCount}
                           </td>
                           <td className="px-3 py-3 text-center align-middle text-[12px] font-bold text-[#4d5360]">
-                            Modified {formatDate(jobGroup.modifiedAt)}
+                            <div className="flex flex-col items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const params = new URLSearchParams()
+                                  params.set('jobsQuotingItemId', jobGroup.items[0].id)
+                                  params.set('jobItemIds', jobGroup.items.map((item) => item.id).join(','))
+                                  if (jobGroup.jobNumber) params.set('jobNumber', jobGroup.jobNumber)
+                                  navigate(`/editable-inspection-report?${params.toString()}`)
+                                }}
+                                className="inline-flex whitespace-nowrap rounded-md bg-[var(--deshazo-blue)] px-3 py-2 text-[11px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)]"
+                              >
+                                Edit Job
+                              </button>
+                              <span>Modified {formatDate(jobGroup.modifiedAt)}</span>
+                            </div>
                           </td>
                         </tr>
                         {jobGroup.items.map((item) => (
