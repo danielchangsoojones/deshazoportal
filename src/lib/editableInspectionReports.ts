@@ -46,6 +46,8 @@ type RepairSectionLike = {
   status?: unknown
 }
 
+let currentUserIdPromise: Promise<string> | null = null
+
 function getReportJobNumber(reportData: Record<string, string>) {
   const value = reportData.jobNumber ?? ''
   return value.replace(/^job\s*#?\s*:\s*/i, '').replace(/^#\s*/, '').trim()
@@ -77,17 +79,20 @@ async function getCurrentUserId() {
     throw new Error('Supabase is not configured.')
   }
 
-  const { data, error } = await supabase.auth.getUser()
-
-  if (error) {
-    throw new Error(error.message)
+  if (!currentUserIdPromise) {
+    currentUserIdPromise = supabase.auth.getUser()
+      .then(({ data, error }) => {
+        if (error) throw new Error(error.message)
+        if (!data.user) throw new Error('Sign in to save editable reports.')
+        return data.user.id
+      })
+      .catch((error) => {
+        currentUserIdPromise = null
+        throw error
+      })
   }
 
-  if (!data.user) {
-    throw new Error('Sign in to save editable reports.')
-  }
-
-  return data.user.id
+  return currentUserIdPromise
 }
 
 function mapQuoteItemToEditableInspectionReport(item: JobsQuotingItem): EditableInspectionReport {
