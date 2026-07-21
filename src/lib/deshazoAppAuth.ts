@@ -9,13 +9,10 @@
 // vite.config.ts). A deployed build needs an equivalent same-origin rewrite, or the
 // cookie will be dropped as cross-site.
 
-const productionDeshazoApiUrl = 'https://deshazo-api.belovedrobot.com/api'
-const isLocalDeshazoHost =
-  typeof window === 'undefined' ||
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1'
-const localDeshazoApiUrl = '/deshazo-api'
-const defaultDeshazoApiUrl = isLocalDeshazoHost ? localDeshazoApiUrl : productionDeshazoApiUrl
+// Both Vite in development and server.mjs in production expose this same-origin
+// route. Keeping the browser on the portal origin ensures the HttpOnly auth cookie
+// is stored for, and sent back to, the server that handles subsequent API calls.
+const defaultDeshazoApiUrl = '/deshazo-api'
 
 const deshazoApiUrl =
   (import.meta.env.VITE_DESHAZO_APP_API_URL as string | undefined)?.trim().replace(/\/$/, '') ||
