@@ -171,6 +171,8 @@ function App() {
           <Route path="/full-application/customers/all" element={<FullApplication />} />
           <Route path="/full-application/customers/cranes" element={<FullApplication />} />
           <Route path="/full-application/safety" element={<FullApplication />} />
+          <Route path="/full-application/assets/fleet-management" element={<FullApplication />} />
+          <Route path="/full-application/assets/green-files" element={<FullApplication />} />
           <Route path="/full-application/report/payroll" element={<FullApplication />} />
           <Route path="/full-application/report/daily-worktime" element={<FullApplication />} />
           <Route path="/full-application/report/recovery" element={<FullApplication />} />

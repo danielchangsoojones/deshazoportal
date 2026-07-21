@@ -24,12 +24,14 @@ import RecoveryReport from '../components/RecoveryReport'
 import DailyUsageReport from '../components/DailyUsageReport'
 import PayCorReport from '../components/PayCorReport'
 import SafetyDashboard from '../components/SafetyDashboard'
+import FleetManagement from '../components/FleetManagement'
+import EquipmentNotebookLLM from './EquipmentNotebookLLM'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
   id: string
   label: string
-  icon: 'home' | 'calendar' | 'users' | 'quote' | 'reports' | 'safety' | 'admin'
+  icon: 'home' | 'calendar' | 'users' | 'quote' | 'reports' | 'safety' | 'fleet' | 'knowledge' | 'admin'
   items: string[]
 }
 
@@ -73,6 +75,18 @@ const menuSections: MenuSection[] = [
     items: ['Overview'],
   },
   {
+    id: 'assets',
+    label: 'Assets',
+    icon: 'fleet',
+    items: ['Fleet Management'],
+  },
+  {
+    id: 'green-files',
+    label: 'Green Files',
+    icon: 'knowledge',
+    items: ['Equipment Notebook'],
+  },
+  {
     id: 'reports',
     label: 'Reports',
     icon: 'reports',
@@ -96,6 +110,8 @@ function MenuIcon({ icon }: { icon: MenuSection['icon'] | 'logout' }) {
     reports: <path d="M3 5h18v4H3V5Zm2 4h14v12H5V9Zm5 4h4" />,
     quote: <path d="M6 3h9l4 4v14H6V3Zm9 0v5h4M9 12h7m-7 4h5M3 7v11" />,
     safety: <path d="M12 3 4.8 6v5.4c0 4.6 2.9 8.2 7.2 9.6 4.3-1.4 7.2-5 7.2-9.6V6L12 3Zm-3.2 9 2 2 4.5-4.5" />,
+    fleet: <><path d="M3 6h11v10H3V6Zm11 4h4l3 3v3h-7v-6Z" /><circle cx="7" cy="18" r="2" /><circle cx="18" cy="18" r="2" /></>,
+    knowledge: <><path d="M5 3h11l3 3v15H5V3Z" /><path d="M16 3v4h4M8 11h8m-8 4h8m-8 4h5" /></>,
     admin: <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0-5v2m0 13v2m8.5-8.5h-2m-13 0h-2m14.5-6-1.4 1.4M7.4 16.6 6 18m12 0-1.4-1.4M7.4 7.4 6 6" />,
     logout: <path d="M14 8V4H4v16h10v-4m-3-4h10m-3-3 3 3-3 3" />,
   }
@@ -126,7 +142,11 @@ export default function FullApplication() {
   const [deshazoChecking, setDeshazoChecking] = useState(true)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
   const [activeItem, setActiveItem] = useState(() =>
-    location.pathname.endsWith('/quoting/quotes')
+    location.pathname.endsWith('/assets/green-files')
+      ? 'green-files:Equipment Notebook'
+      : location.pathname.endsWith('/assets/fleet-management')
+        ? 'assets:Fleet Management'
+    : location.pathname.endsWith('/quoting/quotes')
       ? 'quoting:Quote List'
       : location.pathname.endsWith('/safety')
       ? 'safety:Overview'
@@ -330,8 +350,8 @@ export default function FullApplication() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#f4f7fb] text-[var(--deshazo-text)]">
-      <aside className={`relative min-h-screen shrink-0 border-r border-[#d3dbea] bg-[#f8fbff] pb-8 pt-6 shadow-sm transition-[width,padding] duration-200 ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-[272px] px-4'}`}>
+    <div className="flex h-screen overflow-hidden bg-[#f4f7fb] text-[var(--deshazo-text)]">
+      <aside className={`relative h-screen shrink-0 overflow-y-auto overscroll-contain border-r border-[#d3dbea] bg-[#f8fbff] pb-8 pt-6 shadow-sm [scrollbar-gutter:stable] transition-[width,padding] duration-200 ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-[272px] px-4'}`}>
         <button
           type="button"
           aria-label={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
@@ -435,6 +455,8 @@ export default function FullApplication() {
                                 else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
                                 else if (itemKey === 'customers:Cranes') navigate('/full-application/customers/cranes')
                                 else if (itemKey === 'safety:Overview') navigate('/full-application/safety')
+                                else if (itemKey === 'assets:Fleet Management') navigate('/full-application/assets/fleet-management')
+                                else if (itemKey === 'green-files:Equipment Notebook') navigate('/full-application/assets/green-files')
                                 else if (itemKey === 'quoting:Quote List') navigate('/jobsquotinglist')
                                 else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
                                 else if (itemKey === 'work-orders:To Be Scheduled') navigate('/full-application/work-orders/pending')
@@ -472,7 +494,7 @@ export default function FullApplication() {
         </nav>
       </aside>
 
-      <main aria-label="Full application workspace" className="min-h-screen min-w-0 flex-1">
+      <main aria-label="Full application workspace" className="h-screen min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {workOrderId && Number.isInteger(workOrderId) ? (
           <WorkOrderDetails
             workOrderId={workOrderId}
@@ -549,6 +571,10 @@ export default function FullApplication() {
           />
         ) : activeItem === 'safety:Overview' ? (
           <SafetyDashboard />
+        ) : activeItem === 'assets:Fleet Management' ? (
+          <FleetManagement serviceLocationId={serviceLocationId} serviceLocations={serviceLocations} />
+        ) : activeItem === 'green-files:Equipment Notebook' ? (
+          <EquipmentNotebookLLM embedded />
         ) : activeItem === 'reports:Payroll' ? (
           <PayrollReport serviceLocationId={serviceLocationId} />
         ) : activeItem === 'reports:Technician Daily Report' ? (
