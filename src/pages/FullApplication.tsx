@@ -26,13 +26,14 @@ import PayCorReport from '../components/PayCorReport'
 import SafetyDashboard from '../components/SafetyDashboard'
 import FleetManagement from '../components/FleetManagement'
 import FullApplicationSamplePage from '../components/FullApplicationSamplePage'
+import ExecutiveAnalytics from '../components/ExecutiveAnalytics'
 import EquipmentNotebookLLM from './EquipmentNotebookLLM'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
 type MenuSection = {
   id: string
   label: string
-  icon: 'home' | 'calendar' | 'users' | 'quote' | 'reports' | 'safety' | 'fleet' | 'knowledge' | 'admin'
+  icon: 'home' | 'calendar' | 'users' | 'quote' | 'reports' | 'safety' | 'fleet' | 'knowledge' | 'analytics' | 'admin'
   items: string[]
 }
 
@@ -88,6 +89,12 @@ const menuSections: MenuSection[] = [
     items: ['Equipment Notebook'],
   },
   {
+    id: 'executive-analytics',
+    label: 'Executive Analytics',
+    icon: 'analytics',
+    items: ['Executive Analytics'],
+  },
+  {
     id: 'reports',
     label: 'Reports',
     icon: 'reports',
@@ -113,6 +120,7 @@ function MenuIcon({ icon }: { icon: MenuSection['icon'] | 'logout' }) {
     safety: <path d="M12 3 4.8 6v5.4c0 4.6 2.9 8.2 7.2 9.6 4.3-1.4 7.2-5 7.2-9.6V6L12 3Zm-3.2 9 2 2 4.5-4.5" />,
     fleet: <><path d="M3 6h11v10H3V6Zm11 4h4l3 3v3h-7v-6Z" /><circle cx="7" cy="18" r="2" /><circle cx="18" cy="18" r="2" /></>,
     knowledge: <><path d="M5 3h11l3 3v15H5V3Z" /><path d="M16 3v4h4M8 11h8m-8 4h8m-8 4h5" /></>,
+    analytics: <><path d="M4 20V10m5 10V4m6 16v-7m5 7V7" /><path d="m3 8 5-4 6 6 7-7" /></>,
     admin: <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0-5v2m0 13v2m8.5-8.5h-2m-13 0h-2m14.5-6-1.4 1.4M7.4 16.6 6 18m12 0-1.4-1.4M7.4 7.4 6 6" />,
     logout: <path d="M14 8V4H4v16h10v-4m-3-4h10m-3-3 3 3-3 3" />,
   }
@@ -163,7 +171,9 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
   const [deshazoChecking, setDeshazoChecking] = useState(!sampleMode)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
   const [activeItem, setActiveItem] = useState(() =>
-    location.pathname.endsWith('/assets/green-files')
+    location.pathname.endsWith('/executive-analytics')
+      ? 'executive-analytics:Executive Analytics'
+    : location.pathname.endsWith('/assets/green-files')
       ? 'green-files:Equipment Notebook'
       : location.pathname.endsWith('/assets/fleet-management')
         ? 'assets:Fleet Management'
@@ -478,7 +488,8 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
                                   return
                                 }
                                 setActiveItem(itemKey)
-                                if (itemKey === 'calendar:Schedule') navigate(`${basePath}/calendar/schedule`)
+                                if (itemKey === 'executive-analytics:Executive Analytics') navigate(`${basePath}/executive-analytics`)
+                                else if (itemKey === 'calendar:Schedule') navigate(`${basePath}/calendar/schedule`)
                                 else if (itemKey === 'reports:Payroll') navigate(`${basePath}/report/payroll`)
                                 else if (itemKey === 'reports:Technician Daily Report') navigate(`${basePath}/report/daily-worktime`)
                                 else if (itemKey === 'reports:Recovery Report') navigate(`${basePath}/report/recovery`)
@@ -535,6 +546,11 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
               const returnTo = new URLSearchParams(location.search).get('returnTo')
               navigate(returnTo === 'schedule' ? `${basePath}/calendar/schedule` : returnTo === 'recurring-jobs' ? `${basePath}/calendar/recurring-jobs` : returnTo === 'cranes' ? `${basePath}/customers/cranes` : returnTo === 'daily-worktime' ? `${basePath}/report/daily-worktime` : returnTo === 'recently-added' ? `${basePath}/work-orders/recently-added` : returnTo === 'pending' ? `${basePath}/work-orders/pending` : returnTo === 'scheduled' ? `${basePath}/work-orders/scheduled` : returnTo === 'in-progress' ? `${basePath}/work-orders/in-progress` : returnTo === 'waiting-for-parts' ? `${basePath}/work-orders/waiting-for-parts` : returnTo === 'completed' ? `${basePath}/work-orders/completed` : basePath)
             }}
+          />
+        ) : activeItem === 'executive-analytics:Executive Analytics' ? (
+          <ExecutiveAnalytics
+            serviceLocationId={serviceLocationId}
+            serviceLocationName={serviceLocations.find((serviceLocation) => serviceLocation.id === serviceLocationId)?.name}
           />
         ) : activeItem === 'work-orders:All' ? (
           <WorkOrdersAll

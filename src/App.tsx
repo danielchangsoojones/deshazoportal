@@ -160,6 +160,7 @@ function App() {
           <Route path="/deshazo-internal-dashboard" element={<DeshazoInternalDashboard />} />
           <Route path="/dashazo-internal-dashboard" element={<Navigate to="/deshazo-internal-dashboard" replace />} />
           <Route path="/full-application" element={<FullApplication />} />
+          <Route path="/full-application/executive-analytics" element={<FullApplication />} />
           <Route path="/full-application/work-orders/recently-added" element={<FullApplication />} />
           <Route path="/full-application/work-orders/pending" element={<FullApplication />} />
           <Route path="/full-application/work-orders/scheduled" element={<FullApplication />} />
