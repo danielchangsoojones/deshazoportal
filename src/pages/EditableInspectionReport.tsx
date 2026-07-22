@@ -5185,7 +5185,7 @@ export default function EditableInspectionReport({
                   const params = isUuid(currentJobsQuotingItemId || '')
                     ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId || '')}`
                     : `editableReportId=${encodeURIComponent(currentEditableReportId)}`
-                  navigate(`/equipment-notebook-llm?${params}`)
+                  navigate(`/full-application/assets/green-files?${params}`)
                 }}
                 className="rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
               >

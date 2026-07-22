@@ -603,7 +603,7 @@ const GreenFileIndex = ({
   )
 }
 
-export default function EquipmentNotebookLLM() {
+export default function EquipmentNotebookLLM({ embedded = false }: { embedded?: boolean }) {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
@@ -1120,7 +1120,7 @@ export default function EquipmentNotebookLLM() {
 
   return (
     <div className="h-screen overflow-hidden bg-[#eef1f4] text-[#18202b]">
-      <header className="sticky top-0 z-40 border-b border-[#d9dee8] bg-white/95 px-5 py-3 shadow-[0_18px_50px_-42px_rgba(15,23,42,0.55)] backdrop-blur">
+      {!embedded ? <header className="sticky top-0 z-40 border-b border-[#d9dee8] bg-white/95 px-5 py-3 shadow-[0_18px_50px_-42px_rgba(15,23,42,0.55)] backdrop-blur">
         <div className="flex w-full items-center justify-between gap-4">
           <button
             type="button"
@@ -1138,10 +1138,10 @@ export default function EquipmentNotebookLLM() {
             <p className="hidden text-xs font-semibold text-[#657183] sm:block">Complete crane-system records, manuals, and AI assistance</p>
           </div>
         </div>
-      </header>
+      </header> : null}
 
-      <main className="flex h-[calc(100vh-60px)] min-h-0 w-full items-stretch">
-        {menuOpen && (
+      <main className={`flex min-h-0 w-full items-stretch ${embedded ? 'h-screen' : 'h-[calc(100vh-60px)]'}`}>
+        {!embedded && menuOpen && (
           <aside className="hidden h-full w-[268px] shrink-0 border-r border-[#d9dee8] bg-[#f8fafc] lg:flex lg:flex-col">
             <div className="flex-1 px-4 py-5">
               <div className="rounded-lg border border-[#dfe5ee] bg-white p-3 shadow-[0_18px_50px_-44px_rgba(15,23,42,0.5)]">

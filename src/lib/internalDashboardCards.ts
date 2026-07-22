@@ -26,9 +26,9 @@ export const internalDashboardCards = [
   },
   {
     eyebrow: 'AI Tools',
-    title: 'Equipment LLM',
-    description: 'Chat with quote context, inspection reports, and equipment manuals to build cited parts guidance.',
-    href: '/equipment-notebook-llm',
+    title: 'Green Files',
+    description: 'Open the Full Application equipment notebook for crane manuals, indexed parts guidance, and cited AI chat.',
+    href: '/full-application/assets/green-files',
   },
   {
     eyebrow: 'Inspection QA',
