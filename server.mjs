@@ -52,6 +52,17 @@ const server = createServer((request, response) => {
     return
   }
 
+  // Always revalidate the SPA shell and route responses so a deployment cannot
+  // leave an open browser tab pointing at JavaScript chunks from an older build.
+  // Vite asset filenames are content-hashed and remain safe to cache indefinitely.
+  if (request.url?.startsWith('/assets/')) {
+    response.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+  } else {
+    response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+    response.setHeader('Pragma', 'no-cache')
+    response.setHeader('Expires', '0')
+  }
+
   handler(request, response, {
     public: 'dist',
     rewrites: [{ source: '**', destination: '/index.html' }],
