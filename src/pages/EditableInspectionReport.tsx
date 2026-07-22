@@ -193,6 +193,7 @@ const printedPageMarginIn = 0.45
 const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
 const reportAutosaveIntervalMs = 10 * 1000
+const autosaveDisabledEmails = new Set(['aher604@gmail.com', 'danieljones@blockstampsf.com'])
 const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
 const menuSearchDebounceMs = 300
@@ -2701,6 +2702,7 @@ export default function EditableInspectionReport({
   const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
   const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
   const [currentUser, setCurrentUser] = useState<User | null>(inheritedCurrentUser)
+  const isEditableReportAutosaveDisabled = autosaveDisabledEmails.has((currentUser?.email || '').trim().toLowerCase())
   const [userProfile, setUserProfile] = useState<UserProfile | null>(inheritedUserProfile)
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
@@ -3403,6 +3405,7 @@ export default function EditableInspectionReport({
   const flushPendingEditableReportSave = useCallback(async () => {
     if (
       !isConfigured ||
+      isEditableReportAutosaveDisabled ||
       !currentJobsQuotingItemId ||
       !reportHydrationReady.current ||
       reportAutosaveInFlight.current ||
@@ -3422,7 +3425,7 @@ export default function EditableInspectionReport({
     } finally {
       reportAutosaveInFlight.current = false
     }
-  }, [currentJobsQuotingItemId])
+  }, [currentJobsQuotingItemId, isEditableReportAutosaveDisabled])
 
   const registerEmbeddedReportSaveHandler = useCallback(
     (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => {
@@ -3553,6 +3556,7 @@ export default function EditableInspectionReport({
     if (
       !embeddedJobPage ||
       !isConfigured ||
+      isEditableReportAutosaveDisabled ||
       !currentJobsQuotingItemId ||
       !reportHydrationReady.current ||
       !pendingReportChanges.current
@@ -3577,10 +3581,10 @@ export default function EditableInspectionReport({
         embeddedReportSaveTimeout.current = undefined
       }
     }
-  }, [currentEditableReportPayload, currentJobsQuotingItemId, embeddedJobPage, flushPendingEditableReportSave, reportDatabaseStatus])
+  }, [currentEditableReportPayload, currentJobsQuotingItemId, embeddedJobPage, flushPendingEditableReportSave, isEditableReportAutosaveDisabled, reportDatabaseStatus])
 
   useEffect(() => {
-    if (!embeddedJobPage) return
+    if (!embeddedJobPage || isEditableReportAutosaveDisabled) return
 
     return () => {
       if (pendingReportChanges.current) {
@@ -3589,10 +3593,10 @@ export default function EditableInspectionReport({
         })
       }
     }
-  }, [embeddedJobPage, flushPendingEditableReportSave])
+  }, [embeddedJobPage, flushPendingEditableReportSave, isEditableReportAutosaveDisabled])
 
   useEffect(() => {
-    if (!isConfigured || !currentJobsQuotingItemId || isJobEditMode) return
+    if (!isConfigured || isEditableReportAutosaveDisabled || !currentJobsQuotingItemId || isJobEditMode) return
 
     const autosaveTimer = window.setInterval(() => {
       if (!reportHydrationReady.current || reportAutosaveInFlight.current) return
@@ -3609,7 +3613,7 @@ export default function EditableInspectionReport({
     }, reportAutosaveIntervalMs)
 
     return () => window.clearInterval(autosaveTimer)
-  }, [currentJobsQuotingItemId, isJobEditMode])
+  }, [currentJobsQuotingItemId, isEditableReportAutosaveDisabled, isJobEditMode])
 
   const deleteJobEditItem = useCallback(async (itemId: string) => {
     const confirmed = window.confirm('Delete this D number from the job?')
