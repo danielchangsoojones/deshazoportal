@@ -424,6 +424,10 @@ export default function FullApplication() {
                               type="button"
                               aria-current={isActive ? 'page' : undefined}
                               onClick={() => {
+                                if (itemKey === 'quoting:Quote List') {
+                                  window.open('/jobsquotinglist', '_blank', 'noopener,noreferrer')
+                                  return
+                                }
                                 setActiveItem(itemKey)
                                 if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
                                 else if (itemKey === 'reports:Payroll') navigate('/full-application/report/payroll')
@@ -435,7 +439,6 @@ export default function FullApplication() {
                                 else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
                                 else if (itemKey === 'customers:Cranes') navigate('/full-application/customers/cranes')
                                 else if (itemKey === 'safety:Overview') navigate('/full-application/safety')
-                                else if (itemKey === 'quoting:Quote List') navigate('/jobsquotinglist')
                                 else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
                                 else if (itemKey === 'work-orders:To Be Scheduled') navigate('/full-application/work-orders/pending')
                                 else if (itemKey === 'work-orders:Scheduled') navigate('/full-application/work-orders/scheduled')
