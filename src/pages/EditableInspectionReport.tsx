@@ -193,6 +193,7 @@ const printedPageMarginIn = 0.45
 const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
 const reportAutosaveIntervalMs = 10 * 1000
+const autosaveDisabledEmails = new Set(['aher604@gmail.com', 'danieljones@blockstampsf.com'])
 const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
 const menuSearchDebounceMs = 300
@@ -725,6 +726,25 @@ const formatBranchLabel = (branch: string) =>
 const getNormalizedColumnDNumber = (value: string) => {
   const withoutLabel = removeReportValueLabel(value)
   return withoutLabel ? ensureDNumberPrefix(withoutLabel).replace(/[\s-]+/g, '').toUpperCase() : ''
+}
+
+const compareDNumbers = (firstDNumber: string, secondDNumber: string) => {
+  const firstNormalized = getNormalizedColumnDNumber(firstDNumber) || firstDNumber.trim().toUpperCase()
+  const secondNormalized = getNormalizedColumnDNumber(secondDNumber) || secondDNumber.trim().toUpperCase()
+  const firstParts = firstNormalized.match(/^([A-Z]+)(\d+)(.*)$/)
+  const secondParts = secondNormalized.match(/^([A-Z]+)(\d+)(.*)$/)
+
+  if (firstParts && secondParts) {
+    const prefixComparison = firstParts[1].localeCompare(secondParts[1])
+    if (prefixComparison !== 0) return prefixComparison
+
+    const numberComparison = Number(firstParts[2]) - Number(secondParts[2])
+    if (numberComparison !== 0) return numberComparison
+
+    return firstParts[3].localeCompare(secondParts[3], undefined, { numeric: true, sensitivity: 'base' })
+  }
+
+  return firstNormalized.localeCompare(secondNormalized, undefined, { numeric: true, sensitivity: 'base' })
 }
 
 const replaceReportSummaryDNumber = (summary: string, dNumber: string) => {
@@ -1408,6 +1428,45 @@ const getTemplateReportCell = (label: string, value: string | undefined) => `
   </div>
 `
 
+const templateEquipmentRows = [
+  [
+    ['Manufacturer', 'manufacturerCrane'],
+    ['Serial Number', 'serialCrane'],
+    ['Capacity', 'capacityCrane'],
+    ['Model #', 'modelCrane'],
+  ],
+  [
+    ['Hoist 1 Manufacturer', 'manufacturerHoist'],
+    ['Hoist 1 Serial', 'serialHoist'],
+    ['Hoist 1 Capacity', 'capacityHoist'],
+    ['Hoist 1 Model', 'modelHoist'],
+  ],
+  [
+    ['Hoist 2 Manufacturer', 'manufacturerHoist2'],
+    ['Hoist 2 Serial', 'serialHoist2'],
+    ['Hoist 2 Capacity', 'capacityHoist2'],
+    ['Hoist 2 Model', 'modelHoist2'],
+  ],
+  [
+    ['Hoist 3 Manufacturer', 'manufacturerHoist3'],
+    ['Hoist 3 Serial', 'serialHoist3'],
+    ['Hoist 3 Capacity', 'capacityHoist3'],
+    ['Hoist 3 Model', 'modelHoist3'],
+  ],
+  [
+    ['Hoist 4 Manufacturer', 'manufacturerHoist4'],
+    ['Hoist 4 Serial', 'serialHoist4'],
+    ['Hoist 4 Capacity', 'capacityHoist4'],
+    ['Hoist 4 Model', 'modelHoist4'],
+  ],
+] as const
+
+const getTemplateEquipmentCells = (reportData: ReportData) =>
+  templateEquipmentRows
+    .filter((row, rowIndex) => rowIndex <= 1 || row.some(([, fieldId]) => hasReportCellValue(reportData[fieldId])))
+    .flatMap((row) => row.map(([label, fieldId]) => getTemplateReportCell(label, reportData[fieldId])))
+    .join('')
+
 const getTemplateLineItemRows = (
   lineItems: RepairLineItem[],
   getCustomerAmount: (lineItem: RepairLineItem) => number,
@@ -1566,14 +1625,7 @@ const getCombinedReportTemplateHtml = (
         </div>
 
         <div class="equipment-grid">
-          ${getTemplateReportCell('Manufacturer', reportData.manufacturerCrane)}
-          ${getTemplateReportCell('Serial Number', reportData.serialCrane)}
-          ${getTemplateReportCell('Capacity', reportData.capacityCrane)}
-          ${getTemplateReportCell('Model #', reportData.modelCrane)}
-          ${getTemplateReportCell('Hoist 1 Manufacturer', reportData.manufacturerHoist)}
-          ${getTemplateReportCell('Hoist 1 Serial', reportData.serialHoist)}
-          ${getTemplateReportCell('Hoist 1 Capacity', reportData.capacityHoist)}
-          ${getTemplateReportCell('Hoist 1 Model', reportData.modelHoist)}
+          ${getTemplateEquipmentCells(reportData)}
         </div>
 
         <section class="contact-row">
@@ -2578,6 +2630,8 @@ type EditableInspectionReportProps = {
   inheritedCurrentUser?: User | null
   inheritedUserProfile?: UserProfile | null
   registerEmbeddedReportSave?: (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => () => void
+  onDeleteDNumber?: () => void
+  suppressAdditionalNotes?: boolean
 }
 
 export default function EditableInspectionReport({
@@ -2587,6 +2641,8 @@ export default function EditableInspectionReport({
   inheritedCurrentUser = null,
   inheritedUserProfile = null,
   registerEmbeddedReportSave,
+  onDeleteDNumber,
+  suppressAdditionalNotes = false,
 }: EditableInspectionReportProps = {}) {
   const generatedId = useRef(1000)
   const navigate = useNavigate()
@@ -2602,6 +2658,7 @@ export default function EditableInspectionReport({
     : validJobsQuotingItemId
       ? [validJobsQuotingItemId]
       : []
+  const jobEditItemIdsKey = jobEditItemIds.join(',')
   const isJobEditMode = !embeddedJobPage && jobEditItemIds.length > 1
   const hasSelectedEditableReportSource = Boolean(validJobsQuotingItemId || validEditableReportIdParam)
   const menuDatabaseSyncReady = useRef(false)
@@ -2647,6 +2704,7 @@ export default function EditableInspectionReport({
   const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
   const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
   const [currentUser, setCurrentUser] = useState<User | null>(inheritedCurrentUser)
+  const isEditableReportAutosaveDisabled = autosaveDisabledEmails.has((currentUser?.email || '').trim().toLowerCase())
   const [userProfile, setUserProfile] = useState<UserProfile | null>(inheritedUserProfile)
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
@@ -2660,7 +2718,24 @@ export default function EditableInspectionReport({
   const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [isReportEditing, setIsReportEditing] = useState(false)
   const [deletedJobItemIds, setDeletedJobItemIds] = useState<Set<string>>(() => new Set())
-  const visibleJobEditItemIds = jobEditItemIds.filter((itemId) => !deletedJobItemIds.has(itemId))
+  const [jobEditQuoteItemsById, setJobEditQuoteItemsById] = useState<Record<string, JobsQuotingItem>>({})
+  const visibleJobEditItemIds = useMemo(() => {
+    const originalIndexById = new Map(jobEditItemIds.map((itemId, index) => [itemId, index]))
+
+    return jobEditItemIds
+      .filter((itemId) => !deletedJobItemIds.has(itemId))
+      .sort((firstItemId, secondItemId) => {
+        const firstItem = jobEditQuoteItemsById[firstItemId]
+        const secondItem = jobEditQuoteItemsById[secondItemId]
+        const firstDNumber = firstItem?.dNumber || getTopLevelExtractedText(firstItem?.extractionData, ['d_number', 'dNumber'])
+        const secondDNumber = secondItem?.dNumber || getTopLevelExtractedText(secondItem?.extractionData, ['d_number', 'dNumber'])
+
+        if (firstDNumber && secondDNumber) return compareDNumbers(firstDNumber, secondDNumber)
+        if (firstDNumber !== secondDNumber) return firstDNumber ? -1 : 1
+
+        return (originalIndexById.get(firstItemId) ?? 0) - (originalIndexById.get(secondItemId) ?? 0)
+      })
+  }, [deletedJobItemIds, jobEditItemIds, jobEditItemIdsKey, jobEditQuoteItemsById])
   const [menuItemsRefreshProgress, setMenuItemsRefreshProgress] = useState<MenuItemsRefreshProgress>({
     active: false,
     percent: 0,
@@ -2691,6 +2766,15 @@ export default function EditableInspectionReport({
       return addReportSummaryCraneContext(blankReport)
     }
   })
+  const finalJobEditNotesReport = useMemo(() => {
+    const finalItemId = visibleJobEditItemIds.at(-1)
+    const finalItemReport = finalItemId ? jobEditQuoteItemsById[finalItemId]?.reportData : null
+
+    return {
+      notesHeader: finalItemReport?.notesHeader || report.notesHeader || defaultReport.notesHeader,
+      notes: finalItemReport?.notes || report.notes || buildDefaultAdditionalNotes(userProfile),
+    }
+  }, [jobEditQuoteItemsById, report.notes, report.notesHeader, userProfile, visibleJobEditItemIds])
   const [repairSections, setRepairSections] = useState<RepairSection[]>(() => {
     if (hasSelectedEditableReportSource) return []
 
@@ -2846,6 +2930,41 @@ export default function EditableInspectionReport({
       return { ...currentReport, notes: nextNotes }
     })
   }, [userProfile])
+  useEffect(() => {
+    if (!isJobEditMode || !isConfigured) return
+
+    const missingItemIds = jobEditItemIds.filter((itemId) => !jobEditQuoteItemsById[itemId])
+    if (missingItemIds.length === 0) return
+
+    let active = true
+
+    Promise.all(
+      missingItemIds.map((itemId) =>
+        getJobsQuotingItem(itemId)
+          .then((item) => [itemId, item] as const)
+          .catch(() => null),
+      ),
+    ).then((entries) => {
+      if (!active) return
+
+      setJobEditQuoteItemsById((currentItems) => {
+        const nextItems = { ...currentItems }
+        let hasNextItem = false
+        entries.forEach((entry) => {
+          if (entry) {
+            nextItems[entry[0]] = entry[1]
+            hasNextItem = true
+          }
+        })
+        return hasNextItem ? nextItems : currentItems
+      })
+    })
+
+    return () => {
+      active = false
+    }
+  }, [isJobEditMode, jobEditItemIdsKey, jobEditQuoteItemsById])
+
   const menuSearchBranchesLabel = useMemo(
     () =>
       menuSearchBranches.length > 0
@@ -2901,8 +3020,9 @@ export default function EditableInspectionReport({
         const uniqueKey = option.dNumber === 'Unknown D Number' ? option.id : option.dNumber.toUpperCase()
         if (seenDNumbers.has(uniqueKey)) return false
         seenDNumbers.add(uniqueKey)
-      return true
-    })
+        return true
+      })
+      .sort((firstOption, secondOption) => compareDNumbers(firstOption.dNumber, secondOption.dNumber))
   }, [
     blockVisibility,
     costSections,
@@ -2951,7 +3071,18 @@ export default function EditableInspectionReport({
         addOptionId(savedReport.id, dNumber)
       })
 
-      return optionIds
+      return optionIds.sort((firstOptionId, secondOptionId) => {
+        const firstSavedReport = savedReports.find((savedReport) => savedReport.id === firstOptionId)
+        const secondSavedReport = savedReports.find((savedReport) => savedReport.id === secondOptionId)
+        const firstDNumber = firstOptionId === currentId
+          ? currentDNumber
+          : firstSavedReport?.dNumber || getDNumberFromReport(firstSavedReport?.reportData ?? {}) || 'Unknown D Number'
+        const secondDNumber = secondOptionId === currentId
+          ? currentDNumber
+          : secondSavedReport?.dNumber || getDNumberFromReport(secondSavedReport?.reportData ?? {}) || 'Unknown D Number'
+
+        return compareDNumbers(firstDNumber, secondDNumber)
+      })
     },
     [currentEditableReportId, report],
   )
@@ -3285,6 +3416,7 @@ export default function EditableInspectionReport({
   const flushPendingEditableReportSave = useCallback(async () => {
     if (
       !isConfigured ||
+      isEditableReportAutosaveDisabled ||
       !currentJobsQuotingItemId ||
       !reportHydrationReady.current ||
       reportAutosaveInFlight.current ||
@@ -3304,7 +3436,7 @@ export default function EditableInspectionReport({
     } finally {
       reportAutosaveInFlight.current = false
     }
-  }, [currentJobsQuotingItemId])
+  }, [currentJobsQuotingItemId, isEditableReportAutosaveDisabled])
 
   const registerEmbeddedReportSaveHandler = useCallback(
     (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => {
@@ -3435,6 +3567,7 @@ export default function EditableInspectionReport({
     if (
       !embeddedJobPage ||
       !isConfigured ||
+      isEditableReportAutosaveDisabled ||
       !currentJobsQuotingItemId ||
       !reportHydrationReady.current ||
       !pendingReportChanges.current
@@ -3459,10 +3592,10 @@ export default function EditableInspectionReport({
         embeddedReportSaveTimeout.current = undefined
       }
     }
-  }, [currentEditableReportPayload, currentJobsQuotingItemId, embeddedJobPage, flushPendingEditableReportSave, reportDatabaseStatus])
+  }, [currentEditableReportPayload, currentJobsQuotingItemId, embeddedJobPage, flushPendingEditableReportSave, isEditableReportAutosaveDisabled, reportDatabaseStatus])
 
   useEffect(() => {
-    if (!embeddedJobPage) return
+    if (!embeddedJobPage || isEditableReportAutosaveDisabled) return
 
     return () => {
       if (pendingReportChanges.current) {
@@ -3471,10 +3604,10 @@ export default function EditableInspectionReport({
         })
       }
     }
-  }, [embeddedJobPage, flushPendingEditableReportSave])
+  }, [embeddedJobPage, flushPendingEditableReportSave, isEditableReportAutosaveDisabled])
 
   useEffect(() => {
-    if (!isConfigured || !currentJobsQuotingItemId || isJobEditMode) return
+    if (!isConfigured || isEditableReportAutosaveDisabled || !currentJobsQuotingItemId || isJobEditMode) return
 
     const autosaveTimer = window.setInterval(() => {
       if (!reportHydrationReady.current || reportAutosaveInFlight.current) return
@@ -3491,7 +3624,7 @@ export default function EditableInspectionReport({
     }, reportAutosaveIntervalMs)
 
     return () => window.clearInterval(autosaveTimer)
-  }, [currentJobsQuotingItemId, isJobEditMode])
+  }, [currentJobsQuotingItemId, isEditableReportAutosaveDisabled, isJobEditMode])
 
   const deleteJobEditItem = useCallback(async (itemId: string) => {
     const confirmed = window.confirm('Delete this D number from the job?')
@@ -4764,8 +4897,12 @@ export default function EditableInspectionReport({
       return
     }
 
+    const jobNumberLabel = normalizedCurrentJobNumber || 'selected'
+    const combinedReportTitle = `Combined Editable Inspection Reports - Job ${jobNumberLabel}`
+
     printReportSources(selectedSources, {
-      fallbackFilename: `editable-inspection-reports-${normalizedCurrentJobNumber || 'selected'}.pdf`,
+      documentTitle: combinedReportTitle,
+      fallbackFilename: `${combinedReportTitle}.pdf`,
       openedMessage: `Opened ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'} for PDF download.`,
     })
   }
@@ -5515,15 +5652,6 @@ export default function EditableInspectionReport({
               ) : visibleJobEditItemIds.length > 0 ? (
                 visibleJobEditItemIds.map((itemId, itemIndex) => (
                   <section key={itemId} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void deleteJobEditItem(itemId)
-                      }}
-                      className="report-toolbar absolute right-3 top-[66px] z-20 rounded-md border border-[#e5b4a6] bg-[#fff7f4] px-3 py-2 text-[12px] font-black text-[#ad452f] shadow-[0_12px_28px_-20px_rgba(141,50,32,0.55)] transition hover:border-[#d88974] hover:bg-[#fff0eb]"
-                    >
-                      Delete D Number
-                    </button>
                     <EditableInspectionReport
                       embeddedJobPage
                       embeddedJobsQuotingItemId={itemId}
@@ -5531,6 +5659,10 @@ export default function EditableInspectionReport({
                       inheritedCurrentUser={currentUser}
                       inheritedUserProfile={userProfile}
                       registerEmbeddedReportSave={registerEmbeddedReportSaveHandler}
+                      onDeleteDNumber={() => {
+                        void deleteJobEditItem(itemId)
+                      }}
+                      suppressAdditionalNotes
                     />
                   </section>
                 ))
@@ -5539,6 +5671,20 @@ export default function EditableInspectionReport({
                   All D numbers have been removed from this job.
                 </div>
               )}
+              {visibleJobEditItemIds.length > 0 ? (
+                <section className="report-document report-runtime-page-break relative">
+                  <div className="report-content-layer relative z-10">
+                    <section className="border border-[#d4d4d4]">
+                      <div className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase text-[#111]">
+                        {finalJobEditNotesReport.notesHeader || 'Additional Notes'}
+                      </div>
+                      <div className="min-h-[96px] px-3 py-3 text-[15px] font-semibold text-[#111]">
+                        {renderAdditionalNotesContent(finalJobEditNotesReport.notes || '---', userProfile)}
+                      </div>
+                    </section>
+                  </div>
+                </section>
+              ) : null}
             </div>
           ) : (
           <div className="mx-auto w-fit">
@@ -5546,17 +5692,18 @@ export default function EditableInspectionReport({
               <div className="text-[16px] font-black text-[var(--deshazo-text)]">
                 Page {embeddedJobPageNumber} <span className="font-bold text-[rgba(21,24,33,0.55)]">- Quote proposal</span>
               </div>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setPageLayoutMenuOpen((currentOpen) => !currentOpen)}
-                  className="rounded-md border border-[#c8cfdb] bg-white px-3 py-2 text-[12px] font-black uppercase text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
-                  aria-expanded={pageLayoutMenuOpen}
-                >
-                  Edit Page Layout
-                </button>
-                {pageLayoutMenuOpen ? (
-                  <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[330px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_48px_-28px_rgba(15,23,42,0.55)]">
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setPageLayoutMenuOpen((currentOpen) => !currentOpen)}
+                    className="rounded-md border border-[#c8cfdb] bg-white px-3 py-2 text-[12px] font-black uppercase text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
+                    aria-expanded={pageLayoutMenuOpen}
+                  >
+                    Edit Page Layout
+                  </button>
+                  {pageLayoutMenuOpen ? (
+                    <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[330px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_48px_-28px_rgba(15,23,42,0.55)]">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="text-[11px] font-black uppercase text-[#555b66]">Page hierarchy</span>
                       <button
@@ -5688,6 +5835,16 @@ export default function EditableInspectionReport({
                   </div>
                 ) : null}
               </div>
+                {onDeleteDNumber ? (
+                  <button
+                    type="button"
+                    onClick={onDeleteDNumber}
+                    className="rounded-md border border-[#e5b4a6] bg-[#fff7f4] px-3 py-2 text-[12px] font-black uppercase text-[#ad452f] shadow-sm transition hover:border-[#d88974] hover:bg-[#fff0eb]"
+                  >
+                    Delete D Number
+                  </button>
+                ) : null}
+            </div>
             </div>
 
             <div className="report-document relative">
@@ -6470,7 +6627,7 @@ export default function EditableInspectionReport({
             </section>
             ) : null}
 
-            {blockVisibility.notes ? (
+            {blockVisibility.notes && !suppressAdditionalNotes ? (
             <section
               data-report-block-id="notes"
               style={getRuntimePageBreakStyle('notes')}
