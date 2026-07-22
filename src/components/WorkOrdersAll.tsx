@@ -178,8 +178,9 @@ export default function WorkOrdersAll({ serviceLocationId, onOpenWorkOrder, rece
 
   return (
     <div className="px-5 py-5 lg:px-7">
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="Work order status totals">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Work order status totals">
         {[
+          ['To Be Scheduled', kpis.pending],
           ['Scheduled', kpis.scheduled],
           ['Waiting On Parts', kpis.waitingOnParts],
           ['In Progress', kpis.inProgress],
