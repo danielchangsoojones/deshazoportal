@@ -1408,6 +1408,45 @@ const getTemplateReportCell = (label: string, value: string | undefined) => `
   </div>
 `
 
+const templateEquipmentRows = [
+  [
+    ['Manufacturer', 'manufacturerCrane'],
+    ['Serial Number', 'serialCrane'],
+    ['Capacity', 'capacityCrane'],
+    ['Model #', 'modelCrane'],
+  ],
+  [
+    ['Hoist 1 Manufacturer', 'manufacturerHoist'],
+    ['Hoist 1 Serial', 'serialHoist'],
+    ['Hoist 1 Capacity', 'capacityHoist'],
+    ['Hoist 1 Model', 'modelHoist'],
+  ],
+  [
+    ['Hoist 2 Manufacturer', 'manufacturerHoist2'],
+    ['Hoist 2 Serial', 'serialHoist2'],
+    ['Hoist 2 Capacity', 'capacityHoist2'],
+    ['Hoist 2 Model', 'modelHoist2'],
+  ],
+  [
+    ['Hoist 3 Manufacturer', 'manufacturerHoist3'],
+    ['Hoist 3 Serial', 'serialHoist3'],
+    ['Hoist 3 Capacity', 'capacityHoist3'],
+    ['Hoist 3 Model', 'modelHoist3'],
+  ],
+  [
+    ['Hoist 4 Manufacturer', 'manufacturerHoist4'],
+    ['Hoist 4 Serial', 'serialHoist4'],
+    ['Hoist 4 Capacity', 'capacityHoist4'],
+    ['Hoist 4 Model', 'modelHoist4'],
+  ],
+] as const
+
+const getTemplateEquipmentCells = (reportData: ReportData) =>
+  templateEquipmentRows
+    .filter((row, rowIndex) => rowIndex <= 1 || row.some(([, fieldId]) => hasReportCellValue(reportData[fieldId])))
+    .flatMap((row) => row.map(([label, fieldId]) => getTemplateReportCell(label, reportData[fieldId])))
+    .join('')
+
 const getTemplateLineItemRows = (
   lineItems: RepairLineItem[],
   getCustomerAmount: (lineItem: RepairLineItem) => number,
@@ -1566,14 +1605,7 @@ const getCombinedReportTemplateHtml = (
         </div>
 
         <div class="equipment-grid">
-          ${getTemplateReportCell('Manufacturer', reportData.manufacturerCrane)}
-          ${getTemplateReportCell('Serial Number', reportData.serialCrane)}
-          ${getTemplateReportCell('Capacity', reportData.capacityCrane)}
-          ${getTemplateReportCell('Model #', reportData.modelCrane)}
-          ${getTemplateReportCell('Hoist 1 Manufacturer', reportData.manufacturerHoist)}
-          ${getTemplateReportCell('Hoist 1 Serial', reportData.serialHoist)}
-          ${getTemplateReportCell('Hoist 1 Capacity', reportData.capacityHoist)}
-          ${getTemplateReportCell('Hoist 1 Model', reportData.modelHoist)}
+          ${getTemplateEquipmentCells(reportData)}
         </div>
 
         <section class="contact-row">
