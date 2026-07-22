@@ -76,7 +76,7 @@ const menuSections: MenuSection[] = [
   },
   {
     id: 'assets',
-    label: 'Assets',
+    label: 'Truck Fleet Management',
     icon: 'fleet',
     items: ['Fleet Management'],
   },
