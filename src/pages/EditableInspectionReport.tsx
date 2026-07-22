@@ -2629,6 +2629,7 @@ type EditableInspectionReportProps = {
   inheritedCurrentUser?: User | null
   inheritedUserProfile?: UserProfile | null
   registerEmbeddedReportSave?: (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => () => void
+  onDeleteDNumber?: () => void
 }
 
 export default function EditableInspectionReport({
@@ -2638,6 +2639,7 @@ export default function EditableInspectionReport({
   inheritedCurrentUser = null,
   inheritedUserProfile = null,
   registerEmbeddedReportSave,
+  onDeleteDNumber,
 }: EditableInspectionReportProps = {}) {
   const generatedId = useRef(1000)
   const navigate = useNavigate()
@@ -5631,15 +5633,6 @@ export default function EditableInspectionReport({
               ) : visibleJobEditItemIds.length > 0 ? (
                 visibleJobEditItemIds.map((itemId, itemIndex) => (
                   <section key={itemId} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void deleteJobEditItem(itemId)
-                      }}
-                      className="report-toolbar absolute right-3 top-[66px] z-20 rounded-md border border-[#e5b4a6] bg-[#fff7f4] px-3 py-2 text-[12px] font-black text-[#ad452f] shadow-[0_12px_28px_-20px_rgba(141,50,32,0.55)] transition hover:border-[#d88974] hover:bg-[#fff0eb]"
-                    >
-                      Delete D Number
-                    </button>
                     <EditableInspectionReport
                       embeddedJobPage
                       embeddedJobsQuotingItemId={itemId}
@@ -5647,6 +5640,9 @@ export default function EditableInspectionReport({
                       inheritedCurrentUser={currentUser}
                       inheritedUserProfile={userProfile}
                       registerEmbeddedReportSave={registerEmbeddedReportSaveHandler}
+                      onDeleteDNumber={() => {
+                        void deleteJobEditItem(itemId)
+                      }}
                     />
                   </section>
                 ))
@@ -5662,17 +5658,18 @@ export default function EditableInspectionReport({
               <div className="text-[16px] font-black text-[var(--deshazo-text)]">
                 Page {embeddedJobPageNumber} <span className="font-bold text-[rgba(21,24,33,0.55)]">- Quote proposal</span>
               </div>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setPageLayoutMenuOpen((currentOpen) => !currentOpen)}
-                  className="rounded-md border border-[#c8cfdb] bg-white px-3 py-2 text-[12px] font-black uppercase text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
-                  aria-expanded={pageLayoutMenuOpen}
-                >
-                  Edit Page Layout
-                </button>
-                {pageLayoutMenuOpen ? (
-                  <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[330px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_48px_-28px_rgba(15,23,42,0.55)]">
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setPageLayoutMenuOpen((currentOpen) => !currentOpen)}
+                    className="rounded-md border border-[#c8cfdb] bg-white px-3 py-2 text-[12px] font-black uppercase text-[#273f7a] shadow-sm transition hover:bg-[#f5f7ff]"
+                    aria-expanded={pageLayoutMenuOpen}
+                  >
+                    Edit Page Layout
+                  </button>
+                  {pageLayoutMenuOpen ? (
+                    <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[330px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_48px_-28px_rgba(15,23,42,0.55)]">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="text-[11px] font-black uppercase text-[#555b66]">Page hierarchy</span>
                       <button
@@ -5804,6 +5801,16 @@ export default function EditableInspectionReport({
                   </div>
                 ) : null}
               </div>
+                {onDeleteDNumber ? (
+                  <button
+                    type="button"
+                    onClick={onDeleteDNumber}
+                    className="rounded-md border border-[#e5b4a6] bg-[#fff7f4] px-3 py-2 text-[12px] font-black uppercase text-[#ad452f] shadow-sm transition hover:border-[#d88974] hover:bg-[#fff0eb]"
+                  >
+                    Delete D Number
+                  </button>
+                ) : null}
+            </div>
             </div>
 
             <div className="report-document relative">
