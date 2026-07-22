@@ -133,6 +133,25 @@ function ProfileSilhouette() {
   )
 }
 
+function BlockstampLogo({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <span
+        aria-label="Blockstamp"
+        className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--deshazo-blue)] text-lg font-black text-white"
+      >
+        B
+      </span>
+    )
+  }
+
+  return (
+    <div aria-label="Blockstamp" className="select-none whitespace-nowrap text-center font-sans text-[23px] font-black tracking-[-0.055em] text-[var(--deshazo-blue)]">
+      BLOCK<span className="text-[#f2b43f]">STAMP</span>
+    </div>
+  )
+}
+
 export default function FullApplication({ sampleMode = false }: { sampleMode?: boolean }) {
   const location = useLocation()
   const basePath = sampleMode ? '/full-application-sample' : '/full-application'
@@ -308,7 +327,7 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
       <div className="flex min-h-screen items-center justify-center bg-[#edf1f7] px-4 text-[var(--deshazo-text)]">
         <div className="w-full max-w-[380px] rounded-md border border-[#d3dbea] bg-white px-7 py-8 shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
           <div className="flex justify-center">
-            <img src="/deshazo-logo.png" alt="DeShazo" className="h-auto w-[170px]" />
+            <BlockstampLogo />
           </div>
           <p className="mt-6 text-center text-[15px] font-black text-[var(--deshazo-text)]">Sign in to DeShazo</p>
           <p className="mt-1 text-center text-[12px] font-semibold leading-4 text-[#747b8a]">
@@ -374,9 +393,9 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
 
         <div className="flex h-[52px] items-center justify-center overflow-hidden">
           {sidebarCollapsed ? (
-            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--deshazo-blue)] text-lg font-black text-white" aria-label="DeShazo">D</span>
+            <BlockstampLogo compact />
           ) : (
-            <img src="/deshazo-logo.png" alt="DeShazo" className="h-auto w-[180px]" />
+            <BlockstampLogo />
           )}
         </div>
 
