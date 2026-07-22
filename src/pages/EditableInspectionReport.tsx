@@ -2630,6 +2630,7 @@ type EditableInspectionReportProps = {
   inheritedUserProfile?: UserProfile | null
   registerEmbeddedReportSave?: (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => () => void
   onDeleteDNumber?: () => void
+  suppressAdditionalNotes?: boolean
 }
 
 export default function EditableInspectionReport({
@@ -2640,6 +2641,7 @@ export default function EditableInspectionReport({
   inheritedUserProfile = null,
   registerEmbeddedReportSave,
   onDeleteDNumber,
+  suppressAdditionalNotes = false,
 }: EditableInspectionReportProps = {}) {
   const generatedId = useRef(1000)
   const navigate = useNavigate()
@@ -2762,6 +2764,15 @@ export default function EditableInspectionReport({
       return addReportSummaryCraneContext(blankReport)
     }
   })
+  const finalJobEditNotesReport = useMemo(() => {
+    const finalItemId = visibleJobEditItemIds.at(-1)
+    const finalItemReport = finalItemId ? jobEditQuoteItemsById[finalItemId]?.reportData : null
+
+    return {
+      notesHeader: finalItemReport?.notesHeader || report.notesHeader || defaultReport.notesHeader,
+      notes: finalItemReport?.notes || report.notes || buildDefaultAdditionalNotes(userProfile),
+    }
+  }, [jobEditQuoteItemsById, report.notes, report.notesHeader, userProfile, visibleJobEditItemIds])
   const [repairSections, setRepairSections] = useState<RepairSection[]>(() => {
     if (hasSelectedEditableReportSource) return []
 
@@ -4882,8 +4893,12 @@ export default function EditableInspectionReport({
       return
     }
 
+    const jobNumberLabel = normalizedCurrentJobNumber || 'selected'
+    const combinedReportTitle = `Combined Editable Inspection Reports - Job ${jobNumberLabel}`
+
     printReportSources(selectedSources, {
-      fallbackFilename: `editable-inspection-reports-${normalizedCurrentJobNumber || 'selected'}.pdf`,
+      documentTitle: combinedReportTitle,
+      fallbackFilename: `${combinedReportTitle}.pdf`,
       openedMessage: `Opened ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'} for PDF download.`,
     })
   }
@@ -5643,6 +5658,7 @@ export default function EditableInspectionReport({
                       onDeleteDNumber={() => {
                         void deleteJobEditItem(itemId)
                       }}
+                      suppressAdditionalNotes
                     />
                   </section>
                 ))
@@ -5651,6 +5667,20 @@ export default function EditableInspectionReport({
                   All D numbers have been removed from this job.
                 </div>
               )}
+              {visibleJobEditItemIds.length > 0 ? (
+                <section className="report-document report-runtime-page-break relative">
+                  <div className="report-content-layer relative z-10">
+                    <section className="border border-[#d4d4d4]">
+                      <div className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase text-[#111]">
+                        {finalJobEditNotesReport.notesHeader || 'Additional Notes'}
+                      </div>
+                      <div className="min-h-[96px] px-3 py-3 text-[15px] font-semibold text-[#111]">
+                        {renderAdditionalNotesContent(finalJobEditNotesReport.notes || '---', userProfile)}
+                      </div>
+                    </section>
+                  </div>
+                </section>
+              ) : null}
             </div>
           ) : (
           <div className="mx-auto w-fit">
@@ -6593,7 +6623,7 @@ export default function EditableInspectionReport({
             </section>
             ) : null}
 
-            {blockVisibility.notes ? (
+            {blockVisibility.notes && !suppressAdditionalNotes ? (
             <section
               data-report-block-id="notes"
               style={getRuntimePageBreakStyle('notes')}
