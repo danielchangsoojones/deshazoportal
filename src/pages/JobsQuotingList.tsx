@@ -406,6 +406,29 @@ function getItemDNumber(item: JobsQuotingItem) {
   return (item.dNumber || getExtractionValue(item.extractionData, 'd_number')).trim()
 }
 
+function normalizeDNumberForSort(dNumber: string) {
+  return dNumber.trim().toUpperCase().replace(/\s+/g, '')
+}
+
+function compareDNumbers(firstDNumber: string, secondDNumber: string) {
+  const firstNormalized = normalizeDNumberForSort(firstDNumber)
+  const secondNormalized = normalizeDNumberForSort(secondDNumber)
+  const firstParts = firstNormalized.match(/^([A-Z]+)(\d+)(.*)$/)
+  const secondParts = secondNormalized.match(/^([A-Z]+)(\d+)(.*)$/)
+
+  if (firstParts && secondParts) {
+    const prefixComparison = firstParts[1].localeCompare(secondParts[1])
+    if (prefixComparison !== 0) return prefixComparison
+
+    const numberComparison = Number(firstParts[2]) - Number(secondParts[2])
+    if (numberComparison !== 0) return numberComparison
+
+    return firstParts[3].localeCompare(secondParts[3], undefined, { numeric: true, sensitivity: 'base' })
+  }
+
+  return firstNormalized.localeCompare(secondNormalized, undefined, { numeric: true, sensitivity: 'base' })
+}
+
 function getItemFileName(item: JobsQuotingItem) {
   return (item.pdfFileName || item.sourceDocumentName || item.documentName).trim()
 }
@@ -442,6 +465,18 @@ function sortItemsByPriority(items: JobsQuotingItem[]) {
     if (secondItem.priorityCount !== firstItem.priorityCount) return secondItem.priorityCount - firstItem.priorityCount
     if (secondItem.repairCount !== firstItem.repairCount) return secondItem.repairCount - firstItem.repairCount
     if (secondItem.safetyCount !== firstItem.safetyCount) return secondItem.safetyCount - firstItem.safetyCount
+    return new Date(secondItem.updatedAt).getTime() - new Date(firstItem.updatedAt).getTime()
+  })
+}
+
+function sortItemsByDNumber(items: JobsQuotingItem[]) {
+  return [...items].sort((firstItem, secondItem) => {
+    const firstDNumber = getItemDNumber(firstItem)
+    const secondDNumber = getItemDNumber(secondItem)
+
+    if (firstDNumber && secondDNumber) return compareDNumbers(firstDNumber, secondDNumber)
+    if (firstDNumber !== secondDNumber) return firstDNumber ? -1 : 1
+
     return new Date(secondItem.updatedAt).getTime() - new Date(firstItem.updatedAt).getTime()
   })
 }
@@ -485,7 +520,7 @@ function buildJobGroups(items: JobsQuotingItem[]) {
 
   return Array.from(groupsByKey.values()).map((group) => ({
     ...group,
-    items: sortItemsByNewest(group.items),
+    items: sortItemsByDNumber(group.items),
   }))
 }
 
