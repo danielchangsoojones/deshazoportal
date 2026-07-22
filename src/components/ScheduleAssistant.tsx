@@ -9,6 +9,7 @@ import {
 } from '../lib/schedulingAssistant'
 
 type ScheduleAssistantProps = {
+  sampleMode?: boolean
   range: { start: string; end: string }
   serviceLocationId: number | null
   resources: DeshazoScheduleResource[]
@@ -34,6 +35,7 @@ function suggestionDates(suggestion: ScheduleSuggestion) {
 }
 
 export default function ScheduleAssistant({
+  sampleMode = false,
   range,
   serviceLocationId,
   resources,
@@ -72,15 +74,32 @@ export default function ScheduleAssistant({
     setLoading(true)
 
     try {
-      const response = await requestScheduleAssistant({
-        message,
-        history,
-        range,
-        serviceLocationId,
-        resources,
-        events,
-        pendingWorkOrders,
-      })
+      const sampleWorkOrder = pendingWorkOrders[0]
+      const sampleResource = resources[0]
+      const response = sampleMode ? {
+        answer: `I reviewed the local sample schedule. ${sampleWorkOrder ? `${sampleWorkOrder.jobNo || `Work order ${sampleWorkOrder.id}`} has a good opening with ${sampleResource?.title || sampleResource?.name || 'the Richmond field team'}.` : 'The current sample schedule has balanced coverage across the visible teams.'}`,
+        summary: 'This answer and its suggestion were generated entirely from local fixture data.',
+        suggestions: sampleWorkOrder && sampleResource ? [{
+          id: `local-sample-${sampleWorkOrder.id}`,
+          resourceId: String(sampleResource.id),
+          workOrderId: String(sampleWorkOrder.id),
+          start: range.start,
+          end: range.start,
+          label: `${sampleWorkOrder.jobNo || sampleWorkOrder.id} · ${sampleResource.title || sampleResource.name || 'Sample technician'}`,
+          confidence: 0.91,
+          rationale: ['Technician capacity is available in the sample schedule.', 'The service location matches the sample work order.'],
+          warnings: [],
+          evidence: [{ kind: 'local-sample', label: 'Local schedule fixture', referenceId: String(sampleWorkOrder.id) }],
+        }] : [],
+      } : await requestScheduleAssistant({
+          message,
+          history,
+          range,
+          serviceLocationId,
+          resources,
+          events,
+          pendingWorkOrders,
+        })
       const content = [response.answer, response.summary && response.summary !== response.answer ? response.summary : ''].filter(Boolean).join('\n\n')
       const assistantEntry: ChatEntry = {
         id: `assistant-${Date.now()}`,
@@ -121,7 +140,7 @@ export default function ScheduleAssistant({
       <header className="flex items-center justify-between border-b border-[#d3dbea] bg-[var(--deshazo-blue)] px-4 py-3 text-white">
         <div>
           <div className="flex items-center gap-2">
-            <span className="rounded-md bg-white/15 px-2 py-1 text-[10px] font-black tracking-wide">FABLE</span>
+            <span className="rounded-md bg-white/15 px-2 py-1 text-[10px] font-black tracking-wide">{sampleMode ? 'LOCAL SAMPLE' : 'FABLE'}</span>
             <h2 className="text-[14px] font-black">Scheduling Assistant</h2>
           </div>
           <p className="mt-1 text-[10px] font-semibold text-white/75">{visibleContext}</p>
@@ -201,7 +220,7 @@ export default function ScheduleAssistant({
             {loading ? 'Thinking...' : 'Ask Fable'}
           </button>
         </div>
-        <p className="mt-2 text-center text-[9px] font-semibold text-[#8a94a4]">Suggestions are read-only and may require dispatcher verification.</p>
+        <p className="mt-2 text-center text-[9px] font-semibold text-[#8a94a4]">{sampleMode ? 'Local sample response · no API request is made.' : 'Suggestions are read-only and may require dispatcher verification.'}</p>
       </form>
     </aside>
   )

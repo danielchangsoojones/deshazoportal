@@ -25,6 +25,7 @@ import DailyUsageReport from '../components/DailyUsageReport'
 import PayCorReport from '../components/PayCorReport'
 import SafetyDashboard from '../components/SafetyDashboard'
 import FleetManagement from '../components/FleetManagement'
+import FullApplicationSamplePage from '../components/FullApplicationSamplePage'
 import EquipmentNotebookLLM from './EquipmentNotebookLLM'
 import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/deshazoReports'
 
@@ -132,14 +133,15 @@ function ProfileSilhouette() {
   )
 }
 
-export default function FullApplication() {
+export default function FullApplication({ sampleMode = false }: { sampleMode?: boolean }) {
   const location = useLocation()
+  const basePath = sampleMode ? '/full-application-sample' : '/full-application'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     typeof window !== 'undefined' && window.localStorage.getItem('deshazo-full-application-sidebar-collapsed') === 'true',
   )
-  const [user, setUser] = useState<User | null>(null)
-  const [deshazoUser, setDeshazoUser] = useState<DeshazoAppUser | null>(null)
-  const [deshazoChecking, setDeshazoChecking] = useState(true)
+  const [user, setUser] = useState<User | null>(() => sampleMode ? ({ id: 'sample-portal-user' } as User) : null)
+  const [deshazoUser, setDeshazoUser] = useState<DeshazoAppUser | null>(() => sampleMode ? ({ id: 'sample-user', firstName: 'Alex', lastName: 'Morgan', email: 'sample@deshazo.com', roleId: 1, role: { id: 1, name: 'Regional Manager · Sample' } }) : null)
+  const [deshazoChecking, setDeshazoChecking] = useState(!sampleMode)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
   const [activeItem, setActiveItem] = useState(() =>
     location.pathname.endsWith('/assets/green-files')
@@ -190,13 +192,15 @@ export default function FullApplication() {
   const [signingIn, setSigningIn] = useState(false)
   const navigate = useNavigate()
   const { workOrderId: workOrderIdParam } = useParams()
-  const workOrderId = workOrderIdParam ? Number(workOrderIdParam) : null
+  const sampleWorkOrderMatch = location.pathname.match(/\/work-orders\/(\d+)\/details$/)
+  const workOrderId = workOrderIdParam ? Number(workOrderIdParam) : sampleWorkOrderMatch ? Number(sampleWorkOrderMatch[1]) : null
 
   useEffect(() => {
     window.localStorage.setItem('deshazo-full-application-sidebar-collapsed', String(sidebarCollapsed))
   }, [sidebarCollapsed])
 
   useEffect(() => {
+    if (sampleMode) return
     if (!isConfigured || !supabase) {
       navigate('/quotelogin', { replace: true })
       return
@@ -216,11 +220,12 @@ export default function FullApplication() {
 
       setUser(data.user)
     })
-  }, [navigate])
+  }, [navigate, sampleMode])
 
   // Once the portal (Supabase) developer check passes, check for a live DeShazo
   // application session. This is a separate login from the portal's Supabase auth.
   useEffect(() => {
+    if (sampleMode) return
     if (!user) return
 
     let cancelled = false
@@ -239,7 +244,7 @@ export default function FullApplication() {
     return () => {
       cancelled = true
     }
-  }, [user])
+  }, [sampleMode, user])
 
   useEffect(() => {
     if (!deshazoUser) return
@@ -272,6 +277,10 @@ export default function FullApplication() {
   }
 
   const handleSignOut = async () => {
+    if (sampleMode) {
+      navigate('/deshazo-internal-dashboard')
+      return
+    }
     await deshazoAppLogout()
     setDeshazoUser(null)
     if (supabase) await supabase.auth.signOut()
@@ -377,6 +386,7 @@ export default function FullApplication() {
           </div>
           <p className="mt-1 text-[13px] font-black leading-5 text-[var(--deshazo-text)]">{getDeshazoAppUserName(deshazoUser)}</p>
           <p className="text-[12px] font-semibold leading-4 text-[#747b8a]">{deshazoUser.role?.name || 'DeShazo User'}</p>
+          {sampleMode ? <span className="mt-2 rounded-full border border-[#b8c9f5] bg-[#e7efff] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-[var(--deshazo-blue)]">Local sample data</span> : null}
           <p className="mt-1 text-[11px] font-semibold leading-[17px] text-[#747b8a]">
             032 Richmond, 028 Cincinnati, 017
             <br />
@@ -444,30 +454,31 @@ export default function FullApplication() {
                               type="button"
                               aria-current={isActive ? 'page' : undefined}
                               onClick={() => {
-                                if (itemKey === 'quoting:Quote List') {
+                                if (itemKey === 'quoting:Quote List' && !sampleMode) {
                                   window.open('/jobsquotinglist', '_blank', 'noopener,noreferrer')
                                   return
                                 }
                                 setActiveItem(itemKey)
-                                if (itemKey === 'calendar:Schedule') navigate('/full-application/calendar/schedule')
-                                else if (itemKey === 'reports:Payroll') navigate('/full-application/report/payroll')
-                                else if (itemKey === 'reports:Technician Daily Report') navigate('/full-application/report/daily-worktime')
-                                else if (itemKey === 'reports:Recovery Report') navigate('/full-application/report/recovery')
-                                else if (itemKey === 'reports:Daily Usage Report') navigate('/full-application/report/daily-usage-report')
-                                else if (itemKey === 'reports:PayCor') navigate('/full-application/report/pay-cor')
-                                else if (itemKey === 'calendar:Recurring Jobs') navigate('/full-application/calendar/recurring-jobs')
-                                else if (itemKey === 'customers:Customers') navigate('/full-application/customers/all')
-                                else if (itemKey === 'customers:Cranes') navigate('/full-application/customers/cranes')
-                                else if (itemKey === 'safety:Overview') navigate('/full-application/safety')
-                                else if (itemKey === 'assets:Fleet Management') navigate('/full-application/assets/fleet-management')
-                                else if (itemKey === 'green-files:Equipment Notebook') navigate('/full-application/assets/green-files')
-                                else if (itemKey === 'work-orders:Recently Added') navigate('/full-application/work-orders/recently-added')
-                                else if (itemKey === 'work-orders:To Be Scheduled') navigate('/full-application/work-orders/pending')
-                                else if (itemKey === 'work-orders:Scheduled') navigate('/full-application/work-orders/scheduled')
-                                else if (itemKey === 'work-orders:In-Progress') navigate('/full-application/work-orders/in-progress')
-                                else if (itemKey === 'work-orders:Waiting For Parts') navigate('/full-application/work-orders/waiting-for-parts')
-                                else if (itemKey === 'work-orders:Completed') navigate('/full-application/work-orders/completed')
-                                else if (itemKey === 'work-orders:All' || workOrderId) navigate('/full-application')
+                                if (itemKey === 'calendar:Schedule') navigate(`${basePath}/calendar/schedule`)
+                                else if (itemKey === 'reports:Payroll') navigate(`${basePath}/report/payroll`)
+                                else if (itemKey === 'reports:Technician Daily Report') navigate(`${basePath}/report/daily-worktime`)
+                                else if (itemKey === 'reports:Recovery Report') navigate(`${basePath}/report/recovery`)
+                                else if (itemKey === 'reports:Daily Usage Report') navigate(`${basePath}/report/daily-usage-report`)
+                                else if (itemKey === 'reports:PayCor') navigate(`${basePath}/report/pay-cor`)
+                                else if (itemKey === 'calendar:Recurring Jobs') navigate(`${basePath}/calendar/recurring-jobs`)
+                                else if (itemKey === 'customers:Customers') navigate(`${basePath}/customers/all`)
+                                else if (itemKey === 'customers:Cranes') navigate(`${basePath}/customers/cranes`)
+                                else if (itemKey === 'safety:Overview') navigate(`${basePath}/safety`)
+                                else if (itemKey === 'assets:Fleet Management') navigate(`${basePath}/assets/fleet-management`)
+                                else if (itemKey === 'green-files:Equipment Notebook') navigate(`${basePath}/assets/green-files`)
+                                else if (itemKey === 'quoting:Quote List') navigate(`${basePath}/quoting/quotes`)
+                                else if (itemKey === 'work-orders:Recently Added') navigate(`${basePath}/work-orders/recently-added`)
+                                else if (itemKey === 'work-orders:To Be Scheduled') navigate(`${basePath}/work-orders/pending`)
+                                else if (itemKey === 'work-orders:Scheduled') navigate(`${basePath}/work-orders/scheduled`)
+                                else if (itemKey === 'work-orders:In-Progress') navigate(`${basePath}/work-orders/in-progress`)
+                                else if (itemKey === 'work-orders:Waiting For Parts') navigate(`${basePath}/work-orders/waiting-for-parts`)
+                                else if (itemKey === 'work-orders:Completed') navigate(`${basePath}/work-orders/completed`)
+                                else if (itemKey === 'work-orders:All' || workOrderId) navigate(basePath)
                               }}
                               className={`w-full rounded-sm px-2 py-1 text-left text-[11px] leading-[17px] transition hover:bg-[#eef4ff] hover:text-[var(--deshazo-blue)] ${
                                 isActive ? 'bg-[#e6efff] font-black text-[var(--deshazo-blue)]' : 'font-semibold text-[#747b8a]'
@@ -492,7 +503,7 @@ export default function FullApplication() {
             className={`flex w-full items-center py-1 text-left text-[13px] font-bold text-[var(--deshazo-text)] transition hover:text-[var(--deshazo-blue)] ${sidebarCollapsed ? 'justify-center px-2' : 'gap-3 px-3'}`}
           >
             <span className="text-[var(--deshazo-blue)]"><MenuIcon icon="logout" /></span>
-            {sidebarCollapsed ? null : <span>Logout</span>}
+            {sidebarCollapsed ? null : <span>{sampleMode ? 'Exit Sample' : 'Logout'}</span>}
           </button>
         </nav>
       </aside>
@@ -503,21 +514,21 @@ export default function FullApplication() {
             workOrderId={workOrderId}
             onBack={() => {
               const returnTo = new URLSearchParams(location.search).get('returnTo')
-              navigate(returnTo === 'schedule' ? '/full-application/calendar/schedule' : returnTo === 'recurring-jobs' ? '/full-application/calendar/recurring-jobs' : returnTo === 'cranes' ? '/full-application/customers/cranes' : returnTo === 'daily-worktime' ? '/full-application/report/daily-worktime' : returnTo === 'recently-added' ? '/full-application/work-orders/recently-added' : returnTo === 'pending' ? '/full-application/work-orders/pending' : returnTo === 'scheduled' ? '/full-application/work-orders/scheduled' : returnTo === 'in-progress' ? '/full-application/work-orders/in-progress' : returnTo === 'waiting-for-parts' ? '/full-application/work-orders/waiting-for-parts' : returnTo === 'completed' ? '/full-application/work-orders/completed' : '/full-application')
+              navigate(returnTo === 'schedule' ? `${basePath}/calendar/schedule` : returnTo === 'recurring-jobs' ? `${basePath}/calendar/recurring-jobs` : returnTo === 'cranes' ? `${basePath}/customers/cranes` : returnTo === 'daily-worktime' ? `${basePath}/report/daily-worktime` : returnTo === 'recently-added' ? `${basePath}/work-orders/recently-added` : returnTo === 'pending' ? `${basePath}/work-orders/pending` : returnTo === 'scheduled' ? `${basePath}/work-orders/scheduled` : returnTo === 'in-progress' ? `${basePath}/work-orders/in-progress` : returnTo === 'waiting-for-parts' ? `${basePath}/work-orders/waiting-for-parts` : returnTo === 'completed' ? `${basePath}/work-orders/completed` : basePath)
             }}
           />
         ) : activeItem === 'work-orders:All' ? (
           <WorkOrdersAll
             key="all-work-orders"
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details`)}
           />
         ) : activeItem === 'work-orders:Recently Added' ? (
           <WorkOrdersAll
             key="recent-work-orders"
             recent
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=recently-added`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=recently-added`)}
           />
         ) : activeItem === 'work-orders:To Be Scheduled' ? (
           <WorkOrdersAll
@@ -525,65 +536,66 @@ export default function FullApplication() {
             statusName="Pending"
             listLabel="To Be Scheduled"
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=pending`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=pending`)}
           />
         ) : activeItem === 'work-orders:Scheduled' ? (
           <WorkOrdersAll
             key="scheduled-work-orders"
             statusName="Scheduled"
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=scheduled`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=scheduled`)}
           />
         ) : activeItem === 'work-orders:In-Progress' ? (
           <WorkOrdersAll
             key="in-progress-work-orders"
             statusName="In Progress"
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=in-progress`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=in-progress`)}
           />
         ) : activeItem === 'work-orders:Waiting For Parts' ? (
           <WorkOrdersAll
             key="waiting-for-parts-work-orders"
             statusName="Waiting for parts"
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=waiting-for-parts`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=waiting-for-parts`)}
           />
         ) : activeItem === 'work-orders:Completed' ? (
           <WorkOrdersAll
             key="completed-work-orders"
             statusName="Completed"
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=completed`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=completed`)}
           />
         ) : activeItem === 'calendar:Schedule' ? (
           <WorkOrdersSchedule
+            sampleMode={sampleMode}
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=schedule`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=schedule`)}
           />
         ) : activeItem === 'calendar:Recurring Jobs' ? (
           <RecurringWorkOrders
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=recurring-jobs`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=recurring-jobs`)}
           />
         ) : activeItem === 'customers:Customers' ? (
           <CustomersList serviceLocationId={serviceLocationId} roleId={deshazoUser.roleId} />
         ) : activeItem === 'customers:Cranes' ? (
           <CranesList
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=cranes`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=cranes`)}
           />
         ) : activeItem === 'safety:Overview' ? (
           <SafetyDashboard />
         ) : activeItem === 'assets:Fleet Management' ? (
           <FleetManagement serviceLocationId={serviceLocationId} serviceLocations={serviceLocations} />
         ) : activeItem === 'green-files:Equipment Notebook' ? (
-          <EquipmentNotebookLLM embedded />
+          sampleMode ? <FullApplicationSamplePage itemKey={activeItem} /> : <EquipmentNotebookLLM embedded />
         ) : activeItem === 'reports:Payroll' ? (
           <PayrollReport serviceLocationId={serviceLocationId} />
         ) : activeItem === 'reports:Technician Daily Report' ? (
           <DailyWorktimeReport
             serviceLocationId={serviceLocationId}
-            onOpenWorkOrder={(id) => navigate(`/full-application/work-orders/${id}/details?returnTo=daily-worktime`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=daily-worktime`)}
           />
         ) : activeItem === 'reports:Recovery Report' ? (
           <RecoveryReport serviceLocationId={serviceLocationId} />
@@ -593,6 +605,8 @@ export default function FullApplication() {
           <PayCorReport serviceLocationId={serviceLocationId} />
         ) : activeItem === 'reports:Job Cost Report' ? (
           <JobCostReport />
+        ) : sampleMode ? (
+          <FullApplicationSamplePage itemKey={activeItem} />
         ) : (
           <div className="flex min-h-screen items-center justify-center px-6 text-center text-[13px] text-[#7a8592]">
             This section is not built yet.

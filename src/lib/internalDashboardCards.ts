@@ -7,6 +7,13 @@ export const internalDashboardCards = [
     developerOnly: true,
   },
   {
+    eyebrow: 'Demo Module',
+    title: 'Full Application - Sample',
+    description: 'Explore the complete application with populated local sample data and no DeShazo Connect API dependency.',
+    href: '/full-application-sample',
+    developerOnly: true,
+  },
+  {
     eyebrow: 'Quotes',
     title: 'Quote List',
     description: 'Review imported quote reports, edit saved quote proposals, and refresh synced inspection work.',

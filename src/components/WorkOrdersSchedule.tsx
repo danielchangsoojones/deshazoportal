@@ -12,6 +12,7 @@ import ScheduleAssistant from './ScheduleAssistant'
 type ScheduleMode = 'week' | 'two-weeks' | 'month'
 
 type WorkOrdersScheduleProps = {
+  sampleMode?: boolean
   serviceLocationId: number | null
   onOpenWorkOrder: (workOrderId: number) => void
 }
@@ -166,7 +167,7 @@ function EventInfo({ data, onClose, onOpenWorkOrder }: { data: DeshazoScheduleTo
   )
 }
 
-export default function WorkOrdersSchedule({ serviceLocationId, onOpenWorkOrder }: WorkOrdersScheduleProps) {
+export default function WorkOrdersSchedule({ sampleMode = false, serviceLocationId, onOpenWorkOrder }: WorkOrdersScheduleProps) {
   const [mode, setMode] = useState<ScheduleMode>('month')
   const [anchor, setAnchor] = useState(() => new Date())
   const [resources, setResources] = useState<DeshazoScheduleResource[]>([])
@@ -548,6 +549,7 @@ export default function WorkOrdersSchedule({ serviceLocationId, onOpenWorkOrder 
       </section>
 
       <ScheduleAssistant
+        sampleMode={sampleMode}
         range={{ start: toIsoDate(range.start), end: toIsoDate(range.end) }}
         serviceLocationId={serviceLocationId}
         resources={resources}

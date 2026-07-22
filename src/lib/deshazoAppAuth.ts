@@ -9,6 +9,8 @@
 // vite.config.ts). A deployed build needs an equivalent same-origin rewrite, or the
 // cookie will be dropped as cross-site.
 
+import { getFullApplicationSampleResponse, isFullApplicationSampleRoute } from './fullApplicationSampleData'
+
 // Both Vite in development and server.mjs in production expose this same-origin
 // route. Keeping the browser on the portal origin ensures the HttpOnly auth cookie
 // is stored for, and sent back to, the server that handles subsequent API calls.
@@ -33,6 +35,8 @@ export type DeshazoAppUser = {
 }
 
 export async function deshazoAppFetch(path: string, init?: RequestInit) {
+  if (isFullApplicationSampleRoute()) return getFullApplicationSampleResponse(path)
+
   const headers = new Headers(init?.headers)
   headers.set('web-version', webVersion)
   if (init?.body) headers.set('Content-Type', 'application/json')
