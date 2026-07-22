@@ -727,6 +727,25 @@ const getNormalizedColumnDNumber = (value: string) => {
   return withoutLabel ? ensureDNumberPrefix(withoutLabel).replace(/[\s-]+/g, '').toUpperCase() : ''
 }
 
+const compareDNumbers = (firstDNumber: string, secondDNumber: string) => {
+  const firstNormalized = getNormalizedColumnDNumber(firstDNumber) || firstDNumber.trim().toUpperCase()
+  const secondNormalized = getNormalizedColumnDNumber(secondDNumber) || secondDNumber.trim().toUpperCase()
+  const firstParts = firstNormalized.match(/^([A-Z]+)(\d+)(.*)$/)
+  const secondParts = secondNormalized.match(/^([A-Z]+)(\d+)(.*)$/)
+
+  if (firstParts && secondParts) {
+    const prefixComparison = firstParts[1].localeCompare(secondParts[1])
+    if (prefixComparison !== 0) return prefixComparison
+
+    const numberComparison = Number(firstParts[2]) - Number(secondParts[2])
+    if (numberComparison !== 0) return numberComparison
+
+    return firstParts[3].localeCompare(secondParts[3], undefined, { numeric: true, sensitivity: 'base' })
+  }
+
+  return firstNormalized.localeCompare(secondNormalized, undefined, { numeric: true, sensitivity: 'base' })
+}
+
 const replaceReportSummaryDNumber = (summary: string, dNumber: string) => {
   const normalizedDNumber = getNormalizedColumnDNumber(dNumber)
   if (!normalizedDNumber) return summary
@@ -2634,6 +2653,7 @@ export default function EditableInspectionReport({
     : validJobsQuotingItemId
       ? [validJobsQuotingItemId]
       : []
+  const jobEditItemIdsKey = jobEditItemIds.join(',')
   const isJobEditMode = !embeddedJobPage && jobEditItemIds.length > 1
   const hasSelectedEditableReportSource = Boolean(validJobsQuotingItemId || validEditableReportIdParam)
   const menuDatabaseSyncReady = useRef(false)
@@ -2692,7 +2712,24 @@ export default function EditableInspectionReport({
   const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [isReportEditing, setIsReportEditing] = useState(false)
   const [deletedJobItemIds, setDeletedJobItemIds] = useState<Set<string>>(() => new Set())
-  const visibleJobEditItemIds = jobEditItemIds.filter((itemId) => !deletedJobItemIds.has(itemId))
+  const [jobEditQuoteItemsById, setJobEditQuoteItemsById] = useState<Record<string, JobsQuotingItem>>({})
+  const visibleJobEditItemIds = useMemo(() => {
+    const originalIndexById = new Map(jobEditItemIds.map((itemId, index) => [itemId, index]))
+
+    return jobEditItemIds
+      .filter((itemId) => !deletedJobItemIds.has(itemId))
+      .sort((firstItemId, secondItemId) => {
+        const firstItem = jobEditQuoteItemsById[firstItemId]
+        const secondItem = jobEditQuoteItemsById[secondItemId]
+        const firstDNumber = firstItem?.dNumber || getTopLevelExtractedText(firstItem?.extractionData, ['d_number', 'dNumber'])
+        const secondDNumber = secondItem?.dNumber || getTopLevelExtractedText(secondItem?.extractionData, ['d_number', 'dNumber'])
+
+        if (firstDNumber && secondDNumber) return compareDNumbers(firstDNumber, secondDNumber)
+        if (firstDNumber !== secondDNumber) return firstDNumber ? -1 : 1
+
+        return (originalIndexById.get(firstItemId) ?? 0) - (originalIndexById.get(secondItemId) ?? 0)
+      })
+  }, [deletedJobItemIds, jobEditItemIds, jobEditItemIdsKey, jobEditQuoteItemsById])
   const [menuItemsRefreshProgress, setMenuItemsRefreshProgress] = useState<MenuItemsRefreshProgress>({
     active: false,
     percent: 0,
@@ -2878,6 +2915,41 @@ export default function EditableInspectionReport({
       return { ...currentReport, notes: nextNotes }
     })
   }, [userProfile])
+  useEffect(() => {
+    if (!isJobEditMode || !isConfigured) return
+
+    const missingItemIds = jobEditItemIds.filter((itemId) => !jobEditQuoteItemsById[itemId])
+    if (missingItemIds.length === 0) return
+
+    let active = true
+
+    Promise.all(
+      missingItemIds.map((itemId) =>
+        getJobsQuotingItem(itemId)
+          .then((item) => [itemId, item] as const)
+          .catch(() => null),
+      ),
+    ).then((entries) => {
+      if (!active) return
+
+      setJobEditQuoteItemsById((currentItems) => {
+        const nextItems = { ...currentItems }
+        let hasNextItem = false
+        entries.forEach((entry) => {
+          if (entry) {
+            nextItems[entry[0]] = entry[1]
+            hasNextItem = true
+          }
+        })
+        return hasNextItem ? nextItems : currentItems
+      })
+    })
+
+    return () => {
+      active = false
+    }
+  }, [isJobEditMode, jobEditItemIdsKey, jobEditQuoteItemsById])
+
   const menuSearchBranchesLabel = useMemo(
     () =>
       menuSearchBranches.length > 0
@@ -2933,8 +3005,9 @@ export default function EditableInspectionReport({
         const uniqueKey = option.dNumber === 'Unknown D Number' ? option.id : option.dNumber.toUpperCase()
         if (seenDNumbers.has(uniqueKey)) return false
         seenDNumbers.add(uniqueKey)
-      return true
-    })
+        return true
+      })
+      .sort((firstOption, secondOption) => compareDNumbers(firstOption.dNumber, secondOption.dNumber))
   }, [
     blockVisibility,
     costSections,
@@ -2983,7 +3056,18 @@ export default function EditableInspectionReport({
         addOptionId(savedReport.id, dNumber)
       })
 
-      return optionIds
+      return optionIds.sort((firstOptionId, secondOptionId) => {
+        const firstSavedReport = savedReports.find((savedReport) => savedReport.id === firstOptionId)
+        const secondSavedReport = savedReports.find((savedReport) => savedReport.id === secondOptionId)
+        const firstDNumber = firstOptionId === currentId
+          ? currentDNumber
+          : firstSavedReport?.dNumber || getDNumberFromReport(firstSavedReport?.reportData ?? {}) || 'Unknown D Number'
+        const secondDNumber = secondOptionId === currentId
+          ? currentDNumber
+          : secondSavedReport?.dNumber || getDNumberFromReport(secondSavedReport?.reportData ?? {}) || 'Unknown D Number'
+
+        return compareDNumbers(firstDNumber, secondDNumber)
+      })
     },
     [currentEditableReportId, report],
   )
