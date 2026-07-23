@@ -30,7 +30,7 @@ import {
 import {
   getEditableInspectionReportsForJobNumber,
   saveEditableInspectionReport,
-  type EditableInspectionReport,
+  type EditableInspectionReport as EditableInspectionReportRecord,
   type EditableInspectionReportPayload,
 } from '../lib/editableInspectionReports'
 import {
@@ -2154,7 +2154,7 @@ const normalizeReport = (report: ReportData) => {
   return nextReport
 }
 
-const getNormalizedReportPayload = (report: EditableInspectionReport): EditableInspectionReportPayload => {
+const getNormalizedReportPayload = (report: EditableInspectionReportRecord): EditableInspectionReportPayload => {
   const costSections = normalizeEstimateCostSections(report.costSections as CostSection[])
   const blockVisibility = { ...defaultBlockVisibility, ...(report.pageLayoutVisibility?.blockVisibility ?? report.blockVisibility) }
   const estimateNoteVisibility = {
@@ -2629,7 +2629,7 @@ type EditableInspectionReportProps = {
   embeddedJobPageNumber?: number
   inheritedCurrentUser?: User | null
   inheritedUserProfile?: UserProfile | null
-  registerEmbeddedReportSave?: (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => () => void
+  registerEmbeddedReportSave?: (itemId: string, saveReport: () => Promise<EditableInspectionReportRecord | null>) => () => void
   onDeleteDNumber?: () => void
   suppressAdditionalNotes?: boolean
 }
@@ -2668,7 +2668,7 @@ export default function EditableInspectionReport({
   const pendingReportChanges = useRef(false)
   const reportAutosaveInFlight = useRef(false)
   const embeddedReportSaveTimeout = useRef<number | undefined>(undefined)
-  const embeddedReportSaveHandlers = useRef(new Map<string, () => Promise<EditableInspectionReport | null>>())
+  const embeddedReportSaveHandlers = useRef(new Map<string, () => Promise<EditableInspectionReportRecord | null>>())
   const menuItemsUploadRefreshInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshProgressInterval = useRef<number | undefined>(undefined)
   const menuItemsUploadRefreshTimeout = useRef<number | undefined>(undefined)
@@ -2698,7 +2698,7 @@ export default function EditableInspectionReport({
   const [relatedDocuments, setRelatedDocuments] = useState<RelatedDocument[]>([])
   const [relatedDocumentsMessage, setRelatedDocumentsMessage] = useState('')
   const [jobReportPrintMenuOpen, setJobReportPrintMenuOpen] = useState(false)
-  const [jobReportPrintReports, setJobReportPrintReports] = useState<EditableInspectionReport[]>([])
+  const [jobReportPrintReports, setJobReportPrintReports] = useState<EditableInspectionReportRecord[]>([])
   const [selectedJobReportPrintIds, setSelectedJobReportPrintIds] = useState<Set<string>>(() => new Set())
   const [jobReportPrintLoading, setJobReportPrintLoading] = useState(false)
   const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
@@ -3052,7 +3052,7 @@ export default function EditableInspectionReport({
     [jobReportPrintOptionIds, selectedJobReportPrintIds],
   )
   const getJobReportPrintOptionIds = useCallback(
-    (savedReports: EditableInspectionReport[]) => {
+    (savedReports: EditableInspectionReportRecord[]) => {
       const seenDNumbers = new Set<string>()
       const currentId = currentEditableReportId || 'current-report'
       const currentDNumber = getDNumberFromReport(report) || 'Unknown D Number'
@@ -3439,7 +3439,7 @@ export default function EditableInspectionReport({
   }, [currentJobsQuotingItemId, isEditableReportAutosaveDisabled])
 
   const registerEmbeddedReportSaveHandler = useCallback(
-    (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => {
+    (itemId: string, saveReport: () => Promise<EditableInspectionReportRecord | null>) => {
       embeddedReportSaveHandlers.current.set(itemId, saveReport)
 
       return () => {
@@ -4747,7 +4747,7 @@ export default function EditableInspectionReport({
     if (isJobEditMode) {
       const saveHandlers = visibleJobEditItemIds
         .map((itemId) => embeddedReportSaveHandlers.current.get(itemId))
-        .filter((saveHandler): saveHandler is () => Promise<EditableInspectionReport | null> => Boolean(saveHandler))
+        .filter((saveHandler): saveHandler is () => Promise<EditableInspectionReportRecord | null> => Boolean(saveHandler))
 
       if (saveHandlers.length === 0) return
 

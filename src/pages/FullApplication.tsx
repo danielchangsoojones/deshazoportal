@@ -25,6 +25,7 @@ import DailyUsageReport from '../components/DailyUsageReport'
 import PayCorReport from '../components/PayCorReport'
 import SafetyDashboard from '../components/SafetyDashboard'
 import FleetManagement from '../components/FleetManagement'
+import EditableFormsManager from '../components/EditableFormsManager'
 import FullApplicationSamplePage from '../components/FullApplicationSamplePage'
 import ExecutiveAnalytics from '../components/ExecutiveAnalytics'
 import EquipmentNotebookLLM from './EquipmentNotebookLLM'
@@ -33,7 +34,7 @@ import { getDeshazoServiceLocations, type DeshazoServiceLocation } from '../lib/
 type MenuSection = {
   id: string
   label: string
-  icon: 'home' | 'calendar' | 'users' | 'quote' | 'reports' | 'safety' | 'fleet' | 'knowledge' | 'analytics' | 'admin'
+  icon: 'home' | 'calendar' | 'users' | 'quote' | 'reports' | 'safety' | 'fleet' | 'knowledge' | 'forms' | 'analytics' | 'admin'
   items: string[]
 }
 
@@ -89,6 +90,12 @@ const menuSections: MenuSection[] = [
     items: ['Equipment Notebook'],
   },
   {
+    id: 'editable-forms',
+    label: 'Editable Forms',
+    icon: 'forms',
+    items: ['Template Library'],
+  },
+  {
     id: 'executive-analytics',
     label: 'Executive Analytics',
     icon: 'analytics',
@@ -120,6 +127,7 @@ function MenuIcon({ icon }: { icon: MenuSection['icon'] | 'logout' }) {
     safety: <path d="M12 3 4.8 6v5.4c0 4.6 2.9 8.2 7.2 9.6 4.3-1.4 7.2-5 7.2-9.6V6L12 3Zm-3.2 9 2 2 4.5-4.5" />,
     fleet: <><path d="M3 6h11v10H3V6Zm11 4h4l3 3v3h-7v-6Z" /><circle cx="7" cy="18" r="2" /><circle cx="18" cy="18" r="2" /></>,
     knowledge: <><path d="M5 3h11l3 3v15H5V3Z" /><path d="M16 3v4h4M8 11h8m-8 4h8m-8 4h5" /></>,
+    forms: <><path d="M6 3h10l3 3v15H6V3Z" /><path d="M16 3v4h4M9 11h6m-6 4h6m-6 4h4" /><path d="m3 12 1.5 1.5L7 10.8" /></>,
     analytics: <><path d="M4 20V10m5 10V4m6 16v-7m5 7V7" /><path d="m3 8 5-4 6 6 7-7" /></>,
     admin: <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0-5v2m0 13v2m8.5-8.5h-2m-13 0h-2m14.5-6-1.4 1.4M7.4 16.6 6 18m12 0-1.4-1.4M7.4 7.4 6 6" />,
     logout: <path d="M14 8V4H4v16h10v-4m-3-4h10m-3-3 3 3-3 3" />,
@@ -173,6 +181,8 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
   const [activeItem, setActiveItem] = useState(() =>
     location.pathname.endsWith('/executive-analytics')
       ? 'executive-analytics:Executive Analytics'
+    : location.pathname.endsWith('/editable-forms')
+      ? 'editable-forms:Template Library'
     : location.pathname.endsWith('/assets/green-files')
       ? 'green-files:Equipment Notebook'
       : location.pathname.endsWith('/assets/fleet-management')
@@ -501,6 +511,7 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
                                 else if (itemKey === 'safety:Overview') navigate(`${basePath}/safety`)
                                 else if (itemKey === 'assets:Fleet Management') navigate(`${basePath}/assets/fleet-management`)
                                 else if (itemKey === 'green-files:Equipment Notebook') navigate(`${basePath}/assets/green-files`)
+                                else if (itemKey === 'editable-forms:Template Library') navigate(`${basePath}/editable-forms`)
                                 else if (itemKey === 'quoting:Quote List') navigate(`${basePath}/quoting/quotes`)
                                 else if (itemKey === 'work-orders:Recently Added') navigate(`${basePath}/work-orders/recently-added`)
                                 else if (itemKey === 'work-orders:To Be Scheduled') navigate(`${basePath}/work-orders/pending`)
@@ -625,6 +636,8 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
           <FleetManagement serviceLocationId={serviceLocationId} serviceLocations={serviceLocations} />
         ) : activeItem === 'green-files:Equipment Notebook' ? (
           sampleMode ? <FullApplicationSamplePage itemKey={activeItem} /> : <EquipmentNotebookLLM embedded />
+        ) : activeItem === 'editable-forms:Template Library' ? (
+          <EditableFormsManager />
         ) : activeItem === 'reports:Payroll' ? (
           <PayrollReport serviceLocationId={serviceLocationId} />
         ) : activeItem === 'reports:Technician Daily Report' ? (

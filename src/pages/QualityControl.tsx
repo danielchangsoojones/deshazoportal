@@ -308,7 +308,7 @@ async function extractPdfImageFingerprints(file: File) {
       await waitForNextFrame()
     }
   } finally {
-    await pdf.destroy()
+    await loadingTask.destroy()
   }
 
   return dedupeImageFingerprints(images)
