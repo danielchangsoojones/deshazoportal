@@ -192,7 +192,8 @@ const printedPageHeightIn = 11
 const printedPageMarginIn = 0.45
 const runtimePageGapPx = 28
 const databaseSyncIdleDelayMs = 650
-const reportAutosaveIntervalMs = 10 * 1000
+const embeddedReportAutosaveDelayMs = 5 * 1000
+const reportAutosaveIntervalMs = 5 * 1000
 const autosaveDisabledEmails = new Set(['aher604@gmail.com', 'danieljones@blockstampsf.com'])
 const menuItemsUploadRefreshDurationMs = 60 * 1000
 const menuItemsUploadRefreshIntervalMs = 5 * 1000
@@ -1082,6 +1083,12 @@ type CombinedReportPdfSource = {
   dNumber: string
   reportName: string
   payload: EditableInspectionReportPayload
+}
+
+type JobReportPrintOption = CombinedReportPdfSource & {
+  id: string
+  reportId: string
+  isCurrent: boolean
 }
 
 const getRepairCostSectionVisibilityKey = (repairSectionId: string, costSectionId: string) =>
@@ -2190,6 +2197,68 @@ const getNormalizedReportPayload = (report: EditableInspectionReport): EditableI
   }
 }
 
+const getReportPrintOptionUniqueKey = (option: Pick<JobReportPrintOption, 'id' | 'dNumber'>) =>
+  option.dNumber === 'Unknown D Number' ? option.id : option.dNumber.toUpperCase()
+
+const getCurrentReportPrintOption = ({
+  currentEditableReportId,
+  currentReportName,
+  report,
+  payload,
+}: {
+  currentEditableReportId: string
+  currentReportName: string
+  report: ReportData
+  payload: EditableInspectionReportPayload
+}): JobReportPrintOption => ({
+  id: currentEditableReportId || 'current-report',
+  reportId: currentEditableReportId,
+  dNumber: getDNumberFromReport(report) || 'Unknown D Number',
+  reportName: currentReportName,
+  isCurrent: true,
+  payload,
+})
+
+const getSavedReportPrintOption = (
+  savedReport: EditableInspectionReport,
+  currentEditableReportId: string,
+): JobReportPrintOption => {
+  const dNumber = savedReport.dNumber || getDNumberFromReport(savedReport.reportData)
+
+  return {
+    id: savedReport.id,
+    reportId: savedReport.id,
+    dNumber: dNumber || 'Unknown D Number',
+    reportName: savedReport.reportName,
+    isCurrent: savedReport.id === currentEditableReportId,
+    payload: getNormalizedReportPayload(savedReport),
+  }
+}
+
+const getJobReportPrintOptions = ({
+  currentOption,
+  savedReports,
+  currentEditableReportId,
+}: {
+  currentOption: JobReportPrintOption
+  savedReports: EditableInspectionReport[]
+  currentEditableReportId: string
+}) => {
+  const seenDNumbers = new Set<string>()
+  const savedOptions = savedReports.map((savedReport) =>
+    getSavedReportPrintOption(savedReport, currentEditableReportId),
+  )
+
+  return [currentOption, ...savedOptions]
+    .filter((option) => {
+      const uniqueKey = getReportPrintOptionUniqueKey(option)
+      if (seenDNumbers.has(uniqueKey)) return false
+      seenDNumbers.add(uniqueKey)
+      return true
+    })
+    .sort((firstOption, secondOption) => compareDNumbers(firstOption.dNumber, secondOption.dNumber))
+}
+
 const hasSavedEditableReportPayload = (item: JobsQuotingItem) =>
   Boolean(item.reportName || Object.keys(item.reportData).length > 0 || item.repairSections.length > 0)
 
@@ -2977,13 +3046,10 @@ export default function EditableInspectionReport({
     [currentJobNumber],
   )
   const jobReportPrintOptions = useMemo(() => {
-    const seenDNumbers = new Set<string>()
-    const currentOption = {
-      id: currentEditableReportId || 'current-report',
-      reportId: currentEditableReportId,
-      dNumber: getDNumberFromReport(report) || 'Unknown D Number',
-      reportName: currentReportName,
-      isCurrent: true,
+    const currentOption = getCurrentReportPrintOption({
+      currentEditableReportId,
+      currentReportName,
+      report,
       payload: {
         reportData: report,
         repairSections,
@@ -3000,29 +3066,14 @@ export default function EditableInspectionReport({
         },
         textBoxes: [],
         equipmentRentalSettings,
-      } satisfies EditableInspectionReportPayload,
-    }
-    const savedOptions = jobReportPrintReports.map((savedReport) => {
-      const dNumber = savedReport.dNumber || getDNumberFromReport(savedReport.reportData)
-
-      return {
-        id: savedReport.id,
-        reportId: savedReport.id,
-        dNumber: dNumber || 'Unknown D Number',
-        reportName: savedReport.reportName,
-        isCurrent: savedReport.id === currentEditableReportId,
-        payload: getNormalizedReportPayload(savedReport),
-      }
+      },
     })
 
-    return [currentOption, ...savedOptions]
-      .filter((option) => {
-        const uniqueKey = option.dNumber === 'Unknown D Number' ? option.id : option.dNumber.toUpperCase()
-        if (seenDNumbers.has(uniqueKey)) return false
-        seenDNumbers.add(uniqueKey)
-        return true
-      })
-      .sort((firstOption, secondOption) => compareDNumbers(firstOption.dNumber, secondOption.dNumber))
+    return getJobReportPrintOptions({
+      currentOption,
+      savedReports: jobReportPrintReports,
+      currentEditableReportId,
+    })
   }, [
     blockVisibility,
     costSections,
@@ -3584,7 +3635,7 @@ export default function EditableInspectionReport({
         setReportDatabaseStatus('error')
         console.error('Embedded editable report could not be saved.', error)
       })
-    }, databaseSyncIdleDelayMs)
+    }, embeddedReportAutosaveDelayMs)
 
     return () => {
       if (embeddedReportSaveTimeout.current) {
@@ -4805,19 +4856,73 @@ export default function EditableInspectionReport({
     }
   }, [normalizedCurrentJobNumber])
 
+  const commitFocusedEditableField = useCallback(async () => {
+    const activeElement = document.activeElement
+    if (
+      activeElement instanceof HTMLElement
+      && (activeElement.isContentEditable || activeElement.closest('.editable-report-field'))
+    ) {
+      activeElement.blur()
+    }
+
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => resolve())
+      })
+    })
+  }, [])
+
+  const saveEditableReportsBeforePrint = useCallback(async () => {
+    await commitFocusedEditableField()
+
+    if (isJobEditMode) {
+      const saveHandlers = visibleJobEditItemIds
+        .map((itemId) => embeddedReportSaveHandlers.current.get(itemId))
+        .filter((saveHandler): saveHandler is () => Promise<EditableInspectionReport | null> => Boolean(saveHandler))
+
+      if (saveHandlers.length > 0) {
+        setReportDatabaseStatus('saving')
+        await Promise.all(saveHandlers.map((saveHandler) => saveHandler()))
+        setReportDatabaseStatus('saved')
+      }
+
+      return {
+        currentReport: null,
+        jobReports: await refreshJobReportPrintReports(),
+      }
+    }
+
+    const currentReport = currentJobsQuotingItemId ? await saveCurrentEditableReportNow() : null
+    return {
+      currentReport,
+      jobReports: normalizedCurrentJobNumber ? await refreshJobReportPrintReports() : jobReportPrintReports,
+    }
+  }, [
+    commitFocusedEditableField,
+    currentJobsQuotingItemId,
+    isJobEditMode,
+    jobReportPrintReports,
+    normalizedCurrentJobNumber,
+    refreshJobReportPrintReports,
+    saveCurrentEditableReportNow,
+    visibleJobEditItemIds,
+  ])
+
   const printReportSources = (
     sources: CombinedReportPdfSource[],
     {
       documentTitle,
       fallbackFilename,
       openedMessage,
+      printWindow: openedPrintWindow,
     }: {
       documentTitle?: string
       fallbackFilename: string
       openedMessage: string
+      printWindow?: Window | null
     },
   ) => {
-    const printWindow = window.open('', '_blank')
+    const printWindow = openedPrintWindow ?? window.open('', '_blank')
 
     if (printWindow) {
       printWindow.document.write(getCombinedReportTemplateHtml(sources, documentTitle, userProfile))
@@ -4842,19 +4947,41 @@ export default function EditableInspectionReport({
     setJobReportPrintDownloadMessage('Popup blocked. Downloaded a simplified PDF instead.')
   }
 
-  const printEditableReport = () => {
-    printReportSources(
-      [{
-        dNumber: getDNumberFromReport(report) || 'Unknown D Number',
-        reportName: currentReportName,
-        payload: currentEditableReportPayload,
-      }],
-      {
-        documentTitle: currentReportName || 'DESHAZO Quote Proposal',
-        fallbackFilename: `${(currentReportName || 'editable-inspection-report').replace(/\s+/g, '-').toLowerCase()}.pdf`,
-        openedMessage: 'Opened current report for PDF download.',
-      },
-    )
+  const printEditableReport = async () => {
+    setJobReportPrintDownloadMessage('Saving latest edits before printing.')
+    const pendingPrintWindow = window.open('', '_blank')
+
+    try {
+      const { currentReport, jobReports } = await saveEditableReportsBeforePrint()
+      const refreshedCurrentReport =
+        currentReport ||
+        (isJobEditMode && currentJobsQuotingItemId
+          ? jobReports.find((savedReport) => savedReport.id === currentJobsQuotingItemId) ?? null
+          : null)
+      const printPayload = refreshedCurrentReport
+        ? getNormalizedReportPayload(refreshedCurrentReport)
+        : currentEditableReportPayload
+      const printReportName = refreshedCurrentReport?.reportName || currentReportName
+
+      printReportSources(
+        [{
+          dNumber: getDNumberFromReport(printPayload.reportData) || 'Unknown D Number',
+          reportName: printReportName,
+          payload: printPayload,
+        }],
+        {
+          documentTitle: printReportName || 'DESHAZO Quote Proposal',
+          fallbackFilename: `${(printReportName || 'editable-inspection-report').replace(/\s+/g, '-').toLowerCase()}.pdf`,
+          openedMessage: 'Saved latest edits and opened current report for PDF download.',
+          printWindow: pendingPrintWindow,
+        },
+      )
+    } catch (error) {
+      pendingPrintWindow?.close()
+      setReportDatabaseStatus('error')
+      setJobReportPrintDownloadMessage(error instanceof Error ? error.message : 'Latest edits could not be saved before printing.')
+      console.error('Editable report could not be saved before printing.', error)
+    }
   }
 
   const openJobReportPrintMenu = async () => {
@@ -4883,8 +5010,43 @@ export default function EditableInspectionReport({
     setSelectedJobReportPrintIds(new Set(jobReportPrintOptionIds))
   }
 
-  const downloadCheckedJobReportsPdf = () => {
-    const selectedSources = jobReportPrintOptions
+  const downloadCheckedJobReportsPdf = async () => {
+    setJobReportPrintDownloadMessage('Saving latest edits before printing.')
+
+    let freshJobReportPrintOptions = jobReportPrintOptions
+    const pendingPrintWindow = window.open('', '_blank')
+
+    try {
+      const { currentReport, jobReports } = await saveEditableReportsBeforePrint()
+      const currentPayload = currentReport ? getNormalizedReportPayload(currentReport) : currentEditableReportPayload
+      const currentOption = getCurrentReportPrintOption({
+        currentEditableReportId: currentReport?.id || currentEditableReportId,
+        currentReportName: currentReport?.reportName || currentReportName,
+        report: currentPayload.reportData,
+        payload: currentPayload,
+      })
+
+      freshJobReportPrintOptions = isJobEditMode
+        ? jobReports
+          .map((savedReport) => getSavedReportPrintOption(savedReport, currentReport?.id || currentEditableReportId))
+          .filter((option, index, options) =>
+            options.findIndex((candidate) => getReportPrintOptionUniqueKey(candidate) === getReportPrintOptionUniqueKey(option)) === index
+          )
+          .sort((firstOption, secondOption) => compareDNumbers(firstOption.dNumber, secondOption.dNumber))
+        : getJobReportPrintOptions({
+          currentOption,
+          savedReports: jobReports,
+          currentEditableReportId: currentReport?.id || currentEditableReportId,
+        })
+    } catch (error) {
+      pendingPrintWindow?.close()
+      setReportDatabaseStatus('error')
+      setJobReportPrintDownloadMessage(error instanceof Error ? error.message : 'Latest edits could not be saved before printing.')
+      console.error('Editable job reports could not be saved before printing.', error)
+      return
+    }
+
+    const selectedSources = freshJobReportPrintOptions
       .filter((option) => selectedJobReportPrintIds.has(option.id))
       .map((option) => ({
         dNumber: option.dNumber,
@@ -4893,6 +5055,7 @@ export default function EditableInspectionReport({
       }))
 
     if (selectedSources.length === 0) {
+      pendingPrintWindow?.close()
       setJobReportPrintDownloadMessage('Select at least one D number.')
       return
     }
@@ -4904,6 +5067,7 @@ export default function EditableInspectionReport({
       documentTitle: combinedReportTitle,
       fallbackFilename: `${combinedReportTitle}.pdf`,
       openedMessage: `Opened ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'} for PDF download.`,
+      printWindow: pendingPrintWindow,
     })
   }
 
