@@ -1084,6 +1084,7 @@ type CombinedReportPdfSource = {
   reportName: string
   payload: EditableInspectionReportPayload
   suppressContact?: boolean
+  suppressAdditionalNotes?: boolean
 }
 
 type JobReportPrintOption = CombinedReportPdfSource & {
@@ -1127,7 +1128,7 @@ const shouldShowSecondaryJobContact = (reportData: ReportData, baselineReportDat
   hasReportContactValue(reportData)
   && getReportContactComparisonKey(reportData) !== getReportContactComparisonKey(baselineReportData)
 
-const applyCombinedReportContactVisibility = (sources: CombinedReportPdfSource[]) => {
+const applyCombinedReportSharedBlockVisibility = (sources: CombinedReportPdfSource[]) => {
   if (sources.length <= 1) return sources
 
   const baselineReportData = normalizeReport(sources[0].payload.reportData)
@@ -1135,6 +1136,7 @@ const applyCombinedReportContactVisibility = (sources: CombinedReportPdfSource[]
   return sources.map((source, index) => ({
     ...source,
     suppressContact: index > 0 && !shouldShowSecondaryJobContact(normalizeReport(source.payload.reportData), baselineReportData),
+    suppressAdditionalNotes: index < sources.length - 1,
   }))
 }
 
@@ -1411,13 +1413,17 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     0,
   )
 
-  const { body, hasFooter } = splitAdditionalNotesFooter(reportData.notes || '---', profile)
-  lines.push('', `Grand Total: ${formatMoney(repairTotal + costTotal)}`, '', reportData.notesHeader || 'Additional Notes')
-  lines.push(normalizeAdditionalNotesSignatureBody(body || '---', profile))
-  if (hasFooter) {
-    lines.push('', getProfileSignatureName(profile), 'Assistant Service Manager')
-    if (getProfileSignaturePhone(profile)) lines.push(getProfileSignaturePhone(profile))
-    lines.push('DESHAZO', 'CRANES / SERVICE / AUTOMATION')
+  lines.push('', `Grand Total: ${formatMoney(repairTotal + costTotal)}`)
+
+  if (!source.suppressAdditionalNotes) {
+    const { body, hasFooter } = splitAdditionalNotesFooter(reportData.notes || '---', profile)
+    lines.push('', reportData.notesHeader || 'Additional Notes')
+    lines.push(normalizeAdditionalNotesSignatureBody(body || '---', profile))
+    if (hasFooter) {
+      lines.push('', getProfileSignatureName(profile), 'Assistant Service Manager')
+      if (getProfileSignaturePhone(profile)) lines.push(getProfileSignaturePhone(profile))
+      lines.push('DESHAZO', 'CRANES / SERVICE / AUTOMATION')
+    }
   }
   return lines
 }
@@ -1714,10 +1720,12 @@ const getCombinedReportTemplateHtml = (
           </div>
         </section>
 
+        ${source.suppressAdditionalNotes ? '' : `
         <section class="notes">
           <h2>${escapeHtml(reportData.notesHeader || 'Additional Notes')}</h2>
           <div class="notes-body">${renderAdditionalNotesHtml(reportData.notes || '---', profile)}</div>
         </section>
+        `}
       </article>
     `
   }).join('')
@@ -5046,7 +5054,7 @@ export default function EditableInspectionReport({
     },
   ) => {
     const printWindow = openedPrintWindow ?? window.open('', '_blank')
-    const printableSources = applyCombinedReportContactVisibility(sources)
+    const printableSources = applyCombinedReportSharedBlockVisibility(sources)
 
     if (printWindow) {
       printWindow.document.write(getCombinedReportTemplateHtml(printableSources, documentTitle, userProfile))
