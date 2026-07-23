@@ -348,13 +348,15 @@ begin
     on public.jobs_quoting_items;
   drop policy if exists "Authenticated users can update owned or shared quote items"
     on public.jobs_quoting_items;
+  drop policy if exists "Authenticated users can update all quote items"
+    on public.jobs_quoting_items;
 
-  create policy "Authenticated users can update owned or shared quote items"
+  create policy "Authenticated users can update all quote items"
     on public.jobs_quoting_items
     for update
     to authenticated
-    using (user_id is null or (select auth.uid()) = user_id)
-    with check (user_id is null or (select auth.uid()) = user_id);
+    using (true)
+    with check (true);
 
   drop policy if exists "Authenticated users can delete owned or shared quote items"
     on public.jobs_quoting_items;
