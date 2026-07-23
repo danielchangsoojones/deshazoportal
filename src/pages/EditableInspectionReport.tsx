@@ -1083,12 +1083,59 @@ type CombinedReportPdfSource = {
   dNumber: string
   reportName: string
   payload: EditableInspectionReportPayload
+  suppressContact?: boolean
 }
 
 type JobReportPrintOption = CombinedReportPdfSource & {
   id: string
   reportId: string
   isCurrent: boolean
+}
+
+type ReportContact = {
+  name: string
+  email: string
+  phone: string
+}
+
+const getReportContact = (reportData: ReportData): ReportContact => ({
+  name: reportData.contactName?.trim() || '',
+  email: reportData.contactEmail?.trim() || '',
+  phone: reportData.contactPhone?.trim() || '',
+})
+
+const normalizeContactComparisonValue = (value: string) =>
+  value.trim().replace(/\s+/g, ' ').toLowerCase()
+
+const getReportContactComparisonKey = (reportData: ReportData) => {
+  const contact = getReportContact(reportData)
+
+  return [
+    normalizeContactComparisonValue(contact.name),
+    normalizeContactComparisonValue(contact.email),
+    normalizeContactComparisonValue(contact.phone),
+  ].join('|')
+}
+
+const hasReportContactValue = (reportData: ReportData) => {
+  const contact = getReportContact(reportData)
+
+  return Boolean(contact.name || contact.email || contact.phone)
+}
+
+const shouldShowSecondaryJobContact = (reportData: ReportData, baselineReportData: ReportData) =>
+  hasReportContactValue(reportData)
+  && getReportContactComparisonKey(reportData) !== getReportContactComparisonKey(baselineReportData)
+
+const applyCombinedReportContactVisibility = (sources: CombinedReportPdfSource[]) => {
+  if (sources.length <= 1) return sources
+
+  const baselineReportData = normalizeReport(sources[0].payload.reportData)
+
+  return sources.map((source, index) => ({
+    ...source,
+    suppressContact: index > 0 && !shouldShowSecondaryJobContact(normalizeReport(source.payload.reportData), baselineReportData),
+  }))
 }
 
 const getRepairCostSectionVisibilityKey = (repairSectionId: string, costSectionId: string) =>
@@ -1285,6 +1332,14 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     ...defaultEquipmentRentalSettings,
     ...payload.equipmentRentalSettings,
   } as EquipmentRentalSettings
+  const contactLines = source.suppressContact
+    ? []
+    : [
+      '',
+      `Contact Name: ${reportData.contactName || '---'}`,
+      `Email: ${reportData.contactEmail || '---'}`,
+      `Phone: ${reportData.contactPhone || '---'}`,
+    ]
   const lines = [
     `D Number: ${source.dNumber}`,
     `Report: ${source.reportName}`,
@@ -1299,10 +1354,7 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     reportData.location,
     reportData.customerAddress,
     reportData.purchaseOrder,
-    '',
-    `Contact Name: ${reportData.contactName || '---'}`,
-    `Email: ${reportData.contactEmail || '---'}`,
-    `Phone: ${reportData.contactPhone || '---'}`,
+    ...contactLines,
     '',
     reportData.scopeOfWorkHeader || 'Scope of Work',
     reportData.scopeOfWork || '---',
@@ -1635,11 +1687,13 @@ const getCombinedReportTemplateHtml = (
           ${getTemplateEquipmentCells(reportData)}
         </div>
 
+        ${source.suppressContact ? '' : `
         <section class="contact-row">
           <div><span class="contact-label">Contact Name</span> <span class="contact-value">${getTemplateValue(reportData.contactName)}</span></div>
           <div><span class="contact-label">Email</span> <span class="contact-value contact-email">${getTemplateValue(reportData.contactEmail)}</span></div>
           <div><span class="contact-label">Phone Number</span> <span class="contact-value">${getTemplateValue(reportData.contactPhone)}</span></div>
         </section>
+        `}
 
         <section class="scope">
           <h2>${escapeHtml(reportData.scopeOfWorkHeader || 'Scope of Work')}</h2>
@@ -2712,6 +2766,7 @@ type EditableInspectionReportProps = {
   inheritedUserProfile?: UserProfile | null
   registerEmbeddedReportSave?: (itemId: string, saveReport: () => Promise<EditableInspectionReport | null>) => () => void
   onDeleteDNumber?: () => void
+  suppressContact?: boolean
   suppressAdditionalNotes?: boolean
 }
 
@@ -2723,6 +2778,7 @@ export default function EditableInspectionReport({
   inheritedUserProfile = null,
   registerEmbeddedReportSave,
   onDeleteDNumber,
+  suppressContact = false,
   suppressAdditionalNotes = false,
 }: EditableInspectionReportProps = {}) {
   const generatedId = useRef(1000)
@@ -2856,6 +2912,12 @@ export default function EditableInspectionReport({
       notes: finalItemReport?.notes || report.notes || buildDefaultAdditionalNotes(userProfile),
     }
   }, [jobEditQuoteItemsById, report.notes, report.notesHeader, userProfile, visibleJobEditItemIds])
+  const firstJobEditContactReport = useMemo(() => {
+    const firstItemId = visibleJobEditItemIds[0]
+    const firstItemReport = firstItemId ? jobEditQuoteItemsById[firstItemId]?.reportData : null
+
+    return firstItemReport ? normalizeReport(firstItemReport) : null
+  }, [jobEditQuoteItemsById, visibleJobEditItemIds])
   const [repairSections, setRepairSections] = useState<RepairSection[]>(() => {
     if (hasSelectedEditableReportSource) return []
 
@@ -4984,9 +5046,10 @@ export default function EditableInspectionReport({
     },
   ) => {
     const printWindow = openedPrintWindow ?? window.open('', '_blank')
+    const printableSources = applyCombinedReportContactVisibility(sources)
 
     if (printWindow) {
-      printWindow.document.write(getCombinedReportTemplateHtml(sources, documentTitle, userProfile))
+      printWindow.document.write(getCombinedReportTemplateHtml(printableSources, documentTitle, userProfile))
       printWindow.document.close()
       printWindow.focus()
       printWindow.setTimeout(() => {
@@ -4996,7 +5059,7 @@ export default function EditableInspectionReport({
       return
     }
 
-    const blob = createCombinedReportsPdfBlob(sources, userProfile)
+    const blob = createCombinedReportsPdfBlob(printableSources, userProfile)
     const downloadUrl = URL.createObjectURL(blob)
     const downloadLink = document.createElement('a')
     downloadLink.href = downloadUrl
@@ -5882,22 +5945,31 @@ export default function EditableInspectionReport({
                   Loading job reports...
                 </div>
               ) : visibleJobEditItemIds.length > 0 ? (
-                visibleJobEditItemIds.map((itemId, itemIndex) => (
-                  <section key={itemId} className="relative">
-                    <EditableInspectionReport
-                      embeddedJobPage
-                      embeddedJobsQuotingItemId={itemId}
-                      embeddedJobPageNumber={itemIndex + 1}
-                      inheritedCurrentUser={currentUser}
-                      inheritedUserProfile={userProfile}
-                      registerEmbeddedReportSave={registerEmbeddedReportSaveHandler}
-                      onDeleteDNumber={() => {
-                        void deleteJobEditItem(itemId)
-                      }}
-                      suppressAdditionalNotes
-                    />
-                  </section>
-                ))
+                visibleJobEditItemIds.map((itemId, itemIndex) => {
+                  const itemReport = jobEditQuoteItemsById[itemId]?.reportData
+                  const suppressJobContact =
+                    itemIndex > 0
+                    && Boolean(firstJobEditContactReport)
+                    && !shouldShowSecondaryJobContact(normalizeReport(itemReport ?? {}), firstJobEditContactReport ?? blankReport)
+
+                  return (
+                    <section key={itemId} className="relative">
+                      <EditableInspectionReport
+                        embeddedJobPage
+                        embeddedJobsQuotingItemId={itemId}
+                        embeddedJobPageNumber={itemIndex + 1}
+                        inheritedCurrentUser={currentUser}
+                        inheritedUserProfile={userProfile}
+                        registerEmbeddedReportSave={registerEmbeddedReportSaveHandler}
+                        onDeleteDNumber={() => {
+                          void deleteJobEditItem(itemId)
+                        }}
+                        suppressContact={suppressJobContact}
+                        suppressAdditionalNotes
+                      />
+                    </section>
+                  )
+                })
               ) : (
                 <div className="rounded-md border border-[var(--deshazo-border)] bg-white px-6 py-5 text-center text-sm font-bold text-[#747b8a]">
                   All D numbers have been removed from this job.
@@ -6172,7 +6244,7 @@ export default function EditableInspectionReport({
               )}
             </div>
 
-            {blockVisibility.contact ? (
+            {blockVisibility.contact && !suppressContact ? (
             <section
               data-report-block-id="contact"
               style={getRuntimePageBreakStyle('contact')}
