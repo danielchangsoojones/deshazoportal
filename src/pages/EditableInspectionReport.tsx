@@ -2270,13 +2270,23 @@ const getRepairSectionMergeKey = (section: RepairSection) =>
     .filter(Boolean)
     .join(':')
 
-const mergeMissingExtractedRepairSections = (savedSections: RepairSection[], extractedSections: RepairSection[]) => {
+const getRemovedRepairSectionVisibilityKey = (section: RepairSection) => {
+  const mergeKey = getRepairSectionMergeKey(section)
+  return mergeKey ? `removed-repair-section:${mergeKey}` : ''
+}
+
+const mergeMissingExtractedRepairSections = (
+  savedSections: RepairSection[],
+  extractedSections: RepairSection[],
+  repairSectionVisibility: Record<string, boolean>,
+) => {
   if (savedSections.length === 0 || extractedSections.length === 0) return savedSections
 
   const savedKeys = new Set(savedSections.map(getRepairSectionMergeKey).filter(Boolean))
   const missingSections = extractedSections.filter((section) => {
     const key = getRepairSectionMergeKey(section)
-    return key && !savedKeys.has(key)
+    const removedKey = getRemovedRepairSectionVisibilityKey(section)
+    return key && !savedKeys.has(key) && repairSectionVisibility[removedKey] !== false
   })
 
   return missingSections.length > 0 ? [...savedSections, ...missingSections] : savedSections
@@ -2318,9 +2328,11 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
 
   if (hasSavedEditableReportPayload(item)) {
     const repairSections = item.repairSections as RepairSection[]
+    const repairSectionVisibility = item.pageLayoutVisibility.repairSectionVisibility
     const repairSectionsWithExtractedItems = mergeMissingExtractedRepairSections(
       repairSections,
       hasExtractedRepairSectionItems(item) ? buildRepairSectionsFromJobsQuotingItem(item) : [],
+      repairSectionVisibility,
     )
     const legacyRepairCostSections = (item.costSections as CostSection[]).filter(isRepairScopedCostSection)
     const remainingCostSections = (item.costSections as CostSection[]).filter((section) => !isRepairScopedCostSection(section))
@@ -2346,7 +2358,7 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
       blockVisibility: item.pageLayoutVisibility.blockVisibility,
       estimateNoteVisibility: item.pageLayoutVisibility.estimateNoteVisibility,
       estimateCostSectionVisibility,
-      repairSectionVisibility: item.pageLayoutVisibility.repairSectionVisibility,
+      repairSectionVisibility,
       pageLayoutVisibility: {
         ...item.pageLayoutVisibility,
         estimateCostSectionVisibility,
@@ -4501,6 +4513,17 @@ export default function EditableInspectionReport({
   }
 
   const removeRepairSection = (sectionId: string) => {
+    const removedSection = repairSections.find((section) => section.id === sectionId)
+    const removedKey = removedSection ? getRemovedRepairSectionVisibilityKey(removedSection) : ''
+
+    if (removedKey) {
+      setRepairSectionVisibility((currentVisibility) => {
+        const nextVisibility = { ...currentVisibility, [removedKey]: false }
+        window.localStorage.setItem(repairSectionVisibilityStorageKey, JSON.stringify(nextVisibility))
+        return nextVisibility
+      })
+    }
+
     setRepairSections((currentSections) =>
       saveRepairSections(currentSections.filter((section) => section.id !== sectionId)),
     )
@@ -4778,10 +4801,6 @@ export default function EditableInspectionReport({
     )
   }
 
-  const goBackToJobsQuotingList = async () => {
-    navigate('/jobsquotinglist')
-  }
-
   const flashSaveButtonMessage = useCallback(() => {
     if (saveButtonMessageTimeout.current) {
       window.clearTimeout(saveButtonMessageTimeout.current)
@@ -4907,6 +4926,48 @@ export default function EditableInspectionReport({
     saveCurrentEditableReportNow,
     visibleJobEditItemIds,
   ])
+
+  const saveEditableReportsBeforeNavigation = useCallback(async () => {
+    await commitFocusedEditableField()
+
+    if (isJobEditMode) {
+      const saveHandlers = visibleJobEditItemIds
+        .map((itemId) => embeddedReportSaveHandlers.current.get(itemId))
+        .filter((saveHandler): saveHandler is () => Promise<EditableInspectionReport | null> => Boolean(saveHandler))
+
+      if (saveHandlers.length > 0) {
+        setReportDatabaseStatus('saving')
+        await Promise.all(saveHandlers.map((saveHandler) => saveHandler()))
+        setReportDatabaseStatus('saved')
+      }
+      return
+    }
+
+    if (currentJobsQuotingItemId) {
+      await saveCurrentEditableReportNow()
+    }
+  }, [
+    commitFocusedEditableField,
+    currentJobsQuotingItemId,
+    isJobEditMode,
+    saveCurrentEditableReportNow,
+    visibleJobEditItemIds,
+  ])
+
+  const navigateAfterSavingEditableReports = useCallback(async (path: string) => {
+    try {
+      await saveEditableReportsBeforeNavigation()
+      navigate(path)
+    } catch (error) {
+      setReportDatabaseStatus('error')
+      window.alert(error instanceof Error ? error.message : 'Latest edits could not be saved before leaving.')
+      console.error('Editable report could not be saved before leaving.', error)
+    }
+  }, [navigate, saveEditableReportsBeforeNavigation])
+
+  const goBackToJobsQuotingList = async () => {
+    await navigateAfterSavingEditableReports('/jobsquotinglist')
+  }
 
   const printReportSources = (
     sources: CombinedReportPdfSource[],
@@ -5071,7 +5132,7 @@ export default function EditableInspectionReport({
     })
   }
 
-  const selectJobReportPrintOption = (option: (typeof jobReportPrintOptions)[number]) => {
+  const selectJobReportPrintOption = async (option: (typeof jobReportPrintOptions)[number]) => {
     setJobReportPrintMenuOpen(false)
 
     if (option.isCurrent || !option.reportId) {
@@ -5079,7 +5140,14 @@ export default function EditableInspectionReport({
       return
     }
 
-    setSearchParams({ editableReportId: option.reportId })
+    try {
+      await saveEditableReportsBeforeNavigation()
+      setSearchParams({ editableReportId: option.reportId })
+    } catch (error) {
+      setReportDatabaseStatus('error')
+      window.alert(error instanceof Error ? error.message : 'Latest edits could not be saved before switching reports.')
+      console.error('Editable report could not be saved before switching reports.', error)
+    }
   }
 
   const openJobReportInNewTab = (option: (typeof jobReportPrintOptions)[number]) => {
@@ -5486,7 +5554,7 @@ export default function EditableInspectionReport({
                   const params = isUuid(currentJobsQuotingItemId || '')
                     ? `jobsQuotingItemId=${encodeURIComponent(currentJobsQuotingItemId || '')}`
                     : `editableReportId=${encodeURIComponent(currentEditableReportId)}`
-                  navigate(`/equipment-notebook-llm?${params}`)
+                  void navigateAfterSavingEditableReports(`/equipment-notebook-llm?${params}`)
                 }}
                 className="rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
               >
