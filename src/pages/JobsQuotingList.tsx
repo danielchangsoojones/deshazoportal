@@ -686,6 +686,14 @@ export default function JobsQuotingList() {
     setSelectedJobSectionId(allJobsSectionId)
   }
 
+  const updateQuoteSearchQuery = (nextSearchQuery: string) => {
+    setSearchQuery(nextSearchQuery)
+    if (nextSearchQuery.trim()) {
+      showQuoteJobScope('all')
+      setCurrentPage(1)
+    }
+  }
+
   const setCurrentQuoteJobsFromItems = (nextItems: JobsQuotingItem[]) => {
     const nextCurrentJobs = {
       itemIds: nextItems.map((item) => item.id),
@@ -1922,14 +1930,41 @@ export default function JobsQuotingList() {
                   <label className="sr-only" htmlFor="quote-report-search">
                     Search quote reports
                   </label>
-                  <input
-                    id="quote-report-search"
-                    type="search"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.currentTarget.value)}
-                    placeholder="Search D-number or job number..."
-                    className="w-full rounded-md border border-[#c7d1e2] bg-white px-3 py-2 text-[13px] font-bold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#8b91a1] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[#dbe5ff]"
-                  />
+                  <div className="relative">
+                    <input
+                      id="quote-report-search"
+                      type="text"
+                      value={searchQuery}
+                      onChange={(event) => updateQuoteSearchQuery(event.currentTarget.value)}
+                      placeholder="Search D-number or job number..."
+                      className="w-full rounded-md border border-[#c7d1e2] bg-white py-2 pl-3 pr-10 text-[13px] font-bold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#8b91a1] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[#dbe5ff]"
+                    />
+                    {searchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-[16px] font-black leading-none text-[#747b8a] transition hover:bg-[#e8eefb] hover:text-[var(--deshazo-blue)]"
+                        aria-label="Clear quote search"
+                        title="Clear search"
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b91a1]"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.3-4.3" />
+                      </svg>
+                    )}
+                  </div>
                 </div>
               </div>
 
