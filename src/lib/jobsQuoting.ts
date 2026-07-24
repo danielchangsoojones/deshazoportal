@@ -739,6 +739,31 @@ export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<Jobs
   return rows.map(mapJobsQuotingItem)
 }
 
+export async function getJobsQuotingItemsForJobNumbers(jobNumbers: string[]): Promise<JobsQuotingItem[]> {
+  const lookupJobNumbers = getJobNumberLookupValues(jobNumbers.map((jobNumber) => jobNumber.trim()).filter(Boolean))
+  if (lookupJobNumbers.length === 0) return []
+
+  const client = requireSupabase()
+  await getCurrentUserId()
+
+  const rows: JobsQuotingItemRow[] = []
+  for (const jobNumberChunk of chunkValues(lookupJobNumbers, runIdFilterChunkSize)) {
+    const chunkRows = await fetchAllPages<JobsQuotingItemRow>((from, to) =>
+      client
+        .from('jobs_quoting_items')
+        .select(jobsQuotingItemSelect)
+        .in('job_number', jobNumberChunk)
+        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .range(from, to),
+    )
+    rows.push(...chunkRows)
+  }
+
+  const itemsById = new Map(rows.map((row) => [row.id, row]))
+  return Array.from(itemsById.values()).map(mapJobsQuotingItem)
+}
+
 export async function getJobsQuotingItem(itemId: string): Promise<JobsQuotingItem> {
   const client = requireSupabase()
   await getCurrentUserId()
