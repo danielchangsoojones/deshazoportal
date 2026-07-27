@@ -9,6 +9,7 @@ import {
   createJobQuotingItemsFromExternalInspectionReports,
   deleteJobsQuotingItem,
   getJobsQuotingItemResults,
+  getJobsQuotingItemsForJobNumbers,
   getJobsQuotingItemsForRuns,
   getJobsQuotingRuns,
   saveJobsQuotingItemResult,
@@ -59,6 +60,11 @@ type QuoteJobListScope = 'current' | 'all'
 type CurrentQuoteJobsState = {
   jobNumbers: string[]
   itemIds: string[]
+}
+
+type ExistingImportedJobModal = {
+  jobNumbers: string[]
+  items: JobsQuotingItem[]
 }
 
 type QuoteLineItem = {
@@ -380,6 +386,22 @@ function getJobNumberMatchKeys(jobNumber: string) {
   return Array.from(keys)
 }
 
+function getExistingImportedItemsForJobNumbers(jobNumbers: string[], sourceItems: JobsQuotingItem[]) {
+  const requestedJobNumberKeys = new Set(jobNumbers.flatMap(getJobNumberMatchKeys))
+  if (requestedJobNumberKeys.size === 0) return []
+
+  return sourceItems.filter((item) => {
+    const itemJobNumberKeys = getJobNumberMatchKeys(getItemJobNumber(item))
+    return itemJobNumberKeys.some((key) => requestedJobNumberKeys.has(key))
+  })
+}
+
+function getUniqueJobNumbersForItems(items: JobsQuotingItem[], fallbackJobNumbers: string[]) {
+  const jobNumbers = items.map(getItemJobNumber).filter(Boolean)
+  const uniqueJobNumbers = Array.from(new Set(jobNumbers))
+  return uniqueJobNumbers.length > 0 ? uniqueJobNumbers : fallbackJobNumbers
+}
+
 function getStoredCurrentQuoteJobs(): CurrentQuoteJobsState {
   try {
     const storedValue = window.localStorage.getItem(currentQuoteJobsStorageKey)
@@ -539,6 +561,7 @@ export default function JobsQuotingList() {
   const [currentPage, setCurrentPage] = useState(1)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
   const [createDNumberModalOpen, setCreateDNumberModalOpen] = useState(false)
+  const [existingImportedJobModal, setExistingImportedJobModal] = useState<ExistingImportedJobModal | null>(null)
   const [openItemSettingsId, setOpenItemSettingsId] = useState<string | null>(null)
   const [openJobSettingsId, setOpenJobSettingsId] = useState<string | null>(null)
   const [deletingItemIds, setDeletingItemIds] = useState<Set<string>>(() => new Set())
@@ -663,6 +686,14 @@ export default function JobsQuotingList() {
     setSelectedJobSectionId(allJobsSectionId)
   }
 
+  const updateQuoteSearchQuery = (nextSearchQuery: string) => {
+    setSearchQuery(nextSearchQuery)
+    if (nextSearchQuery.trim()) {
+      showQuoteJobScope('all')
+      setCurrentPage(1)
+    }
+  }
+
   const setCurrentQuoteJobsFromItems = (nextItems: JobsQuotingItem[]) => {
     const nextCurrentJobs = {
       itemIds: nextItems.map((item) => item.id),
@@ -694,6 +725,15 @@ export default function JobsQuotingList() {
     setCurrentQuoteItemIds(nextCurrentJobs.itemIds)
     setCurrentQuoteJobNumbers(nextCurrentJobs.jobNumbers)
     showQuoteJobScope('current')
+  }
+
+  const showExistingImportedJob = (existingJob: ExistingImportedJobModal) => {
+    const jobNumbers = getUniqueJobNumbersForItems(existingJob.items, existingJob.jobNumbers)
+    setPinnedImportedJobNumbers(jobNumbers)
+    setCurrentQuoteJobsFromItemIds(existingJob.items.map((item) => item.id), jobNumbers)
+    setSearchQuery('')
+    setCurrentPage(1)
+    setExistingImportedJobModal(null)
   }
 
   useEffect(() => {
@@ -1048,9 +1088,28 @@ export default function JobsQuotingList() {
     setBusy(true)
     setExternalJobImporting(true)
     setUploadMenuOpen(false)
-    setMessage(`Importing quote items for ${jobNumbers.join(', ')} from synced inspection reports.`)
+    setMessage(`Checking for a matching quote job for ${jobNumbers.join(', ')}.`)
 
     try {
+      const loadedExistingItems = getExistingImportedItemsForJobNumbers(jobNumbers, items)
+      const existingItems = loadedExistingItems.length > 0
+        ? loadedExistingItems
+        : await getJobsQuotingItemsForJobNumbers(jobNumbers)
+
+      if (existingItems.length > 0) {
+        const existingJobNumbers = getUniqueJobNumbersForItems(existingItems, jobNumbers)
+        setMessage(`Found matching job ${existingJobNumbers.join(', ')}.`)
+        setExistingImportedJobModal({ jobNumbers: existingJobNumbers, items: existingItems })
+        setPinnedImportedJobNumbers(existingJobNumbers)
+        setCurrentQuoteJobsFromItemIds(existingItems.map((item) => item.id), existingJobNumbers)
+        setSearchQuery('')
+        setCurrentPage(1)
+        await loadQuotingData(allJobsSectionId)
+        setMessage('If you need a fresh copy of the job reports, please delete the existing copy and import again.')
+        return
+      }
+
+      setMessage(`Importing quote items for ${jobNumbers.join(', ')} from synced inspection reports.`)
       const result = await createJobQuotingItemsFromExternalInspectionReports(jobNumbers)
       const createdCount = result.results.reduce((total, item) => total + (item.createdOrUpdated ?? 0), 0)
       const existingCount = result.results.reduce((total, item) => total + (item.existingQuoteItems?.length ?? 0), 0)
@@ -1072,7 +1131,7 @@ export default function JobsQuotingList() {
           : createdCount > 0
           ? `Imported ${createdCount} created quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}${existingCount > 0 ? `; ${existingCount} existing quote item${existingCount === 1 ? '' : 's'} moved to the top.` : '.'}`
           : existingCount > 0
-          ? `That job has already been imported. See the section below.`
+          ? 'If you need a fresh copy of the job reports, please delete the existing copy and import again.'
           : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have at least one repair or safety issue.`
 
       if (createdCount > 0 || existingCount > 0) {
@@ -1449,6 +1508,52 @@ export default function JobsQuotingList() {
         </div>
       </header>
 
+      {existingImportedJobModal ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#111827]/45 px-4">
+          <div className="w-full max-w-[430px] rounded-md border border-[#d3dbea] bg-white p-5 text-[var(--deshazo-text)] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-[18px] font-black leading-tight text-[var(--deshazo-text)]">Job Already Imported</h2>
+                <p className="mt-1 text-[13px] font-semibold leading-5 text-[#5b606b]">
+                  You have already imported job {existingImportedJobModal.jobNumbers.join(', ')} here.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExistingImportedJobModal(null)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#c7d1e2] bg-white text-[18px] font-black leading-none text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb]"
+                aria-label="Close already imported job"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-md border border-[#d3dbea] bg-[#f8fbff] px-3 py-3">
+              <p className="text-[13px] font-bold leading-5 text-[#4d5360]">
+                The existing quote work was left unchanged. Use the existing job instead of importing it again.
+              </p>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setExistingImportedJobModal(null)}
+                className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb]"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => showExistingImportedJob(existingImportedJobModal)}
+                className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)]"
+              >
+                Let me see it
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {createDNumberModalOpen ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#111827]/45 px-4">
           <div className="w-full max-w-[420px] rounded-md border border-[#d3dbea] bg-white p-5 text-[var(--deshazo-text)] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
@@ -1739,8 +1844,17 @@ export default function JobsQuotingList() {
           </div>
 
           {message ? (
-            <div className="mb-4 rounded-md border border-[#c8d5ea] bg-[#eef4ff] px-4 py-3 text-[13px] font-bold text-[var(--deshazo-blue)]">
-              {message}
+            <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-[#c8d5ea] bg-[#eef4ff] px-4 py-3 text-[13px] font-bold text-[var(--deshazo-blue)]">
+              <span className="min-w-0 leading-5">{message}</span>
+              <button
+                type="button"
+                onClick={() => setMessage('')}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[#c8d5ea] bg-white/70 text-[16px] font-black leading-none text-[var(--deshazo-blue)] transition hover:bg-white"
+                aria-label="Close message"
+                title="Close message"
+              >
+                ×
+              </button>
             </div>
           ) : null}
 
@@ -1816,14 +1930,41 @@ export default function JobsQuotingList() {
                   <label className="sr-only" htmlFor="quote-report-search">
                     Search quote reports
                   </label>
-                  <input
-                    id="quote-report-search"
-                    type="search"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.currentTarget.value)}
-                    placeholder="Search D-number or job number..."
-                    className="w-full rounded-md border border-[#c7d1e2] bg-white px-3 py-2 text-[13px] font-bold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#8b91a1] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[#dbe5ff]"
-                  />
+                  <div className="relative">
+                    <input
+                      id="quote-report-search"
+                      type="text"
+                      value={searchQuery}
+                      onChange={(event) => updateQuoteSearchQuery(event.currentTarget.value)}
+                      placeholder="Search D-number or job number..."
+                      className="w-full rounded-md border border-[#c7d1e2] bg-white py-2 pl-3 pr-10 text-[13px] font-bold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#8b91a1] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[#dbe5ff]"
+                    />
+                    {searchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-[16px] font-black leading-none text-[#747b8a] transition hover:bg-[#e8eefb] hover:text-[var(--deshazo-blue)]"
+                        aria-label="Clear quote search"
+                        title="Clear search"
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b91a1]"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.3-4.3" />
+                      </svg>
+                    )}
+                  </div>
                 </div>
               </div>
 

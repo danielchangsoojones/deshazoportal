@@ -247,13 +247,19 @@ export async function saveEditableInspectionReport(input: SaveEditableInspection
     .update(row)
     .eq('id', itemId)
     .select(jobsQuotingItemSelect)
-    .single()
 
   if (error) {
     throw new Error(error.message)
   }
 
-  return mapQuoteItemToEditableInspectionReport(mapJobsQuotingItem(data as JobsQuotingItemRow))
+  const updatedRows = (data ?? []) as JobsQuotingItemRow[]
+  const updatedRow = updatedRows.find((candidate) => candidate.id === itemId) ?? updatedRows[0]
+
+  if (!updatedRow) {
+    throw new Error('Editable report was not saved. Supabase update permissions may not be enabled for this quote item.')
+  }
+
+  return mapQuoteItemToEditableInspectionReport(mapJobsQuotingItem(updatedRow))
 }
 
 export async function deleteEditableInspectionReport(reportId: string) {

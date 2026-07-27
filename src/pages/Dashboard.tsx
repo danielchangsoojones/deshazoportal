@@ -7,8 +7,10 @@ import ProfileMenu from '../components/ProfileMenu'
 import { DeveloperBadge, OldDbBadge } from '../components/DeveloperBadge'
 import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
-import { useCustomerPath } from '../lib/customerRouting'
+import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
+
+const spendReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
 
 const portalCards = [
   {
@@ -86,10 +88,18 @@ export default function Dashboard() {
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
+  const selectedCustomer = useSelectedCustomer()
+  const isSpendReleased = spendReleasedCustomers.has(selectedCustomer)
 
   const visiblePortalCards = useMemo(
-    () => portalCards.filter((card) => userTag === 'developer' || !card.developerOnly),
-    [userTag],
+    () =>
+      portalCards
+        .map((card) => {
+          if (card.title !== 'Spend' || !isSpendReleased) return card
+          return { ...card, developerOnly: false, oldDb: false }
+        })
+        .filter((card) => userTag === 'developer' || !card.developerOnly),
+    [isSpendReleased, userTag],
   )
 
   const menuItems = useMemo(

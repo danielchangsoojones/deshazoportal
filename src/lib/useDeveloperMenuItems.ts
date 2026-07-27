@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabase'
 import { getCurrentUserTag, type UserTag } from './userTags'
-import { useCustomerPath } from './customerRouting'
+import { useCustomerPath, useSelectedCustomer } from './customerRouting'
 
 type PortalMenuItem = {
   label: string
@@ -9,10 +9,13 @@ type PortalMenuItem = {
 }
 
 const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Document Reports', 'Customer Quotes'])
+const spendReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
 
 export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], activeKey: string) {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const customerPath = useCustomerPath()
+  const selectedCustomer = useSelectedCustomer()
+  const isSpendReleased = spendReleasedCustomers.has(selectedCustomer)
 
   useEffect(() => {
     let cancelled = false
@@ -40,13 +43,19 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
   return useMemo(
     () =>
       menuItems
-        .filter((item) => userTag === 'developer' || !developerOnlyLabels.has(item.label))
-        .map((item) => ({
-          ...item,
-          href: item.href?.startsWith('/') ? customerPath(item.href) : item.href,
-          developerOnly: developerOnlyLabels.has(item.label),
-          active: item.label === activeKey || item.href === activeKey,
-        })),
-    [activeKey, customerPath, menuItems, userTag],
+        .filter((item) => {
+          const developerOnly = developerOnlyLabels.has(item.label) && !(item.label === 'Spend' && isSpendReleased)
+          return userTag === 'developer' || !developerOnly
+        })
+        .map((item) => {
+          const developerOnly = developerOnlyLabels.has(item.label) && !(item.label === 'Spend' && isSpendReleased)
+          return {
+            ...item,
+            href: item.href?.startsWith('/') ? customerPath(item.href) : item.href,
+            developerOnly,
+            active: item.label === activeKey || item.href === activeKey,
+          }
+        }),
+    [activeKey, customerPath, isSpendReleased, menuItems, userTag],
   )
 }
