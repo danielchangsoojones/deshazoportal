@@ -13,6 +13,16 @@ function getArg(name, fallback = '') {
   return value ? value.slice(prefix.length) : fallback
 }
 
+function normalizeCustomerKey(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '')
+}
+
+function getCustomerFilterValue(value) {
+  const normalized = normalizeCustomerKey(value)
+  if (normalized === 'o-neal-steel' || normalized === 'oneal-steel') return "o'neal steel"
+  return normalized.replace(/-/g, ' ')
+}
+
 function hasFlag(name) {
   return process.argv.includes(`--${name}`)
 }
@@ -185,7 +195,7 @@ function parseImportPeriod(value) {
   return `${match[2]}-${String(monthIndex + 1).padStart(2, '0')}-01`
 }
 
-async function parseWorkbook(workbookPath, customerFilter) {
+async function parseWorkbook(workbookPath, customerFilter, importCustomer) {
   const zip = await JSZip.loadAsync(await fs.readFile(workbookPath))
   const [sharedStrings, sheets] = await Promise.all([readSharedStrings(zip), readWorkbookSheets(zip)])
   const rows = []
@@ -213,7 +223,7 @@ async function parseWorkbook(workbookPath, customerFilter) {
         source_file_name: path.basename(workbookPath),
         source_sheet_name: sheet.name,
         source_row_number: row.rowNumber,
-        customer: 'wabash',
+        customer: importCustomer,
         job_no: jobNo,
         work_order_id: null,
         customer_location_name: null,
@@ -233,7 +243,7 @@ async function parseWorkbook(workbookPath, customerFilter) {
   return rows
 }
 
-async function attachWorkOrders(env, rows) {
+async function attachWorkOrders(env, rows, importCustomer) {
   const url = env.SUPABASE_URL || env.VITE_SUPABASE_URL
   const key = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_ANON_KEY
   if (!url || !key || rows.length === 0) return rows
@@ -247,7 +257,7 @@ async function attachWorkOrders(env, rows) {
     const { data, error } = await supabase
       .from('deshazo_external_work_orders')
       .select('work_order_id, job_no, customer_location_name, service_location_name')
-      .eq('customer', 'wabash')
+      .eq('customer', importCustomer)
       .in('job_no', chunk)
 
     if (error) throw new Error(`Work order lookup failed: ${error.message}`)
@@ -313,14 +323,16 @@ async function uploadRows(env, rows) {
 
 const workbookPath = path.resolve(getArg('file', defaultWorkbook))
 const customer = getArg('customer', 'Wabash')
+const customerKey = getArg('customer-key', customer)
+const importCustomer = getCustomerFilterValue(customerKey)
 const dryRun = hasFlag('dry-run') || !hasFlag('upload')
 const shouldLookupWorkOrders = hasFlag('lookup-work-orders') || hasFlag('upload')
 const outputPath = path.resolve(getArg('out', 'data/jpa/wabash-may-2026-import.csv'))
 const env = await loadEnv(path.resolve(getArg('env', '.env.local')))
 const customerFilter = new RegExp(escapeRegExp(customer), 'i')
 
-const parsedRows = await parseWorkbook(workbookPath, customerFilter)
-const rows = shouldLookupWorkOrders ? await attachWorkOrders(env, parsedRows) : parsedRows
+const parsedRows = await parseWorkbook(workbookPath, customerFilter, importCustomer)
+const rows = shouldLookupWorkOrders ? await attachWorkOrders(env, parsedRows, importCustomer) : parsedRows
 const partsTotal = rows.reduce((sum, row) => sum + row.parts_revenue, 0)
 const serviceTotal = rows.reduce((sum, row) => sum + row.service_revenue, 0)
 const matchedWorkOrders = rows.filter((row) => row.work_order_id).length
@@ -331,6 +343,7 @@ console.log(JSON.stringify({
   workbook: workbookPath,
   output: outputPath,
   dryRun,
+  customer: importCustomer,
   rows: rows.length,
   matchedWorkOrders,
   partsTotal: Number(partsTotal.toFixed(2)),

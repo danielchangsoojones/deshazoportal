@@ -24,8 +24,12 @@ export type SpendAnalytics = {
   topline: ToplineSpend
   serviceTypeSpend: SpendChartItem[]
   monthlySpend: MonthlySpend[]
+  monthlyPartsSpend: MonthlySpend[]
+  monthlyServiceSpend: MonthlySpend[]
   averageInvoiceSpend: MonthlySpend[]
   locationSpend: SpendChartItem[]
+  branchSpend: SpendChartItem[]
+  invoiceSizeSpend: SpendChartItem[]
   locationMappedInvoiceCount: number
 }
 
@@ -33,6 +37,7 @@ type FinanceInvoiceRow = {
   import_period: string
   customer: string
   job_no: string
+  source_sheet_name: string | null
   work_order_id: number | null
   customer_location_name: string | null
   service_location_name: string | null
@@ -65,8 +70,12 @@ const emptySpendAnalytics: SpendAnalytics = {
     { label: 'Service', spend: 0 },
   ],
   monthlySpend: [],
+  monthlyPartsSpend: [],
+  monthlyServiceSpend: [],
   averageInvoiceSpend: [],
   locationSpend: [],
+  branchSpend: [],
+  invoiceSizeSpend: [],
   locationMappedInvoiceCount: 0,
 }
 
@@ -140,7 +149,7 @@ async function fetchAllFinanceRows(customer: string) {
     const { data, error } = await client
       .from('deshazo_jpa_finance_invoices')
       .select(
-        'import_period, customer, job_no, work_order_id, customer_location_name, service_location_name, location_label, parts_revenue, service_revenue, total_revenue',
+        'import_period, customer, job_no, source_sheet_name, work_order_id, customer_location_name, service_location_name, location_label, parts_revenue, service_revenue, total_revenue',
       )
       .eq('customer', customer)
       .order('import_period', { ascending: true })
@@ -207,8 +216,10 @@ export async function getSpendAnalytics(customer?: string): Promise<SpendAnalyti
   ])
   const workOrderById = new Map(workOrderRows.map((row) => [String(row.work_order_id), row]))
   const workOrderByJobNo = new Map(workOrderRows.filter((row) => row.job_no).map((row) => [row.job_no ?? '', row]))
-  const monthTotals = new Map<string, { total: number; count: number }>()
+  const monthTotals = new Map<string, { total: number; parts: number; service: number; count: number }>()
   const locationTotals = new Map<string, number>()
+  const branchTotals = new Map<string, number>()
+  const invoiceSizeTotals = new Map<string, number>()
 
   let partsTotal = 0
   let serviceTotal = 0
@@ -220,14 +231,21 @@ export async function getSpendAnalytics(customer?: string): Promise<SpendAnalyti
     const serviceSpend = toNumber(row.service_revenue)
     const invoiceTotal = toNumber(row.total_revenue) || partsSpend + serviceSpend
     const key = monthKey(row.import_period)
-    const month = monthTotals.get(key) ?? { total: 0, count: 0 }
+    const month = monthTotals.get(key) ?? { total: 0, parts: 0, service: 0, count: 0 }
     month.total += invoiceTotal
+    month.parts += partsSpend
+    month.service += serviceSpend
     month.count += 1
     monthTotals.set(key, month)
 
     partsTotal += partsSpend
     serviceTotal += serviceSpend
     totalSpend += invoiceTotal
+    const branchLabel = row.source_sheet_name?.trim() || 'Unknown branch'
+    branchTotals.set(branchLabel, (branchTotals.get(branchLabel) ?? 0) + invoiceTotal)
+    const invoiceSizeLabel =
+      invoiceTotal < 1000 ? 'Under $1k' : invoiceTotal < 5000 ? '$1k - $5k' : '$5k+'
+    invoiceSizeTotals.set(invoiceSizeLabel, (invoiceSizeTotals.get(invoiceSizeLabel) ?? 0) + invoiceTotal)
 
     const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
     const mappedLocation = row.location_label || getWorkOrderLocation(workOrder) || row.customer_location_name || row.service_location_name
@@ -244,6 +262,14 @@ export async function getSpendAnalytics(customer?: string): Promise<SpendAnalyti
     month,
     spend: Math.round(monthTotals.get(month)?.total ?? 0),
   }))
+  const monthlyPartsSpend = months.map((month) => ({
+    month,
+    spend: Math.round(monthTotals.get(month)?.parts ?? 0),
+  }))
+  const monthlyServiceSpend = months.map((month) => ({
+    month,
+    spend: Math.round(monthTotals.get(month)?.service ?? 0),
+  }))
   const averageInvoiceSpend = months.map((month) => {
     const value = monthTotals.get(month) ?? { total: 0, count: 0 }
     return {
@@ -253,6 +279,12 @@ export async function getSpendAnalytics(customer?: string): Promise<SpendAnalyti
   })
 
   const locationSpend = Array.from(locationTotals.entries())
+    .map(([label, spend]) => ({ label, spend: Math.round(spend) }))
+    .sort((left, right) => right.spend - left.spend)
+  const branchSpend = Array.from(branchTotals.entries())
+    .map(([label, spend]) => ({ label, spend: Math.round(spend) }))
+    .sort((left, right) => right.spend - left.spend)
+  const invoiceSizeSpend = Array.from(invoiceSizeTotals.entries())
     .map(([label, spend]) => ({ label, spend: Math.round(spend) }))
     .sort((left, right) => right.spend - left.spend)
 
@@ -269,8 +301,12 @@ export async function getSpendAnalytics(customer?: string): Promise<SpendAnalyti
       { label: 'Service', spend: Math.round(serviceTotal) },
     ],
     monthlySpend,
+    monthlyPartsSpend,
+    monthlyServiceSpend,
     averageInvoiceSpend,
     locationSpend,
+    branchSpend,
+    invoiceSizeSpend,
     locationMappedInvoiceCount,
   }
 }

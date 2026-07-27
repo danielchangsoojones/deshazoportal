@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { Link, useNavigate } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
@@ -77,8 +77,12 @@ const emptyAnalytics: SpendAnalytics = {
     { label: 'Service', spend: 0 },
   ],
   monthlySpend: [],
+  monthlyPartsSpend: [],
+  monthlyServiceSpend: [],
   averageInvoiceSpend: [],
   locationSpend: [],
+  branchSpend: [],
+  invoiceSizeSpend: [],
   locationMappedInvoiceCount: 0,
 }
 
@@ -103,6 +107,8 @@ export default function Spend() {
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
   const customerName = getCustomerDisplayName(selectedCustomer)
+  const customAnalyticsRef = useRef<HTMLDivElement | null>(null)
+  const [customAnalyticsMessage, setCustomAnalyticsMessage] = useState('')
   const [spendState, setSpendState] = useState<SpendState>({
     customer: selectedCustomer,
     analytics: emptyAnalytics,
@@ -165,6 +171,22 @@ export default function Spend() {
     }
   }, [selectedCustomer])
 
+  useEffect(() => {
+    if (!customAnalyticsMessage) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!customAnalyticsRef.current?.contains(event.target as Node)) {
+        setCustomAnalyticsMessage('')
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+    }
+  }, [customAnalyticsMessage])
+
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
     navigate(customerPath('/login'))
@@ -198,13 +220,6 @@ export default function Spend() {
   const analytics = spendState.customer === selectedCustomer ? spendState.analytics : emptyAnalytics
   const isLoading = spendState.customer !== selectedCustomer || spendState.status === 'loading'
   const error = spendState.customer === selectedCustomer ? spendState.error : ''
-  const serviceTypeTotal = analytics.serviceTypeSpend.reduce((sum, item) => sum + item.spend, 0)
-  const serviceTypeColors = buildBlueShades(analytics.serviceTypeSpend.length)
-  const serviceTypeData = analytics.serviceTypeSpend.map((item, index) => ({
-    ...item,
-    value: serviceTypeTotal > 0 ? Number(((item.spend / serviceTypeTotal) * 100).toFixed(2)) : 0,
-    color: serviceTypeColors[index] ?? 'hsl(221 68% 52%)',
-  }))
   const locationSpendTotal = analytics.locationSpend.reduce((sum, item) => sum + item.spend, 0)
   const locationColors = buildUniqueChartColors(analytics.locationSpend.length)
   const locationSpendData = analytics.locationSpend.map((item, index) => ({
@@ -212,11 +227,26 @@ export default function Spend() {
     value: locationSpendTotal > 0 ? Number(((item.spend / locationSpendTotal) * 100).toFixed(2)) : 0,
     color: locationColors[index] ?? `hsl(${(index * 31) % 360} 62% 56%)`,
   }))
+  const branchColors = buildUniqueChartColors(analytics.branchSpend.length)
+  const branchSpendData = analytics.branchSpend.map((item, index) => ({
+    ...item,
+    color: branchColors[index] ?? `hsl(${(index * 31) % 360} 62% 56%)`,
+  }))
+  const maxBranchSpend = branchSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
+  const invoiceSizeTotal = analytics.invoiceSizeSpend.reduce((sum, item) => sum + item.spend, 0)
+  const invoiceSizeColors = buildBlueShades(analytics.invoiceSizeSpend.length)
+  const invoiceSizeData = analytics.invoiceSizeSpend.map((item, index) => ({
+    ...item,
+    value: invoiceSizeTotal > 0 ? Number(((item.spend / invoiceSizeTotal) * 100).toFixed(2)) : 0,
+    color: invoiceSizeColors[index] ?? 'hsl(221 68% 52%)',
+  }))
   const toplineSpend = analytics.topline
-  const momSpendData = analytics.monthlySpend
+  const monthlyPartsSpendData = analytics.monthlyPartsSpend
+  const monthlyServiceSpendData = analytics.monthlyServiceSpend
   const avgMoMData = analytics.averageInvoiceSpend
 
-  const maxMoMSpend = momSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
+  const maxMonthlyPartsSpend = monthlyPartsSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
+  const maxMonthlyServiceSpend = monthlyServiceSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
   const maxAvgMoM = avgMoMData.reduce((max, item) => Math.max(max, item.spend), 0)
   const plotHeight = 184
   const hasFinanceData = toplineSpend.total_invoices > 0
@@ -326,6 +356,18 @@ export default function Spend() {
                 <span>{customerName} spend analytics</span>
               </div>
             </div>
+            <div ref={customAnalyticsRef} className="mt-5 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setCustomAnalyticsMessage('Email danieljones@blockstampsf.com to contact us.')}
+                className="inline-flex items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-4 py-2.5 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)]"
+              >
+                Want a custom analytic?
+              </button>
+              {customAnalyticsMessage ? (
+                <p className="text-sm font-bold text-[rgba(21,24,33,0.7)]">{customAnalyticsMessage}</p>
+              ) : null}
+            </div>
           </div>
 
           <div className="space-y-6">
@@ -356,28 +398,7 @@ export default function Spend() {
 
             <section className="grid gap-4 xl:grid-cols-2">
               <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By Service Type</h2>
-                <div className="mt-6 flex flex-col items-center justify-center gap-5">
-                  <div className="relative h-44 w-44 rounded-full bg-[var(--deshazo-surface-2)]" style={serviceTypeTotal > 0 ? { background: buildConicGradient(serviceTypeData) } : undefined}>
-                    <div className="absolute left-1/2 top-1/2 flex h-24 w-24 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-center text-[11px] font-semibold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
-                      Parts / service
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-center gap-5 text-sm">
-                    {serviceTypeData.map((segment) => (
-                      <div key={segment.label} className="flex items-center gap-2">
-                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: segment.color }} />
-                        <span className="text-[rgba(21,24,33,0.66)]">
-                          {segment.label} ({segment.value}%)
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </article>
-
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend</h2>
+                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend By Service</h2>
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
@@ -385,7 +406,7 @@ export default function Spend() {
                           <div className="relative">
                             <div className="absolute inset-0 flex flex-col justify-between">
                             {Array.from({ length: 5 }).map((_, index) => {
-                              const tickValue = Math.round((maxMoMSpend / 4) * (4 - index))
+                              const tickValue = Math.round((maxMonthlyServiceSpend / 4) * (4 - index))
                               return (
                                 <div key={index} className="flex items-center gap-3">
                                   <span className="w-12 text-xs text-[rgba(21,24,33,0.45)]">
@@ -397,8 +418,8 @@ export default function Spend() {
                             })}
                             </div>
                             <div className="absolute inset-x-14 bottom-0 top-0 flex items-end justify-between gap-3">
-                              {momSpendData.map((point) => {
-                                const height = getBarHeight(point.spend, maxMoMSpend, plotHeight)
+                              {monthlyServiceSpendData.map((point) => {
+                                const height = getBarHeight(point.spend, maxMonthlyServiceSpend, plotHeight)
                                 return (
                                   <div key={point.month} className="flex h-full min-w-[54px] flex-1 items-end justify-center">
                                     <div className="w-full max-w-[52px] rounded-t-md bg-[var(--deshazo-blue)]/90" style={{ height: `${height}px` }} />
@@ -408,7 +429,53 @@ export default function Spend() {
                             </div>
                           </div>
                           <div className="mt-2 ml-14 flex justify-between gap-3">
-                            {momSpendData.map((point) => (
+                            {monthlyServiceSpendData.map((point) => (
+                              <div key={point.month} className="flex min-w-[54px] flex-1 justify-center">
+                                <span className="text-center text-[11px] text-[rgba(21,24,33,0.55)]">
+                                  {formatMonthLabel(point.month)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                  </div>
+                </div>
+              </article>
+
+              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend By Parts</h2>
+                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                  <div className="scrollbar-hidden overflow-x-auto">
+                      <div className="min-w-[720px]">
+                        <div className="grid h-56 grid-rows-[1fr_auto]">
+                          <div className="relative">
+                            <div className="absolute inset-0 flex flex-col justify-between">
+                            {Array.from({ length: 5 }).map((_, index) => {
+                              const tickValue = Math.round((maxMonthlyPartsSpend / 4) * (4 - index))
+                              return (
+                                <div key={index} className="flex items-center gap-3">
+                                  <span className="w-12 text-xs text-[rgba(21,24,33,0.45)]">
+                                    {formatCurrency(tickValue)}
+                                  </span>
+                                  <div className="h-px flex-1 bg-[var(--deshazo-border)]" />
+                                </div>
+                              )
+                            })}
+                            </div>
+                            <div className="absolute inset-x-14 bottom-0 top-0 flex items-end justify-between gap-3">
+                              {monthlyPartsSpendData.map((point) => {
+                                const height = getBarHeight(point.spend, maxMonthlyPartsSpend, plotHeight)
+                                return (
+                                  <div key={point.month} className="flex h-full min-w-[54px] flex-1 items-end justify-center">
+                                    <div className="w-full max-w-[52px] rounded-t-md bg-[var(--deshazo-blue)]/90" style={{ height: `${height}px` }} />
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                          <div className="mt-2 ml-14 flex justify-between gap-3">
+                            {monthlyPartsSpendData.map((point) => (
                               <div key={point.month} className="flex min-w-[54px] flex-1 justify-center">
                                 <span className="text-center text-[11px] text-[rgba(21,24,33,0.55)]">
                                   {formatMonthLabel(point.month)}
@@ -500,6 +567,52 @@ export default function Spend() {
                     </div>
                   </div>
                 ) : null}
+              </article>
+
+              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By DeShazo Branch</h2>
+                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                  <div className="space-y-3">
+                    {branchSpendData.slice(0, 8).map((item) => {
+                      const width = maxBranchSpend > 0 ? (item.spend / maxBranchSpend) * 100 : 0
+                      return (
+                        <div key={item.label} className="grid grid-cols-[92px_minmax(0,1fr)_88px] items-center gap-3">
+                          <span className="truncate text-xs font-bold text-[rgba(21,24,33,0.58)]">{item.label}</span>
+                          <div className="h-5 overflow-hidden rounded-sm bg-white shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
+                            <div className="h-full rounded-sm" style={{ width: `${width}%`, backgroundColor: item.color }} />
+                          </div>
+                          <span className="text-right text-xs font-bold text-[rgba(21,24,33,0.66)]">{formatCurrency(item.spend)}</span>
+                        </div>
+                      )
+                    })}
+                    {branchSpendData.length === 0 ? (
+                      <div className="flex h-44 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                        No branch spend
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+
+              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Invoice Size Mix</h2>
+                <div className="mt-6 flex flex-col items-center justify-center gap-5">
+                  <div className="relative h-44 w-44 rounded-full bg-[var(--deshazo-surface-2)]" style={invoiceSizeTotal > 0 ? { background: buildConicGradient(invoiceSizeData) } : undefined}>
+                    <div className="absolute left-1/2 top-1/2 flex h-24 w-24 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-center text-[11px] font-semibold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
+                      Invoice mix
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-5 text-sm">
+                    {invoiceSizeData.map((segment) => (
+                      <div key={segment.label} className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: segment.color }} />
+                        <span className="text-[rgba(21,24,33,0.66)]">
+                          {segment.label} ({segment.value}%)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </article>
             </section>
           </div>
