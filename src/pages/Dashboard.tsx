@@ -10,7 +10,8 @@ import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
-const spendReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
+const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
+const financeReleasedCards = new Set(['Spend', 'Location Comparison'])
 
 const portalCards = [
   {
@@ -89,17 +90,17 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
   const selectedCustomer = useSelectedCustomer()
-  const isSpendReleased = spendReleasedCustomers.has(selectedCustomer)
+  const isFinanceReleased = financeReleasedCustomers.has(selectedCustomer)
 
   const visiblePortalCards = useMemo(
     () =>
       portalCards
         .map((card) => {
-          if (card.title !== 'Spend' || !isSpendReleased) return card
+          if (!isFinanceReleased || !financeReleasedCards.has(card.title)) return card
           return { ...card, developerOnly: false, oldDb: false }
         })
         .filter((card) => userTag === 'developer' || !card.developerOnly),
-    [isSpendReleased, userTag],
+    [isFinanceReleased, userTag],
   )
 
   const menuItems = useMemo(

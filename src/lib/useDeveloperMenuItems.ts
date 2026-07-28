@@ -9,13 +9,14 @@ type PortalMenuItem = {
 }
 
 const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Document Reports', 'Customer Quotes'])
-const spendReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
+const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
+const financeReleasedLabels = new Set(['Spend', 'Location Comparison'])
 
 export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], activeKey: string) {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const customerPath = useCustomerPath()
   const selectedCustomer = useSelectedCustomer()
-  const isSpendReleased = spendReleasedCustomers.has(selectedCustomer)
+  const isFinanceReleased = financeReleasedCustomers.has(selectedCustomer)
 
   useEffect(() => {
     let cancelled = false
@@ -44,11 +45,13 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
     () =>
       menuItems
         .filter((item) => {
-          const developerOnly = developerOnlyLabels.has(item.label) && !(item.label === 'Spend' && isSpendReleased)
+          const developerOnly =
+            developerOnlyLabels.has(item.label) && !(isFinanceReleased && financeReleasedLabels.has(item.label))
           return userTag === 'developer' || !developerOnly
         })
         .map((item) => {
-          const developerOnly = developerOnlyLabels.has(item.label) && !(item.label === 'Spend' && isSpendReleased)
+          const developerOnly =
+            developerOnlyLabels.has(item.label) && !(isFinanceReleased && financeReleasedLabels.has(item.label))
           return {
             ...item,
             href: item.href?.startsWith('/') ? customerPath(item.href) : item.href,
@@ -56,6 +59,6 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
             active: item.label === activeKey || item.href === activeKey,
           }
         }),
-    [activeKey, customerPath, isSpendReleased, menuItems, userTag],
+    [activeKey, customerPath, isFinanceReleased, menuItems, userTag],
   )
 }
