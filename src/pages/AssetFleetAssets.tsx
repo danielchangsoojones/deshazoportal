@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { supabase, isConfigured } from '../lib/supabase'
+import { supabase, isConfigured, getCurrentSupabaseUser } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
@@ -175,11 +175,11 @@ export default function AssetFleetAssets() {
       navigate(customerPath('/login'))
       return
     }
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) {
+    getCurrentSupabaseUser().then((nextUser) => {
+      if (!nextUser) {
         navigate(customerPath('/login'))
       } else {
-        setUser(data.user)
+        setUser(nextUser)
       }
       setAuthLoading(false)
     }).catch(() => {

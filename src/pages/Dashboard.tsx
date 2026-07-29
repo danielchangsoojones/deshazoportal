@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { supabase, isConfigured } from '../lib/supabase'
+import { supabase, isConfigured, getCurrentSupabaseUser } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
@@ -122,8 +122,7 @@ export default function Dashboard() {
       navigate(customerPath('/login'))
       return
     }
-    supabase.auth.getUser().then(async ({ data }) => {
-      const nextUser = data.user
+    getCurrentSupabaseUser().then(async (nextUser) => {
       if (!nextUser) {
         navigate(customerPath('/login'))
       } else {
