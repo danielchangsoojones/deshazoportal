@@ -116,6 +116,9 @@ export default function AssetFleet() {
         setUser(data.user)
       }
       setAuthLoading(false)
+    }).catch(() => {
+      navigate(customerPath('/login'))
+      setAuthLoading(false)
     })
   }, [customerPath, navigate])
 

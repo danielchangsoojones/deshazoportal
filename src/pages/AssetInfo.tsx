@@ -611,6 +611,9 @@ export default function AssetInfo() {
         setUser(data.user)
       }
       setAuthLoading(false)
+    }).catch(() => {
+      navigate(customerPath('/login'))
+      setAuthLoading(false)
     })
   }, [customerPath, navigate])
 

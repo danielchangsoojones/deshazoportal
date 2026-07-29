@@ -123,13 +123,16 @@ export default function Dashboard() {
       return
     }
     supabase.auth.getUser().then(async ({ data }) => {
-      if (!data.user) {
+      const nextUser = data.user
+      if (!nextUser) {
         navigate(customerPath('/login'))
       } else {
-        const nextUserTag = await getCurrentUserTag(data.user.id)
+        const nextUserTag = await getCurrentUserTag(nextUser.id).catch(() => null)
         setUserTag(nextUserTag)
-        setUser(data.user)
+        setUser(nextUser)
       }
+    }).catch(() => {
+      navigate(customerPath('/login'))
     })
   }, [customerPath, navigate])
 
