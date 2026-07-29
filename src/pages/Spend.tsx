@@ -250,8 +250,9 @@ export default function Spend() {
   const maxAvgMoM = avgMoMData.reduce((max, item) => Math.max(max, item.spend), 0)
   const plotHeight = 184
   const hasFinanceData = toplineSpend.total_invoices > 0
+  const unmappedLocationInvoiceCount = Math.max(toplineSpend.total_invoices - analytics.locationMappedInvoiceCount, 0)
   const locationMappingIsPending =
-    hasFinanceData && analytics.locationMappedInvoiceCount < toplineSpend.total_invoices
+    hasFinanceData && analytics.locationMappedInvoiceCount === 0
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -552,6 +553,11 @@ export default function Spend() {
                             </div>
                           ))}
                         </div>
+                        {unmappedLocationInvoiceCount > 0 ? (
+                          <div className="text-center text-xs font-semibold text-[rgba(21,24,33,0.48)]">
+                            {unmappedLocationInvoiceCount} invoice{unmappedLocationInvoiceCount === 1 ? '' : 's'} unmatched by job number
+                          </div>
+                        ) : null}
                       </>
                     ) : (
                       <div className="flex h-44 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
