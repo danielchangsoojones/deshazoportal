@@ -33,6 +33,17 @@ export type SpendAnalytics = {
   locationMappedInvoiceCount: number
 }
 
+export type LocationComparisonItem = {
+  location: string
+  total_jobs: number
+  total_invoices: number
+  average_invoice_cost: number
+  total_invoice_cost: number
+  total_service_cost: number
+  total_parts_cost: number
+  mapped_invoice_count: number
+}
+
 type FinanceInvoiceRow = {
   import_period: string
   customer: string
@@ -45,6 +56,7 @@ type FinanceInvoiceRow = {
   parts_revenue: number | string | null
   service_revenue: number | string | null
   total_revenue: number | string | null
+  raw_payload: Record<string, unknown> | null
 }
 
 type WorkOrderLocationRow = {
@@ -140,6 +152,20 @@ function getWorkOrderLocation(row?: WorkOrderLocationRow) {
   ).trim()
 }
 
+function normalizeLocationComparable(value?: string | null) {
+  return (value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function getFinanceWorkbookLocation(row: FinanceInvoiceRow) {
+  const workbookCustomer =
+    typeof row.raw_payload?.workbookCustomer === 'string' ? row.raw_payload.workbookCustomer.trim() : ''
+  if (!workbookCustomer) return ''
+
+  return normalizeLocationComparable(workbookCustomer) === normalizeLocationComparable(row.customer)
+    ? ''
+    : workbookCustomer
+}
+
 async function fetchAllFinanceRows(customer: string) {
   const client = requireSupabase()
   const rows: FinanceInvoiceRow[] = []
@@ -149,7 +175,7 @@ async function fetchAllFinanceRows(customer: string) {
     const { data, error } = await client
       .from('deshazo_jpa_finance_invoices')
       .select(
-        'import_period, customer, job_no, source_sheet_name, work_order_id, customer_location_name, service_location_name, location_label, parts_revenue, service_revenue, total_revenue',
+        'import_period, customer, job_no, source_sheet_name, work_order_id, customer_location_name, service_location_name, location_label, parts_revenue, service_revenue, total_revenue, raw_payload',
       )
       .eq('customer', customer)
       .order('import_period', { ascending: true })
@@ -248,7 +274,12 @@ export async function getSpendAnalytics(customer?: string): Promise<SpendAnalyti
     invoiceSizeTotals.set(invoiceSizeLabel, (invoiceSizeTotals.get(invoiceSizeLabel) ?? 0) + invoiceTotal)
 
     const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
-    const mappedLocation = row.location_label || getWorkOrderLocation(workOrder) || row.customer_location_name || row.service_location_name
+    const mappedLocation =
+      row.location_label ||
+      getWorkOrderLocation(workOrder) ||
+      row.customer_location_name ||
+      row.service_location_name ||
+      getFinanceWorkbookLocation(row)
     if (mappedLocation) {
       locationMappedInvoiceCount += 1
     }
@@ -309,4 +340,69 @@ export async function getSpendAnalytics(customer?: string): Promise<SpendAnalyti
     invoiceSizeSpend,
     locationMappedInvoiceCount,
   }
+}
+
+export async function getLocationComparisonAnalytics(customer?: string): Promise<LocationComparisonItem[]> {
+  const selectedCustomer = resolveSelectedCustomer(customer)
+  const financeRows = await fetchAllFinanceRows(selectedCustomer)
+  if (financeRows.length === 0) return []
+
+  const [workOrderRows, locationLookup] = await Promise.all([
+    loadWorkOrderLocations(selectedCustomer, financeRows),
+    getCustomerLocationLookup(selectedCustomer),
+  ])
+  const workOrderById = new Map(workOrderRows.map((row) => [String(row.work_order_id), row]))
+  const workOrderByJobNo = new Map(workOrderRows.filter((row) => row.job_no).map((row) => [row.job_no ?? '', row]))
+  const locations = new Map<string, {
+    jobNos: Set<string>
+    totalInvoices: number
+    totalInvoiceCost: number
+    totalServiceCost: number
+    totalPartsCost: number
+    mappedInvoiceCount: number
+  }>()
+
+  financeRows.forEach((row) => {
+    const partsSpend = toNumber(row.parts_revenue)
+    const serviceSpend = toNumber(row.service_revenue)
+    const invoiceTotal = toNumber(row.total_revenue) || partsSpend + serviceSpend
+    const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
+    const mappedLocation =
+      row.location_label ||
+      getWorkOrderLocation(workOrder) ||
+      row.customer_location_name ||
+      row.service_location_name ||
+      getFinanceWorkbookLocation(row)
+    const rawLocation = mappedLocation || 'Unmapped'
+    const location = locationLookup.aliases.get(getLocationOptionFromLabel(rawLocation)?.value ?? '')?.label || rawLocation
+    const group = locations.get(location) ?? {
+      jobNos: new Set<string>(),
+      totalInvoices: 0,
+      totalInvoiceCost: 0,
+      totalServiceCost: 0,
+      totalPartsCost: 0,
+      mappedInvoiceCount: 0,
+    }
+
+    group.jobNos.add(row.job_no)
+    group.totalInvoices += 1
+    group.totalInvoiceCost += invoiceTotal
+    group.totalServiceCost += serviceSpend
+    group.totalPartsCost += partsSpend
+    if (mappedLocation) group.mappedInvoiceCount += 1
+    locations.set(location, group)
+  })
+
+  return Array.from(locations.entries())
+    .map(([location, group]) => ({
+      location,
+      total_jobs: group.jobNos.size,
+      total_invoices: group.totalInvoices,
+      average_invoice_cost: group.totalInvoices > 0 ? Math.round(group.totalInvoiceCost / group.totalInvoices) : 0,
+      total_invoice_cost: Math.round(group.totalInvoiceCost),
+      total_service_cost: Math.round(group.totalServiceCost),
+      total_parts_cost: Math.round(group.totalPartsCost),
+      mapped_invoice_count: group.mappedInvoiceCount,
+    }))
+    .sort((left, right) => right.total_invoice_cost - left.total_invoice_cost)
 }

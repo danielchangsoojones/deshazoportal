@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react'
+import type { User } from '@supabase/supabase-js'
 import { Link, useNavigate } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { mockLocationAnalytics } from '../lib/mockSpendAnalytics'
-import { useCustomerPath } from '../lib/customerRouting'
+import { getLocationComparisonAnalytics, type LocationComparisonItem } from '../lib/spendAnalytics'
+import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { isConfigured, supabase } from '../lib/supabase'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -21,19 +24,109 @@ const menuItems = [
 const formatCurrency = (value: number) =>
   `$${Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2).replace(/\.00$/, '')}`
 
+type LocationComparisonState = {
+  customer: string
+  data: LocationComparisonItem[]
+  error: string
+  status: 'loading' | 'ready'
+}
+
 export default function LocationComparison() {
+  const [user, setUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
+  const customerName = getCustomerDisplayName(selectedCustomer)
+  const [comparisonState, setComparisonState] = useState<LocationComparisonState>({
+    customer: selectedCustomer,
+    data: [],
+    error: '',
+    status: 'loading',
+  })
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Location Comparison')
 
-  const handleSignOut = () => {
+  useEffect(() => {
+    let isMounted = true
+
+    if (!isConfigured || !supabase) {
+      navigate(customerPath('/login'))
+      return () => {
+        isMounted = false
+      }
+    }
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (!isMounted) return
+      if (!data.user) {
+        navigate(customerPath('/login'))
+      } else {
+        setUser(data.user)
+      }
+      setAuthLoading(false)
+    })
+
+    return () => {
+      isMounted = false
+    }
+  }, [customerPath, navigate])
+
+  useEffect(() => {
+    let isMounted = true
+
+    getLocationComparisonAnalytics(selectedCustomer)
+      .then((nextLocationData) => {
+        if (!isMounted) return
+        setComparisonState({
+          customer: selectedCustomer,
+          data: nextLocationData,
+          error: '',
+          status: 'ready',
+        })
+      })
+      .catch((err: unknown) => {
+        if (!isMounted) return
+        setComparisonState({
+          customer: selectedCustomer,
+          data: [],
+          error: err instanceof Error ? err.message : 'Unable to load location comparison data.',
+          status: 'ready',
+        })
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [selectedCustomer])
+
+  const handleSignOut = async () => {
+    if (supabase) await supabase.auth.signOut()
     navigate(customerPath('/login'))
   }
-  const fullName = 'Developer Preview'
-  const userEmail = 'local@deshazo.test'
-  const locationData = mockLocationAnalytics
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
+        <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
+          Loading location comparison...
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) return null
+
+  const fullName =
+    user.user_metadata?.full_name ||
+    user.user_metadata?.name ||
+    user.email?.split('@')[0] ||
+    'Portal User'
+  const userEmail = user.email ?? ''
+  const locationData = comparisonState.customer === selectedCustomer ? comparisonState.data : []
+  const loading = comparisonState.customer !== selectedCustomer || comparisonState.status === 'loading'
+  const error = comparisonState.customer === selectedCustomer ? comparisonState.error : ''
   const initials = fullName
     .split(' ')
     .filter(Boolean)
@@ -141,10 +234,16 @@ export default function LocationComparison() {
 
               <div className="inline-flex items-center gap-2 rounded-full bg-[var(--deshazo-surface)] px-4 py-2 text-[13px] font-semibold text-[var(--deshazo-blue)]">
                 <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--deshazo-blue)]" />
-                <span>{locationData.length} locations compared</span>
+                <span>{customerName} location comparison</span>
               </div>
             </div>
           </div>
+
+          {loading || error || locationData.length === 0 ? (
+            <section className="mb-6 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 text-sm font-semibold text-[rgba(21,24,33,0.68)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              {loading ? 'Loading location comparison...' : error || 'No mapped JPA finance locations are available for this customer yet.'}
+            </section>
+          ) : null}
 
           <section className="rounded-[26px] border border-[var(--deshazo-border)] bg-white/75 p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)] sm:p-5">
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -162,10 +261,10 @@ export default function LocationComparison() {
                       <div className="grid grid-cols-2 gap-3">
                         <div className="rounded-xl bg-white px-3 py-3 shadow-[0_10px_24px_-20px_rgba(47,86,166,0.22)]">
                           <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--deshazo-blue-soft)]">
-                            Total Units
+                            Total Jobs
                           </p>
                           <p className="mt-1 text-[20px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">
-                            {location.total_units}
+                            {location.total_jobs}
                           </p>
                         </div>
                         <div className="rounded-xl bg-white px-3 py-3 shadow-[0_10px_24px_-20px_rgba(47,86,166,0.22)]">
@@ -192,9 +291,9 @@ export default function LocationComparison() {
 
                       <div className="space-y-2">
                         {[
-                          ['Total Labor Cost', location.total_labor_cost],
-                          ['Total Equipment Cost', location.total_equipment_cost],
-                          ['Total Parts Cost', location.total_parts_cost],
+                          ['Total Service Spend', location.total_service_cost],
+                          ['Total Parts Spend', location.total_parts_cost],
+                          ['Mapped Invoices', location.mapped_invoice_count],
                         ].map(([label, value]) => (
                           <div
                             key={label}
@@ -204,7 +303,7 @@ export default function LocationComparison() {
                               {label}
                             </span>
                             <span className="text-sm font-bold text-[var(--deshazo-text)]">
-                              {formatCurrency(Number(value))}
+                              {label === 'Mapped Invoices' ? Number(value).toLocaleString() : formatCurrency(Number(value))}
                             </span>
                           </div>
                         ))}
