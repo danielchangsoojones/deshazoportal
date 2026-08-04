@@ -4,12 +4,14 @@ import type { DeshazoScheduleEvent, DeshazoScheduleResource } from '../lib/desha
 import type { DeshazoWorkOrder } from '../lib/deshazoWorkOrders'
 import {
   type ScheduleAssistantChatMessage,
+  type ScheduleAssistantResponse,
   type ScheduleSuggestion,
   requestScheduleAssistant,
 } from '../lib/schedulingAssistant'
 
 type ScheduleAssistantProps = {
   sampleMode?: boolean
+  demoMode?: boolean
   range: { start: string; end: string }
   serviceLocationId: number | null
   resources: DeshazoScheduleResource[]
@@ -31,11 +33,96 @@ function suggestionDates(suggestion: ScheduleSuggestion) {
     if (!match) return value
     return `${match[2]}/${match[3]}/${match[1]}`
   }
+  const startTime = suggestion.start.match(/T(\d{2}):(\d{2})/)
+  const endTime = suggestion.end.match(/T(\d{2}):(\d{2})/)
+  if (startTime && endTime) {
+    const time = (match: RegExpMatchArray) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(new Date(2000, 0, 1, Number(match[1]), Number(match[2])))
+    return `${format(suggestion.start)} · ${time(startTime)} - ${time(endTime)}`
+  }
   return `${format(suggestion.start)} - ${format(suggestion.end)}`
+}
+
+function addScheduleTime(rangeStart: string, dayOffset: number, hour: number) {
+  const [year, month, day] = rangeStart.split('-').map(Number)
+  const date = new Date(year, month - 1, day + dayOffset, hour)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00`
+}
+
+function scheduleResourceName(resource: DeshazoScheduleResource | undefined) {
+  return resource?.title || resource?.name || resource?.employeeName || resource?.extendedProps?.title || resource?.extendedProps?.name || resource?.extendedProps?.employeeName || 'Available technician'
+}
+
+function eventResourceIds(event: DeshazoScheduleEvent) {
+  if (event.resourceIds?.length) return event.resourceIds.map(String)
+  return event.resourceId == null ? [] : [String(event.resourceId)]
+}
+
+function scheduleResourceRegion(resource: DeshazoScheduleResource | undefined) {
+  return resource?.serviceLocationName || resource?.group || resource?.extendedProps?.group || ''
+}
+
+function oneilSteelSuggestions(range: { start: string; end: string }, resources: DeshazoScheduleResource[], events: DeshazoScheduleEvent[]): ScheduleSuggestion[] {
+  const rangeStart = new Date(`${range.start}T00:00:00`)
+  const rangeEnd = new Date(`${range.end}T23:59:59`)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const earliest = today > rangeStart && today <= rangeEnd ? today : rangeStart
+  const earliestOffset = Math.max(0, Math.round((earliest.getTime() - rangeStart.getTime()) / 86_400_000))
+  const twoWeekEnd = new Date(earliest)
+  twoWeekEnd.setDate(twoWeekEnd.getDate() + 13)
+  const latest = twoWeekEnd < rangeEnd ? twoWeekEnd : rangeEnd
+  const rangeDays = Math.max(0, Math.round((latest.getTime() - rangeStart.getTime()) / 86_400_000))
+  const targetRegion = resources.map(scheduleResourceRegion).find((region) => region.toLowerCase().includes('richmond')) || scheduleResourceRegion(resources[0])
+  const regionResources = resources.filter((resource) => scheduleResourceRegion(resource) === targetRegion)
+  const eligibleResources = regionResources.length ? regionResources : resources.slice(0, 2)
+  const patterns = [
+    { resource: eligibleResources[0], startOffset: earliestOffset, hour: 9, timingReason: 'The morning window leaves the afternoon open for follow-up work or travel.' },
+    { resource: eligibleResources[1] || eligibleResources[0], startOffset: earliestOffset + 1, hour: 13, timingReason: 'The afternoon window preserves the morning for shop work and travel to the site.' },
+    { resource: eligibleResources[0], startOffset: earliestOffset + 4, hour: 8, timingReason: 'The early window leaves most of the workday available if the visit runs long.' },
+  ]
+  const usedPlacements = new Set<string>()
+
+  return patterns.flatMap((pattern, index) => {
+    const resource = pattern.resource
+    if (!resource) return []
+    let selected: { dayOffset: number; dayKey: string } | null = null
+    for (let dayOffset = pattern.startOffset; dayOffset <= rangeDays && !selected; dayOffset += 1) {
+      const day = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate() + dayOffset)
+      if (day.getDay() === 0 || day.getDay() === 6) continue
+      const dayKey = addScheduleTime(range.start, dayOffset, 0).slice(0, 10)
+      const placementKey = `${resource.id}|${dayKey}`
+      const hasScheduledWorkThatDay = events.some((scheduledEvent) => (
+        eventResourceIds(scheduledEvent).includes(String(resource.id))
+        && scheduledEvent.start?.slice(0, 10) === dayKey
+      ))
+      if (!hasScheduledWorkThatDay && !usedPlacements.has(placementKey)) selected = { dayOffset, dayKey }
+    }
+    if (!selected) return []
+    usedPlacements.add(`${resource.id}|${selected.dayKey}`)
+    const resourceName = scheduleResourceName(resource)
+    const region = scheduleResourceRegion(resource) || targetRegion || 'selected service region'
+    return {
+      id: `oneil-steel-option-${index + 1}`,
+      resourceId: String(resource.id),
+      workOrderId: 'oneil-steel-work-order',
+      start: addScheduleTime(range.start, selected.dayOffset, pattern.hour),
+      end: addScheduleTime(range.start, selected.dayOffset, pattern.hour + 2),
+      label: `Oneil Steel · 2 hours · ${resourceName}`,
+      confidence: [0.97, 0.92, 0.87][index],
+      rationale: [
+        `${resourceName} has no other assignment anywhere on this date.`,
+        `${resourceName} is assigned to the ${region} team serving Oneil.`,
+        pattern.timingReason,
+      ],
+      warnings: index === 2 ? ['Confirm early site access with Oneil Steel.'] : [],
+      evidence: [{ kind: 'schedule-availability', label: 'Visible schedule availability', referenceId: String(resource.id) }],
+    }
+  })
 }
 
 export default function ScheduleAssistant({
   sampleMode = false,
+  demoMode = false,
   range,
   serviceLocationId,
   resources,
@@ -44,7 +131,7 @@ export default function ScheduleAssistant({
   onSuggestionsChange,
   onFocusSuggestion,
 }: ScheduleAssistantProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(demoMode)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -76,7 +163,22 @@ export default function ScheduleAssistant({
     try {
       const sampleWorkOrder = pendingWorkOrders[0]
       const sampleResource = resources[0]
-      const response = sampleMode ? {
+      const response: ScheduleAssistantResponse = demoMode ? await new Promise<ScheduleAssistantResponse>((resolve) => {
+        window.setTimeout(() => {
+          const rankedSuggestions = oneilSteelSuggestions(range, resources, events)
+          const best = rankedSuggestions[0]
+          const bestResource = best ? resources.find((resource) => String(resource.id) === best.resourceId) : undefined
+          const bestRegion = scheduleResourceRegion(bestResource) || 'selected'
+          const rankedSummary = rankedSuggestions.map((suggestion, index) => `${index + 1}. ${suggestionDates(suggestion)} with ${scheduleResourceName(resources.find((resource) => String(resource.id) === suggestion.resourceId))}`).join('\n')
+          resolve({
+            answer: best
+              ? `I found ${rankedSuggestions.length} strong two-hour openings over the next two weeks for Oneil Steel, all with the ${bestRegion} service team on otherwise open workdays:\n\n${rankedSummary}\n\nBest overall: option 1 with ${scheduleResourceName(bestResource)}. It provides a fully open service day, a morning arrival window, and the most flexibility if the visit runs long.`
+              : 'I could not find an open two-hour block in the visible schedule. Try expanding the date range or selecting another service location.',
+            summary: 'I placed all three options on the schedule for comparison. No work order has been changed; the dispatcher can select a recommendation to focus it before confirming the appointment.',
+            suggestions: rankedSuggestions,
+          })
+        }, 2_000)
+      }) : sampleMode ? {
         answer: `I reviewed the local sample schedule. ${sampleWorkOrder ? `${sampleWorkOrder.jobNo || `Work order ${sampleWorkOrder.id}`} has a good opening with ${sampleResource?.title || sampleResource?.name || 'the Richmond field team'}.` : 'The current sample schedule has balanced coverage across the visible teams.'}`,
         summary: 'This answer and its suggestion were generated entirely from local fixture data.',
         suggestions: sampleWorkOrder && sampleResource ? [{
@@ -106,12 +208,17 @@ export default function ScheduleAssistant({
         role: 'assistant',
         content,
         suggestions: response.suggestions,
-        costLabel: response.meta
+        costLabel: demoMode
+          ? `${resources.length} technicians and ${events.length} scheduled items reviewed · ${response.suggestions.length} options ranked`
+          : response.meta
           ? `${response.meta.candidateCount} candidates reviewed · estimated AI cost $${response.meta.estimatedCostUsd.toFixed(3)}`
           : undefined,
       }
       setMessages((current) => [...current, assistantEntry])
       onSuggestionsChange(response.suggestions)
+      if (demoMode && response.suggestions[0]) {
+        window.setTimeout(() => onFocusSuggestion(response.suggestions[0]), 100)
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'The scheduling assistant is unavailable.')
     } finally {
@@ -140,8 +247,8 @@ export default function ScheduleAssistant({
       <header className="flex items-center justify-between border-b border-[#d3dbea] bg-[var(--deshazo-blue)] px-4 py-3 text-white">
         <div>
           <div className="flex items-center gap-2">
-            <span className="rounded-md bg-white/15 px-2 py-1 text-[10px] font-black tracking-wide">{sampleMode ? 'LOCAL SAMPLE' : 'FABLE'}</span>
-            <h2 className="text-[14px] font-black">Scheduling Assistant</h2>
+            <span className="rounded-md bg-white/15 px-2 py-1 text-[10px] font-black tracking-wide">FABLE</span>
+            <h2 className="!text-[14px] !font-black !text-white">Scheduling Assistant</h2>
           </div>
           <p className="mt-1 text-[10px] font-semibold text-white/75">{visibleContext}</p>
         </div>
@@ -174,6 +281,9 @@ export default function ScheduleAssistant({
                         <span aria-hidden="true" className="text-[var(--deshazo-blue)]">-&gt;</span>
                       </span>
                       <span className="mt-1 block text-[10px] font-bold text-[#647188]">{suggestionDates(suggestion)} · {Math.round(suggestion.confidence * 100)}% confidence</span>
+                      <span className="mt-2 block border-t border-[#d8e1f0] pt-2 text-[9px] font-semibold leading-4 text-[#59677c]">
+                        {suggestion.rationale.map((reason) => <span key={reason} className="block">• {reason}</span>)}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -200,7 +310,7 @@ export default function ScheduleAssistant({
             onChange={(event) => setInput(event.target.value)}
             maxLength={2_000}
             rows={3}
-            placeholder="Example: Find the best open slots for pending inspections this month..."
+            placeholder={demoMode ? 'best times available over the next 2 weeks' : 'Ask Fable to find an opening or review the schedule...'}
             className="w-full resize-none rounded-md border border-[#c7d1e2] px-3 py-2 text-[12px] leading-5 text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[#dbe5ff]"
           />
         </label>
@@ -214,13 +324,13 @@ export default function ScheduleAssistant({
           </button>
           <button
             type="submit"
-            disabled={loading || !input.trim()}
+            disabled={loading || !input.trim() || (demoMode && resources.length === 0)}
             className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[11px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {loading ? 'Thinking...' : 'Ask Fable'}
+            {loading ? 'Reviewing schedule...' : demoMode && !resources.length ? 'Loading schedule...' : 'Ask Fable'}
           </button>
         </div>
-        <p className="mt-2 text-center text-[9px] font-semibold text-[#8a94a4]">{sampleMode ? 'Local sample response · no API request is made.' : 'Suggestions are read-only and may require dispatcher verification.'}</p>
+        <p className="mt-2 text-center text-[9px] font-semibold text-[#8a94a4]">Suggestions are read-only and may require dispatcher verification.</p>
       </form>
     </aside>
   )

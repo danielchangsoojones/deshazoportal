@@ -13,6 +13,7 @@ type ScheduleMode = 'week' | 'two-weeks' | 'month'
 
 type WorkOrdersScheduleProps = {
   sampleMode?: boolean
+  aiDemoMode?: boolean
   serviceLocationId: number | null
   onOpenWorkOrder: (workOrderId: number) => void
 }
@@ -167,7 +168,7 @@ function EventInfo({ data, onClose, onOpenWorkOrder }: { data: DeshazoScheduleTo
   )
 }
 
-export default function WorkOrdersSchedule({ sampleMode = false, serviceLocationId, onOpenWorkOrder }: WorkOrdersScheduleProps) {
+export default function WorkOrdersSchedule({ sampleMode = false, aiDemoMode = false, serviceLocationId, onOpenWorkOrder }: WorkOrdersScheduleProps) {
   const [mode, setMode] = useState<ScheduleMode>('month')
   const [anchor, setAnchor] = useState(() => new Date())
   const [resources, setResources] = useState<DeshazoScheduleResource[]>([])
@@ -192,6 +193,12 @@ export default function WorkOrdersSchedule({ sampleMode = false, serviceLocation
   const suppressEventClickRef = useRef(false)
   const range = useMemo(() => getRange(anchor, mode), [anchor, mode])
   const days = useMemo(() => Array.from({ length: dayDifference(range.start, range.end) + 1 }, (_, index) => addDays(range.start, index)), [range])
+
+  useEffect(() => {
+    if (!aiDemoMode) return
+    setMode('month')
+    setAnchor(new Date())
+  }, [aiDemoMode])
 
   useEffect(() => {
     let cancelled = false
@@ -383,7 +390,7 @@ export default function WorkOrdersSchedule({ sampleMode = false, serviceLocation
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className={`rounded-full border px-3 py-1 text-[11px] font-black ${editMode ? 'border-[#e5bd68] bg-[#fff7df] text-[#8a5b00]' : 'border-[#c8d5ea] bg-[#eef4ff] text-[var(--deshazo-blue)]'}`}>
-            {editMode ? `Demo editing${demoChanges ? ` · ${demoChanges} change${demoChanges === 1 ? '' : 's'}` : ''}` : 'Read-only schedule'}
+            {editMode ? `${aiDemoMode ? 'Schedule editing' : 'Demo editing'}${demoChanges ? ` · ${demoChanges} change${demoChanges === 1 ? '' : 's'}` : ''}` : 'Read-only schedule'}
           </span>
           <button
             type="button"
@@ -403,20 +410,20 @@ export default function WorkOrdersSchedule({ sampleMode = false, serviceLocation
       <section className="relative mt-5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[#d3dbea] bg-white shadow-[0_24px_70px_-40px_rgba(17,24,39,0.35)]">
         {editMode ? (
           <div className="flex flex-col gap-2 border-b border-[#e7c46f] bg-[#fff8df] px-4 py-3 text-[11px] font-bold text-[#76520b] sm:flex-row sm:items-center sm:justify-between">
-            <p><strong>Demo edit mode:</strong> drag an item left or right to change its date, or drop it on another technician. Changes stay only in this browser tab and are also visible to the AI assistant.</p>
+            <p><strong>{aiDemoMode ? 'Edit mode:' : 'Demo edit mode:'}</strong> drag an item left or right to change its date, or drop it on another technician. Changes stay only in this browser tab and are also visible to the AI assistant.</p>
             {demoChanges ? <button type="button" onClick={resetDemoChanges} className="shrink-0 rounded-md border border-[#d5a849] bg-white px-3 py-1.5 font-black text-[#805400] hover:bg-[#fff2c7]">Reset demo changes</button> : null}
           </div>
         ) : null}
         <div className="flex flex-col gap-3 border-b border-[#d3dbea] bg-[#f8fbff] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <select value={mode} onChange={(event) => { const nextMode = event.target.value as ScheduleMode; setMode(nextMode); setAnchor(new Date()) }} className="h-9 rounded-md border border-[#c7d1e2] bg-white px-3 text-[12px] font-black text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]">
+          <select value={mode} disabled={aiDemoMode} title={aiDemoMode ? 'AI Schedule is focused on the current month' : undefined} onChange={(event) => { const nextMode = event.target.value as ScheduleMode; setMode(nextMode); setAnchor(new Date()) }} className="h-9 rounded-md border border-[#c7d1e2] bg-white px-3 text-[12px] font-black text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)] disabled:cursor-default disabled:opacity-100">
             <option value="week">This Week</option>
             <option value="two-weeks">This Week and Next Week</option>
             <option value="month">This Month</option>
           </select>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => moveRange(-1)} aria-label="Previous period" className="h-9 rounded-md border border-[#bdc4d3] bg-white px-4 text-lg font-black text-[var(--deshazo-blue)] hover:bg-[#e8eefb]">‹</button>
+            <button type="button" disabled={aiDemoMode} onClick={() => moveRange(-1)} aria-label="Previous period" className="h-9 rounded-md border border-[#bdc4d3] bg-white px-4 text-lg font-black text-[var(--deshazo-blue)] hover:bg-[#e8eefb] disabled:cursor-default disabled:opacity-40">‹</button>
             <h2 className="min-w-[170px] text-center text-[17px] font-black text-[var(--deshazo-text)]">{new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(range.start)}</h2>
-            <button type="button" onClick={() => moveRange(1)} aria-label="Next period" className="h-9 rounded-md border border-[#bdc4d3] bg-white px-4 text-lg font-black text-[var(--deshazo-blue)] hover:bg-[#e8eefb]">›</button>
+            <button type="button" disabled={aiDemoMode} onClick={() => moveRange(1)} aria-label="Next period" className="h-9 rounded-md border border-[#bdc4d3] bg-white px-4 text-lg font-black text-[var(--deshazo-blue)] hover:bg-[#e8eefb] disabled:cursor-default disabled:opacity-40">›</button>
             <button type="button" onClick={() => setRefreshKey((value) => value + 1)} aria-label="Refresh schedule" className="h-9 rounded-md bg-[var(--deshazo-blue)] px-3 text-base font-black text-white hover:bg-[var(--deshazo-blue-deep)]">↻</button>
           </div>
         </div>
@@ -550,6 +557,7 @@ export default function WorkOrdersSchedule({ sampleMode = false, serviceLocation
 
       <ScheduleAssistant
         sampleMode={sampleMode}
+        demoMode={aiDemoMode}
         range={{ start: toIsoDate(range.start), end: toIsoDate(range.end) }}
         serviceLocationId={serviceLocationId}
         resources={resources}

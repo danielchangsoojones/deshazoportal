@@ -57,7 +57,7 @@ const menuSections: MenuSection[] = [
     id: 'calendar',
     label: 'Calendar',
     icon: 'calendar',
-    items: ['Schedule', 'Recurring Jobs'],
+    items: ['Schedule', 'AI Schedule', 'Recurring Jobs'],
   },
   {
     id: 'customers',
@@ -187,6 +187,8 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
       ? 'green-files:Equipment Notebook'
       : location.pathname.endsWith('/assets/fleet-management')
         ? 'assets:Fleet Management'
+    : location.pathname.endsWith('/calendar/ai-schedule')
+      ? 'calendar:AI Schedule'
     : location.pathname.endsWith('/quoting/quotes')
       ? 'quoting:Quote List'
       : location.pathname.endsWith('/safety')
@@ -500,6 +502,7 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
                                 setActiveItem(itemKey)
                                 if (itemKey === 'executive-analytics:Executive Analytics') navigate(`${basePath}/executive-analytics`)
                                 else if (itemKey === 'calendar:Schedule') navigate(`${basePath}/calendar/schedule`)
+                                else if (itemKey === 'calendar:AI Schedule') navigate(`${basePath}/calendar/ai-schedule`)
                                 else if (itemKey === 'reports:Payroll') navigate(`${basePath}/report/payroll`)
                                 else if (itemKey === 'reports:Technician Daily Report') navigate(`${basePath}/report/daily-worktime`)
                                 else if (itemKey === 'reports:Recovery Report') navigate(`${basePath}/report/recovery`)
@@ -617,6 +620,13 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
             sampleMode={sampleMode}
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=schedule`)}
+          />
+        ) : activeItem === 'calendar:AI Schedule' ? (
+          <WorkOrdersSchedule
+            sampleMode={sampleMode}
+            aiDemoMode
+            serviceLocationId={serviceLocationId}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=ai-schedule`)}
           />
         ) : activeItem === 'calendar:Recurring Jobs' ? (
           <RecurringWorkOrders
