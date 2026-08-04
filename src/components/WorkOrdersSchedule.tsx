@@ -145,6 +145,87 @@ function resourceCellStyle(resource: DeshazoScheduleResource): React.CSSProperti
   return { backgroundColor, color: textColor }
 }
 
+function demoResourceIsNamedTechnician(resource: DeshazoScheduleResource) {
+  const name = resource.title?.trim()
+    || resource.name?.trim()
+    || resource.employeeName?.trim()
+    || resource.extendedProps?.title?.trim()
+    || resource.extendedProps?.name?.trim()
+    || resource.extendedProps?.employeeName?.trim()
+    || ''
+  const group = resource.group?.trim() || resource.extendedProps?.group?.trim() || ''
+  return /[a-z][a-z'’-]*[\s,]+[a-z]/i.test(name) && !/\bunassigned\b|\binstallations?\b/i.test(`${group} ${name}`)
+}
+
+function eventContainsOneillSteel(event: DeshazoScheduleEvent) {
+  const tooltip = eventTooltip(event)
+  const value = `${tooltip?.customerName || ''} ${event.title || ''}`.toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]/g, '')
+  return value.includes('oneillsteel')
+}
+
+function addLocalOneillDemoVisit(
+  resources: DeshazoScheduleResource[],
+  events: DeshazoScheduleEvent[],
+  start: Date,
+  end: Date,
+) {
+  const eligibleResources = resources.filter(demoResourceIsNamedTechnician)
+  if (!eligibleResources.length) return events
+
+  const tomorrow = addDays(new Date(), 1)
+  tomorrow.setHours(12, 0, 0, 0)
+  const firstDay = start > tomorrow ? new Date(start) : tomorrow
+  const usedResourceIds = new Set(events.filter(eventContainsOneillSteel).flatMap(eventResources))
+  const placements: Array<{ resource: DeshazoScheduleResource; date: Date }> = []
+  const workingEvents = [...events]
+  for (let date = new Date(firstDay); date <= end && placements.length < 3; date = addDays(date, 1)) {
+    if (date.getDay() === 0 || date.getDay() === 6) continue
+    const iso = toIsoDate(date)
+    const resource = eligibleResources.find((candidate) => !usedResourceIds.has(String(candidate.id)) && !workingEvents.some((event) => {
+      if (!eventResources(event).includes(String(candidate.id))) return false
+      const eventStart = parseDate(event.start || eventTooltip(event)?.startDate || eventTooltip(event)?.workOrderTrip?.startDate)
+      const eventEnd = parseDate(event.end || eventTooltip(event)?.endDate || eventTooltip(event)?.workOrderTrip?.endDate) || eventStart
+      return Boolean(eventStart && eventEnd && iso >= toIsoDate(eventStart) && iso <= toIsoDate(eventEnd))
+    }))
+    if (!resource) continue
+    usedResourceIds.add(String(resource.id))
+    placements.push({ resource, date: new Date(date) })
+  }
+  const startHours = [7, 8, 10]
+  const demoEvents = placements.map((placement, index): DeshazoScheduleEvent => {
+    const iso = toIsoDate(placement.date)
+    const technician = resourceLabel(placement.resource)
+    const startHour = startHours[index]
+    const endHour = startHour + 3
+    const startTime = `${iso}T${String(startHour).padStart(2, '0')}:00:00`
+    const endTime = `${iso}T${String(endHour).padStart(2, '0')}:00:00`
+    return {
+      id: `local-oneill-anchor-${String(placement.resource.id)}-${iso}`,
+      resourceId: placement.resource.id,
+      resourceIds: [placement.resource.id],
+      title: "O'Neill Steel · Existing Visit",
+      start: startTime,
+      end: endTime,
+      backgroundColor: '#2f7d68',
+      borderColor: '#236451',
+      tooltipData: {
+        customerName: "O'Neill Steel",
+        employeeName: technician,
+        location: 'O’Neill Steel facility',
+        startDate: startTime,
+        endDate: endTime,
+        workOrderTrip: {
+          tripNumber: 1,
+          startDate: startTime,
+          endDate: endTime,
+          workOrder: { jobNo: `DEMO-ONEILL-${index + 1}`, jobType: 'Existing Service Visit', status: { name: 'Scheduled' } },
+        },
+      },
+    }
+  })
+  return [...events, ...demoEvents]
+}
+
 function EventInfo({ data, onClose, onOpenWorkOrder }: { data: DeshazoScheduleTooltipData; onClose: () => void; onOpenWorkOrder: (id: number) => void }) {
   const workOrder = data.workOrderTrip?.workOrder
   const workOrderId = data.workOrderTrip?.workOrderId || workOrder?.id
@@ -242,7 +323,8 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
           statusId: selectedFilter.statusName ? statusesByName[selectedFilter.statusName] : null,
         })
         if (cancelled) return
-        const nextEvents = selectedFilter.jobType === 'Days Off' ? data.events.filter((event) => eventTooltip(event)?.isDayOff) : data.events
+        const filteredEvents = selectedFilter.jobType === 'Days Off' ? data.events.filter((event) => eventTooltip(event)?.isDayOff) : data.events
+        const nextEvents = localAssistantDemo ? addLocalOneillDemoVisit(data.resources, filteredEvents, range.start, range.end) : filteredEvents
         setResources(data.resources)
         setEvents(nextEvents)
         originalEventsRef.current = nextEvents
@@ -258,7 +340,7 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
       }
     })
     return () => { cancelled = true }
-  }, [range, refreshKey, selectedFilter, serviceLocationId, statusesByName])
+  }, [localAssistantDemo, range, refreshKey, selectedFilter, serviceLocationId, statusesByName])
 
   const groupedResources = useMemo(() => {
     const groups = new Map<string, DeshazoScheduleResource[]>()
@@ -459,7 +541,7 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
                         if (node) resourceRowsRef.current.set(String(resource.id), node)
                         else resourceRowsRef.current.delete(String(resource.id))
                       }}
-                      className="flex min-h-[44px] border-b border-[#e2e8f2] hover:bg-[#f8fbff]"
+                      className={`flex border-b border-[#e2e8f2] hover:bg-[#f8fbff] ${localAssistantDemo ? 'min-h-[78px]' : 'min-h-[44px]'}`}
                     >
                       <div className="sticky left-0 z-10 flex w-[200px] shrink-0 items-center border-r border-[#d3dbea] px-3 py-2 text-[11px] font-bold" style={resourceCellStyle(resource)}>{resourceLabel(resource)}</div>
                       <div
@@ -523,7 +605,7 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
                             type="button"
                             onClick={() => focusSuggestion(suggestion)}
                             aria-label={`AI suggestion: ${suggestion.label}`}
-                            className={`group absolute top-1.5 z-[4] h-8 overflow-visible rounded-sm border-2 border-dashed px-2 text-left text-[10px] font-black shadow-sm transition hover:z-[25] hover:brightness-95 focus:z-[25] focus:outline-none ${focusedSuggestionId === suggestion.id ? 'animate-pulse ring-4 ring-[#d8c8f4]' : ''}`}
+                            className={`group absolute z-[4] h-8 overflow-visible rounded-sm border-2 border-dashed px-2 text-left text-[10px] font-black shadow-sm transition hover:z-[25] hover:brightness-95 focus:z-[25] focus:outline-none ${localAssistantDemo ? 'top-10' : 'top-1.5'} ${focusedSuggestionId === suggestion.id ? 'animate-pulse ring-4 ring-[#d8c8f4]' : ''}`}
                             style={{ ...suggestionPosition(suggestion), backgroundColor: 'rgba(126,87,194,0.24)', borderColor: '#6c43b5', color: '#3c1f73' }}
                           >
                             <span className="block truncate">✦ {suggestion.label}</span>

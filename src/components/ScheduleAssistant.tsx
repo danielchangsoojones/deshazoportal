@@ -62,6 +62,22 @@ function localResourceName(resource: DeshazoScheduleResource) {
     || 'Field technician'
 }
 
+function isNamedLocalTechnician(resource: DeshazoScheduleResource) {
+  const name = resource.title?.trim()
+    || resource.name?.trim()
+    || resource.employeeName?.trim()
+    || resource.extendedProps?.title?.trim()
+    || resource.extendedProps?.name?.trim()
+    || resource.extendedProps?.employeeName?.trim()
+    || ''
+  const group = resource.group?.trim() || resource.extendedProps?.group?.trim() || ''
+  const combined = `${group} ${name}`.toLowerCase()
+  const excludedCategory = /\bunassigned\b|\binstallations?\b/.test(combined)
+  const genericResource = /^(field technician|technician|resource|open|available|unknown|unnamed)$/i.test(name)
+  const looksLikeAName = /[a-z][a-z'’-]*[\s,]+[a-z]/i.test(name)
+  return Boolean(name) && looksLikeAName && !excludedCategory && !genericResource
+}
+
 function localEventResourceIds(event: DeshazoScheduleEvent) {
   if (event.resourceIds?.length) return event.resourceIds.map(String)
   return event.resourceId == null ? [] : [String(event.resourceId)]
@@ -73,6 +89,70 @@ function localEventDates(event: DeshazoScheduleEvent) {
     start: parseLocalDate(event.start || tooltip?.startDate || tooltip?.workOrderTrip?.startDate),
     end: parseLocalDate(event.end || tooltip?.endDate || tooltip?.workOrderTrip?.endDate),
   }
+}
+
+function localEventRawDates(event: DeshazoScheduleEvent) {
+  const tooltip = event.extendedProps?.tooltipData || event.tooltipData
+  return {
+    start: event.start || tooltip?.startDate || tooltip?.workOrderTrip?.startDate || '',
+    end: event.end || tooltip?.endDate || tooltip?.workOrderTrip?.endDate || '',
+  }
+}
+
+function localEventCustomer(event: DeshazoScheduleEvent) {
+  const tooltip = event.extendedProps?.tooltipData || event.tooltipData
+  return tooltip?.customerName?.trim() || event.title?.trim() || ''
+}
+
+function normalizedCustomer(value: string) {
+  return value.toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]/g, '')
+}
+
+function parseLocalDateTime(value: string, fallbackHour: number) {
+  const day = parseLocalDate(value)
+  if (!day) return null
+  const parsed = value.includes('T') ? new Date(value) : null
+  if (parsed && Number.isFinite(parsed.getTime())) return parsed
+  day.setHours(fallbackHour, 0, 0, 0)
+  return day
+}
+
+function formatLocalTime(value: Date) {
+  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(value)
+}
+
+function findAdjacentLocalSlot(
+  anchorEvent: DeshazoScheduleEvent,
+  resourceId: string,
+  durationHours: number,
+  events: DeshazoScheduleEvent[],
+) {
+  const anchorRaw = localEventRawDates(anchorEvent)
+  const anchorStart = parseLocalDateTime(anchorRaw.start, 8)
+  const anchorEnd = parseLocalDateTime(anchorRaw.end || anchorRaw.start, anchorRaw.end.includes('T') ? 12 : 13)
+  if (!anchorStart || !anchorEnd) return null
+
+  let slotStart = new Date(anchorEnd)
+  if (!anchorRaw.end.includes('T')) slotStart.setHours(13, 0, 0, 0)
+  slotStart.setMinutes(Math.ceil(slotStart.getMinutes() / 30) * 30, 0, 0)
+
+  const workdayEnd = new Date(slotStart)
+  workdayEnd.setHours(17, 0, 0, 0)
+  while (slotStart < workdayEnd) {
+    const slotEnd = new Date(slotStart.getTime() + durationHours * 60 * 60 * 1_000)
+    if (slotEnd > workdayEnd) return null
+    const conflicts = events.some((event) => {
+      if (event === anchorEvent || !localEventResourceIds(event).includes(resourceId)) return false
+      const raw = localEventRawDates(event)
+      const start = parseLocalDateTime(raw.start, 7)
+      const end = parseLocalDateTime(raw.end || raw.start, raw.end.includes('T') ? 17 : 17)
+      if (!start || !end) return false
+      return start < slotEnd && end > slotStart
+    })
+    if (!conflicts) return { start: slotStart, end: slotEnd, anchorStart, anchorEnd }
+    slotStart = new Date(slotStart.getTime() + 30 * 60 * 1_000)
+  }
+  return null
 }
 
 function extractDemoDetails(message: string) {
@@ -95,77 +175,62 @@ function buildLocalDemoResponse(
   const rangeEnd = parseLocalDate(range.end) || addLocalDays(rangeStart, 30)
   const today = new Date()
   today.setHours(12, 0, 0, 0)
-  const tomorrow = addLocalDays(today, 1)
-  const firstDay = rangeStart > tomorrow ? rangeStart : tomorrow
-  const resourceLoad = new Map(resources.map((resource) => [String(resource.id), 0]))
-  events.forEach((event) => localEventResourceIds(event).forEach((id) => resourceLoad.set(id, (resourceLoad.get(id) || 0) + 1)))
-
-  const candidates: Array<{ resource: DeshazoScheduleResource; date: Date; dayLoad: number; totalLoad: number }> = []
-  for (let date = new Date(firstDay); date <= rangeEnd && candidates.length < 240; date = addLocalDays(date, 1)) {
-    if (date.getDay() === 0 || date.getDay() === 6) continue
-    const iso = toLocalIso(date)
-    resources.forEach((resource) => {
-      const resourceId = String(resource.id)
-      const dayLoad = events.filter((event) => {
-        if (!localEventResourceIds(event).includes(resourceId)) return false
-        const dates = localEventDates(event)
-        if (!dates.start) return false
-        const startIso = toLocalIso(dates.start)
-        const endIso = toLocalIso(dates.end || dates.start)
-        return iso >= startIso && iso <= endIso
-      }).length
-      if (dayLoad < 2) candidates.push({ resource, date: new Date(date), dayLoad, totalLoad: resourceLoad.get(resourceId) || 0 })
+  const namedTechnicians = resources.filter(isNamedLocalTechnician)
+  const namedById = new Map(namedTechnicians.map((resource) => [String(resource.id), resource]))
+  const customerKey = normalizedCustomer(details.customer)
+  const matchedVisits = events.flatMap((event) => {
+    if (!normalizedCustomer(localEventCustomer(event)).includes(customerKey)) return []
+    const eventDate = localEventDates(event).end || localEventDates(event).start
+    if (!eventDate || eventDate < today || eventDate < rangeStart || eventDate > rangeEnd) return []
+    return localEventResourceIds(event).flatMap((resourceId) => {
+      const resource = namedById.get(resourceId)
+      if (!resource) return []
+      const slot = findAdjacentLocalSlot(event, resourceId, details.hours, events)
+      return slot ? [{ event, resource, resourceId, slot }] : []
     })
-  }
+  }).sort((left, right) => left.slot.start.getTime() - right.slot.start.getTime())
 
-  candidates.sort((left, right) => left.dayLoad - right.dayLoad || left.totalLoad - right.totalLoad || left.date.getTime() - right.date.getTime())
-  const chosen: typeof candidates = []
-  for (const candidate of candidates) {
-    if (chosen.some((item) => String(item.resource.id) === String(candidate.resource.id) || toLocalIso(item.date) === toLocalIso(candidate.date))) continue
-    chosen.push(candidate)
-    if (chosen.length === 3) break
-  }
-  for (const candidate of candidates) {
-    if (chosen.length === 3) break
-    if (!chosen.includes(candidate)) chosen.push(candidate)
-  }
+  const chosen = matchedVisits.filter((candidate, index, all) =>
+    all.findIndex((item) => item.resourceId === candidate.resourceId && toLocalIso(item.slot.start) === toLocalIso(candidate.slot.start)) === index,
+  ).slice(0, 3)
 
-  const timeWindows = ['8:00–10:00 AM', '10:00 AM–12:00 PM', '1:00–3:00 PM']
   const suggestions: ScheduleSuggestion[] = chosen.map((candidate, index) => {
     const technician = localResourceName(candidate.resource)
-    const start = toLocalIso(candidate.date)
-    const group = candidate.resource.group || candidate.resource.extendedProps?.group || candidate.resource.serviceLocationName
+    const start = toLocalIso(candidate.slot.start)
+    const timeWindow = `${formatLocalTime(candidate.slot.start)}–${formatLocalTime(candidate.slot.end)}`
     return {
       id: `local-ai-${String(candidate.resource.id)}-${start}-${index}`,
       resourceId: String(candidate.resource.id),
       workOrderId: 'local-demo-oneill-steel',
       start,
       end: start,
-      label: `${details.customer} · ${technician} · ${timeWindows[index]}`,
-      confidence: [0.96, 0.92, 0.88][index] || 0.85,
+      label: `${details.customer} add-on · ${technician} · ${timeWindow}`,
+      confidence: [0.99, 0.96, 0.93][index] || 0.9,
       rationale: [
-        candidate.dayLoad === 0
-          ? `${technician} has no conflicting work on the visible schedule that day.`
-          : `${technician} has room around only ${candidate.dayLoad} existing scheduled item that day.`,
-        `The ${details.hours}-hour window preserves capacity for another service call later in the day.`,
-        group ? `${group} coverage keeps the placement aligned with the current field team.` : 'The placement keeps the visible technician workload balanced.',
+        `${technician} is already scheduled at ${details.customer} immediately beforehand.`,
+        `The ${details.hours}-hour opening from ${timeWindow} is clear on ${technician}’s current calendar.`,
+        'Keeping the same technician on site avoids a second trip, setup, and customer handoff.',
       ],
       warnings: [],
-      evidence: [{ kind: 'live-read-only-schedule', label: 'Current calendar availability', referenceId: `${String(candidate.resource.id)}-${start}` }],
+      evidence: [{ kind: 'same-site-schedule-match', label: `Existing ${details.customer} visit`, referenceId: String(candidate.event.id) }],
     }
   })
 
   if (!suggestions.length) {
     return {
-      answer: `I checked the visible calendar for ${details.customer}, but there are no open technician slots in this date range. Try moving the calendar to another week or month and ask again.`,
-      summary: 'This check ran locally against the schedule currently loaded on screen.',
+      answer: `I checked the visible calendar for ${details.customer}, but I couldn’t find a named technician who is already going there and has a clear ${details.hours}-hour opening immediately afterward.`,
+      summary: 'I did not recommend an unrelated technician or use the Unassigned or Installations categories. Move the calendar to a range containing an existing O’Neill Steel visit and ask again.',
       suggestions,
     }
   }
 
+  const top = chosen[0]
+  const topTechnician = localResourceName(top.resource)
+  const topDate = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).format(top.slot.start)
+  const topWindow = `${formatLocalTime(top.slot.start)}–${formatLocalTime(top.slot.end)}`
   return {
-    answer: `I found ${suggestions.length} strong options for the ${details.hours}-hour job at ${details.customer}. My top choice is ${localResourceName(chosen[0].resource)} on ${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).format(chosen[0].date)} from ${timeWindows[0]}.`,
-    summary: `I ranked these using the real schedule currently on screen: open capacity, each technician’s visible workload, and room around existing jobs. The purple placements are read-only suggestions—nothing was added or changed. Select an option below to jump to it on the calendar.`,
+    answer: `I found ${suggestions.length} same-site add-on options. My top choice is ${topTechnician}, who is already scheduled at ${details.customer} on ${topDate} and has a clear ${details.hours}-hour opening immediately afterward from ${topWindow}.`,
+    summary: `Each option is a separate new job placed directly after an existing ${details.customer} visit. That avoids extra travel, setup, and customer handoff. I only considered named technicians; Unassigned and Installations were excluded. The purple placements are read-only and nothing was changed.`,
     suggestions,
   }
 }
