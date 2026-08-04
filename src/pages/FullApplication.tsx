@@ -15,7 +15,6 @@ import JobCostReport from '../components/JobCostReport'
 import WorkOrdersAll from '../components/WorkOrdersAll'
 import WorkOrderDetails from '../components/WorkOrderDetails'
 import WorkOrdersSchedule from '../components/WorkOrdersSchedule'
-import AISchedule from '../components/AISchedule'
 import RecurringWorkOrders from '../components/RecurringWorkOrders'
 import CustomersList from '../components/CustomersList'
 import CranesList from '../components/CranesList'
@@ -623,10 +622,9 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
             onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=schedule`)}
           />
         ) : activeItem === 'calendar:AI Schedule' ? (
-          <AISchedule
+          <WorkOrdersSchedule
             sampleMode={sampleMode}
             serviceLocationId={serviceLocationId}
-            onOpenSchedule={() => navigate(`${basePath}/calendar/schedule`)}
             onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=ai-schedule`)}
           />
         ) : activeItem === 'calendar:Recurring Jobs' ? (
