@@ -624,6 +624,7 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
         ) : activeItem === 'calendar:AI Schedule' ? (
           <WorkOrdersSchedule
             sampleMode={sampleMode}
+            localAssistantDemo
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=ai-schedule`)}
           />
