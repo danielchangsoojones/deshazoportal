@@ -168,6 +168,7 @@ function App() {
           <Route path="/full-application/work-orders/waiting-for-parts" element={<FullApplication />} />
           <Route path="/full-application/work-orders/completed" element={<FullApplication />} />
           <Route path="/full-application/calendar/schedule" element={<FullApplication />} />
+          <Route path="/full-application/calendar/ai-schedule" element={<FullApplication />} />
           <Route path="/full-application/calendar/recurring-jobs" element={<FullApplication />} />
           <Route path="/full-application/customers/all" element={<FullApplication />} />
           <Route path="/full-application/customers/cranes" element={<FullApplication />} />

@@ -15,6 +15,7 @@ import JobCostReport from '../components/JobCostReport'
 import WorkOrdersAll from '../components/WorkOrdersAll'
 import WorkOrderDetails from '../components/WorkOrderDetails'
 import WorkOrdersSchedule from '../components/WorkOrdersSchedule'
+import AISchedule from '../components/AISchedule'
 import RecurringWorkOrders from '../components/RecurringWorkOrders'
 import CustomersList from '../components/CustomersList'
 import CranesList from '../components/CranesList'
@@ -57,7 +58,7 @@ const menuSections: MenuSection[] = [
     id: 'calendar',
     label: 'Calendar',
     icon: 'calendar',
-    items: ['Schedule', 'Recurring Jobs'],
+    items: ['Schedule', 'AI Schedule', 'Recurring Jobs'],
   },
   {
     id: 'customers',
@@ -191,6 +192,8 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
       ? 'quoting:Quote List'
       : location.pathname.endsWith('/safety')
       ? 'safety:Overview'
+      : location.pathname.endsWith('/calendar/ai-schedule')
+      ? 'calendar:AI Schedule'
       : location.pathname.endsWith('/calendar/schedule')
       ? 'calendar:Schedule'
       : location.pathname.endsWith('/report/payroll')
@@ -500,6 +503,7 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
                                 setActiveItem(itemKey)
                                 if (itemKey === 'executive-analytics:Executive Analytics') navigate(`${basePath}/executive-analytics`)
                                 else if (itemKey === 'calendar:Schedule') navigate(`${basePath}/calendar/schedule`)
+                                else if (itemKey === 'calendar:AI Schedule') navigate(`${basePath}/calendar/ai-schedule`)
                                 else if (itemKey === 'reports:Payroll') navigate(`${basePath}/report/payroll`)
                                 else if (itemKey === 'reports:Technician Daily Report') navigate(`${basePath}/report/daily-worktime`)
                                 else if (itemKey === 'reports:Recovery Report') navigate(`${basePath}/report/recovery`)
@@ -555,7 +559,7 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
             workOrderId={workOrderId}
             onBack={() => {
               const returnTo = new URLSearchParams(location.search).get('returnTo')
-              navigate(returnTo === 'schedule' ? `${basePath}/calendar/schedule` : returnTo === 'recurring-jobs' ? `${basePath}/calendar/recurring-jobs` : returnTo === 'cranes' ? `${basePath}/customers/cranes` : returnTo === 'daily-worktime' ? `${basePath}/report/daily-worktime` : returnTo === 'recently-added' ? `${basePath}/work-orders/recently-added` : returnTo === 'pending' ? `${basePath}/work-orders/pending` : returnTo === 'scheduled' ? `${basePath}/work-orders/scheduled` : returnTo === 'in-progress' ? `${basePath}/work-orders/in-progress` : returnTo === 'waiting-for-parts' ? `${basePath}/work-orders/waiting-for-parts` : returnTo === 'completed' ? `${basePath}/work-orders/completed` : basePath)
+              navigate(returnTo === 'schedule' ? `${basePath}/calendar/schedule` : returnTo === 'ai-schedule' ? `${basePath}/calendar/ai-schedule` : returnTo === 'recurring-jobs' ? `${basePath}/calendar/recurring-jobs` : returnTo === 'cranes' ? `${basePath}/customers/cranes` : returnTo === 'daily-worktime' ? `${basePath}/report/daily-worktime` : returnTo === 'recently-added' ? `${basePath}/work-orders/recently-added` : returnTo === 'pending' ? `${basePath}/work-orders/pending` : returnTo === 'scheduled' ? `${basePath}/work-orders/scheduled` : returnTo === 'in-progress' ? `${basePath}/work-orders/in-progress` : returnTo === 'waiting-for-parts' ? `${basePath}/work-orders/waiting-for-parts` : returnTo === 'completed' ? `${basePath}/work-orders/completed` : basePath)
             }}
           />
         ) : activeItem === 'executive-analytics:Executive Analytics' ? (
@@ -617,6 +621,13 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
             sampleMode={sampleMode}
             serviceLocationId={serviceLocationId}
             onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=schedule`)}
+          />
+        ) : activeItem === 'calendar:AI Schedule' ? (
+          <AISchedule
+            sampleMode={sampleMode}
+            serviceLocationId={serviceLocationId}
+            onOpenSchedule={() => navigate(`${basePath}/calendar/schedule`)}
+            onOpenWorkOrder={(id) => navigate(`${basePath}/work-orders/${id}/details?returnTo=ai-schedule`)}
           />
         ) : activeItem === 'calendar:Recurring Jobs' ? (
           <RecurringWorkOrders
