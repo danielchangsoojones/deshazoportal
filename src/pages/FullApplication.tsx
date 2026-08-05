@@ -117,6 +117,32 @@ const menuSections: MenuSection[] = [
 
 const initiallyOpen = Object.fromEntries(menuSections.map((section) => [section.id, true]))
 
+const localOnlyScreenPaths = [
+  '/full-application/safety',
+  '/full-application/assets/fleet-management',
+  '/full-application/assets/green-files',
+  '/full-application/editable-forms',
+  '/full-application/executive-analytics',
+]
+
+const isLocalOnlyScreenPath = (pathname: string) =>
+  localOnlyScreenPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+
+const getLocalOnlyScreenUser = (portalUser: User): DeshazoAppUser => {
+  const metadata = portalUser.user_metadata ?? {}
+  const fullName = typeof metadata.full_name === 'string' ? metadata.full_name.trim() : ''
+  const [inferredFirstName = '', ...inferredLastNameParts] = fullName.split(/\s+/).filter(Boolean)
+
+  return {
+    id: `portal-${portalUser.id}`,
+    firstName: typeof metadata.first_name === 'string' ? metadata.first_name : inferredFirstName,
+    lastName: typeof metadata.last_name === 'string' ? metadata.last_name : inferredLastNameParts.join(' '),
+    email: portalUser.email ?? '',
+    roleId: 0,
+    role: { id: 0, name: 'Local workspace' },
+  }
+}
+
 function MenuIcon({ icon }: { icon: MenuSection['icon'] | 'logout' }) {
   const paths = {
     home: <path d="M3 10.5 12 3l9 7.5M5.5 9.5V21h5v-6h3v6h5V9.5" />,
@@ -171,12 +197,13 @@ function BlockstampLogo({ compact = false }: { compact?: boolean }) {
 export default function FullApplication({ sampleMode = false }: { sampleMode?: boolean }) {
   const location = useLocation()
   const basePath = sampleMode ? '/full-application-sample' : '/full-application'
+  const isLocalOnlyScreen = !sampleMode && isLocalOnlyScreenPath(location.pathname)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     typeof window !== 'undefined' && window.localStorage.getItem('deshazo-full-application-sidebar-collapsed') === 'true',
   )
   const [user, setUser] = useState<User | null>(() => sampleMode ? ({ id: 'sample-portal-user' } as User) : null)
   const [deshazoUser, setDeshazoUser] = useState<DeshazoAppUser | null>(() => sampleMode ? ({ id: 'sample-user', firstName: 'Alex', lastName: 'Morgan', email: 'sample@deshazo.com', roleId: 1, role: { id: 1, name: 'Regional Manager · Sample' } }) : null)
-  const [deshazoChecking, setDeshazoChecking] = useState(!sampleMode)
+  const [deshazoChecking, setDeshazoChecking] = useState(!sampleMode && !isLocalOnlyScreen)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(initiallyOpen)
   const [activeItem, setActiveItem] = useState(() =>
     location.pathname.endsWith('/executive-analytics')
@@ -263,11 +290,17 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
     })
   }, [navigate, sampleMode])
 
-  // Once the portal (Supabase) developer check passes, check for a live DeShazo
-  // application session. This is a separate login from the portal's Supabase auth.
+  // Local-only screens use the already-authorized portal identity and never touch
+  // the live DeShazo session. API-backed screens still require a separate DeShazo login.
   useEffect(() => {
     if (sampleMode) return
     if (!user) return
+
+    if (isLocalOnlyScreen) {
+      setDeshazoUser(getLocalOnlyScreenUser(user))
+      setDeshazoChecking(false)
+      return
+    }
 
     let cancelled = false
     setDeshazoChecking(true)
@@ -285,9 +318,13 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
     return () => {
       cancelled = true
     }
-  }, [sampleMode, user])
+  }, [isLocalOnlyScreen, sampleMode, user])
 
   useEffect(() => {
+    if (isLocalOnlyScreen) {
+      setServiceLocations([])
+      return
+    }
     if (!deshazoUser) return
     let cancelled = false
     getDeshazoServiceLocations()
@@ -300,7 +337,7 @@ export default function FullApplication({ sampleMode = false }: { sampleMode?: b
     return () => {
       cancelled = true
     }
-  }, [deshazoUser])
+  }, [deshazoUser, isLocalOnlyScreen])
 
   const handleDeshazoSignIn = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
