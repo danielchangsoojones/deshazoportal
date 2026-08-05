@@ -346,8 +346,8 @@ export default function ScheduleAssistant({
       <header className={`flex items-center justify-between border-b border-[#d3dbea] px-4 py-3 text-white ${localDemo ? 'bg-gradient-to-r from-[#5b3eb1] via-[#142969] to-[var(--deshazo-blue)]' : 'bg-[var(--deshazo-blue)]'}`}>
         <div>
           <div className="flex items-center gap-2">
-            <span className="rounded-md bg-white/15 px-2 py-1 text-[10px] font-black tracking-wide">{localDemo ? 'LOCAL AI' : sampleMode ? 'LOCAL SAMPLE' : 'FABLE'}</span>
-            <h2 className="text-[14px] font-black">{localDemo ? 'AI Schedule Assistant' : 'Scheduling Assistant'}</h2>
+            <span className="rounded-md bg-white/15 px-2 py-1 text-[10px] font-black tracking-wide">{localDemo ? 'AI' : sampleMode ? 'LOCAL SAMPLE' : 'FABLE'}</span>
+            <h2 className="text-[14px] font-black !text-white">{localDemo ? 'AI Schedule Assistant' : 'Scheduling Assistant'}</h2>
           </div>
           <p className="mt-1 text-[10px] font-semibold text-white/75">{visibleContext}</p>
         </div>
