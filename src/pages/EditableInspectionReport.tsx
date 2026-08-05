@@ -2118,6 +2118,9 @@ const getMarginCellClassName = (margin: string) =>
     ? 'bg-[#fbe3e3] text-[#8a1a1a] hover:bg-[#f7d4d4]'
     : 'bg-[#e2f5e7] text-[#17652b] hover:bg-[#d0edda]'
 
+const normalizeMarginInputValue = (value: string) =>
+  value.replace(/^(-?)0+(?=\d)/, '$1')
+
 const getCostCustomerUnitPrice = (
   sectionId: string,
   lineItem: RepairLineItem,
@@ -6473,21 +6476,41 @@ export default function EditableInspectionReport({
                                 </div>
                                 <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
                                   <div className="relative flex items-stretch">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setActiveLineMenu('')
-                                        setActiveMarginMenu((currentMenu) =>
-                                          currentMenu === `repair-cost-${section.id}-${costSection.id}-${lineItem.id}`
-                                            ? ''
-                                            : `repair-cost-${section.id}-${costSection.id}-${lineItem.id}`,
-                                        )
-                                      }}
-                                      className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
-                                      aria-label={`Open gross margin settings for ${section.title} ${costSection.title} line item ${lineIndex + 1}`}
-                                    >
-                                      {Math.round(parseMoney(lineItem.margin))}%
-                                    </button>
+                                    <div className={`relative w-full border-r border-[#e5e7ef] shadow-[inset_0_-1px_0_#e5e7ef] transition ${getMarginCellClassName(lineItem.margin)}`}>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={lineItem.margin}
+                                        onFocus={(event) => {
+                                          event.currentTarget.select()
+                                          setActiveLineMenu('')
+                                          setActiveMarginMenu(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)
+                                          if (parseMoney(lineItem.margin) === 0) {
+                                            updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'margin', '')
+                                          }
+                                        }}
+                                        onChange={(event) =>
+                                          updateRepairCostLineItem(
+                                            section.id,
+                                            costSection.id,
+                                            lineItem.id,
+                                            'margin',
+                                            normalizeMarginInputValue(event.currentTarget.value),
+                                          )
+                                        }
+                                        onBlur={() => {
+                                          if (lineItem.margin.trim() === '') {
+                                            updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'margin', '0')
+                                          }
+                                        }}
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter') event.currentTarget.blur()
+                                        }}
+                                        className="w-full bg-transparent px-3 py-1.5 pr-6 text-left font-black outline-none"
+                                        aria-label={`Open gross margin settings for ${section.title} ${costSection.title} line item ${lineIndex + 1}`}
+                                      />
+                                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">%</span>
+                                    </div>
                                     {activeMarginMenu === `repair-cost-${section.id}-${costSection.id}-${lineItem.id}` ? (
                                       <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
                                         <div className="mb-2 flex items-center justify-between gap-2">
@@ -6763,21 +6786,40 @@ export default function EditableInspectionReport({
                         </div>
                         <div className="report-toolbar absolute left-[calc(100%+86px)] top-0 grid h-full w-[228px] grid-cols-3 overflow-visible border-x border-b border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430] shadow-[0_16px_34px_-28px_rgba(15,23,42,0.58)]">
                           <div className="relative flex items-stretch">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActiveLineMenu('')
-                                setActiveMarginMenu((currentMenu) =>
-                                  currentMenu === `cost-${section.id}-${lineItem.id}`
-                                    ? ''
-                                    : `cost-${section.id}-${lineItem.id}`,
-                                )
-                              }}
-                              className={`flex w-full items-center px-3 py-1.5 text-left transition ${getMarginCellClassName(lineItem.margin)}`}
-                              aria-label={`Open gross margin settings for ${section.title} line item ${lineIndex + 1}`}
-                            >
-                              {Math.round(parseMoney(lineItem.margin))}%
-                            </button>
+                            <div className={`relative w-full border-r border-[#e5e7ef] shadow-[inset_0_-1px_0_#e5e7ef] transition ${getMarginCellClassName(lineItem.margin)}`}>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={lineItem.margin}
+                                onFocus={(event) => {
+                                  event.currentTarget.select()
+                                  setActiveLineMenu('')
+                                  setActiveMarginMenu(`cost-${section.id}-${lineItem.id}`)
+                                  if (parseMoney(lineItem.margin) === 0) {
+                                    updateCostLineItem(section.id, lineItem.id, 'margin', '')
+                                  }
+                                }}
+                                onChange={(event) =>
+                                  updateCostLineItem(
+                                    section.id,
+                                    lineItem.id,
+                                    'margin',
+                                    normalizeMarginInputValue(event.currentTarget.value),
+                                  )
+                                }
+                                onBlur={() => {
+                                  if (lineItem.margin.trim() === '') {
+                                    updateCostLineItem(section.id, lineItem.id, 'margin', '0')
+                                  }
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') event.currentTarget.blur()
+                                }}
+                                className="w-full bg-transparent px-3 py-1.5 pr-6 text-left font-black outline-none"
+                                aria-label={`Open gross margin settings for ${section.title} line item ${lineIndex + 1}`}
+                              />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">%</span>
+                            </div>
                             {activeMarginMenu === `cost-${section.id}-${lineItem.id}` ? (
                               <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-[230px] rounded-md border border-[#cfd6e5] bg-white p-3 text-left shadow-[0_18px_44px_-28px_rgba(15,23,42,0.55)]">
                                 <div className="mb-2 flex items-center justify-between gap-2">
