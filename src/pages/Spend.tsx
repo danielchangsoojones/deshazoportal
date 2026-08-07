@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { getSpendAnalytics, type SpendAnalytics } from '../lib/spendAnalytics'
+import { clearSpendAnalyticsCache, getSpendAnalytics, type SpendAnalytics } from '../lib/spendAnalytics'
 import { uploadJpaFinanceFiles } from '../lib/jpaFinanceImport'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { isConfigured, supabase } from '../lib/supabase'
@@ -224,6 +224,7 @@ export default function Spend() {
         `Uploaded ${result.rows.toLocaleString()} rows from ${result.files} file${result.files === 1 ? '' : 's'}; ` +
           `${result.matchedWorkOrders.toLocaleString()} matched work orders; total ${formatCurrency(Math.round(result.total))}.`,
       )
+      clearSpendAnalyticsCache(selectedCustomer)
       setAnalyticsReloadKey((key) => key + 1)
     } catch (err) {
       setJpaUploadStatus('')

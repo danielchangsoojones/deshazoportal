@@ -69,6 +69,9 @@ type WorkOrderLocationRow = {
   raw_payload: Record<string, unknown> | null
 }
 
+const financeRowsCache = new Map<string, { loadedAt: number; rows: FinanceInvoiceRow[] }>()
+const financeRowsCacheTtlMs = 60_000
+
 const emptySpendAnalytics: SpendAnalytics = {
   topline: {
     total_parts_spend: 0,
@@ -167,6 +170,11 @@ function getFinanceWorkbookLocation(row: FinanceInvoiceRow) {
 }
 
 async function fetchAllFinanceRows(customer: string) {
+  const cachedRows = financeRowsCache.get(customer)
+  if (cachedRows && Date.now() - cachedRows.loadedAt < financeRowsCacheTtlMs) {
+    return cachedRows.rows
+  }
+
   const client = requireSupabase()
   const rows: FinanceInvoiceRow[] = []
   const pageSize = 1000
@@ -192,16 +200,37 @@ async function fetchAllFinanceRows(customer: string) {
     if (pageRows.length < pageSize) break
   }
 
+  financeRowsCache.set(customer, { loadedAt: Date.now(), rows })
   return rows
+}
+
+export function clearSpendAnalyticsCache(customer?: string) {
+  if (customer) {
+    financeRowsCache.delete(resolveSelectedCustomer(customer))
+    return
+  }
+
+  financeRowsCache.clear()
 }
 
 async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvoiceRow[]) {
   const client = requireSupabase()
+  const rowsNeedingWorkOrderLookup = financeRows.filter((row) => {
+    const hasStoredLocation =
+      row.location_label?.trim() ||
+      row.customer_location_name?.trim() ||
+      row.service_location_name?.trim() ||
+      getFinanceWorkbookLocation(row)
+
+    return !hasStoredLocation
+  })
+  if (rowsNeedingWorkOrderLookup.length === 0) return []
+
   const workOrderIds = Array.from(new Set(
-    financeRows.map((row) => row.work_order_id).filter((value): value is number => typeof value === 'number'),
+    rowsNeedingWorkOrderLookup.map((row) => row.work_order_id).filter((value): value is number => typeof value === 'number'),
   ))
   const jobNos = Array.from(new Set(
-    financeRows.map((row) => row.job_no.trim()).filter(Boolean),
+    rowsNeedingWorkOrderLookup.map((row) => row.job_no.trim()).filter(Boolean),
   ))
   const rows: WorkOrderLocationRow[] = []
 
