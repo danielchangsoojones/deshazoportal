@@ -106,6 +106,10 @@ export default function LocationComparison() {
     navigate(customerPath('/login'))
   }
 
+  const openLocationSpend = (location: string) => {
+    navigate(`${customerPath('/location-spend')}?location=${encodeURIComponent(location)}`)
+  }
+
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
@@ -250,7 +254,16 @@ export default function LocationComparison() {
                 {locationData.map((location) => (
                   <article
                     key={location.location}
-                    className="group overflow-hidden rounded-[22px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,var(--deshazo-surface)_100%)] shadow-[0_16px_34px_-30px_rgba(47,86,166,0.32)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_40px_-30px_rgba(47,86,166,0.42)]"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openLocationSpend(location.location)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        openLocationSpend(location.location)
+                      }
+                    }}
+                    className="group cursor-pointer overflow-hidden rounded-[22px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,var(--deshazo-surface)_100%)] shadow-[0_16px_34px_-30px_rgba(47,86,166,0.32)] outline-none transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_40px_-30px_rgba(47,86,166,0.42)] focus:ring-4 focus:ring-[rgba(47,86,166,0.18)]"
                   >
                     <div className="bg-[linear-gradient(90deg,var(--deshazo-blue)_0%,var(--deshazo-blue-deep)_100%)] px-4 py-4 text-white">
                       <h3 className="text-[clamp(22px,2.3vw,28px)] font-extrabold leading-[1.05] tracking-[-0.04em] text-white">

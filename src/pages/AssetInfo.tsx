@@ -44,6 +44,7 @@ import {
   getSupabaseOpenRiskAssetInfo,
   getSupabaseOpenRiskRecurringIssues,
 } from '../lib/deshazoOpenRiskSupabase'
+import { getCraneInvoiceSpendAnalytics, type CraneInvoiceSpendAnalytics } from '../lib/invoiceSpend'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 
 const menuItems = [
@@ -59,7 +60,7 @@ const menuItems = [
   { label: 'Contact Us', href: '/contact-us' },
 ]
 
-type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'notes' | 'analytics'
+type AssetInfoTab = 'issues' | 'info' | 'documents' | 'repair' | 'notes' | 'analytics' | 'spend-analytics'
 
 const ANALYTICS_COLORS = ['#2f56a6', '#f2b43f', '#e05c3a', '#4a9960', '#7b44c7', '#355fb4']
 const PREVENTATIVE_REPORTS_PAGE_SIZE = 10
@@ -129,6 +130,18 @@ const defaultAssetDocuments: AssetPdfResponse = {
 
 const formatDisplayDate = (value?: string) =>
   value ? value.replace(/\. /g, ' ').replace(/th,|st,|nd,|rd,/g, ',') : 'Not available'
+
+const formatCurrency = (value: number) => `$${Math.round(value).toLocaleString()}`
+
+const formatInvoiceDate = (value?: string) => {
+  if (!value) return 'Not available'
+  const parsed = new Date(`${value.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const isAssetInfoTab = (value: string | null): value is AssetInfoTab =>
+  Boolean(value && ['issues', 'info', 'documents', 'repair', 'notes', 'analytics', 'spend-analytics'].includes(value))
 
 const formatRepairReportDate = (value?: string) => {
   if (!value) return 'Not available'
@@ -473,6 +486,9 @@ export default function AssetInfo() {
   const [error, setError] = useState('')
   const [recurringIssues, setRecurringIssues] = useState<RecurringIssue[]>([])
   const [recurringIssuesLoading, setRecurringIssuesLoading] = useState(false)
+  const [spendAnalytics, setSpendAnalytics] = useState<CraneInvoiceSpendAnalytics | null>(null)
+  const [spendAnalyticsLoading, setSpendAnalyticsLoading] = useState(false)
+  const [spendAnalyticsError, setSpendAnalyticsError] = useState('')
   const selectedRepairDocumentToDraft = useMemo(
     () => repairDocuments.find((document) => document.documentKey === selectedDocumentUrl) ?? null,
     [repairDocuments, selectedDocumentUrl],
@@ -485,6 +501,13 @@ export default function AssetInfo() {
   const unitId = searchParams.get('unit_id')?.trim() || ''
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
   const usesSupabaseAssetData = currentView === 'open-risk' || currentView === 'asset-fleet'
+
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab')
+    if (isAssetInfoTab(requestedTab)) {
+      setActiveTab(requestedTab)
+    }
+  }, [searchParams])
 
   const activeMenuItems = useDeveloperMenuItems(
     menuItems,
@@ -752,6 +775,45 @@ export default function AssetInfo() {
       cancelled = true
     }
   }, [unitId, user])
+
+  useEffect(() => {
+    if (activeTab !== 'spend-analytics') return
+    const dNumber = extractDocumentNumber(assetInfo.unit_name, unitId) || unitId.trim().toUpperCase()
+    if (!dNumber) {
+      setSpendAnalytics(null)
+      setSpendAnalyticsLoading(false)
+      setSpendAnalyticsError('A D number is required to load spend analytics.')
+      return
+    }
+
+    let cancelled = false
+
+    const loadSpendAnalytics = async () => {
+      try {
+        setSpendAnalyticsLoading(true)
+        setSpendAnalyticsError('')
+        const data = await getCraneInvoiceSpendAnalytics(dNumber, selectedCustomer)
+        if (!cancelled) {
+          setSpendAnalytics(data)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSpendAnalytics(null)
+          setSpendAnalyticsError(err instanceof Error ? err.message : 'Unable to load spend analytics.')
+        }
+      } finally {
+        if (!cancelled) {
+          setSpendAnalyticsLoading(false)
+        }
+      }
+    }
+
+    void loadSpendAnalytics()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, assetInfo.unit_name, unitId, selectedCustomer])
 
   useEffect(() => {
     if (!user || !unitId || !supabase) {
@@ -1228,6 +1290,7 @@ export default function AssetInfo() {
     { id: 'repair', label: 'Repair Reports' },
     { id: 'notes', label: 'Notes' },
     { id: 'analytics', label: 'Analytics' },
+    { id: 'spend-analytics', label: 'Spend Analytics' },
   ]
 
   const filterFieldOptions: Array<{ value: FilterField; label: string }> = [
@@ -2149,6 +2212,92 @@ export default function AssetInfo() {
                       </div>
                     </div>
                   </div>
+                </section>
+              ) : activeTab === 'spend-analytics' ? (
+                <section className="space-y-6">
+                  {spendAnalyticsLoading ? (
+                    <div className="space-y-3">
+                      <div className="h-24 animate-pulse rounded-[14px] bg-[var(--deshazo-surface)]" />
+                      <div className="h-64 animate-pulse rounded-[14px] bg-[var(--deshazo-surface)]" />
+                    </div>
+                  ) : spendAnalyticsError ? (
+                    <div className="rounded-[14px] border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
+                      {spendAnalyticsError}
+                    </div>
+                  ) : !spendAnalytics || spendAnalytics.invoiceCount === 0 ? (
+                    <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/55 px-5 py-8 text-center text-sm font-semibold text-[rgba(21,24,33,0.58)]">
+                      No invoice spend has been allocated to this crane yet.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                        {[
+                          ['Total Spend', formatCurrency(spendAnalytics.totalSpend)],
+                          ['Invoices', spendAnalytics.invoiceCount.toLocaleString()],
+                          ['Avg. Invoice Allocation', formatCurrency(spendAnalytics.averageInvoiceSpend)],
+                          ['Latest Invoice', formatInvoiceDate(spendAnalytics.latestInvoiceDate)],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                            <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.5)]">{label}</p>
+                            <p className="mt-1 text-[clamp(22px,3vw,32px)] font-black tracking-tight text-[var(--deshazo-blue)]">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                        <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                          <div className="mb-4 flex items-start justify-between gap-4">
+                            <div>
+                              <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Month Over Month Spend</h3>
+                              <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Allocated invoice spend for {spendAnalytics.dNumber}.</p>
+                            </div>
+                          </div>
+                          {spendAnalytics.monthlySpend.length > 0 ? (
+                            <ResponsiveContainer width="100%" height={260}>
+                              <BarChart data={spendAnalytics.monthlySpend} margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
+                                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6b7280' }} />
+                                <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} tickFormatter={(value) => `$${Number(value).toLocaleString()}`} />
+                                <Tooltip formatter={(value) => formatCurrency(Number(value))} contentStyle={{ borderRadius: 10, fontSize: 13 }} />
+                                <Bar dataKey="spend" name="Spend" fill="#2f56a6" radius={[6, 6, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="flex h-[260px] items-center justify-center rounded-[12px] bg-[var(--deshazo-surface)]/55 text-sm font-semibold text-[rgba(21,24,33,0.45)]">
+                              No monthly spend trend is available yet.
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                          <h3 className="mb-4 text-[15px] font-bold text-[var(--deshazo-text)]">Recent Invoices</h3>
+                          <div className="space-y-3">
+                            {spendAnalytics.recentInvoices.map((invoice) => (
+                              <div key={invoice.id} className="rounded-[12px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/35 px-4 py-3">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-[14px] font-black text-[var(--deshazo-text)]">
+                                      {invoice.invoiceNumber || 'Invoice'}
+                                    </p>
+                                    <p className="mt-1 text-[12px] font-semibold text-[rgba(21,24,33,0.52)]">
+                                      {formatInvoiceDate(invoice.invoiceDate)}
+                                      {invoice.jobNumber ? ` · Job ${invoice.jobNumber}` : ''}
+                                    </p>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <p className="text-[15px] font-black text-[var(--deshazo-blue)]">{formatCurrency(invoice.allocatedAmount)}</p>
+                                    <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.04em] text-[rgba(21,24,33,0.42)]">
+                                      {invoice.allocationMethod.replace(/_/g, ' ')}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </section>
               ) : null}
             </div>
