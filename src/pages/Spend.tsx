@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { Link, useNavigate } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getSpendAnalytics, type SpendAnalytics } from '../lib/spendAnalytics'
+import { uploadJpaFinanceFiles } from '../lib/jpaFinanceImport'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { isConfigured, supabase } from '../lib/supabase'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -108,7 +111,13 @@ export default function Spend() {
   const customerPath = useCustomerPath()
   const customerName = getCustomerDisplayName(selectedCustomer)
   const customAnalyticsRef = useRef<HTMLDivElement | null>(null)
+  const jpaUploadInputRef = useRef<HTMLInputElement | null>(null)
   const [customAnalyticsMessage, setCustomAnalyticsMessage] = useState('')
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
+  const [jpaUploadStatus, setJpaUploadStatus] = useState('')
+  const [jpaUploadError, setJpaUploadError] = useState('')
+  const [jpaUploading, setJpaUploading] = useState(false)
+  const [analyticsReloadKey, setAnalyticsReloadKey] = useState(0)
   const [spendState, setSpendState] = useState<SpendState>({
     customer: selectedCustomer,
     analytics: emptyAnalytics,
@@ -128,11 +137,14 @@ export default function Spend() {
       }
     }
 
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!isMounted) return
       if (!data.user) {
         navigate(customerPath('/login'))
       } else {
+        const nextUserTag = await getCurrentUserTag(data.user.id).catch(() => null)
+        if (!isMounted) return
+        setUserTag(nextUserTag)
         setUser(data.user)
       }
       setAuthLoading(false)
@@ -169,7 +181,7 @@ export default function Spend() {
     return () => {
       isMounted = false
     }
-  }, [selectedCustomer])
+  }, [analyticsReloadKey, selectedCustomer])
 
   useEffect(() => {
     if (!customAnalyticsMessage) return
@@ -190,6 +202,33 @@ export default function Spend() {
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
     navigate(customerPath('/login'))
+  }
+
+  const handleJpaUploadClick = () => {
+    jpaUploadInputRef.current?.click()
+  }
+
+  const handleJpaUploadChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (files.length === 0) return
+
+    try {
+      setJpaUploading(true)
+      setJpaUploadError('')
+      setJpaUploadStatus(`Uploading ${files.length} JPA file${files.length === 1 ? '' : 's'}...`)
+      const result = await uploadJpaFinanceFiles(files, selectedCustomer)
+      setJpaUploadStatus(
+        `Uploaded ${result.rows.toLocaleString()} rows from ${result.files} file${result.files === 1 ? '' : 's'}; ` +
+          `${result.matchedWorkOrders.toLocaleString()} matched work orders; total ${formatCurrency(Math.round(result.total))}.`,
+      )
+      setAnalyticsReloadKey((key) => key + 1)
+    } catch (err) {
+      setJpaUploadStatus('')
+      setJpaUploadError(err instanceof Error ? err.message : 'Unable to upload JPA finance file.')
+    } finally {
+      setJpaUploading(false)
+    }
   }
 
   if (authLoading) {
@@ -253,6 +292,7 @@ export default function Spend() {
   const unmappedLocationInvoiceCount = Math.max(toplineSpend.total_invoices - analytics.locationMappedInvoiceCount, 0)
   const locationMappingIsPending =
     hasFinanceData && analytics.locationMappedInvoiceCount === 0
+  const canUploadJpa = userTag === 'developer'
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -369,6 +409,29 @@ export default function Spend() {
                 <p className="text-sm font-bold text-[rgba(21,24,33,0.7)]">{customAnalyticsMessage}</p>
               ) : null}
             </div>
+            {canUploadJpa ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <input
+                  ref={jpaUploadInputRef}
+                  type="file"
+                  accept=".xlsx,.xlsm,.jpa,.JPA"
+                  multiple
+                  className="hidden"
+                  onChange={handleJpaUploadChange}
+                />
+                <button
+                  type="button"
+                  onClick={handleJpaUploadClick}
+                  disabled={jpaUploading}
+                  className="inline-flex items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-4 py-2.5 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {jpaUploading ? 'Uploading JPA...' : 'Upload JPA'}
+                </button>
+                <span className="text-sm font-bold text-[rgba(21,24,33,0.7)]">
+                  {jpaUploadError || jpaUploadStatus || 'Import monthly JPA finance workbooks for this customer.'}
+                </span>
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-6">

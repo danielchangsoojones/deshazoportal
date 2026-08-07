@@ -6,6 +6,32 @@ import { createClient } from '@supabase/supabase-js'
 
 const defaultWorkbook = 'data/jpa/Service JPA - Master - May 2026 - Final.xlsx'
 const skippedSheets = new Set(['JPA Summary', 'SVC Summary', 'ALL JOBS'])
+const monthNumbersByName = new Map([
+  ['jan', 1],
+  ['january', 1],
+  ['feb', 2],
+  ['february', 2],
+  ['mar', 3],
+  ['march', 3],
+  ['apr', 4],
+  ['april', 4],
+  ['may', 5],
+  ['jun', 6],
+  ['june', 6],
+  ['jul', 7],
+  ['july', 7],
+  ['aug', 8],
+  ['august', 8],
+  ['sep', 9],
+  ['sept', 9],
+  ['september', 9],
+  ['oct', 10],
+  ['october', 10],
+  ['nov', 11],
+  ['november', 11],
+  ['dec', 12],
+  ['december', 12],
+])
 
 function getArg(name, fallback = '') {
   const prefix = `--${name}=`
@@ -186,13 +212,46 @@ function toNumber(value) {
   return 0
 }
 
-function parseImportPeriod(value) {
+function formatImportPeriod(year, month) {
+  return `${year}-${String(month).padStart(2, '0')}-01`
+}
+
+function tryParseImportPeriod(value) {
   const text = String(value ?? '').trim()
-  const match = text.match(/^([A-Za-z]+)\s+(\d{4})$/)
-  if (!match) throw new Error(`Could not parse workbook month from "${text}".`)
-  const monthIndex = new Date(`${match[1]} 1, ${match[2]}`).getMonth()
-  if (!Number.isFinite(monthIndex)) throw new Error(`Could not parse workbook month from "${text}".`)
-  return `${match[2]}-${String(monthIndex + 1).padStart(2, '0')}-01`
+  if (!text) return null
+
+  const monthNameYear = text.match(/(?:^|[^A-Za-z])([A-Za-z]{3,9})[^A-Za-z0-9]+((?:19|20)\d{2})(?:$|[^0-9])/)
+  const yearMonthName = text.match(/(?:^|[^0-9])((?:19|20)\d{2})[^A-Za-z0-9]+([A-Za-z]{3,9})(?:$|[^A-Za-z])/)
+  const yearMonthNumber = text.match(/(?:^|[^0-9])((?:19|20)\d{2})[-_ .]*(0?[1-9]|1[0-2])(?:$|[^0-9])/)
+  const monthNumberYear = text.match(/(?:^|[^0-9])(0?[1-9]|1[0-2])[-_ .]+((?:19|20)\d{2})(?:$|[^0-9])/)
+
+  if (monthNameYear) {
+    const month = monthNumbersByName.get(monthNameYear[1].toLowerCase())
+    if (month) return formatImportPeriod(monthNameYear[2], month)
+  }
+
+  if (yearMonthName) {
+    const month = monthNumbersByName.get(yearMonthName[2].toLowerCase())
+    if (month) return formatImportPeriod(yearMonthName[1], month)
+  }
+
+  if (yearMonthNumber) {
+    return formatImportPeriod(yearMonthNumber[1], Number(yearMonthNumber[2]))
+  }
+
+  if (monthNumberYear) {
+    return formatImportPeriod(monthNumberYear[2], Number(monthNumberYear[1]))
+  }
+
+  return null
+}
+
+function parseImportPeriod(value, workbookName, sheetName) {
+  const period = tryParseImportPeriod(value) ?? tryParseImportPeriod(workbookName)
+  if (period) return period
+
+  const text = String(value ?? '').trim()
+  throw new Error(`Could not parse workbook month for "${workbookName}" sheet "${sheetName}" from "${text}" or the filename.`)
 }
 
 async function parseWorkbook(workbookPath, customerFilter, importCustomer) {
@@ -205,7 +264,7 @@ async function parseWorkbook(workbookPath, customerFilter, importCustomer) {
     const sheetXml = await getZipText(zip, sheet.path)
     if (!sheetXml) continue
     const parsedRows = parseSheetRows(sheetXml, sharedStrings)
-    const period = parseImportPeriod(parsedRows.find((row) => row.rowNumber === 2)?.values[0])
+    const period = parseImportPeriod(parsedRows.find((row) => row.rowNumber === 2)?.values[0], path.basename(workbookPath), sheet.name)
 
     for (const row of parsedRows) {
       if (row.rowNumber < 5) continue
