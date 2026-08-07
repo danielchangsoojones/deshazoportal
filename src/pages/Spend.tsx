@@ -403,7 +403,11 @@ export default function Spend() {
             <div ref={customAnalyticsRef} className="mt-5 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => setCustomAnalyticsMessage('Email danieljones@blockstampsf.com to contact us.')}
+                onClick={() =>
+                  setCustomAnalyticsMessage((message) =>
+                    message ? '' : 'Email danieljones@blockstampsf.com to contact us.',
+                  )
+                }
                 className="inline-flex items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-4 py-2.5 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)]"
               >
                 Want a custom analytic?
