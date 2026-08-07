@@ -98,7 +98,7 @@ create policy "Developer users can insert JPA finance invoices"
       select 1
       from public.user_tags
       where user_tags.user_id = (select auth.uid())
-        and user_tags.tag = 'developer'
+        and lower(btrim(user_tags.tag)) = 'developer'
     )
   );
 
@@ -114,7 +114,7 @@ create policy "Developer users can update JPA finance invoices"
       select 1
       from public.user_tags
       where user_tags.user_id = (select auth.uid())
-        and user_tags.tag = 'developer'
+        and lower(btrim(user_tags.tag)) = 'developer'
     )
   )
   with check (
@@ -122,6 +122,6 @@ create policy "Developer users can update JPA finance invoices"
       select 1
       from public.user_tags
       where user_tags.user_id = (select auth.uid())
-        and user_tags.tag = 'developer'
+        and lower(btrim(user_tags.tag)) = 'developer'
     )
   );

@@ -205,12 +205,14 @@ export default function Spend() {
   }
 
   const handleJpaUploadClick = () => {
+    if (userTag !== 'developer') return
     jpaUploadInputRef.current?.click()
   }
 
   const handleJpaUploadChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
     event.target.value = ''
+    if (userTag !== 'developer') return
     if (files.length === 0) return
 
     try {
@@ -425,7 +427,8 @@ export default function Spend() {
                   disabled={jpaUploading}
                   className="inline-flex items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-4 py-2.5 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {jpaUploading ? 'Uploading JPA...' : 'Upload JPA'}
+                  <span>{jpaUploading ? 'Uploading JPA...' : 'Upload JPA'}</span>
+                  <DeveloperBadge />
                 </button>
                 <span className="text-sm font-bold text-[rgba(21,24,33,0.7)]">
                   {jpaUploadError || jpaUploadStatus || 'Import monthly JPA finance workbooks for this customer.'}
