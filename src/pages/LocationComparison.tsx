@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { Link, useNavigate } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getLocationComparisonAnalytics, type LocationComparisonItem } from '../lib/spendAnalytics'
+import { uploadInvoiceSpendPdf } from '../lib/invoiceSpend'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { isConfigured, supabase } from '../lib/supabase'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -34,11 +37,16 @@ type LocationComparisonState = {
 export default function LocationComparison() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const invoiceSpendUploadInputRef = useRef<HTMLInputElement | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
   const customerName = getCustomerDisplayName(selectedCustomer)
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
+  const [invoiceSpendUploadStatus, setInvoiceSpendUploadStatus] = useState('')
+  const [invoiceSpendUploadError, setInvoiceSpendUploadError] = useState('')
+  const [invoiceSpendUploading, setInvoiceSpendUploading] = useState(false)
   const [comparisonState, setComparisonState] = useState<LocationComparisonState>({
     customer: selectedCustomer,
     data: [],
@@ -58,11 +66,14 @@ export default function LocationComparison() {
       }
     }
 
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!isMounted) return
       if (!data.user) {
         navigate(customerPath('/login'))
       } else {
+        const nextUserTag = await getCurrentUserTag(data.user.id).catch(() => null)
+        if (!isMounted) return
+        setUserTag(nextUserTag)
         setUser(data.user)
       }
       setAuthLoading(false)
@@ -110,6 +121,39 @@ export default function LocationComparison() {
     navigate(`${customerPath('/location-spend')}?location=${encodeURIComponent(location)}`)
   }
 
+  const handleInvoiceSpendUploadClick = () => {
+    if (userTag !== 'developer') return
+    invoiceSpendUploadInputRef.current?.click()
+  }
+
+  const handleInvoiceSpendUploadChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    event.target.value = ''
+    if (userTag !== 'developer') return
+    if (files.length === 0) return
+
+    try {
+      setInvoiceSpendUploading(true)
+      setInvoiceSpendUploadError('')
+      setInvoiceSpendUploadStatus(`Sending ${files.length} invoice PDF${files.length === 1 ? '' : 's'} to Extend...`)
+
+      const results = []
+      for (const [index, file] of files.entries()) {
+        setInvoiceSpendUploadStatus(`Sending invoice ${index + 1} of ${files.length} to Extend: ${file.name}`)
+        results.push(await uploadInvoiceSpendPdf(file, selectedCustomer))
+      }
+
+      setInvoiceSpendUploadStatus(
+        `${results.length} invoice PDF${results.length === 1 ? '' : 's'} queued. Allocations will appear here after Extend completes and posts the webhook.`,
+      )
+    } catch (err) {
+      setInvoiceSpendUploadStatus('')
+      setInvoiceSpendUploadError(err instanceof Error ? err.message : 'Unable to upload invoice PDF.')
+    } finally {
+      setInvoiceSpendUploading(false)
+    }
+  }
+
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
@@ -131,6 +175,7 @@ export default function LocationComparison() {
   const locationData = comparisonState.customer === selectedCustomer ? comparisonState.data : []
   const loading = comparisonState.customer !== selectedCustomer || comparisonState.status === 'loading'
   const error = comparisonState.customer === selectedCustomer ? comparisonState.error : ''
+  const canUploadInvoiceSpend = userTag === 'developer'
   const initials = fullName
     .split(' ')
     .filter(Boolean)
@@ -241,6 +286,30 @@ export default function LocationComparison() {
                 <span>{customerName} location comparison</span>
               </div>
             </div>
+            {canUploadInvoiceSpend ? (
+              <div className="mt-5 flex flex-wrap items-center gap-3 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <input
+                  ref={invoiceSpendUploadInputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  multiple
+                  className="hidden"
+                  onChange={handleInvoiceSpendUploadChange}
+                />
+                <button
+                  type="button"
+                  onClick={handleInvoiceSpendUploadClick}
+                  disabled={invoiceSpendUploading}
+                  className="inline-flex items-center justify-center rounded-md bg-[#1f7a4d] px-4 py-2.5 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(31,122,77,0.7)] transition hover:bg-[#17633e] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>{invoiceSpendUploading ? 'Uploading invoices...' : 'Upload Invoice Spend PDFs'}</span>
+                  <DeveloperBadge />
+                </button>
+                <span className="text-sm font-bold text-[rgba(21,24,33,0.7)]">
+                  {invoiceSpendUploadError || invoiceSpendUploadStatus || 'Send Deshazo/Wabash invoice PDFs to Extend for per-crane spend allocation.'}
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {loading || error || locationData.length === 0 ? (
