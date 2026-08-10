@@ -6,6 +6,9 @@ const defaultInvoiceSpendUploadUrl =
 const invoiceSpendUploadUrl =
   (import.meta.env.VITE_EXTEND_WABASH_SPEND_INVOICE_PDF_UPLOAD_URL as string | undefined)?.trim() ||
   defaultInvoiceSpendUploadUrl
+const invoiceSpendSyncUrl =
+  (import.meta.env.VITE_EXTEND_WABASH_SPEND_INVOICE_SYNC_URL as string | undefined)?.trim() ||
+  defaultInvoiceSpendUploadUrl.replace(/\/pdf$/, '/sync')
 
 export type InvoiceSpendAllocation = {
   id: string
@@ -71,6 +74,41 @@ export type InvoiceSpendUploadResult = {
   workflowRunId: string
   status: string
   dashboardUrl: string | null
+}
+
+export type InvoiceSpendInvoiceRun = {
+  id: string
+  customer: string
+  originalFileName: string
+  status: string
+  allocationStatus: string
+  invoiceNumber: string
+  jobNumber: string
+  invoiceTotal: number
+  extendWorkflowRunId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type InvoiceSpendSyncResult = {
+  invoiceId: string
+  processed: boolean
+  message?: string
+  error?: string
+}
+
+type InvoiceSpendInvoiceRow = {
+  id: string
+  customer: string
+  original_file_name: string | null
+  status: string | null
+  allocation_status: string | null
+  invoice_number: string | null
+  job_number: string | null
+  invoice_total: number | string | null
+  extend_workflow_run_id: string | null
+  created_at: string
+  updated_at: string
 }
 
 type InvoiceSpendAllocationRow = {
@@ -146,6 +184,22 @@ function mapAllocation(row: InvoiceSpendAllocationRow): InvoiceSpendAllocation {
   }
 }
 
+function mapInvoiceRun(row: InvoiceSpendInvoiceRow): InvoiceSpendInvoiceRun {
+  return {
+    id: row.id,
+    customer: row.customer,
+    originalFileName: row.original_file_name ?? '',
+    status: row.status ?? '',
+    allocationStatus: row.allocation_status ?? '',
+    invoiceNumber: row.invoice_number ?? '',
+    jobNumber: row.job_number ?? '',
+    invoiceTotal: toNumber(row.invoice_total),
+    extendWorkflowRunId: row.extend_workflow_run_id ?? '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
 async function getCurrentUserId() {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
@@ -193,6 +247,61 @@ export async function uploadInvoiceSpendPdf(file: File, customer?: string): Prom
   }
 
   return body as InvoiceSpendUploadResult
+}
+
+export async function getPendingInvoiceSpendRuns(customer?: string): Promise<InvoiceSpendInvoiceRun[]> {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const selectedCustomer = resolveSelectedCustomer(customer)
+  const { data, error } = await supabase
+    .from('deshazo_invoice_spend_invoices')
+    .select('id, customer, original_file_name, status, allocation_status, invoice_number, job_number, invoice_total, extend_workflow_run_id, created_at, updated_at')
+    .eq('customer', selectedCustomer)
+    .eq('allocation_status', 'pending')
+    .not('extend_workflow_run_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(25)
+
+  if (error) {
+    if (isMissingTableError(error.message)) return []
+    throw new Error(error.message)
+  }
+
+  return ((data ?? []) as InvoiceSpendInvoiceRow[]).map(mapInvoiceRun)
+}
+
+export async function syncInvoiceSpendRuns(invoiceIds: string[]): Promise<InvoiceSpendSyncResult[]> {
+  const uniqueInvoiceIds = Array.from(new Set(invoiceIds.filter(Boolean)))
+  if (uniqueInvoiceIds.length === 0) return []
+
+  const response = await fetch(invoiceSpendSyncUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ invoiceIds: uniqueInvoiceIds }),
+  })
+
+  const responseText = await response.text()
+  let body: unknown = responseText
+  try {
+    body = responseText ? JSON.parse(responseText) : {}
+  } catch {
+    // Keep non-JSON backend errors readable.
+  }
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `Invoice spend sync failed with status ${response.status}.`
+    throw new Error(message)
+  }
+
+  const results = body && typeof body === 'object' && 'results' in body ? body.results : []
+  return Array.isArray(results) ? results as InvoiceSpendSyncResult[] : []
 }
 
 async function fetchInvoiceSpendAllocations(customer?: string) {

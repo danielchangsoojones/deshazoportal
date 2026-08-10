@@ -6,7 +6,7 @@ import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getLocationComparisonAnalytics, type LocationComparisonItem } from '../lib/spendAnalytics'
-import { uploadInvoiceSpendPdf } from '../lib/invoiceSpend'
+import { getPendingInvoiceSpendRuns, syncInvoiceSpendRuns, uploadInvoiceSpendPdf } from '../lib/invoiceSpend'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { isConfigured, supabase } from '../lib/supabase'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
@@ -47,6 +47,7 @@ export default function LocationComparison() {
   const [invoiceSpendUploadStatus, setInvoiceSpendUploadStatus] = useState('')
   const [invoiceSpendUploadError, setInvoiceSpendUploadError] = useState('')
   const [invoiceSpendUploading, setInvoiceSpendUploading] = useState(false)
+  const [invoiceSpendSyncing, setInvoiceSpendSyncing] = useState(false)
   const [comparisonState, setComparisonState] = useState<LocationComparisonState>({
     customer: selectedCustomer,
     data: [],
@@ -151,6 +152,36 @@ export default function LocationComparison() {
       setInvoiceSpendUploadError(err instanceof Error ? err.message : 'Unable to upload invoice PDF.')
     } finally {
       setInvoiceSpendUploading(false)
+    }
+  }
+
+  const handleInvoiceSpendSync = async () => {
+    if (userTag !== 'developer') return
+
+    try {
+      setInvoiceSpendSyncing(true)
+      setInvoiceSpendUploadError('')
+      setInvoiceSpendUploadStatus('Checking pending invoice runs...')
+      const pendingRuns = await getPendingInvoiceSpendRuns(selectedCustomer)
+      if (pendingRuns.length === 0) {
+        setInvoiceSpendUploadStatus('No pending invoice runs to sync.')
+        return
+      }
+
+      setInvoiceSpendUploadStatus(`Syncing ${pendingRuns.length} pending invoice run${pendingRuns.length === 1 ? '' : 's'}...`)
+      const results = await syncInvoiceSpendRuns(pendingRuns.map((run) => run.id))
+      const processed = results.filter((result) => result.processed).length
+      const failed = results.filter((result) => !result.processed).length
+      const firstIssue = results.find((result) => !result.processed)
+      const issueMessage = firstIssue?.error || firstIssue?.message
+      setInvoiceSpendUploadStatus(
+        `Synced ${processed} invoice run${processed === 1 ? '' : 's'}. ${failed ? `${failed} need attention${issueMessage ? `: ${issueMessage}` : '.'}` : 'Refresh the page or open a city to see updated allocations.'}`,
+      )
+    } catch (err) {
+      setInvoiceSpendUploadStatus('')
+      setInvoiceSpendUploadError(err instanceof Error ? err.message : 'Unable to sync invoice runs.')
+    } finally {
+      setInvoiceSpendSyncing(false)
     }
   }
 
@@ -299,10 +330,19 @@ export default function LocationComparison() {
                 <button
                   type="button"
                   onClick={handleInvoiceSpendUploadClick}
-                  disabled={invoiceSpendUploading}
+                  disabled={invoiceSpendUploading || invoiceSpendSyncing}
                   className="inline-flex items-center justify-center rounded-md bg-[#1f7a4d] px-4 py-2.5 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(31,122,77,0.7)] transition hover:bg-[#17633e] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span>{invoiceSpendUploading ? 'Uploading invoices...' : 'Upload Invoice Spend PDFs'}</span>
+                  <DeveloperBadge />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleInvoiceSpendSync}
+                  disabled={invoiceSpendUploading || invoiceSpendSyncing}
+                  className="inline-flex items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-2.5 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_14px_28px_-24px_rgba(47,86,166,0.35)] transition hover:bg-[var(--deshazo-surface)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>{invoiceSpendSyncing ? 'Syncing invoice runs...' : 'Sync Invoice Runs'}</span>
                   <DeveloperBadge />
                 </button>
                 <span className="text-sm font-bold text-[rgba(21,24,33,0.7)]">

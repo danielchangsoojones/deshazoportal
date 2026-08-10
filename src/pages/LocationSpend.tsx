@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import {
   getInvoiceSpendCranesForLocation,
+  type InvoiceSpendAllocation,
   type InvoiceSpendCraneSummary,
 } from '../lib/invoiceSpend'
 import { isConfigured, supabase } from '../lib/supabase'
@@ -42,6 +43,16 @@ type LocationSpendState = {
   status: 'loading' | 'ready'
 }
 
+type LocationInvoiceGroup = {
+  invoiceId: string
+  invoiceNumber: string
+  invoiceDate: string
+  jobNumber: string
+  invoiceTotal: number
+  locationSpend: number
+  cranes: InvoiceSpendAllocation[]
+}
+
 export default function LocationSpend() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -59,6 +70,7 @@ export default function LocationSpend() {
     error: '',
     status: 'loading',
   })
+  const [expandedInvoiceIds, setExpandedInvoiceIds] = useState<Set<string>>(new Set())
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Location Comparison')
 
@@ -147,6 +159,56 @@ export default function LocationSpend() {
       craneCount: spendState.data.length,
     }
   }, [spendState.data])
+
+  const invoiceGroups = useMemo<LocationInvoiceGroup[]>(() => {
+    const allocations = new Map<string, InvoiceSpendAllocation>()
+    spendState.data.forEach((crane) => {
+      crane.allocations.forEach((allocation) => allocations.set(allocation.id, allocation))
+    })
+
+    const groups = new Map<string, LocationInvoiceGroup>()
+    allocations.forEach((allocation) => {
+      const current = groups.get(allocation.invoiceId) ?? {
+        invoiceId: allocation.invoiceId,
+        invoiceNumber: allocation.invoiceNumber,
+        invoiceDate: allocation.invoiceDate,
+        jobNumber: allocation.jobNumber,
+        invoiceTotal: allocation.invoiceTotal,
+        locationSpend: 0,
+        cranes: [],
+      }
+      current.locationSpend += allocation.allocatedAmount
+      current.cranes.push(allocation)
+      groups.set(allocation.invoiceId, current)
+    })
+
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        cranes: [...group.cranes].sort(
+          (left, right) => right.allocatedAmount - left.allocatedAmount || left.dNumber.localeCompare(right.dNumber),
+        ),
+      }))
+      .sort((left, right) => right.invoiceDate.localeCompare(left.invoiceDate) || right.locationSpend - left.locationSpend)
+  }, [spendState.data])
+
+  useEffect(() => {
+    setExpandedInvoiceIds((current) => {
+      const availableIds = new Set(invoiceGroups.map((invoice) => invoice.invoiceId))
+      const retainedIds = new Set(Array.from(current).filter((invoiceId) => availableIds.has(invoiceId)))
+      if (retainedIds.size > 0 || invoiceGroups.length === 0) return retainedIds
+      return new Set([invoiceGroups[0].invoiceId])
+    })
+  }, [invoiceGroups])
+
+  const toggleInvoice = (invoiceId: string) => {
+    setExpandedInvoiceIds((current) => {
+      const next = new Set(current)
+      if (next.has(invoiceId)) next.delete(invoiceId)
+      else next.add(invoiceId)
+      return next
+    })
+  }
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -268,7 +330,7 @@ export default function LocationSpend() {
                 {location || `${customerName} Crane Spend`}
               </h1>
               <p className="mt-3 max-w-[68ch] text-base leading-7 text-[rgba(21,24,33,0.72)]">
-                Cranes ranked by allocated invoice spend from the new invoice extraction workflow.
+                Invoice and job spend with the allocated cranes shown inside each invoice.
               </p>
             </div>
           </div>
@@ -302,45 +364,82 @@ export default function LocationSpend() {
                 <table className="min-w-full border-collapse text-left">
                   <thead className="bg-[var(--deshazo-surface)] text-[12px] font-black uppercase tracking-[0.04em] text-[#6f7788]">
                     <tr>
-                      <th className="w-[84px] px-5 py-4">Rank</th>
-                      <th className="min-w-[180px] px-5 py-4">Crane</th>
-                      <th className="min-w-[220px] px-5 py-4">Details</th>
-                      <th className="px-5 py-4 text-right">Spend</th>
-                      <th className="px-5 py-4 text-right">Invoices</th>
-                      <th className="min-w-[150px] px-5 py-4">Latest Invoice</th>
+                      <th className="min-w-[220px] px-5 py-4">Invoice / Crane</th>
+                      <th className="min-w-[170px] px-5 py-4">Job / Details</th>
+                      <th className="min-w-[140px] px-5 py-4">Date</th>
+                      <th className="min-w-[130px] px-5 py-4 text-right">Allocated Spend</th>
+                      <th className="min-w-[130px] px-5 py-4 text-right">Invoice Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {spendState.data.map((crane, index) => (
-                      <tr
-                        key={crane.dNumber}
-                        className="cursor-pointer border-t border-[var(--deshazo-border)] transition hover:bg-[var(--deshazo-surface)]/60"
-                        onClick={() => {
-                          if (crane.dNumber !== 'Unmapped') {
-                            navigate(`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics`)
-                          }
-                        }}
-                      >
-                        <td className="px-5 py-4 text-lg font-black text-[var(--deshazo-blue)]">#{index + 1}</td>
-                        <td className="px-5 py-4">
-                          <p className="font-extrabold text-[var(--deshazo-text)]">{crane.dNumber}</p>
-                          <p className="mt-1 max-w-[36ch] truncate text-sm text-[rgba(21,24,33,0.62)]">
-                            {crane.craneDescription || 'No crane description'}
-                          </p>
-                        </td>
-                        <td className="px-5 py-4 text-[rgba(21,24,33,0.72)]">
-                          <p className="font-semibold text-[rgba(21,24,33,0.82)]">{crane.craneLocation || '-'}</p>
-                          <p className="mt-1 text-sm text-[rgba(21,24,33,0.52)]">{crane.locationLabel}</p>
-                        </td>
-                        <td className="px-5 py-4 text-right text-xl font-black text-[var(--deshazo-blue)]">
-                          {formatCurrency(crane.totalSpend)}
-                        </td>
-                        <td className="px-5 py-4 text-right font-bold text-[rgba(21,24,33,0.72)]">{crane.invoiceCount}</td>
-                        <td className="px-5 py-4 font-semibold text-[rgba(21,24,33,0.72)]">
-                          {formatDate(crane.latestInvoiceDate)}
-                        </td>
-                      </tr>
-                    ))}
+                    {invoiceGroups.map((invoice) => {
+                      const expanded = expandedInvoiceIds.has(invoice.invoiceId)
+                      return (
+                        <Fragment key={invoice.invoiceId}>
+                          <tr className="border-t border-[var(--deshazo-border)] bg-[#f7f9fd]">
+                            <td className="px-5 py-4" colSpan={2}>
+                              <button
+                                type="button"
+                                className="flex w-full items-center gap-3 text-left"
+                                onClick={() => toggleInvoice(invoice.invoiceId)}
+                                aria-expanded={expanded}
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#c8d5ea] bg-white text-sm font-black text-[var(--deshazo-blue)] transition-transform ${expanded ? 'rotate-90' : ''}`}
+                                >
+                                  ›
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block text-[15px] font-black text-[var(--deshazo-text)]">
+                                    Invoice {invoice.invoiceNumber || 'number not found'}
+                                  </span>
+                                  <span className="mt-1 block text-[12px] font-bold text-[#747b8a]">
+                                    Job {invoice.jobNumber || 'not found'} · {invoice.cranes.length} crane{invoice.cranes.length === 1 ? '' : 's'}
+                                  </span>
+                                </span>
+                              </button>
+                            </td>
+                            <td className="px-5 py-4 text-sm font-bold text-[#4d5360]">{formatDate(invoice.invoiceDate)}</td>
+                            <td className="px-5 py-4 text-right text-lg font-black text-[var(--deshazo-blue)]">
+                              {formatCurrency(invoice.locationSpend)}
+                            </td>
+                            <td className="px-5 py-4 text-right text-sm font-bold text-[#4d5360]">
+                              {formatCurrency(invoice.invoiceTotal)}
+                            </td>
+                          </tr>
+                          {expanded && invoice.cranes.map((crane) => (
+                            <tr
+                              key={crane.id}
+                              className="cursor-pointer border-t border-[#e2e8f2] transition hover:bg-[#f8fbff]"
+                              onClick={() => {
+                                if (crane.dNumber && crane.dNumber !== 'Unmapped') {
+                                  navigate(`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics`)
+                                }
+                              }}
+                            >
+                              <td className="py-4 pl-16 pr-5">
+                                <p className="font-extrabold text-[var(--deshazo-text)]">{crane.dNumber || 'Unmapped'}</p>
+                                <p className="mt-1 max-w-[38ch] truncate text-sm text-[rgba(21,24,33,0.62)]">
+                                  {crane.craneDescription || 'No crane description'}
+                                </p>
+                              </td>
+                              <td className="px-5 py-4">
+                                <p className="font-semibold text-[rgba(21,24,33,0.82)]">{crane.craneLocation || '-'}</p>
+                                <p className="mt-1 text-sm text-[rgba(21,24,33,0.52)]">{crane.allocationMethod.replaceAll('_', ' ')}</p>
+                              </td>
+                              <td className="px-5 py-4 text-sm font-semibold text-[rgba(21,24,33,0.62)]">Crane allocation</td>
+                              <td className="px-5 py-4 text-right text-lg font-black text-[var(--deshazo-blue)]">
+                                {formatCurrency(crane.allocatedAmount)}
+                              </td>
+                              <td className="px-5 py-4 text-right text-sm font-semibold text-[rgba(21,24,33,0.52)]">
+                                {invoice.cranes.length > 1 ? `1 of ${invoice.cranes.length}` : 'Full invoice'}
+                              </td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
