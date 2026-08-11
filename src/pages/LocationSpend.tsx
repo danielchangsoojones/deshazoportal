@@ -7,6 +7,7 @@ import {
   getInvoiceSpendCranesForLocation,
   type InvoiceSpendCraneSummary,
 } from '../lib/invoiceSpend'
+import { getCustomerLocationOptions, normalizeLocationValue, type PortalLocationOption } from '../lib/portalLocations'
 import { isConfigured, supabase } from '../lib/supabase'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { usePortalMenu } from '../lib/usePortalMenu'
@@ -100,8 +101,30 @@ export default function LocationSpend() {
   })
   const [craneSearch, setCraneSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
+  const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
+  const [locationsLoading, setLocationsLoading] = useState(true)
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false)
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Location Comparison')
+
+  useEffect(() => {
+    let cancelled = false
+
+    getCustomerLocationOptions(selectedCustomer)
+      .then((options) => {
+        if (!cancelled) setLocationOptions(options)
+      })
+      .catch(() => {
+        if (!cancelled) setLocationOptions([])
+      })
+      .finally(() => {
+        if (!cancelled) setLocationsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCustomer])
 
   useEffect(() => {
     let isMounted = true
@@ -219,6 +242,13 @@ export default function LocationSpend() {
     navigate(customerPath('/login'))
   }
 
+  const selectLocation = (nextLocation: string) => {
+    setLocationMenuOpen(false)
+    setCraneSearch('')
+    setCurrentPage(1)
+    navigate(`${customerPath('/location-spend')}?location=${encodeURIComponent(nextLocation)}`)
+  }
+
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
@@ -322,7 +352,7 @@ export default function LocationSpend() {
         )}
 
         <section className="min-w-0 flex-1 px-5 py-5 sm:px-8 lg:px-10">
-          <div className="mb-8 flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
+          <div className="mb-8 flex flex-col items-start justify-between gap-5 xl:flex-row xl:items-center">
             <div>
               <div className="text-[36px] font-black uppercase text-[#b8bcc8]">
                 DESHA<span className="text-[#f2b43f]">Z</span>O
@@ -333,9 +363,53 @@ export default function LocationSpend() {
               <div className="mt-[18px] h-1.5 w-full min-w-[280px] max-w-[530px] rounded-full bg-[var(--deshazo-blue)] sm:w-[530px]" />
             </div>
 
-            <label className="flex w-full items-center gap-3 text-sm font-semibold text-[var(--deshazo-text)] sm:w-auto">
-              <span className="shrink-0">Search</span>
-              <span className="flex h-10 w-full items-center rounded-md border border-[var(--deshazo-border)] bg-white px-3 sm:w-[320px]">
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-start xl:w-auto">
+              <div className="relative flex w-full items-center gap-3 text-sm font-semibold text-[var(--deshazo-text)] sm:w-auto">
+                <span className="shrink-0">Location</span>
+                <div className="relative w-full sm:w-[280px]">
+                  <button
+                    type="button"
+                    onClick={() => setLocationMenuOpen((open) => !open)}
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-[var(--deshazo-border)] bg-white px-3 text-left text-sm text-[var(--deshazo-text)]"
+                    aria-haspopup="listbox"
+                    aria-expanded={locationMenuOpen}
+                  >
+                    <span className="truncate">{locationsLoading ? 'Loading locations...' : location || 'Select Location'}</span>
+                    <span className="ml-3 text-xs text-[rgba(21,24,33,0.5)]" aria-hidden="true">{locationMenuOpen ? '⌃' : '⌄'}</span>
+                  </button>
+
+                  {locationMenuOpen ? (
+                    <div className="absolute right-0 top-[calc(100%+8px)] z-30 max-h-72 w-full overflow-y-auto rounded-[8px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-24px_rgba(47,86,166,0.35)]" role="listbox">
+                      {locationOptions.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-[rgba(21,24,33,0.55)]">No locations found.</div>
+                      ) : locationOptions.map((option) => {
+                        const isSelected = normalizeLocationValue(option.label) === normalizeLocationValue(location)
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => selectLocation(option.label)}
+                            className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${
+                              isSelected
+                                ? 'bg-[#dbe5ff] font-bold text-[var(--deshazo-text)]'
+                                : 'text-[rgba(21,24,33,0.78)] hover:bg-[var(--deshazo-surface)]'
+                            }`}
+                            role="option"
+                            aria-selected={isSelected}
+                          >
+                            <span>{option.label}</span>
+                            <span className="text-[var(--deshazo-blue)]">{isSelected ? '✓' : ''}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <label className="flex w-full items-center gap-3 text-sm font-semibold text-[var(--deshazo-text)] sm:w-auto">
+                <span className="shrink-0">Search</span>
+                <span className="flex h-10 w-full items-center rounded-md border border-[var(--deshazo-border)] bg-white px-3 sm:w-[280px]">
                 <svg
                   className="mr-2 h-4 w-4 shrink-0 text-[rgba(21,24,33,0.42)]"
                   fill="none"
@@ -354,8 +428,9 @@ export default function LocationSpend() {
                   placeholder="Crane, job, or invoice"
                   className="min-w-0 flex-1 bg-transparent text-sm text-[var(--deshazo-text)] placeholder:text-[rgba(21,24,33,0.42)] focus:outline-none"
                 />
-              </span>
-            </label>
+                </span>
+              </label>
+            </div>
           </div>
 
           <div className="mb-7 flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-end">
