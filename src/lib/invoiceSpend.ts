@@ -416,6 +416,7 @@ export async function getInvoiceSpendCranesForLocation(
 ): Promise<InvoiceSpendCraneSummary[]> {
   const selectedLocation = location.trim().toLowerCase()
   const allocations = await fetchInvoiceSpendAllocations(customer)
+  if (selectedLocation === 'all') return summarizeByCrane(allocations)
   return summarizeByCrane(
     allocations.filter((allocation) => allocation.locationLabel.trim().toLowerCase() === selectedLocation),
   )

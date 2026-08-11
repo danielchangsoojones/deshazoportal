@@ -374,7 +374,7 @@ export default function LocationSpend() {
                     aria-haspopup="listbox"
                     aria-expanded={locationMenuOpen}
                   >
-                    <span className="truncate">{locationsLoading ? 'Loading locations...' : location || 'Select Location'}</span>
+                    <span className="truncate">{locationsLoading ? 'Loading locations...' : location === 'all' ? 'All locations' : location || 'Select Location'}</span>
                     <span className="ml-3 text-xs text-[rgba(21,24,33,0.5)]" aria-hidden="true">{locationMenuOpen ? '⌃' : '⌄'}</span>
                   </button>
 
@@ -382,7 +382,23 @@ export default function LocationSpend() {
                     <div className="absolute right-0 top-[calc(100%+8px)] z-30 max-h-72 w-full overflow-y-auto rounded-[8px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-24px_rgba(47,86,166,0.35)]" role="listbox">
                       {locationOptions.length === 0 ? (
                         <div className="px-3 py-2 text-sm text-[rgba(21,24,33,0.55)]">No locations found.</div>
-                      ) : locationOptions.map((option) => {
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => selectLocation('all')}
+                            className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${
+                              location === 'all'
+                                ? 'bg-[#dbe5ff] font-bold text-[var(--deshazo-text)]'
+                                : 'text-[rgba(21,24,33,0.78)] hover:bg-[var(--deshazo-surface)]'
+                            }`}
+                            role="option"
+                            aria-selected={location === 'all'}
+                          >
+                            <span>All locations</span>
+                            <span className="text-[var(--deshazo-blue)]">{location === 'all' ? '✓' : ''}</span>
+                          </button>
+                          {locationOptions.map((option) => {
                         const isSelected = normalizeLocationValue(option.label) === normalizeLocationValue(location)
                         return (
                           <button
@@ -401,7 +417,9 @@ export default function LocationSpend() {
                             <span className="text-[var(--deshazo-blue)]">{isSelected ? '✓' : ''}</span>
                           </button>
                         )
-                      })}
+                          })}
+                        </>
+                      )}
                     </div>
                   ) : null}
                 </div>
@@ -442,7 +460,7 @@ export default function LocationSpend() {
                 Location Comparison
               </Link>
               <h1 className="mt-2 text-[clamp(32px,4vw,50px)] font-black leading-[0.98] text-[var(--deshazo-text)]">
-                {location || `${customerName} Crane Spend`}
+                {location === 'all' ? 'All Locations' : location || `${customerName} Crane Spend`}
               </h1>
               <p className="mt-3 max-w-[68ch] text-base leading-7 text-[rgba(21,24,33,0.72)]">
                 Cranes ordered by total allocated cost, from highest to lowest.
