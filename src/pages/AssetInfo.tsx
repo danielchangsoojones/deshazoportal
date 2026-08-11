@@ -500,6 +500,7 @@ export default function AssetInfo() {
   const customerPath = useCustomerPath()
   const unitId = searchParams.get('unit_id')?.trim() || ''
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
+  const openedFromLocationComparison = searchParams.get('from') === 'location-comparison'
   const usesSupabaseAssetData = currentView === 'open-risk' || currentView === 'asset-fleet'
 
   useEffect(() => {
@@ -511,7 +512,11 @@ export default function AssetInfo() {
 
   const activeMenuItems = useDeveloperMenuItems(
     menuItems,
-    currentView === 'open-risk' ? 'Open Risk Items' : 'Asset Fleet',
+    openedFromLocationComparison
+      ? 'Location Comparison'
+      : currentView === 'open-risk'
+        ? 'Open Risk Items'
+        : 'Asset Fleet',
   )
 
   const analytics = useMemo(() => {

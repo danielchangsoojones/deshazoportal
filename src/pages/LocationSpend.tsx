@@ -473,7 +473,7 @@ export default function LocationSpend() {
                     {paginatedCranes.map((crane) => (
                       <Link
                         key={crane.dNumber}
-                        to={`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics`}
+                        to={`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics&from=location-comparison`}
                         className="group overflow-hidden rounded-[10px] border border-[var(--deshazo-border)] bg-white shadow-[0_14px_30px_-28px_rgba(47,86,166,0.22)] transition hover:border-[#9eb3d7] focus:outline-none focus:ring-2 focus:ring-[var(--deshazo-blue)]"
                       >
                         <article className="flex h-full flex-col">
