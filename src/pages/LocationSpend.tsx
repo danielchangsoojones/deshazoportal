@@ -1,11 +1,10 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import {
   getInvoiceSpendCranesForLocation,
-  type InvoiceSpendAllocation,
   type InvoiceSpendCraneSummary,
 } from '../lib/invoiceSpend'
 import { isConfigured, supabase } from '../lib/supabase'
@@ -43,14 +42,29 @@ type LocationSpendState = {
   status: 'loading' | 'ready'
 }
 
-type LocationInvoiceGroup = {
-  invoiceId: string
-  invoiceNumber: string
-  invoiceDate: string
-  jobNumber: string
-  invoiceTotal: number
-  locationSpend: number
-  cranes: InvoiceSpendAllocation[]
+function SpendRing({ spend, totalSpend }: { spend: number; totalSpend: number }) {
+  const percentage = totalSpend > 0 ? Math.min(100, (spend / totalSpend) * 100) : 0
+  const degrees = percentage * 3.6
+
+  return (
+    <div className="flex items-center gap-4">
+      <div
+        className="relative h-14 w-14 shrink-0 rounded-full"
+        style={{ background: `conic-gradient(var(--deshazo-blue) 0deg ${degrees}deg, #dce4f1 ${degrees}deg 360deg)` }}
+        aria-hidden="true"
+      >
+        <div className="absolute inset-[8px] flex items-center justify-center rounded-full bg-white">
+          <span className="text-[10px] font-black text-[var(--deshazo-text)]">
+            {percentage < 1 && percentage > 0 ? '<1%' : `${Math.round(percentage)}%`}
+          </span>
+        </div>
+      </div>
+      <div>
+        <p className="text-[20px] font-black leading-none text-[var(--deshazo-text)]">{formatCurrency(spend)}</p>
+        <p className="mt-1 text-[13px] font-semibold text-[rgba(21,24,33,0.62)]">Share of invoice spend</p>
+      </div>
+    </div>
+  )
 }
 
 export default function LocationSpend() {
@@ -70,8 +84,7 @@ export default function LocationSpend() {
     error: '',
     status: 'loading',
   })
-  const [expandedInvoiceIds, setExpandedInvoiceIds] = useState<Set<string>>(new Set())
-  const [invoiceSearch, setInvoiceSearch] = useState('')
+  const [craneSearch, setCraneSearch] = useState('')
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Location Comparison')
 
@@ -161,80 +174,18 @@ export default function LocationSpend() {
     }
   }, [spendState.data])
 
-  const invoiceGroups = useMemo<LocationInvoiceGroup[]>(() => {
-    const allocations = new Map<string, InvoiceSpendAllocation>()
-    spendState.data.forEach((crane) => {
-      crane.allocations.forEach((allocation) => allocations.set(allocation.id, allocation))
-    })
-
-    const groups = new Map<string, LocationInvoiceGroup>()
-    allocations.forEach((allocation) => {
-      const current = groups.get(allocation.invoiceId) ?? {
-        invoiceId: allocation.invoiceId,
-        invoiceNumber: allocation.invoiceNumber,
-        invoiceDate: allocation.invoiceDate,
-        jobNumber: allocation.jobNumber,
-        invoiceTotal: allocation.invoiceTotal,
-        locationSpend: 0,
-        cranes: [],
-      }
-      current.locationSpend += allocation.allocatedAmount
-      current.cranes.push(allocation)
-      groups.set(allocation.invoiceId, current)
-    })
-
-    return Array.from(groups.values())
-      .map((group) => ({
-        ...group,
-        cranes: [...group.cranes].sort(
-          (left, right) => right.allocatedAmount - left.allocatedAmount || left.dNumber.localeCompare(right.dNumber),
-        ),
-      }))
-      .sort((left, right) => right.invoiceDate.localeCompare(left.invoiceDate) || right.locationSpend - left.locationSpend)
-  }, [spendState.data])
-
-  const visibleInvoiceGroups = useMemo(() => {
-    const query = invoiceSearch.trim().toLowerCase()
-    if (!query) return invoiceGroups
-    return invoiceGroups.filter((invoice) =>
+  const visibleCranes = useMemo(() => {
+    const query = craneSearch.trim().toLowerCase()
+    if (!query) return spendState.data
+    return spendState.data.filter((crane) =>
       [
-        invoice.invoiceNumber,
-        invoice.jobNumber,
-        ...invoice.cranes.flatMap((crane) => [crane.dNumber, crane.craneDescription]),
+        crane.dNumber,
+        crane.craneDescription,
+        crane.craneLocation,
+        ...crane.allocations.flatMap((allocation) => [allocation.invoiceNumber, allocation.jobNumber]),
       ].some((value) => value.toLowerCase().includes(query)),
     )
-  }, [invoiceGroups, invoiceSearch])
-
-  useEffect(() => {
-    setExpandedInvoiceIds((current) => {
-      const availableIds = new Set(invoiceGroups.map((invoice) => invoice.invoiceId))
-      return new Set(Array.from(current).filter((invoiceId) => availableIds.has(invoiceId)))
-    })
-  }, [invoiceGroups])
-
-  const toggleInvoice = (invoiceId: string) => {
-    setExpandedInvoiceIds((current) => {
-      const next = new Set(current)
-      if (next.has(invoiceId)) next.delete(invoiceId)
-      else next.add(invoiceId)
-      return next
-    })
-  }
-
-  const allVisibleInvoicesExpanded =
-    visibleInvoiceGroups.length > 0 && visibleInvoiceGroups.every((invoice) => expandedInvoiceIds.has(invoice.invoiceId))
-
-  const toggleAllVisibleInvoices = () => {
-    setExpandedInvoiceIds((current) => {
-      const next = new Set(current)
-      if (allVisibleInvoicesExpanded) {
-        visibleInvoiceGroups.forEach((invoice) => next.delete(invoice.invoiceId))
-      } else {
-        visibleInvoiceGroups.forEach((invoice) => next.add(invoice.invoiceId))
-      }
-      return next
-    })
-  }
+  }, [craneSearch, spendState.data])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -356,182 +307,108 @@ export default function LocationSpend() {
                 {location || `${customerName} Crane Spend`}
               </h1>
               <p className="mt-3 max-w-[68ch] text-base leading-7 text-[rgba(21,24,33,0.72)]">
-                Invoice and job spend with the allocated cranes shown inside each invoice.
+                Cranes ordered by total allocated cost, from highest to lowest.
               </p>
             </div>
           </div>
 
-          <section className="mb-6 grid gap-4 md:grid-cols-3">
-            {[
-              ['Total Spend', formatCurrency(totals.totalSpend)],
-              ['Invoices', totals.invoiceCount.toLocaleString()],
-              ['Cranes', totals.craneCount.toLocaleString()],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)]">
-                <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#8b92a4]">{label}</p>
-                <p className="mt-2 text-3xl font-black text-[var(--deshazo-text)]">{value}</p>
+          <article className="mb-6 max-w-[720px] rounded-[10px] border border-[var(--deshazo-border)] bg-white px-6 py-5 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+            <div className="flex flex-wrap items-center gap-6">
+              <div className="min-w-[170px]">
+                <p className="text-[14px] font-bold uppercase tracking-[0.03em] text-[rgba(21,24,33,0.58)]">Total Spend</p>
+                <p className="mt-1 text-[28px] font-extrabold text-[var(--deshazo-text)]">{formatCurrency(totals.totalSpend)}</p>
               </div>
-            ))}
-          </section>
+              <div className="flex min-w-[150px] items-center justify-center rounded-[6px] border border-[var(--deshazo-border)] px-6 py-3">
+                <div className="text-center">
+                  <p className="text-[24px] font-extrabold text-[var(--deshazo-text)]">{totals.invoiceCount}</p>
+                  <div className="mt-1 h-[2px] w-24 bg-[var(--deshazo-blue)]" />
+                  <p className="text-[18px] font-medium text-[var(--deshazo-blue)]">Invoices</p>
+                </div>
+              </div>
+              <div className="flex min-w-[150px] items-center justify-center rounded-[6px] border border-[var(--deshazo-border)] px-6 py-3">
+                <div className="text-center">
+                  <p className="text-[24px] font-extrabold text-[var(--deshazo-text)]">{totals.craneCount}</p>
+                  <div className="mt-1 h-[2px] w-24 bg-[#efb634]" />
+                  <p className="text-[18px] font-medium text-[#9a6a00]">Cranes</p>
+                </div>
+              </div>
+            </div>
+          </article>
 
-          <section className="overflow-hidden rounded-[14px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)]">
+          <section>
             {loading ? (
-              <div className="px-6 py-10 text-center text-sm font-semibold text-[var(--deshazo-blue)]">
+              <div className="rounded-lg border border-[var(--deshazo-border)] bg-white px-6 py-10 text-center text-sm font-semibold text-[var(--deshazo-blue)]">
                 Loading crane spend...
               </div>
             ) : spendState.error ? (
-              <div className="px-6 py-10 text-center text-sm font-semibold text-[#b42318]">{spendState.error}</div>
+              <div className="rounded-lg border border-[#f0c4bd] bg-white px-6 py-10 text-center text-sm font-semibold text-[#b42318]">{spendState.error}</div>
             ) : spendState.data.length === 0 ? (
-              <div className="px-6 py-10 text-center text-sm font-semibold text-[rgba(21,24,33,0.64)]">
+              <div className="rounded-lg border border-[var(--deshazo-border)] bg-white px-6 py-10 text-center text-sm font-semibold text-[rgba(21,24,33,0.64)]">
                 No invoice spend allocations are available for this location yet.
               </div>
             ) : (
-              <div>
-                <div className="flex flex-col gap-3 border-b border-[var(--deshazo-border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="rounded-[14px] border border-[#bfcdf1] bg-[#c7d4f5] px-3 py-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
+                <div className="mb-4 flex flex-col gap-3 px-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h2 className="text-[18px] font-black text-[var(--deshazo-text)]">Invoice allocations</h2>
-                    <p className="mt-1 text-sm text-[rgba(21,24,33,0.58)]">
-                      Expand an invoice to review every crane receiving a share of its cost.
+                    <h2 className="text-[18px] font-black text-[var(--deshazo-text)]">Crane Cost Ranking</h2>
+                    <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.64)]">
+                      {visibleCranes.length} crane{visibleCranes.length === 1 ? '' : 's'} shown · highest cost first
                     </p>
                   </div>
-                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                    <label className="sr-only" htmlFor="invoice-allocation-search">Search invoice allocations</label>
+                  <div className="w-full sm:w-auto">
+                    <label className="sr-only" htmlFor="crane-spend-search">Search crane costs</label>
                     <input
-                      id="invoice-allocation-search"
+                      id="crane-spend-search"
                       type="search"
-                      value={invoiceSearch}
-                      onChange={(event) => setInvoiceSearch(event.currentTarget.value)}
-                      placeholder="Search invoice, job, or crane"
-                      className="h-10 w-full rounded-md border border-[#bdc8da] bg-white px-3 text-sm font-semibold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#8b92a4] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[#dbe5ff] sm:w-[260px]"
+                      value={craneSearch}
+                      onChange={(event) => setCraneSearch(event.currentTarget.value)}
+                      placeholder="Search crane, job, or invoice"
+                      className="h-10 w-full rounded-md border border-[var(--deshazo-border)] bg-white px-4 text-sm font-semibold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#8b92a4] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[#dbe5ff] sm:w-[300px]"
                     />
-                    <button
-                      type="button"
-                      onClick={toggleAllVisibleInvoices}
-                      disabled={visibleInvoiceGroups.length === 0}
-                      className="h-10 whitespace-nowrap rounded-md border border-[#bdc8da] bg-white px-4 text-sm font-black text-[var(--deshazo-blue)] transition hover:bg-[#eef3fc] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {allVisibleInvoicesExpanded ? 'Collapse all' : 'Expand all'}
-                    </button>
                   </div>
                 </div>
 
-                {visibleInvoiceGroups.length === 0 ? (
-                  <div className="px-6 py-12 text-center">
-                    <p className="text-base font-black text-[var(--deshazo-text)]">No matching allocations</p>
-                    <p className="mt-1 text-sm text-[rgba(21,24,33,0.58)]">Try another invoice, job, or D-number.</p>
+                {visibleCranes.length === 0 ? (
+                  <div className="flex min-h-[420px] items-center justify-center rounded-[10px] bg-white px-6 text-center">
+                    <div>
+                    <p className="text-base font-black text-[var(--deshazo-text)]">No matching cranes</p>
+                    <p className="mt-1 text-sm text-[rgba(21,24,33,0.58)]">Try another D-number, job, or invoice.</p>
+                    </div>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1100px] table-fixed border-collapse text-left">
-                      <colgroup>
-                        <col className="w-[25%]" />
-                        <col className="w-[18%]" />
-                        <col className="w-[18%]" />
-                        <col className="w-[13%]" />
-                        <col className="w-[14%]" />
-                        <col className="w-[12%]" />
-                      </colgroup>
-                      <thead className="bg-[var(--deshazo-surface)] text-[12px] font-black uppercase tracking-[0.04em] text-[#6f7788]">
-                        <tr>
-                          <th className="min-w-[240px] px-5 py-3">Invoice / Crane</th>
-                          <th className="min-w-[180px] px-5 py-3">Job / Equipment</th>
-                          <th className="min-w-[170px] px-5 py-3">Allocation</th>
-                          <th className="min-w-[120px] px-5 py-3">Date</th>
-                          <th className="min-w-[140px] px-5 py-3 text-right">Location Share</th>
-                          <th className="min-w-[130px] px-5 py-3 text-right">Invoice Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleInvoiceGroups.map((invoice) => {
-                          const expanded = expandedInvoiceIds.has(invoice.invoiceId)
-                          const allocationPercent = invoice.invoiceTotal > 0
-                            ? Math.min(100, (invoice.locationSpend / invoice.invoiceTotal) * 100)
-                            : 0
-                          return (
-                            <Fragment key={invoice.invoiceId}>
-                              <tr className="border-t border-[var(--deshazo-border)] bg-[#f7f9fd]">
-                                <td className="px-5 py-4">
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-3 text-left"
-                                    onClick={() => toggleInvoice(invoice.invoiceId)}
-                                    aria-expanded={expanded}
-                                  >
-                                    <span
-                                      aria-hidden="true"
-                                      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#c8d5ea] bg-white text-sm font-black text-[var(--deshazo-blue)] transition-transform ${expanded ? 'rotate-90' : ''}`}
-                                    >
-                                      ›
-                                    </span>
-                                    <span className="min-w-0">
-                                      <span className="block text-[15px] font-black text-[var(--deshazo-text)]">
-                                        {invoice.invoiceNumber || 'Invoice number not found'}
-                                      </span>
-                                      <span className="mt-1 block text-[12px] font-bold text-[#747b8a]">
-                                        {expanded ? 'Hide crane allocations' : 'Show crane allocations'}
-                                      </span>
-                                    </span>
-                                  </button>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <span className="inline-flex rounded-sm border border-[#c8d5ea] bg-[#e6efff] px-2.5 py-1 text-[12px] font-black text-[var(--deshazo-blue)]">
-                                    Job {invoice.jobNumber || 'not found'}
-                                  </span>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <span className="inline-flex rounded-sm border border-[#b7dec8] bg-[#edf9f2] px-2.5 py-1 text-[12px] font-black text-[#18794e]">Allocated</span>
-                                  <p className="mt-1.5 text-xs font-bold text-[#747b8a]">
-                                    {invoice.cranes.length} crane{invoice.cranes.length === 1 ? '' : 's'}
-                                  </p>
-                                </td>
-                                <td className="px-5 py-4 text-sm font-bold text-[#4d5360]">{formatDate(invoice.invoiceDate)}</td>
-                                <td className="px-5 py-4 text-right">
-                                  <p className="text-lg font-black text-[var(--deshazo-blue)]">{formatCurrency(invoice.locationSpend)}</p>
-                                  <p className="mt-1 text-xs font-bold text-[#747b8a]">{allocationPercent.toFixed(0)}% of invoice</p>
-                                </td>
-                                <td className="px-5 py-4 text-right text-sm font-bold text-[#4d5360]">{formatCurrency(invoice.invoiceTotal)}</td>
-                              </tr>
-                              {expanded && invoice.cranes.map((crane) => (
-                                <tr
-                                  key={crane.id}
-                                  className="cursor-pointer border-t border-[#e2e8f2] bg-white transition hover:bg-[#f8fbff]"
-                                  onClick={() => {
-                                    if (crane.dNumber && crane.dNumber !== 'Unmapped') {
-                                      navigate(`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics`)
-                                    }
-                                  }}
-                                >
-                                  <td className="py-4 pl-16 pr-5">
-                                    <div className="flex items-center gap-2">
-                                      <p className="font-extrabold text-[var(--deshazo-text)]">{crane.dNumber || 'Unmapped'}</p>
-                                      <span className="rounded-sm bg-[#eef2f8] px-2 py-0.5 text-[10px] font-black uppercase text-[#6f7788]">Crane</span>
-                                    </div>
-                                    <p className="mt-1 max-w-[38ch] truncate text-sm text-[rgba(21,24,33,0.62)]">
-                                      {crane.craneDescription || 'No crane description'}
-                                    </p>
-                                  </td>
-                                  <td className="px-5 py-4">
-                                    <p className="font-semibold text-[rgba(21,24,33,0.82)]">{crane.craneLocation || '-'}</p>
-                                  </td>
-                                  <td className="px-5 py-4">
-                                    <p className="text-sm font-bold capitalize text-[rgba(21,24,33,0.72)]">
-                                      {crane.allocationMethod.replaceAll('_', ' ')}
-                                    </p>
-                                  </td>
-                                  <td className="px-5 py-4 text-sm font-semibold text-[rgba(21,24,33,0.52)]">{formatDate(crane.invoiceDate)}</td>
-                                  <td className="px-5 py-4 text-right text-lg font-black text-[var(--deshazo-blue)]">
-                                    {formatCurrency(crane.allocatedAmount)}
-                                  </td>
-                                  <td className="px-5 py-4 text-right text-sm font-semibold text-[rgba(21,24,33,0.52)]">
-                                    {invoice.cranes.length > 1 ? `${(100 / invoice.cranes.length).toFixed(1)}% share` : '100% share'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </Fragment>
-                          )
-                        })}
-                      </tbody>
-                    </table>
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    {visibleCranes.map((crane) => (
+                      <Link
+                        key={crane.dNumber}
+                        to={`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics`}
+                        className="group overflow-hidden rounded-[10px] border border-[var(--deshazo-border)] bg-white shadow-[0_14px_30px_-28px_rgba(47,86,166,0.22)] transition hover:border-[#9eb3d7] focus:outline-none focus:ring-2 focus:ring-[var(--deshazo-blue)]"
+                      >
+                        <article className="flex h-full flex-col">
+                          <div className="flex-1 space-y-1 px-4 py-4">
+                            <p className="text-[18px] font-extrabold uppercase leading-[1.1] text-[var(--deshazo-text)]">{crane.dNumber}</p>
+                            <p className="line-clamp-2 min-h-[40px] text-[15px] font-medium leading-5 text-[rgba(21,24,33,0.72)]">
+                              {crane.craneDescription || 'No crane description'}
+                            </p>
+                            <div className="flex items-center gap-2 pt-1 text-[15px] font-semibold text-[var(--deshazo-text)]">
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#d7b94a] bg-[#ffe680]">
+                                <span className="h-2 w-2 rounded-full bg-[#725900]" />
+                              </span>
+                              <span className="truncate">{crane.craneLocation || crane.locationLabel || 'Location unavailable'}</span>
+                            </div>
+                            <p className="pt-1 text-[15px] font-medium text-[rgba(21,24,33,0.78)]">
+                              Latest invoice {formatDate(crane.latestInvoiceDate)}
+                            </p>
+                          </div>
+
+                          <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
+                            <SpendRing spend={crane.totalSpend} totalSpend={totals.totalSpend} />
+                            <span className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-[4px] bg-[var(--deshazo-blue)] text-[14px] font-bold text-white transition group-hover:bg-[var(--deshazo-blue-deep)]">
+                              See Details
+                            </span>
+                          </div>
+                        </article>
+                      </Link>
+                    ))}
                   </div>
                 )}
               </div>
