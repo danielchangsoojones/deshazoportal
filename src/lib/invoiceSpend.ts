@@ -60,6 +60,7 @@ export type InvoiceSpendMonthlyPoint = {
 export type CraneInvoiceSpendAnalytics = {
   dNumber: string
   totalSpend: number
+  associatedInvoiceSpend: number
   invoiceCount: number
   averageInvoiceSpend: number
   latestInvoiceDate: string
@@ -418,9 +419,11 @@ export async function getCraneInvoiceSpendAnalytics(
     .sort((left, right) => right.invoiceDate.localeCompare(left.invoiceDate))
   const invoiceIds = new Set(allocations.map((allocation) => allocation.invoiceId))
   const totalSpend = allocations.reduce((sum, allocation) => sum + allocation.allocatedAmount, 0)
+  const invoiceTotals = new Map<string, number>()
   const monthTotals = new Map<string, number>()
 
   allocations.forEach((allocation) => {
+    invoiceTotals.set(allocation.invoiceId, allocation.invoiceTotal)
     const key = monthKey(allocation.invoiceDate)
     monthTotals.set(key, (monthTotals.get(key) ?? 0) + allocation.allocatedAmount)
   })
@@ -428,6 +431,7 @@ export async function getCraneInvoiceSpendAnalytics(
   return {
     dNumber: normalizedDNumber,
     totalSpend: Math.round(totalSpend),
+    associatedInvoiceSpend: Math.round(Array.from(invoiceTotals.values()).reduce((sum, total) => sum + total, 0)),
     invoiceCount: invoiceIds.size,
     averageInvoiceSpend: invoiceIds.size > 0 ? Math.round(totalSpend / invoiceIds.size) : 0,
     latestInvoiceDate: allocations[0]?.invoiceDate ?? '',

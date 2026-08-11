@@ -133,11 +133,34 @@ const formatDisplayDate = (value?: string) =>
 
 const formatCurrency = (value: number) => `$${Math.round(value).toLocaleString()}`
 
+const formatCompactCurrency = (value: number) => {
+  const absoluteValue = Math.abs(value)
+  if (absoluteValue >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
+  if (absoluteValue >= 1_000) return `$${(value / 1_000).toFixed(1)}K`
+  return `$${Math.round(value)}`
+}
+
+const spendTooltipStyle = {
+  border: '1px solid #d8e0ee',
+  borderRadius: 8,
+  boxShadow: '0 14px 32px -22px rgba(21, 38, 75, 0.45)',
+  fontSize: 12,
+  fontWeight: 700,
+  padding: '10px 12px',
+}
+
 const formatInvoiceDate = (value?: string) => {
   if (!value) return 'Not available'
   const parsed = new Date(`${value.slice(0, 10)}T00:00:00`)
   if (Number.isNaN(parsed.getTime())) return value
   return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const formatSpendMonth = (value?: string) => {
+  if (!value) return 'Not available'
+  const parsed = new Date(`${value}-01T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
 }
 
 const isAssetInfoTab = (value: string | null): value is AssetInfoTab =>
@@ -625,6 +648,67 @@ export default function AssetInfo() {
       recurringPatterns,
     }
   }, [assetInfo.issues])
+
+  const spendDashboard = useMemo(() => {
+    const monthly = spendAnalytics?.monthlySpend ?? []
+    let cumulative = 0
+    const trend = monthly.map((point) => {
+      cumulative += point.spend
+      return {
+        ...point,
+        monthLabel: formatSpendMonth(point.month),
+        cumulative,
+      }
+    })
+    const latest = monthly.at(-1)
+    const previous = monthly.at(-2)
+    const monthChangePercent = previous && previous.spend > 0 && latest
+      ? ((latest.spend - previous.spend) / previous.spend) * 100
+      : null
+    const peakMonth = monthly.reduce<(typeof monthly)[number] | null>(
+      (peak, point) => !peak || point.spend > peak.spend ? point : peak,
+      null,
+    )
+    const invoiceMixRows = (spendAnalytics?.recentInvoices ?? [])
+      .map((invoice) => ({
+        name: invoice.invoiceNumber || 'Invoice',
+        value: invoice.allocatedAmount,
+        invoiceTotal: invoice.invoiceTotal,
+        remainingCost: Math.max(0, invoice.invoiceTotal - invoice.allocatedAmount),
+        jobNumber: invoice.jobNumber,
+      }))
+      .sort((left, right) => right.value - left.value)
+    const leadingInvoices = invoiceMixRows.slice(0, 5)
+    const otherSpend = invoiceMixRows.slice(5).reduce((sum, invoice) => sum + invoice.value, 0)
+
+    const uniqueInvoices = new Map<string, { invoiceTotal: number; allocatedAmount: number }>()
+    ;(spendAnalytics?.recentInvoices ?? []).forEach((invoice) => {
+      uniqueInvoices.set(invoice.invoiceId, {
+        invoiceTotal: invoice.invoiceTotal,
+        allocatedAmount: invoice.allocatedAmount,
+      })
+    })
+    const grossInvoiceSpend = spendAnalytics?.associatedInvoiceSpend
+      ?? Array.from(uniqueInvoices.values()).reduce((sum, invoice) => sum + invoice.invoiceTotal, 0)
+    const allocatedSpend = Array.from(uniqueInvoices.values()).reduce((sum, invoice) => sum + invoice.allocatedAmount, 0)
+
+    return {
+      trend,
+      monthChangePercent,
+      averageMonthlySpend: monthly.length > 0
+        ? monthly.reduce((sum, point) => sum + point.spend, 0) / monthly.length
+        : 0,
+      peakMonth,
+      invoiceMix: otherSpend > 0 ? [...leadingInvoices, { name: 'Other invoices', value: otherSpend }] : leadingInvoices,
+      invoiceBreakdown: invoiceMixRows.slice(0, 8),
+      grossInvoiceSpend,
+      allocationSharePercent: grossInvoiceSpend > 0 ? (allocatedSpend / grossInvoiceSpend) * 100 : 0,
+      allocationShare: [
+        { name: 'This crane', value: allocatedSpend },
+        { name: 'Other crane allocations', value: Math.max(0, grossInvoiceSpend - allocatedSpend) },
+      ].filter((item) => item.value > 0),
+    }
+  }, [spendAnalytics])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -2047,7 +2131,7 @@ export default function AssetInfo() {
                   </div>
                 </section>
               ) : activeTab === 'analytics' ? (
-                <section className="space-y-6">
+                <section className="space-y-5 rounded-[12px] bg-[#f4f7fb] p-4 sm:p-5">
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                     {[
                       { label: 'Total Open Issues', value: String(analytics.totalIssues), color: 'text-[var(--deshazo-blue)]' },
@@ -2235,36 +2319,97 @@ export default function AssetInfo() {
                     </div>
                   ) : (
                     <>
-                      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                      <div className="overflow-hidden rounded-[8px] border border-[#244786] bg-[var(--deshazo-blue)] px-6 py-5 text-white shadow-[0_18px_36px_-28px_rgba(47,86,166,0.5)]">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2.5 w-2.5 rounded-full bg-[#f2b43f]" />
+                          <p className="text-[12px] font-bold uppercase text-white/70">Spend Analytics</p>
+                        </div>
+                        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                          <div>
+                            <h2 className="text-[28px] font-black">{spendAnalytics.dNumber}</h2>
+                            <p className="mt-1 text-sm font-semibold text-white/70">Invoice costs allocated to this crane</p>
+                          </div>
+                          <div className="border-l-4 border-[#f2b43f] pl-4 sm:text-right">
+                            <p className="text-[11px] font-bold uppercase text-white/60">Total Allocated Cost</p>
+                            <p className="mt-1 text-[34px] font-black">{formatCurrency(spendAnalytics.totalSpend)}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
                         {[
-                          ['Total Spend', formatCurrency(spendAnalytics.totalSpend)],
-                          ['Invoices', spendAnalytics.invoiceCount.toLocaleString()],
-                          ['Avg. Invoice Allocation', formatCurrency(spendAnalytics.averageInvoiceSpend)],
-                          ['Latest Invoice', formatInvoiceDate(spendAnalytics.latestInvoiceDate)],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
-                            <p className="text-[13px] font-semibold text-[rgba(21,24,33,0.5)]">{label}</p>
-                            <p className="mt-1 text-[clamp(22px,3vw,32px)] font-black tracking-tight text-[var(--deshazo-blue)]">{value}</p>
+                          ['Invoices', spendAnalytics.invoiceCount.toLocaleString(), 'Allocated to this crane', '#2f56a6'],
+                          ['Full Invoice Cost', formatCurrency(spendDashboard.grossInvoiceSpend), 'Before splitting across cranes', '#e05c3a'],
+                          [
+                            'Crane Cost Share',
+                            `${spendDashboard.allocationSharePercent < 1 && spendDashboard.allocationSharePercent > 0 ? '<1' : spendDashboard.allocationSharePercent.toFixed(1)}%`,
+                            'Of associated invoice costs',
+                            '#4a9960',
+                          ],
+                          [
+                            'Latest Invoice',
+                            formatInvoiceDate(spendAnalytics.latestInvoiceDate),
+                            spendDashboard.monthChangePercent == null
+                              ? 'First recorded spend period'
+                              : `${spendDashboard.monthChangePercent >= 0 ? '+' : ''}${spendDashboard.monthChangePercent.toFixed(1)}% from prior month`,
+                            '#f2b43f',
+                          ],
+                        ].map(([label, value, detail, accent]) => (
+                          <div key={label} className="relative overflow-hidden rounded-[8px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                            <span className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: accent }} />
+                            <p className="text-[12px] font-bold uppercase text-[rgba(21,24,33,0.5)]">{label}</p>
+                            <p className="mt-2 text-[clamp(22px,3vw,30px)] font-black text-[var(--deshazo-text)]">{value}</p>
+                            <p className="mt-1 text-[12px] font-semibold text-[rgba(21,24,33,0.45)]">{detail}</p>
                           </div>
                         ))}
                       </div>
 
                       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-                        <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                        <div className="rounded-[8px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
                           <div className="mb-4 flex items-start justify-between gap-4">
                             <div>
-                              <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Month Over Month Spend</h3>
-                              <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Allocated invoice spend for {spendAnalytics.dNumber}.</p>
+                              <div className="flex items-center gap-2">
+                                <span className="h-3 w-1 rounded-full bg-[var(--deshazo-blue)]" />
+                                <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Month Over Month Spend</h3>
+                              </div>
+                              <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Monthly allocated invoice cost.</p>
                             </div>
                           </div>
                           {spendAnalytics.monthlySpend.length > 0 ? (
                             <ResponsiveContainer width="100%" height={260}>
-                              <BarChart data={spendAnalytics.monthlySpend} margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
-                                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6b7280' }} />
-                                <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} tickFormatter={(value) => `$${Number(value).toLocaleString()}`} />
-                                <Tooltip formatter={(value) => formatCurrency(Number(value))} contentStyle={{ borderRadius: 10, fontSize: 13 }} />
-                                <Bar dataKey="spend" name="Spend" fill="#2f56a6" radius={[6, 6, 0, 0]} />
+                              <BarChart data={spendDashboard.trend} margin={{ top: 8, right: 12, left: 0, bottom: 0 }} barCategoryGap="38%">
+                                <CartesianGrid strokeDasharray="4 6" stroke="#e8edf5" vertical={false} />
+                                <XAxis
+                                  dataKey="monthLabel"
+                                  axisLine={false}
+                                  tickLine={false}
+                                  tick={{ fontSize: 11, fontWeight: 700, fill: '#737b8d' }}
+                                  dy={8}
+                                />
+                                <YAxis
+                                  axisLine={false}
+                                  tickLine={false}
+                                  tick={{ fontSize: 11, fontWeight: 700, fill: '#8a92a2' }}
+                                  tickFormatter={(value) => formatCompactCurrency(Number(value))}
+                                  width={54}
+                                />
+                                <Tooltip
+                                  formatter={(value) => [formatCurrency(Number(value)), 'Allocated spend']}
+                                  contentStyle={spendTooltipStyle}
+                                  cursor={{ stroke: '#9eb3d7', strokeWidth: 1, strokeDasharray: '4 4' }}
+                                />
+                                <Bar
+                                  dataKey="spend"
+                                  name="Monthly spend"
+                                  fill="#2f56a6"
+                                  radius={[8, 8, 2, 2]}
+                                  maxBarSize={72}
+                                  background={{ fill: '#eef2f8', radius: 8 }}
+                                >
+                                  {spendDashboard.trend.map((_, index) => (
+                                    <Cell key={index} fill={index === spendDashboard.trend.length - 1 ? '#2f56a6' : '#9eb3d7'} />
+                                  ))}
+                                </Bar>
                               </BarChart>
                             </ResponsiveContainer>
                           ) : (
@@ -2274,27 +2419,116 @@ export default function AssetInfo() {
                           )}
                         </div>
 
-                        <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
-                          <h3 className="mb-4 text-[15px] font-bold text-[var(--deshazo-text)]">Recent Invoices</h3>
-                          <div className="space-y-3">
-                            {spendAnalytics.recentInvoices.map((invoice) => (
-                              <div key={invoice.id} className="rounded-[12px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/35 px-4 py-3">
-                                <div className="flex items-start justify-between gap-4">
-                                  <div className="min-w-0">
-                                    <p className="truncate text-[14px] font-black text-[var(--deshazo-text)]">
-                                      {invoice.invoiceNumber || 'Invoice'}
-                                    </p>
-                                    <p className="mt-1 text-[12px] font-semibold text-[rgba(21,24,33,0.52)]">
-                                      {formatInvoiceDate(invoice.invoiceDate)}
-                                      {invoice.jobNumber ? ` · Job ${invoice.jobNumber}` : ''}
-                                    </p>
-                                  </div>
-                                  <div className="shrink-0 text-right">
-                                    <p className="text-[15px] font-black text-[var(--deshazo-blue)]">{formatCurrency(invoice.allocatedAmount)}</p>
-                                    <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.04em] text-[rgba(21,24,33,0.42)]">
-                                      {invoice.allocationMethod.replace(/_/g, ' ')}
-                                    </p>
-                                  </div>
+                        <div className="rounded-[8px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                          <div className="mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="h-3 w-1 rounded-full bg-[#4a9960]" />
+                              <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Crane Share of Invoice Cost</h3>
+                            </div>
+                            <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Allocated cost compared with the full associated invoices.</p>
+                          </div>
+                          <div className="relative">
+                            <ResponsiveContainer width="100%" height={260}>
+                              <PieChart>
+                                <Pie
+                                  data={spendDashboard.allocationShare}
+                                  dataKey="value"
+                                  nameKey="name"
+                                  cx="50%"
+                                  cy="70%"
+                                  innerRadius={72}
+                                  outerRadius={106}
+                                  startAngle={180}
+                                  endAngle={0}
+                                  paddingAngle={3}
+                                  cornerRadius={5}
+                                  stroke="#ffffff"
+                                  strokeWidth={3}
+                                >
+                                  <Cell fill="#2f56a6" />
+                                  <Cell fill="#e3e9f2" />
+                                </Pie>
+                                <Tooltip formatter={(value) => formatCurrency(Number(value))} contentStyle={spendTooltipStyle} />
+                                <Legend
+                                  verticalAlign="top"
+                                  iconType="circle"
+                                  iconSize={8}
+                                  wrapperStyle={{ fontSize: 11, fontWeight: 700, color: '#687184', paddingTop: 8 }}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                            <div className="pointer-events-none absolute inset-x-0 top-[142px] text-center">
+                              <p className="text-[28px] font-black text-[var(--deshazo-blue)]">{spendDashboard.allocationSharePercent.toFixed(1)}%</p>
+                              <p className="text-[11px] font-bold text-[rgba(21,24,33,0.46)]">CRANE SHARE</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                        <div className="rounded-[8px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                          <div className="mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="h-3 w-1 rounded-full bg-[#e05c3a]" />
+                              <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Cost by Invoice</h3>
+                            </div>
+                            <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Allocated crane cost from each invoice.</p>
+                          </div>
+                          <ResponsiveContainer width="100%" height={280}>
+                            <BarChart data={spendDashboard.invoiceBreakdown} layout="vertical" margin={{ top: 4, right: 12, left: 10, bottom: 0 }} barCategoryGap="34%">
+                              <CartesianGrid strokeDasharray="4 6" stroke="#e8edf5" horizontal={false} />
+                              <XAxis
+                                type="number"
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fontSize: 11, fontWeight: 700, fill: '#8a92a2' }}
+                                tickFormatter={(value) => formatCompactCurrency(Number(value))}
+                              />
+                              <YAxis
+                                type="category"
+                                dataKey="name"
+                                width={92}
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fontSize: 11, fontWeight: 800, fill: '#596174' }}
+                              />
+                              <Tooltip formatter={(value) => formatCurrency(Number(value))} contentStyle={spendTooltipStyle} cursor={{ fill: '#f5f7fb' }} />
+                              <Legend
+                                verticalAlign="top"
+                                align="right"
+                                iconType="circle"
+                                iconSize={8}
+                                wrapperStyle={{ fontSize: 11, fontWeight: 700, color: '#687184', paddingBottom: 14 }}
+                              />
+                              <Bar dataKey="value" name="This crane" stackId="invoice" fill="#2f56a6" radius={[6, 0, 0, 6]} />
+                              <Bar dataKey="remainingCost" name="Other allocations" stackId="invoice" fill="#e3e9f2" radius={[0, 6, 6, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        <div className="rounded-[8px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
+                          <div className="mb-4 flex items-end justify-between gap-4">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="h-3 w-1 rounded-full bg-[#f2b43f]" />
+                                <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Recent Invoices</h3>
+                              </div>
+                              <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Latest allocations included in crane spend.</p>
+                            </div>
+                            <span className="text-[12px] font-bold text-[rgba(21,24,33,0.48)]">{spendAnalytics.invoiceCount} total</span>
+                          </div>
+                          <div className="overflow-hidden rounded-[8px] border border-[var(--deshazo-border)]">
+                            {spendAnalytics.recentInvoices.map((invoice, index) => (
+                              <div key={invoice.id} className={`flex items-center justify-between gap-4 px-4 py-3 ${index > 0 ? 'border-t border-[var(--deshazo-border)]' : ''}`}>
+                                <div className="min-w-0">
+                                  <p className="truncate text-[14px] font-black text-[var(--deshazo-text)]">{invoice.invoiceNumber || 'Invoice'}</p>
+                                  <p className="mt-1 text-[12px] font-semibold text-[rgba(21,24,33,0.52)]">
+                                    {formatInvoiceDate(invoice.invoiceDate)}{invoice.jobNumber ? ` · Job ${invoice.jobNumber}` : ''}
+                                  </p>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <p className="text-[15px] font-black text-[var(--deshazo-blue)]">{formatCurrency(invoice.allocatedAmount)}</p>
+                                  <p className="mt-1 text-[11px] font-semibold capitalize text-[rgba(21,24,33,0.42)]">{invoice.allocationMethod.replace(/_/g, ' ')}</p>
                                 </div>
                               </div>
                             ))}
