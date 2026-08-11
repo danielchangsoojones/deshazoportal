@@ -136,16 +136,16 @@ export default function LocationComparison() {
     try {
       setInvoiceSpendUploading(true)
       setInvoiceSpendUploadError('')
-      setInvoiceSpendUploadStatus(`Sending ${files.length} invoice PDF${files.length === 1 ? '' : 's'} to Extend...`)
+      setInvoiceSpendUploadStatus(`Saving ${files.length} invoice PDF${files.length === 1 ? '' : 's'} and sending to Extend...`)
 
       const results = []
       for (const [index, file] of files.entries()) {
-        setInvoiceSpendUploadStatus(`Sending invoice ${index + 1} of ${files.length} to Extend: ${file.name}`)
+        setInvoiceSpendUploadStatus(`Saving and sending invoice ${index + 1} of ${files.length}: ${file.name}`)
         results.push(await uploadInvoiceSpendPdf(file, selectedCustomer))
       }
 
       setInvoiceSpendUploadStatus(
-        `${results.length} invoice PDF${results.length === 1 ? '' : 's'} queued. Allocations will appear here after Extend completes and posts the webhook.`,
+        `${results.length} invoice PDF${results.length === 1 ? '' : 's'} saved and queued. Allocations and stored PDFs will appear after Extend completes.`,
       )
     } catch (err) {
       setInvoiceSpendUploadStatus('')
@@ -346,7 +346,7 @@ export default function LocationComparison() {
                   <DeveloperBadge />
                 </button>
                 <span className="text-sm font-bold text-[rgba(21,24,33,0.7)]">
-                  {invoiceSpendUploadError || invoiceSpendUploadStatus || 'Send Deshazo/Wabash invoice PDFs to Extend for per-crane spend allocation.'}
+                  {invoiceSpendUploadError || invoiceSpendUploadStatus || 'Save Deshazo/Wabash invoice PDFs and send them to Extend for per-crane spend allocation.'}
                 </span>
               </div>
             ) : null}

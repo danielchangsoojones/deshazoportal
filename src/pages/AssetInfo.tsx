@@ -44,7 +44,12 @@ import {
   getSupabaseOpenRiskAssetInfo,
   getSupabaseOpenRiskRecurringIssues,
 } from '../lib/deshazoOpenRiskSupabase'
-import { getCraneInvoiceSpendAnalytics, type CraneInvoiceSpendAnalytics } from '../lib/invoiceSpend'
+import {
+  getCraneInvoiceSpendAnalytics,
+  getInvoiceSpendDocumentUrl,
+  type CraneInvoiceSpendAnalytics,
+  type InvoiceSpendAllocation,
+} from '../lib/invoiceSpend'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 
 const menuItems = [
@@ -97,6 +102,13 @@ type RepairPdfDocument = AssetPdfDocument & {
   pdfError?: string
 }
 
+type InvoicePdfDocument = AssetPdfDocument & {
+  documentKey: string
+  invoice: InvoiceSpendAllocation
+}
+
+type RepairTabDocument = RepairPdfDocument | InvoicePdfDocument
+
 type GeneratedInspectionPdfDocument = AssetPdfDocument & {
   documentKey: string
   report: DeshazoSavedInspectionReport
@@ -106,11 +118,15 @@ type GeneratedInspectionPdfDocument = AssetPdfDocument & {
 }
 
 const isRepairPdfDocument = (
-  document: AssetPdfDocument | RepairPdfDocument | null,
-): document is RepairPdfDocument => Boolean(document && 'documentKey' in document)
+  document: AssetPdfDocument | RepairTabDocument | null,
+): document is RepairPdfDocument => Boolean(document && 'report' in document)
+
+const isInvoicePdfDocument = (
+  document: AssetPdfDocument | RepairTabDocument | null,
+): document is InvoicePdfDocument => Boolean(document && 'invoice' in document)
 
 const isGeneratedInspectionPdfDocument = (
-  document: AssetPdfDocument | RepairPdfDocument | GeneratedInspectionPdfDocument | null,
+  document: AssetPdfDocument | RepairTabDocument | GeneratedInspectionPdfDocument | null,
 ): document is GeneratedInspectionPdfDocument => Boolean(document && 'craneIndex' in document)
 
 const defaultAssetInfo: AssetInfoAnalytics = {
@@ -474,7 +490,7 @@ export default function AssetInfo() {
   const [assetInfo, setAssetInfo] = useState<AssetInfoAnalytics>(defaultAssetInfo)
   const [assetDocuments, setAssetDocuments] = useState<AssetPdfResponse>(defaultAssetDocuments)
   const [inspectionDocuments, setInspectionDocuments] = useState<GeneratedInspectionPdfDocument[]>([])
-  const [repairDocuments, setRepairDocuments] = useState<RepairPdfDocument[]>([])
+  const [repairDocuments, setRepairDocuments] = useState<RepairTabDocument[]>([])
   const repairDocumentUrlsRef = useRef<string[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState('')
@@ -513,7 +529,10 @@ export default function AssetInfo() {
   const [spendAnalyticsLoading, setSpendAnalyticsLoading] = useState(false)
   const [spendAnalyticsError, setSpendAnalyticsError] = useState('')
   const selectedRepairDocumentToDraft = useMemo(
-    () => repairDocuments.find((document) => document.documentKey === selectedDocumentUrl) ?? null,
+    () => {
+      const document = repairDocuments.find((item) => item.documentKey === selectedDocumentUrl) ?? null
+      return isRepairPdfDocument(document) ? document : null
+    },
     [repairDocuments, selectedDocumentUrl],
   )
   const navigate = useNavigate()
@@ -1053,7 +1072,11 @@ export default function AssetInfo() {
         repairDocumentUrlsRef.current = []
 
         if (!cancelled) {
-          const reports = await getSavedDeshazoRepairReportsByCity(city, selectedCustomer)
+          const dNumber = extractDocumentNumber(assetInfo.unit_name, unitId) || unitId
+          const [reports, invoiceAnalytics] = await Promise.all([
+            getSavedDeshazoRepairReportsByCity(city, selectedCustomer),
+            getCraneInvoiceSpendAnalytics(dNumber, selectedCustomer),
+          ])
           const mappedDocuments: RepairPdfDocument[] = reports.map((report) => ({
             documentKey: `repair:${report.workOrderId}`,
             report,
@@ -1062,15 +1085,37 @@ export default function AssetInfo() {
             type: report.jobType || 'Repair',
             display_name: getDeshazoInspectionPdfFileName(report).replace(/\.pdf$/i, ''),
           }))
+          const uniqueInvoices = new Map<string, InvoiceSpendAllocation>()
+          invoiceAnalytics.invoices.forEach((invoice) => {
+            const invoiceKey = invoice.invoiceNumber || invoice.invoiceId
+            const current = uniqueInvoices.get(invoiceKey)
+            if (!current || (!current.sourceDocumentFilePath && invoice.sourceDocumentFilePath)) {
+              uniqueInvoices.set(invoiceKey, invoice)
+            }
+          })
+          const invoiceDocuments: InvoicePdfDocument[] = await Promise.all(
+            Array.from(uniqueInvoices.values()).map(async (invoice) => ({
+              documentKey: `invoice:${invoice.invoiceId}`,
+              invoice,
+              inspection_date: invoice.invoiceDate,
+              pdf: await getInvoiceSpendDocumentUrl(invoice).catch(() => ''),
+              type: 'Invoice',
+              display_name: invoice.invoiceNumber
+                ? `Invoice ${invoice.invoiceNumber}`
+                : invoice.sourceDocumentName || 'Invoice',
+            })),
+          )
+          const combinedDocuments: RepairTabDocument[] = [...mappedDocuments, ...invoiceDocuments]
+            .sort((left, right) => (right.inspection_date || '').localeCompare(left.inspection_date || ''))
 
           if (cancelled) {
             return
           }
 
-          setRepairDocuments(mappedDocuments)
+          setRepairDocuments(combinedDocuments)
           setDocumentsPage(1)
           setSelectedDocumentUrl((current) =>
-            mappedDocuments.some((document) => document.documentKey === current) ? current : (mappedDocuments[0]?.documentKey ?? ''),
+            combinedDocuments.some((document) => document.documentKey === current) ? current : (combinedDocuments[0]?.documentKey ?? ''),
           )
         }
       } catch (err) {
@@ -1093,7 +1138,7 @@ export default function AssetInfo() {
       repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
       repairDocumentUrlsRef.current = []
     }
-  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location, selectedCustomer])
+  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location, assetInfo.unit_name, selectedCustomer, unitId])
 
   useEffect(() => {
     return () => {
@@ -1443,7 +1488,7 @@ export default function AssetInfo() {
     activeTab === 'repair'
       ? repairDocuments
       : inspectionDocuments
-  const getDocumentKey = (document: AssetPdfDocument | RepairPdfDocument) =>
+  const getDocumentKey = (document: AssetPdfDocument | RepairTabDocument) =>
     'documentKey' in document ? document.documentKey : document.pdf
   const documentsTotalPages = activeTab === 'documents' || activeTab === 'repair'
     ? Math.max(1, Math.ceil(currentDocumentList.length / PREVENTATIVE_REPORTS_PAGE_SIZE))
@@ -1460,6 +1505,7 @@ export default function AssetInfo() {
     currentDocumentList[0] ||
     null
   const selectedRepairDocument = isRepairPdfDocument(selectedDocument) ? selectedDocument : null
+  const selectedInvoiceDocument = isInvoicePdfDocument(selectedDocument) ? selectedDocument : null
   const selectedInspectionDocument = isGeneratedInspectionPdfDocument(selectedDocument) ? selectedDocument : null
   const selectedDocumentDownloadName = selectedDocument
     ? `${selectedDocument.display_name.replace(/\.pdf$/i, '')}.pdf`
@@ -1915,7 +1961,7 @@ export default function AssetInfo() {
                           ›
                         </button>
                         <span className="ml-2 text-[13px] font-bold text-[rgba(21,24,33,0.55)]">
-                          {currentDocumentList.length} reports
+                          {currentDocumentList.length} {activeTab === 'repair' ? 'documents' : 'reports'}
                         </span>
                       </div>
                     ) : null}
@@ -2049,6 +2095,35 @@ export default function AssetInfo() {
                                 selectedCraneIndex={selectedInspectionDocument.craneIndex}
                                 zoom={inspectionPreviewZoom}
                               />
+                            </div>
+                          ) : selectedInvoiceDocument && !selectedInvoiceDocument.pdf ? (
+                            <div className="flex min-h-[520px] items-start justify-center bg-[#f4f7fb] px-5 py-8 sm:px-8">
+                              <div className="w-full max-w-2xl overflow-hidden rounded-[8px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_36px_-30px_rgba(47,86,166,0.28)]">
+                                <div className="border-b border-[var(--deshazo-border)] bg-[var(--deshazo-blue)] px-5 py-4 text-white">
+                                  <p className="text-[12px] font-bold uppercase text-white/65">Invoice</p>
+                                  <h3 className="mt-1 text-[24px] font-black">
+                                    {selectedInvoiceDocument.invoice.invoiceNumber || 'Invoice details'}
+                                  </h3>
+                                </div>
+                                <dl className="grid sm:grid-cols-2">
+                                  {[
+                                    ['Invoice Date', formatInvoiceDate(selectedInvoiceDocument.invoice.invoiceDate)],
+                                    ['Job Number', selectedInvoiceDocument.invoice.jobNumber || 'Not available'],
+                                    ['Full Invoice Total', formatCurrency(selectedInvoiceDocument.invoice.invoiceTotal)],
+                                    ['Allocated to This Crane', formatCurrency(selectedInvoiceDocument.invoice.allocatedAmount)],
+                                    ['D-number', selectedInvoiceDocument.invoice.dNumber],
+                                    ['Allocation Method', formatTitleCase(selectedInvoiceDocument.invoice.allocationMethod)],
+                                  ].map(([label, value], index) => (
+                                    <div key={label} className={`px-5 py-4 ${index >= 2 ? 'border-t border-[var(--deshazo-border)]' : ''} ${index % 2 === 1 ? 'sm:border-l sm:border-[var(--deshazo-border)]' : ''}`}>
+                                      <dt className="text-[11px] font-bold uppercase text-[rgba(21,24,33,0.45)]">{label}</dt>
+                                      <dd className="mt-1 text-[16px] font-black text-[var(--deshazo-text)]">{value}</dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                                <div className="border-t border-[#ecd9a8] bg-[#fff8e8] px-5 py-4 text-sm font-semibold text-[#765717]">
+                                  The invoice is associated with this crane. Its original PDF was uploaded directly to Extend and does not have a stored portal file path yet.
+                                </div>
+                              </div>
                             </div>
                           ) : selectedDocument.pdf ? (
                             <iframe

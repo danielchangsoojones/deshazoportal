@@ -65,6 +65,7 @@ export type CraneInvoiceSpendAnalytics = {
   averageInvoiceSpend: number
   latestInvoiceDate: string
   monthlySpend: InvoiceSpendMonthlyPoint[]
+  invoices: InvoiceSpendAllocation[]
   recentInvoices: InvoiceSpendAllocation[]
 }
 
@@ -333,7 +334,18 @@ async function fetchInvoiceSpendAllocations(customer?: string) {
     if (pageRows.length < pageSize) break
   }
 
-  return rows.map(mapAllocation)
+  const uniqueAllocations = new Map<string, InvoiceSpendAllocation>()
+
+  rows.map(mapAllocation).forEach((allocation) => {
+    const invoiceKey = allocation.invoiceNumber || allocation.invoiceId
+    const allocationKey = `${allocation.customer}:${invoiceKey}:${allocation.dNumber || allocation.craneRowId || allocation.id}`
+    const current = uniqueAllocations.get(allocationKey)
+    if (!current || (!current.sourceDocumentFilePath && allocation.sourceDocumentFilePath)) {
+      uniqueAllocations.set(allocationKey, allocation)
+    }
+  })
+
+  return Array.from(uniqueAllocations.values())
 }
 
 function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
@@ -438,6 +450,27 @@ export async function getCraneInvoiceSpendAnalytics(
     monthlySpend: Array.from(monthTotals.entries())
       .map(([month, spend]) => ({ month, spend: Math.round(spend) }))
       .sort((left, right) => left.month.localeCompare(right.month)),
+    invoices: allocations,
     recentInvoices: allocations.slice(0, 10),
   }
+}
+
+export async function getInvoiceSpendDocumentUrl(allocation: InvoiceSpendAllocation) {
+  if (allocation.sourceDocumentFilePath.startsWith('http://') || allocation.sourceDocumentFilePath.startsWith('https://')) {
+    return allocation.sourceDocumentFilePath
+  }
+  if (!allocation.sourceDocumentBucket || !allocation.sourceDocumentFilePath) return ''
+  if (!supabase) throw new Error('Supabase is not configured.')
+
+  if (allocation.sourceDocumentBucket === 'invoice-spend-pdfs') {
+    return supabase.storage
+      .from(allocation.sourceDocumentBucket)
+      .getPublicUrl(allocation.sourceDocumentFilePath).data.publicUrl
+  }
+
+  const { data, error } = await supabase.storage
+    .from(allocation.sourceDocumentBucket)
+    .createSignedUrl(allocation.sourceDocumentFilePath, 60 * 60)
+  if (error) throw new Error(error.message)
+  return data.signedUrl
 }
