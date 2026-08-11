@@ -27,6 +27,20 @@ const menuItems = [
 const formatCurrency = (value: number) =>
   `$${Math.round(value).toLocaleString()}`
 
+const pageSize = 24
+
+const buildVisiblePages = (currentPage: number, totalPages: number) => {
+  if (totalPages <= 8) return Array.from({ length: totalPages }, (_, index) => index + 1)
+
+  const pages = new Set<number>([1, totalPages, currentPage - 1, currentPage, currentPage + 1])
+  if (currentPage <= 3) [2, 3, 4].forEach((page) => pages.add(page))
+  if (currentPage >= totalPages - 2) [totalPages - 1, totalPages - 2, totalPages - 3].forEach((page) => pages.add(page))
+
+  return Array.from(pages)
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((left, right) => left - right)
+}
+
 function formatDate(value: string) {
   if (!value) return '-'
   const parsed = new Date(`${value.slice(0, 10)}T00:00:00`)
@@ -85,6 +99,7 @@ export default function LocationSpend() {
     status: 'loading',
   })
   const [craneSearch, setCraneSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Location Comparison')
 
@@ -186,6 +201,18 @@ export default function LocationSpend() {
       ].some((value) => value.toLowerCase().includes(query)),
     )
   }, [craneSearch, spendState.data])
+
+  const totalPages = Math.max(1, Math.ceil(visibleCranes.length / pageSize))
+  const pageNumbers = buildVisiblePages(currentPage, totalPages)
+  const paginatedCranes = visibleCranes.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [craneSearch, location, selectedCustomer])
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages))
+  }, [totalPages])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -295,6 +322,42 @@ export default function LocationSpend() {
         )}
 
         <section className="min-w-0 flex-1 px-5 py-5 sm:px-8 lg:px-10">
+          <div className="mb-8 flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
+            <div>
+              <div className="text-[36px] font-black uppercase text-[#b8bcc8]">
+                DESHA<span className="text-[#f2b43f]">Z</span>O
+              </div>
+              <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
+                Cranes / Service / Automation
+              </p>
+              <div className="mt-[18px] h-1.5 w-full min-w-[280px] max-w-[530px] rounded-full bg-[var(--deshazo-blue)] sm:w-[530px]" />
+            </div>
+
+            <label className="flex w-full items-center gap-3 text-sm font-semibold text-[var(--deshazo-text)] sm:w-auto">
+              <span className="shrink-0">Search</span>
+              <span className="flex h-10 w-full items-center rounded-md border border-[var(--deshazo-border)] bg-white px-3 sm:w-[320px]">
+                <svg
+                  className="mr-2 h-4 w-4 shrink-0 text-[rgba(21,24,33,0.42)]"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path strokeLinecap="round" d="M21 21l-4.35-4.35" />
+                </svg>
+                <input
+                  type="search"
+                  value={craneSearch}
+                  onChange={(event) => setCraneSearch(event.currentTarget.value)}
+                  placeholder="Crane, job, or invoice"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-[var(--deshazo-text)] placeholder:text-[rgba(21,24,33,0.42)] focus:outline-none"
+                />
+              </span>
+            </label>
+          </div>
+
           <div className="mb-7 flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-end">
             <div>
               <Link
@@ -348,23 +411,53 @@ export default function LocationSpend() {
               </div>
             ) : (
               <div className="rounded-[14px] border border-[#bfcdf1] bg-[#c7d4f5] px-3 py-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
-                <div className="mb-4 flex flex-col gap-3 px-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mb-4 flex flex-col gap-3 px-2 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <h2 className="text-[18px] font-black text-[var(--deshazo-text)]">Crane Cost Ranking</h2>
                     <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.64)]">
                       {visibleCranes.length} crane{visibleCranes.length === 1 ? '' : 's'} shown · highest cost first
                     </p>
                   </div>
-                  <div className="w-full sm:w-auto">
-                    <label className="sr-only" htmlFor="crane-spend-search">Search crane costs</label>
-                    <input
-                      id="crane-spend-search"
-                      type="search"
-                      value={craneSearch}
-                      onChange={(event) => setCraneSearch(event.currentTarget.value)}
-                      placeholder="Search crane, job, or invoice"
-                      className="h-10 w-full rounded-md border border-[var(--deshazo-border)] bg-white px-4 text-sm font-semibold text-[var(--deshazo-text)] outline-none transition placeholder:text-[#8b92a4] focus:border-[var(--deshazo-blue)] focus:ring-2 focus:ring-[#dbe5ff] sm:w-[300px]"
-                    />
+                  <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
+                    {totalPages > 1 ? (
+                      <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[rgba(21,24,33,0.76)]">
+                        <button
+                          type="button"
+                          disabled={currentPage <= 1}
+                          onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[var(--deshazo-blue)] disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Previous page"
+                        >
+                          ‹
+                        </button>
+                        {pageNumbers.map((page) => (
+                          <button
+                            key={page}
+                            type="button"
+                            onClick={() => setCurrentPage(page)}
+                            className={`inline-flex h-8 min-w-8 items-center justify-center rounded-md px-2 ${
+                              page === currentPage
+                                ? 'bg-[var(--deshazo-blue)] text-white'
+                                : 'border border-[var(--deshazo-border)] bg-white text-[var(--deshazo-text)]'
+                            }`}
+                            aria-label={`Page ${page}`}
+                            aria-current={page === currentPage ? 'page' : undefined}
+                          >
+                            {page}
+                          </button>
+                        ))}
+                        <span>of {totalPages}</span>
+                        <button
+                          type="button"
+                          disabled={currentPage >= totalPages}
+                          onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[var(--deshazo-blue)] disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Next page"
+                        >
+                          ›
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -377,7 +470,7 @@ export default function LocationSpend() {
                   </div>
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    {visibleCranes.map((crane) => (
+                    {paginatedCranes.map((crane) => (
                       <Link
                         key={crane.dNumber}
                         to={`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics`}
