@@ -137,6 +137,7 @@ type InvoiceSpendAllocationRow = {
 }
 
 const pageSize = 1000
+const defaultInvoiceSpendFileName = 'deshazo-wabash-spend-invoice.pdf'
 
 function resolveSelectedCustomer(customer?: string) {
   return getCustomerFilterValue(normalizeCustomer(customer) || getStoredCustomer())
@@ -159,6 +160,18 @@ function monthKey(value: string) {
   const parsed = new Date(`${value.slice(0, 10)}T00:00:00`)
   if (Number.isNaN(parsed.getTime())) return value || 'Unknown'
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`
+}
+
+function sanitizePdfFileName(value: string) {
+  const cleaned = value
+    .trim()
+    .replace(/\.pdf$/i, '')
+    .replace(/[^a-zA-Z0-9._ -]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/-+/g, '-')
+    .replace(/^[ ._-]+|[ ._-]+$/g, '')
+
+  return `${cleaned || defaultInvoiceSpendFileName.replace(/\.pdf$/i, '')}.pdf`
 }
 
 function mapAllocation(row: InvoiceSpendAllocationRow): InvoiceSpendAllocation {
@@ -219,11 +232,12 @@ export async function uploadInvoiceSpendPdf(file: File, customer?: string): Prom
   }
 
   const userId = await getCurrentUserId()
+  const fileName = sanitizePdfFileName(file.name)
   const response = await fetch(invoiceSpendUploadUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/pdf',
-      'x-file-name': file.name,
+      'x-file-name': fileName,
       'x-menu-item-user-id': userId,
       'x-customer': resolveSelectedCustomer(customer),
     },
