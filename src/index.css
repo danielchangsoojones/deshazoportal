@@ -147,3 +147,46 @@ code {
   background: #bfdbfe;
   color: #1d4ed8;
 }
+
+@media print {
+  @page {
+    size: letter landscape;
+    margin: 0.35in;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .spend-print-report,
+  .spend-print-report * {
+    visibility: visible;
+  }
+
+  .spend-print-report {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    background: #ffffff;
+    color: #07122f;
+  }
+
+  .spend-no-print,
+  .spend-no-print * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  .spend-print-report article {
+    break-inside: avoid;
+    box-shadow: none !important;
+  }
+
+  .spend-print-break {
+    break-before: page;
+  }
+}

@@ -8,6 +8,7 @@ import {
   type InvoiceSpendCraneSummary,
 } from '../lib/invoiceSpend'
 import { getCustomerLocationOptions, normalizeLocationValue, type PortalLocationOption } from '../lib/portalLocations'
+import { getLocationComparisonAnalytics, type LocationComparisonItem } from '../lib/spendAnalytics'
 import { isConfigured, supabase } from '../lib/supabase'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { usePortalMenu } from '../lib/usePortalMenu'
@@ -53,8 +54,28 @@ type LocationSpendState = {
   customer: string
   location: string
   data: InvoiceSpendCraneSummary[]
+  financeSummary: LocationComparisonItem | null
   error: string
   status: 'loading' | 'ready'
+}
+
+function combineFinanceLocations(locations: LocationComparisonItem[]): LocationComparisonItem | null {
+  if (locations.length === 0) return null
+
+  const totalJobs = locations.reduce((sum, item) => sum + item.total_jobs, 0)
+  const totalInvoices = locations.reduce((sum, item) => sum + item.total_invoices, 0)
+  const totalInvoiceCost = locations.reduce((sum, item) => sum + item.total_invoice_cost, 0)
+
+  return {
+    location: 'All Locations',
+    total_jobs: totalJobs,
+    total_invoices: totalInvoices,
+    average_invoice_cost: totalInvoices > 0 ? Math.round(totalInvoiceCost / totalInvoices) : 0,
+    total_invoice_cost: totalInvoiceCost,
+    total_service_cost: locations.reduce((sum, item) => sum + item.total_service_cost, 0),
+    total_parts_cost: locations.reduce((sum, item) => sum + item.total_parts_cost, 0),
+    mapped_invoice_count: locations.reduce((sum, item) => sum + item.mapped_invoice_count, 0),
+  }
 }
 
 function SpendRing({ spend, totalSpend }: { spend: number; totalSpend: number }) {
@@ -96,6 +117,7 @@ export default function LocationSpend() {
     customer: selectedCustomer,
     location,
     data: [],
+    financeSummary: null,
     error: '',
     status: 'loading',
   })
@@ -159,6 +181,7 @@ export default function LocationSpend() {
         customer: selectedCustomer,
         location,
         data: [],
+        financeSummary: null,
         error: 'Choose a location from Location Comparison to view crane spend.',
         status: 'ready',
       })
@@ -175,13 +198,21 @@ export default function LocationSpend() {
       error: '',
     }))
 
-    getInvoiceSpendCranesForLocation(location, selectedCustomer)
-      .then((nextData) => {
+    Promise.all([
+      getInvoiceSpendCranesForLocation(location, selectedCustomer),
+      getLocationComparisonAnalytics(selectedCustomer),
+    ])
+      .then(([nextData, financeLocations]) => {
         if (!isMounted) return
+        const financeSummary =
+          location === 'all'
+            ? combineFinanceLocations(financeLocations)
+            : financeLocations.find((item) => normalizeLocationValue(item.location) === normalizeLocationValue(location)) ?? null
         setSpendState({
           customer: selectedCustomer,
           location,
           data: nextData,
+          financeSummary,
           error: '',
           status: 'ready',
         })
@@ -192,6 +223,7 @@ export default function LocationSpend() {
           customer: selectedCustomer,
           location,
           data: [],
+          financeSummary: null,
           error: err instanceof Error ? err.message : 'Unable to load crane spend for this location.',
           status: 'ready',
         })
@@ -203,14 +235,20 @@ export default function LocationSpend() {
   }, [location, selectedCustomer])
 
   const totals = useMemo(() => {
-    const totalSpend = spendState.data.reduce((sum, crane) => sum + crane.totalSpend, 0)
-    const invoiceIds = new Set(spendState.data.flatMap((crane) => crane.allocations.map((allocation) => allocation.invoiceId)))
+    const allocatedSpend = spendState.data.reduce((sum, crane) => sum + crane.totalSpend, 0)
+    const invoiceKeys = new Set(
+      spendState.data.flatMap((crane) =>
+        crane.allocations.map((allocation) => allocation.invoiceNumber || allocation.jobNumber || allocation.invoiceId),
+      ),
+    )
     return {
-      totalSpend,
-      invoiceCount: invoiceIds.size,
+      totalSpend: spendState.financeSummary?.total_invoice_cost ?? allocatedSpend,
+      invoiceCount: spendState.financeSummary?.total_invoices ?? invoiceKeys.size,
       craneCount: spendState.data.length,
+      allocatedSpend,
+      allocatedInvoiceCount: invoiceKeys.size,
     }
-  }, [spendState.data])
+  }, [spendState.data, spendState.financeSummary])
 
   const visibleCranes = useMemo(() => {
     const query = craneSearch.trim().toLowerCase()
@@ -462,9 +500,6 @@ export default function LocationSpend() {
               <h1 className="mt-2 text-[clamp(32px,4vw,50px)] font-black leading-[0.98] text-[var(--deshazo-text)]">
                 {location === 'all' ? 'All Locations' : location || `${customerName} Crane Spend`}
               </h1>
-              <p className="mt-3 max-w-[68ch] text-base leading-7 text-[rgba(21,24,33,0.72)]">
-                Cranes ordered by total allocated cost, from highest to lowest.
-              </p>
             </div>
           </div>
 
@@ -485,10 +520,15 @@ export default function LocationSpend() {
                 <div className="text-center">
                   <p className="text-[24px] font-extrabold text-[var(--deshazo-text)]">{totals.craneCount}</p>
                   <div className="mt-1 h-[2px] w-24 bg-[#efb634]" />
-                  <p className="text-[18px] font-medium text-[#9a6a00]">Cranes</p>
+                  <p className="text-[18px] font-medium text-[#9a6a00]">Mapped Cranes</p>
                 </div>
               </div>
             </div>
+            {spendState.financeSummary && totals.allocatedInvoiceCount === 0 ? (
+              <p className="mt-4 text-sm font-semibold text-[rgba(21,24,33,0.62)]">
+                Finance totals are loaded. Invoice PDF crane allocations have not been mapped for this location yet.
+              </p>
+            ) : null}
           </article>
 
           <section>
@@ -500,7 +540,7 @@ export default function LocationSpend() {
               <div className="rounded-lg border border-[#f0c4bd] bg-white px-6 py-10 text-center text-sm font-semibold text-[#b42318]">{spendState.error}</div>
             ) : spendState.data.length === 0 ? (
               <div className="rounded-lg border border-[var(--deshazo-border)] bg-white px-6 py-10 text-center text-sm font-semibold text-[rgba(21,24,33,0.64)]">
-                No invoice spend allocations are available for this location yet.
+                No invoice PDF crane allocations are available for this location yet.
               </div>
             ) : (
               <div className="rounded-[14px] border border-[#bfcdf1] bg-[#c7d4f5] px-3 py-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">

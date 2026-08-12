@@ -5,7 +5,13 @@ import { Link, useNavigate } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { clearSpendAnalyticsCache, getSpendAnalytics, type SpendAnalytics } from '../lib/spendAnalytics'
+import {
+  clearSpendAnalyticsCache,
+  getLocationComparisonAnalytics,
+  getSpendAnalytics,
+  type LocationComparisonItem,
+  type SpendAnalytics,
+} from '../lib/spendAnalytics'
 import { uploadJpaFinanceFiles } from '../lib/jpaFinanceImport'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { isConfigured, supabase } from '../lib/supabase'
@@ -34,6 +40,11 @@ const buildBlueShades = (count: number) => {
 }
 
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`
+
+const defaultReportDateRange = {
+  startMonth: '2025-01',
+  endMonth: '2025-12',
+}
 
 const formatMonthLabel = (value: string) => {
   const trimmed = value.trim()
@@ -97,7 +108,10 @@ const getBarHeight = (value: number, maxValue: number, plotHeight?: number) => {
 
 type SpendState = {
   customer: string
+  startMonth: string
+  endMonth: string
   analytics: SpendAnalytics
+  locationComparison: LocationComparisonItem[]
   error: string
   status: 'loading' | 'ready'
 }
@@ -118,9 +132,13 @@ export default function Spend() {
   const [jpaUploadError, setJpaUploadError] = useState('')
   const [jpaUploading, setJpaUploading] = useState(false)
   const [analyticsReloadKey, setAnalyticsReloadKey] = useState(0)
+  const [reportDateRange, setReportDateRange] = useState(defaultReportDateRange)
   const [spendState, setSpendState] = useState<SpendState>({
     customer: selectedCustomer,
+    startMonth: defaultReportDateRange.startMonth,
+    endMonth: defaultReportDateRange.endMonth,
     analytics: emptyAnalytics,
+    locationComparison: [],
     error: '',
     status: 'loading',
   })
@@ -158,12 +176,18 @@ export default function Spend() {
   useEffect(() => {
     let isMounted = true
 
-    getSpendAnalytics(selectedCustomer)
-      .then((nextAnalytics) => {
+    Promise.all([
+      getSpendAnalytics(selectedCustomer, reportDateRange),
+      getLocationComparisonAnalytics(selectedCustomer, reportDateRange),
+    ])
+      .then(([nextAnalytics, nextLocationComparison]) => {
         if (!isMounted) return
         setSpendState({
           customer: selectedCustomer,
+          startMonth: reportDateRange.startMonth,
+          endMonth: reportDateRange.endMonth,
           analytics: nextAnalytics,
+          locationComparison: nextLocationComparison,
           error: '',
           status: 'ready',
         })
@@ -172,7 +196,10 @@ export default function Spend() {
         if (!isMounted) return
         setSpendState({
           customer: selectedCustomer,
+          startMonth: reportDateRange.startMonth,
+          endMonth: reportDateRange.endMonth,
           analytics: emptyAnalytics,
+          locationComparison: [],
           error: err instanceof Error ? err.message : 'Unable to load spend analytics.',
           status: 'ready',
         })
@@ -181,7 +208,7 @@ export default function Spend() {
     return () => {
       isMounted = false
     }
-  }, [analyticsReloadKey, selectedCustomer])
+  }, [analyticsReloadKey, reportDateRange, selectedCustomer])
 
   useEffect(() => {
     if (!customAnalyticsMessage) return
@@ -259,9 +286,14 @@ export default function Spend() {
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
 
-  const analytics = spendState.customer === selectedCustomer ? spendState.analytics : emptyAnalytics
-  const isLoading = spendState.customer !== selectedCustomer || spendState.status === 'loading'
-  const error = spendState.customer === selectedCustomer ? spendState.error : ''
+  const isCurrentReportRange =
+    spendState.customer === selectedCustomer &&
+    spendState.startMonth === reportDateRange.startMonth &&
+    spendState.endMonth === reportDateRange.endMonth
+  const analytics = isCurrentReportRange ? spendState.analytics : emptyAnalytics
+  const locationComparison = isCurrentReportRange ? spendState.locationComparison : []
+  const isLoading = !isCurrentReportRange || spendState.status === 'loading'
+  const error = isCurrentReportRange ? spendState.error : ''
   const locationSpendTotal = analytics.locationSpend.reduce((sum, item) => sum + item.spend, 0)
   const locationColors = buildUniqueChartColors(analytics.locationSpend.length)
   const locationSpendData = analytics.locationSpend.map((item, index) => ({
@@ -286,6 +318,8 @@ export default function Spend() {
   const monthlyPartsSpendData = analytics.monthlyPartsSpend
   const monthlyServiceSpendData = analytics.monthlyServiceSpend
   const avgMoMData = analytics.averageInvoiceSpend
+  const locationComparisonTotal = locationComparison.reduce((sum, item) => sum + item.total_invoice_cost, 0)
+  const topLocationComparison = locationComparison[0] ?? null
 
   const maxMonthlyPartsSpend = monthlyPartsSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
   const maxMonthlyServiceSpend = monthlyServiceSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
@@ -296,10 +330,19 @@ export default function Spend() {
   const locationMappingIsPending =
     hasFinanceData && analytics.locationMappedInvoiceCount === 0
   const canUploadJpa = userTag === 'developer'
+  const handleDateRangeChange = (field: 'startMonth' | 'endMonth', value: string) => {
+    setReportDateRange((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+  const handlePrintReport = () => {
+    window.print()
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
-      <header className="sticky top-0 z-40 bg-[var(--deshazo-blue)] px-5 py-3 shadow-sm">
+      <header className="spend-no-print sticky top-0 z-40 bg-[var(--deshazo-blue)] px-5 py-3 shadow-sm">
         <div className="flex w-full items-center justify-between gap-4">
           <button
             type="button"
@@ -320,7 +363,7 @@ export default function Spend() {
 
       <main className="flex w-full items-stretch">
         {menuOpen && (
-          <aside className="sticky top-[60px] hidden h-[calc(100vh-60px)] w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
+          <aside className="spend-no-print sticky top-[60px] hidden h-[calc(100vh-60px)] w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
             <div className="flex-1 px-4 py-5">
               <div className="rounded-[24px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/50 p-4">
                 <nav className="space-y-2">
@@ -400,7 +443,7 @@ export default function Spend() {
                 <span>{customerName} spend analytics</span>
               </div>
             </div>
-            <div ref={customAnalyticsRef} className="mt-5 flex flex-wrap items-center gap-3">
+            <div ref={customAnalyticsRef} className="spend-no-print mt-5 flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() =>
@@ -416,8 +459,45 @@ export default function Spend() {
                 <p className="text-sm font-bold text-[rgba(21,24,33,0.7)]">{customAnalyticsMessage}</p>
               ) : null}
             </div>
+            <div className="spend-no-print mt-4 flex flex-wrap items-end gap-3 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <label className="flex min-w-[180px] flex-col gap-1 text-[11px] font-black uppercase tracking-[0.04em] text-[rgba(21,24,33,0.5)]">
+                  From
+                  <input
+                    type="month"
+                    aria-label="From month and year"
+                    value={reportDateRange.startMonth}
+                    onChange={(event) => handleDateRangeChange('startMonth', event.target.value)}
+                    className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                  />
+                </label>
+                <label className="flex min-w-[180px] flex-col gap-1 text-[11px] font-black uppercase tracking-[0.04em] text-[rgba(21,24,33,0.5)]">
+                  To
+                  <input
+                    type="month"
+                    aria-label="To month and year"
+                    value={reportDateRange.endMonth}
+                    onChange={(event) => handleDateRangeChange('endMonth', event.target.value)}
+                    className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setReportDateRange({ startMonth: '', endMonth: '' })}
+                  className="inline-flex h-11 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white px-4 text-sm font-black text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
+                >
+                  All dates
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintReport}
+                  disabled={isLoading || !hasFinanceData}
+                  className="inline-flex h-11 items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-4 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Download PDF
+                </button>
+            </div>
             {canUploadJpa ? (
-              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <div className="spend-no-print mt-4 flex flex-wrap items-center gap-3 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <input
                   ref={jpaUploadInputRef}
                   type="file"
@@ -442,7 +522,26 @@ export default function Spend() {
             ) : null}
           </div>
 
-          <div className="space-y-6">
+          <div className="spend-print-report space-y-6">
+            <section className="rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.08em] text-[var(--deshazo-blue)]">
+                    Spend Analytics
+                  </p>
+                  <h1 className="mt-1 text-[28px] font-black leading-tight tracking-[-0.04em] text-[var(--deshazo-text)]">
+                    {customerName} Spend Overview
+                  </h1>
+                  <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+                    Reporting period {toplineSpend.topline_start_str}
+                  </p>
+                </div>
+                <div className="rounded-md bg-[var(--deshazo-surface)] px-3 py-2 text-right text-xs font-black uppercase tracking-[0.04em] text-[var(--deshazo-blue)]">
+                  Finance report
+                </div>
+              </div>
+            </section>
+
             {isLoading || error || !hasFinanceData ? (
               <section className="rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 text-sm font-semibold text-[rgba(21,24,33,0.68)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 {isLoading ? 'Loading spend analytics...' : error || 'No JPA finance invoices have been imported for this customer yet.'}
@@ -691,6 +790,104 @@ export default function Spend() {
                   </div>
                 </div>
               </article>
+            </section>
+
+            <section className="spend-print-break rounded-[16px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.08em] text-[var(--deshazo-blue)]">
+                    Location Comparison
+                  </p>
+                  <h2 className="mt-1 text-[24px] font-black tracking-[-0.04em] text-[var(--deshazo-text)]">
+                    Spend by Location Detail
+                  </h2>
+                  <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+                    Ranked by total cost for {toplineSpend.topline_start_str}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-right sm:grid-cols-4">
+                  {[
+                    ['Locations', locationComparison.length.toLocaleString()],
+                    ['Total Jobs', locationComparison.reduce((sum, item) => sum + item.total_jobs, 0).toLocaleString()],
+                    ['Mapped Invoices', `${analytics.locationMappedInvoiceCount.toLocaleString()} / ${toplineSpend.total_invoices.toLocaleString()}`],
+                    ['Top Location', topLocationComparison?.location ?? 'None'],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-md bg-[var(--deshazo-surface)] px-3 py-2">
+                      <p className="text-[10px] font-black uppercase tracking-[0.05em] text-[rgba(21,24,33,0.48)]">{label}</p>
+                      <p className="mt-0.5 text-sm font-black text-[var(--deshazo-text)]">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-[980px] w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="bg-[var(--deshazo-blue)] text-white">
+                      {['Location', 'Jobs', 'Invoices', 'Total Cost', 'Avg. Invoice', 'Service', 'Parts', 'Mapped', 'Mix'].map((heading) => (
+                        <th key={heading} className="px-3 py-2 text-xs font-black uppercase tracking-[0.04em]">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {locationComparison.map((item) => {
+                      const servicePercent = item.total_invoice_cost > 0
+                        ? Math.round((item.total_service_cost / item.total_invoice_cost) * 100)
+                        : 0
+                      const partsPercent = Math.max(0, 100 - servicePercent)
+                      const totalPercent = locationComparisonTotal > 0
+                        ? Number(((item.total_invoice_cost / locationComparisonTotal) * 100).toFixed(2))
+                        : 0
+
+                      return (
+                        <tr key={item.location} className="border-b border-[var(--deshazo-border)]">
+                          <td className="px-3 py-3 align-top">
+                            <p className="font-black text-[var(--deshazo-text)]">{item.location}</p>
+                            <p className="mt-0.5 text-xs font-semibold text-[rgba(21,24,33,0.45)]">
+                              {totalPercent}% of total spend
+                            </p>
+                          </td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.total_jobs.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.total_invoices.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top font-black text-[var(--deshazo-text)]">{formatCurrency(item.total_invoice_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.average_invoice_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.total_service_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.total_parts_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.mapped_invoice_count.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top">
+                            <div className="h-3 w-32 overflow-hidden rounded-full bg-[#efb634]">
+                              <div className="h-full bg-[var(--deshazo-blue-soft)]" style={{ width: `${servicePercent}%` }} />
+                            </div>
+                            <p className="mt-1 text-[11px] font-semibold text-[rgba(21,24,33,0.48)]">
+                              {servicePercent}% service / {partsPercent}% parts
+                            </p>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {locationComparison.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-3 py-8 text-center text-sm font-semibold text-[rgba(21,24,33,0.48)]">
+                          No location comparison rows for this date range.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-4 text-xs font-bold text-[rgba(21,24,33,0.52)]">
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-[var(--deshazo-blue-soft)]" />
+                  Service spend
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-[#efb634]" />
+                  Parts spend
+                </span>
+                <span>Unmapped invoices are shown as a separate location row.</span>
+              </div>
             </section>
           </div>
         </section>

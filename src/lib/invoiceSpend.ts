@@ -174,6 +174,36 @@ function sanitizePdfFileName(value: string) {
   return `${cleaned || defaultInvoiceSpendFileName.replace(/\.pdf$/i, '')}.pdf`
 }
 
+function normalizeAllocationKeyPart(value: string | null | undefined) {
+  return String(value ?? '').trim().toUpperCase().replace(/\s+/g, ' ')
+}
+
+function centsKey(value: number) {
+  return String(Math.round(value * 100))
+}
+
+function getAllocationInvoiceKey(allocation: InvoiceSpendAllocation) {
+  const invoiceNumber = normalizeAllocationKeyPart(allocation.invoiceNumber)
+  if (invoiceNumber) return `invoice:${invoiceNumber}`
+
+  const fallback = [
+    normalizeAllocationKeyPart(allocation.jobNumber),
+    normalizeAllocationKeyPart(allocation.invoiceDate),
+    centsKey(allocation.invoiceTotal),
+    normalizeAllocationKeyPart(allocation.sourceDocumentName),
+  ].filter(Boolean)
+
+  return fallback.length > 0 ? `fallback:${fallback.join(':')}` : `row:${allocation.invoiceId}`
+}
+
+function getAllocationLineKey(allocation: InvoiceSpendAllocation) {
+  return [
+    normalizeAllocationKeyPart(allocation.customer),
+    getAllocationInvoiceKey(allocation),
+    normalizeAllocationKeyPart(allocation.dNumber || allocation.craneRowId || allocation.locationLabel),
+  ].join(':')
+}
+
 function mapAllocation(row: InvoiceSpendAllocationRow): InvoiceSpendAllocation {
   return {
     id: row.id,
@@ -351,8 +381,7 @@ async function fetchInvoiceSpendAllocations(customer?: string) {
   const uniqueAllocations = new Map<string, InvoiceSpendAllocation>()
 
   rows.map(mapAllocation).forEach((allocation) => {
-    const invoiceKey = allocation.invoiceNumber || allocation.invoiceId
-    const allocationKey = `${allocation.customer}:${invoiceKey}:${allocation.dNumber || allocation.craneRowId || allocation.id}`
+    const allocationKey = getAllocationLineKey(allocation)
     const current = uniqueAllocations.get(allocationKey)
     if (!current || (!current.sourceDocumentFilePath && allocation.sourceDocumentFilePath)) {
       uniqueAllocations.set(allocationKey, allocation)
@@ -393,7 +422,7 @@ function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
     .map((crane) => ({
       ...crane,
       totalSpend: Math.round(crane.totalSpend),
-      invoiceCount: new Set(crane.allocations.map((allocation) => allocation.invoiceId)).size,
+      invoiceCount: new Set(crane.allocations.map(getAllocationInvoiceKey)).size,
       allocations: [...crane.allocations].sort((left, right) => right.invoiceDate.localeCompare(left.invoiceDate)),
     }))
     .sort((left, right) => right.totalSpend - left.totalSpend || left.dNumber.localeCompare(right.dNumber))
@@ -414,7 +443,7 @@ export async function getInvoiceSpendLocationSummaries(customer?: string): Promi
     .map(([location, group]) => ({
       location,
       totalSpend: Math.round(group.reduce((sum, allocation) => sum + allocation.allocatedAmount, 0)),
-      invoiceCount: new Set(group.map((allocation) => allocation.invoiceId)).size,
+      invoiceCount: new Set(group.map(getAllocationInvoiceKey)).size,
       craneCount: new Set(group.map((allocation) => allocation.dNumber).filter(Boolean)).size,
       latestInvoiceDate: group.reduce(
         (latest, allocation) => allocation.invoiceDate && allocation.invoiceDate > latest ? allocation.invoiceDate : latest,
@@ -444,13 +473,13 @@ export async function getCraneInvoiceSpendAnalytics(
   const allocations = (await fetchInvoiceSpendAllocations(customer))
     .filter((allocation) => allocation.dNumber === normalizedDNumber)
     .sort((left, right) => right.invoiceDate.localeCompare(left.invoiceDate))
-  const invoiceIds = new Set(allocations.map((allocation) => allocation.invoiceId))
+  const invoiceKeys = new Set(allocations.map(getAllocationInvoiceKey))
   const totalSpend = allocations.reduce((sum, allocation) => sum + allocation.allocatedAmount, 0)
   const invoiceTotals = new Map<string, number>()
   const monthTotals = new Map<string, number>()
 
   allocations.forEach((allocation) => {
-    invoiceTotals.set(allocation.invoiceId, allocation.invoiceTotal)
+    invoiceTotals.set(getAllocationInvoiceKey(allocation), allocation.invoiceTotal)
     const key = monthKey(allocation.invoiceDate)
     monthTotals.set(key, (monthTotals.get(key) ?? 0) + allocation.allocatedAmount)
   })
@@ -459,8 +488,8 @@ export async function getCraneInvoiceSpendAnalytics(
     dNumber: normalizedDNumber,
     totalSpend: Math.round(totalSpend),
     associatedInvoiceSpend: Math.round(Array.from(invoiceTotals.values()).reduce((sum, total) => sum + total, 0)),
-    invoiceCount: invoiceIds.size,
-    averageInvoiceSpend: invoiceIds.size > 0 ? Math.round(totalSpend / invoiceIds.size) : 0,
+    invoiceCount: invoiceKeys.size,
+    averageInvoiceSpend: invoiceKeys.size > 0 ? Math.round(totalSpend / invoiceKeys.size) : 0,
     latestInvoiceDate: allocations[0]?.invoiceDate ?? '',
     monthlySpend: Array.from(monthTotals.entries())
       .map(([month, spend]) => ({ month, spend: Math.round(spend) }))

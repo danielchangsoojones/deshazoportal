@@ -27,6 +27,14 @@ const menuItems = [
 const formatCurrency = (value: number) =>
   `$${Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2).replace(/\.00$/, '')}`
 
+function formatInvoiceSyncIssue(message?: string) {
+  if (!message) return ''
+  if (/load failed/i.test(message)) {
+    return 'Extend is still preparing one or more invoice results. Try Sync again in a minute.'
+  }
+  return message
+}
+
 type LocationComparisonState = {
   customer: string
   data: LocationComparisonItem[]
@@ -48,6 +56,7 @@ export default function LocationComparison() {
   const [invoiceSpendUploadError, setInvoiceSpendUploadError] = useState('')
   const [invoiceSpendUploading, setInvoiceSpendUploading] = useState(false)
   const [invoiceSpendSyncing, setInvoiceSpendSyncing] = useState(false)
+  const [comparisonReloadKey, setComparisonReloadKey] = useState(0)
   const [comparisonState, setComparisonState] = useState<LocationComparisonState>({
     customer: selectedCustomer,
     data: [],
@@ -87,6 +96,12 @@ export default function LocationComparison() {
 
   useEffect(() => {
     let isMounted = true
+    setComparisonState((current) => ({
+      customer: selectedCustomer,
+      data: current.customer === selectedCustomer ? current.data : [],
+      error: '',
+      status: 'loading',
+    }))
 
     getLocationComparisonAnalytics(selectedCustomer)
       .then((nextLocationData) => {
@@ -111,7 +126,7 @@ export default function LocationComparison() {
     return () => {
       isMounted = false
     }
-  }, [selectedCustomer])
+  }, [comparisonReloadKey, selectedCustomer])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -168,18 +183,36 @@ export default function LocationComparison() {
         return
       }
 
-      setInvoiceSpendUploadStatus(`Syncing ${pendingRuns.length} pending invoice run${pendingRuns.length === 1 ? '' : 's'}...`)
-      const results = await syncInvoiceSpendRuns(pendingRuns.map((run) => run.id))
+      const results = []
+      for (const [index, run] of pendingRuns.entries()) {
+        setInvoiceSpendUploadStatus(`Syncing invoice run ${index + 1} of ${pendingRuns.length}...`)
+        const [result] = await syncInvoiceSpendRuns([run.id])
+        if (result) {
+          results.push(result)
+        } else {
+          results.push({
+            invoiceId: run.id,
+            processed: false,
+            error: 'No sync result was returned.',
+          })
+        }
+      }
+
       const processed = results.filter((result) => result.processed).length
       const failed = results.filter((result) => !result.processed).length
       const firstIssue = results.find((result) => !result.processed)
-      const issueMessage = firstIssue?.error || firstIssue?.message
+      const issueMessage = formatInvoiceSyncIssue(firstIssue?.error || firstIssue?.message)
+      if (processed > 0) {
+        setComparisonReloadKey((key) => key + 1)
+      }
       setInvoiceSpendUploadStatus(
-        `Synced ${processed} invoice run${processed === 1 ? '' : 's'}. ${failed ? `${failed} need attention${issueMessage ? `: ${issueMessage}` : '.'}` : 'Refresh the page or open a city to see updated allocations.'}`,
+        failed
+          ? `Synced ${processed} invoice run${processed === 1 ? '' : 's'}. ${failed} still pending${issueMessage ? `: ${issueMessage}` : '.'}`
+          : `Synced ${processed} invoice run${processed === 1 ? '' : 's'}. Location data refreshed.`,
       )
     } catch (err) {
       setInvoiceSpendUploadStatus('')
-      setInvoiceSpendUploadError(err instanceof Error ? err.message : 'Unable to sync invoice runs.')
+      setInvoiceSpendUploadError(formatInvoiceSyncIssue(err instanceof Error ? err.message : undefined) || 'Unable to sync invoice runs.')
     } finally {
       setInvoiceSpendSyncing(false)
     }

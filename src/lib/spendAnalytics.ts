@@ -44,6 +44,11 @@ export type LocationComparisonItem = {
   mapped_invoice_count: number
 }
 
+export type SpendAnalyticsDateRange = {
+  startMonth?: string
+  endMonth?: string
+}
+
 type FinanceInvoiceRow = {
   import_period: string
   customer: string
@@ -119,6 +124,27 @@ function monthKey(value: string) {
   const date = new Date(`${value.slice(0, 10)}T00:00:00`)
   if (Number.isNaN(date.getTime())) return value
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function normalizeMonthInput(value?: string) {
+  const trimmed = (value ?? '').trim()
+  return /^\d{4}-\d{2}$/.test(trimmed) ? trimmed : ''
+}
+
+function filterFinanceRowsByDateRange(rows: FinanceInvoiceRow[], dateRange?: SpendAnalyticsDateRange) {
+  const startMonth = normalizeMonthInput(dateRange?.startMonth)
+  const endMonth = normalizeMonthInput(dateRange?.endMonth)
+  const normalizedStart = startMonth && endMonth && startMonth > endMonth ? endMonth : startMonth
+  const normalizedEnd = startMonth && endMonth && startMonth > endMonth ? startMonth : endMonth
+
+  if (!normalizedStart && !normalizedEnd) return rows
+
+  return rows.filter((row) => {
+    const rowMonth = monthKey(row.import_period)
+    if (normalizedStart && rowMonth < normalizedStart) return false
+    if (normalizedEnd && rowMonth > normalizedEnd) return false
+    return true
+  })
 }
 
 function monthLabel(value: string) {
@@ -260,9 +286,9 @@ async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvo
   return rows
 }
 
-export async function getSpendAnalytics(customer?: string): Promise<SpendAnalytics> {
+export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<SpendAnalytics> {
   const selectedCustomer = resolveSelectedCustomer(customer)
-  const financeRows = await fetchAllFinanceRows(selectedCustomer)
+  const financeRows = filterFinanceRowsByDateRange(await fetchAllFinanceRows(selectedCustomer), dateRange)
   if (financeRows.length === 0) return emptySpendAnalytics
 
   const [workOrderRows, locationLookup] = await Promise.all([
@@ -371,9 +397,9 @@ export async function getSpendAnalytics(customer?: string): Promise<SpendAnalyti
   }
 }
 
-export async function getLocationComparisonAnalytics(customer?: string): Promise<LocationComparisonItem[]> {
+export async function getLocationComparisonAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<LocationComparisonItem[]> {
   const selectedCustomer = resolveSelectedCustomer(customer)
-  const financeRows = await fetchAllFinanceRows(selectedCustomer)
+  const financeRows = filterFinanceRowsByDateRange(await fetchAllFinanceRows(selectedCustomer), dateRange)
   if (financeRows.length === 0) return []
 
   const [workOrderRows, locationLookup] = await Promise.all([
