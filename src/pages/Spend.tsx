@@ -41,6 +41,9 @@ const buildBlueShades = (count: number) => {
 
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`
 
+const safeFilePart = (value: string) =>
+  value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
 const defaultReportDateRange = {
   startMonth: '2025-01',
   endMonth: '2025-12',
@@ -396,8 +399,20 @@ export default function Spend() {
     })
     setReportDateRange({ startMonth: '', endMonth: '' })
   }
+  const getReportFileName = () => {
+    const rangePart = reportDateRange.startMonth && reportDateRange.endMonth
+      ? `from-${reportDateRange.startMonth}-to-${reportDateRange.endMonth}`
+      : 'all-dates'
+    return `${safeFilePart(customerName)}-spend-and-location-comparison-${rangePart}.PDF`
+  }
+
   const handlePrintReport = () => {
+    const previousTitle = document.title
+    document.title = getReportFileName().replace(/\.PDF$/i, '')
     window.print()
+    window.setTimeout(() => {
+      document.title = previousTitle
+    }, 1000)
   }
 
   return (
