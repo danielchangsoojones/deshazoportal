@@ -45,8 +45,8 @@ const safeFilePart = (value: string) =>
   value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 
 const defaultReportDateRange = {
-  startMonth: '2025-01',
-  endMonth: '2025-12',
+  startMonth: '',
+  endMonth: '',
 }
 
 const monthOptions = [
