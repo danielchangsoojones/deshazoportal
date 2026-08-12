@@ -186,14 +186,22 @@ export default function LocationComparison() {
       const results = []
       for (const [index, run] of pendingRuns.entries()) {
         setInvoiceSpendUploadStatus(`Syncing invoice run ${index + 1} of ${pendingRuns.length}...`)
-        const [result] = await syncInvoiceSpendRuns([run.id])
-        if (result) {
-          results.push(result)
-        } else {
+        try {
+          const [result] = await syncInvoiceSpendRuns([run.id])
+          if (result) {
+            results.push(result)
+          } else {
+            results.push({
+              invoiceId: run.id,
+              processed: false,
+              error: 'No sync result was returned.',
+            })
+          }
+        } catch (err) {
           results.push({
             invoiceId: run.id,
             processed: false,
-            error: 'No sync result was returned.',
+            error: err instanceof Error ? err.message : 'Unable to sync this invoice run.',
           })
         }
       }
