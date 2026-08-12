@@ -70,6 +70,8 @@ function combineFinanceLocations(locations: LocationComparisonItem[]): LocationC
     location: 'All Locations',
     total_jobs: totalJobs,
     total_invoices: totalInvoices,
+    finance_invoice_count: locations.reduce((sum, item) => sum + item.finance_invoice_count, 0),
+    uploaded_invoice_count: locations.reduce((sum, item) => sum + item.uploaded_invoice_count, 0),
     average_invoice_cost: totalInvoices > 0 ? Math.round(totalInvoiceCost / totalInvoices) : 0,
     total_invoice_cost: totalInvoiceCost,
     total_service_cost: locations.reduce((sum, item) => sum + item.total_service_cost, 0),
@@ -243,7 +245,7 @@ export default function LocationSpend() {
     )
     return {
       totalSpend: spendState.financeSummary?.total_invoice_cost ?? allocatedSpend,
-      invoiceCount: spendState.financeSummary?.total_invoices ?? invoiceKeys.size,
+      invoiceCount: spendState.financeSummary?.finance_invoice_count ?? invoiceKeys.size,
       craneCount: spendState.data.length,
       allocatedSpend,
       allocatedInvoiceCount: invoiceKeys.size,

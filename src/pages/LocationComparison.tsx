@@ -432,7 +432,7 @@ export default function LocationComparison() {
                         </div>
                         <div className="rounded-xl bg-white px-3 py-3 shadow-[0_10px_24px_-20px_rgba(47,86,166,0.22)]">
                           <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--deshazo-blue-soft)]">
-                            Total Invoices
+                            Uploaded PDFs
                           </p>
                           <p className="mt-1 text-[20px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">
                             {location.total_invoices}
@@ -456,7 +456,7 @@ export default function LocationComparison() {
                         {[
                           ['Total Service Spend', location.total_service_cost],
                           ['Total Parts Spend', location.total_parts_cost],
-                          ['Mapped Invoices', location.mapped_invoice_count],
+                          ['Finance Invoices', location.finance_invoice_count],
                         ].map(([label, value]) => (
                           <div
                             key={label}

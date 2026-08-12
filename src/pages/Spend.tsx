@@ -46,6 +46,46 @@ const defaultReportDateRange = {
   endMonth: '2025-12',
 }
 
+const monthOptions = [
+  { value: '01', label: 'Jan' },
+  { value: '02', label: 'Feb' },
+  { value: '03', label: 'Mar' },
+  { value: '04', label: 'Apr' },
+  { value: '05', label: 'May' },
+  { value: '06', label: 'Jun' },
+  { value: '07', label: 'Jul' },
+  { value: '08', label: 'Aug' },
+  { value: '09', label: 'Sep' },
+  { value: '10', label: 'Oct' },
+  { value: '11', label: 'Nov' },
+  { value: '12', label: 'Dec' },
+]
+
+type DateRangeDraft = {
+  startMonthPart: string
+  startYear: string
+  endMonthPart: string
+  endYear: string
+}
+
+const splitReportMonth = (value: string) => {
+  const match = value.match(/^(\d{4})-(\d{2})$/)
+  return {
+    month: match?.[2] ?? '',
+    year: match?.[1] ?? '',
+  }
+}
+
+const buildReportMonth = (month: string, year: string) =>
+  /^\d{4}$/.test(year) && /^\d{2}$/.test(month) ? `${year}-${month}` : ''
+
+const defaultDateRangeDraft: DateRangeDraft = {
+  startMonthPart: splitReportMonth(defaultReportDateRange.startMonth).month,
+  startYear: splitReportMonth(defaultReportDateRange.startMonth).year,
+  endMonthPart: splitReportMonth(defaultReportDateRange.endMonth).month,
+  endYear: splitReportMonth(defaultReportDateRange.endMonth).year,
+}
+
 const formatMonthLabel = (value: string) => {
   const trimmed = value.trim()
   if (!trimmed) return value
@@ -133,6 +173,7 @@ export default function Spend() {
   const [jpaUploading, setJpaUploading] = useState(false)
   const [analyticsReloadKey, setAnalyticsReloadKey] = useState(0)
   const [reportDateRange, setReportDateRange] = useState(defaultReportDateRange)
+  const [dateRangeDraft, setDateRangeDraft] = useState(defaultDateRangeDraft)
   const [spendState, setSpendState] = useState<SpendState>({
     customer: selectedCustomer,
     startMonth: defaultReportDateRange.startMonth,
@@ -330,11 +371,30 @@ export default function Spend() {
   const locationMappingIsPending =
     hasFinanceData && analytics.locationMappedInvoiceCount === 0
   const canUploadJpa = userTag === 'developer'
-  const handleDateRangeChange = (field: 'startMonth' | 'endMonth', value: string) => {
-    setReportDateRange((current) => ({
-      ...current,
-      [field]: value,
-    }))
+  const handleDateRangePartChange = (field: keyof DateRangeDraft, value: string) => {
+    setDateRangeDraft((current) => {
+      const next = {
+        ...current,
+        [field]: field === 'startYear' || field === 'endYear' ? value.replace(/\D/g, '').slice(0, 4) : value,
+      }
+
+      setReportDateRange({
+        startMonth: buildReportMonth(next.startMonthPart, next.startYear),
+        endMonth: buildReportMonth(next.endMonthPart, next.endYear),
+      })
+
+      return next
+    })
+  }
+
+  const clearDateRange = () => {
+    setDateRangeDraft({
+      startMonthPart: '',
+      startYear: '',
+      endMonthPart: '',
+      endYear: '',
+    })
+    setReportDateRange({ startMonth: '', endMonth: '' })
   }
   const handlePrintReport = () => {
     window.print()
@@ -460,29 +520,73 @@ export default function Spend() {
               ) : null}
             </div>
             <div className="spend-no-print mt-4 flex flex-wrap items-end gap-3 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-                <label className="flex min-w-[180px] flex-col gap-1 text-[11px] font-black uppercase tracking-[0.04em] text-[rgba(21,24,33,0.5)]">
-                  From
-                  <input
-                    type="month"
-                    aria-label="From month and year"
-                    value={reportDateRange.startMonth}
-                    onChange={(event) => handleDateRangeChange('startMonth', event.target.value)}
-                    className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
-                  />
-                </label>
-                <label className="flex min-w-[180px] flex-col gap-1 text-[11px] font-black uppercase tracking-[0.04em] text-[rgba(21,24,33,0.5)]">
-                  To
-                  <input
-                    type="month"
-                    aria-label="To month and year"
-                    value={reportDateRange.endMonth}
-                    onChange={(event) => handleDateRangeChange('endMonth', event.target.value)}
-                    className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
-                  />
-                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-[0.04em] text-[rgba(21,24,33,0.55)]">
+                    From
+                  </span>
+                  <label className="flex w-[132px] flex-col gap-1">
+                    <span className="sr-only">From month</span>
+                    <select
+                      aria-label="From month"
+                      value={dateRangeDraft.startMonthPart}
+                      onChange={(event) => handleDateRangePartChange('startMonthPart', event.target.value)}
+                      className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                    >
+                      <option value="">Month</option>
+                      {monthOptions.map((month) => (
+                        <option key={month.value} value={month.value}>{month.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex w-[112px] flex-col gap-1">
+                    <span className="sr-only">From year</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      aria-label="From year"
+                      placeholder="YYYY"
+                      value={dateRangeDraft.startYear}
+                      onChange={(event) => handleDateRangePartChange('startYear', event.target.value)}
+                      className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] placeholder:text-[rgba(21,24,33,0.38)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                    />
+                  </label>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-[0.04em] text-[rgba(21,24,33,0.55)]">
+                    To
+                  </span>
+                  <label className="flex w-[132px] flex-col gap-1">
+                    <span className="sr-only">To month</span>
+                    <select
+                      aria-label="To month"
+                      value={dateRangeDraft.endMonthPart}
+                      onChange={(event) => handleDateRangePartChange('endMonthPart', event.target.value)}
+                      className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                    >
+                      <option value="">Month</option>
+                      {monthOptions.map((month) => (
+                        <option key={month.value} value={month.value}>{month.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex w-[112px] flex-col gap-1">
+                    <span className="sr-only">To year</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      aria-label="To year"
+                      placeholder="2025 or YYYY"
+                      value={dateRangeDraft.endYear}
+                      onChange={(event) => handleDateRangePartChange('endYear', event.target.value)}
+                      className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] placeholder:text-[rgba(21,24,33,0.38)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                    />
+                  </label>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setReportDateRange({ startMonth: '', endMonth: '' })}
+                  onClick={clearDateRange}
                   className="inline-flex h-11 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white px-4 text-sm font-black text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
                 >
                   All dates
@@ -809,7 +913,7 @@ export default function Spend() {
                   {[
                     ['Locations', locationComparison.length.toLocaleString()],
                     ['Total Jobs', locationComparison.reduce((sum, item) => sum + item.total_jobs, 0).toLocaleString()],
-                    ['Mapped Invoices', `${analytics.locationMappedInvoiceCount.toLocaleString()} / ${toplineSpend.total_invoices.toLocaleString()}`],
+                    ['Finance Invoices', locationComparison.reduce((sum, item) => sum + item.finance_invoice_count, 0).toLocaleString()],
                     ['Top Location', topLocationComparison?.location ?? 'None'],
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-md bg-[var(--deshazo-surface)] px-3 py-2">
@@ -824,7 +928,7 @@ export default function Spend() {
                 <table className="min-w-[980px] w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="bg-[var(--deshazo-blue)] text-white">
-                      {['Location', 'Jobs', 'Invoices', 'Total Cost', 'Avg. Invoice', 'Service', 'Parts', 'Mapped', 'Mix'].map((heading) => (
+                      {['Location', 'Jobs', 'Finance Invoices', 'Uploaded PDFs', 'Total Cost', 'Avg. Invoice', 'Service', 'Parts', 'Mapped', 'Mix'].map((heading) => (
                         <th key={heading} className="px-3 py-2 text-xs font-black uppercase tracking-[0.04em]">
                           {heading}
                         </th>
@@ -850,7 +954,8 @@ export default function Spend() {
                             </p>
                           </td>
                           <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.total_jobs.toLocaleString()}</td>
-                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.total_invoices.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.finance_invoice_count.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.uploaded_invoice_count.toLocaleString()}</td>
                           <td className="px-3 py-3 align-top font-black text-[var(--deshazo-text)]">{formatCurrency(item.total_invoice_cost)}</td>
                           <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.average_invoice_cost)}</td>
                           <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.total_service_cost)}</td>

@@ -1,4 +1,5 @@
 import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './customerRouting'
+import { getInvoiceSpendLocationSummaries } from './invoiceSpend'
 import { getCustomerLocationLookup, getLocationOptionFromLabel } from './portalLocations'
 import { supabase } from './supabase'
 
@@ -37,6 +38,8 @@ export type LocationComparisonItem = {
   location: string
   total_jobs: number
   total_invoices: number
+  finance_invoice_count: number
+  uploaded_invoice_count: number
   average_invoice_cost: number
   total_invoice_cost: number
   total_service_cost: number
@@ -406,6 +409,13 @@ export async function getLocationComparisonAnalytics(customer?: string, dateRang
     loadWorkOrderLocations(selectedCustomer, financeRows),
     getCustomerLocationLookup(selectedCustomer),
   ])
+  const uploadedLocationSummaries = await getInvoiceSpendLocationSummaries(selectedCustomer)
+  const uploadedInvoicesByLocation = new Map(
+    uploadedLocationSummaries.map((summary) => [
+      locationLookup.aliases.get(getLocationOptionFromLabel(summary.location)?.value ?? '')?.label || summary.location,
+      summary.invoiceCount,
+    ]),
+  )
   const workOrderById = new Map(workOrderRows.map((row) => [String(row.work_order_id), row]))
   const workOrderByJobNo = new Map(workOrderRows.filter((row) => row.job_no).map((row) => [row.job_no ?? '', row]))
   const locations = new Map<string, {
@@ -452,7 +462,9 @@ export async function getLocationComparisonAnalytics(customer?: string, dateRang
     .map(([location, group]) => ({
       location,
       total_jobs: group.jobNos.size,
-      total_invoices: group.totalInvoices,
+      total_invoices: uploadedInvoicesByLocation.get(location) ?? 0,
+      finance_invoice_count: group.totalInvoices,
+      uploaded_invoice_count: uploadedInvoicesByLocation.get(location) ?? 0,
       average_invoice_cost: group.totalInvoices > 0 ? Math.round(group.totalInvoiceCost / group.totalInvoices) : 0,
       total_invoice_cost: Math.round(group.totalInvoiceCost),
       total_service_cost: Math.round(group.totalServiceCost),
