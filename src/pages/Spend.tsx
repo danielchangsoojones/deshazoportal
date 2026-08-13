@@ -33,10 +33,8 @@ const menuItems = [
 const buildBlueShades = (count: number) => {
   if (count <= 0) return []
 
-  return Array.from({ length: count }, (_, index) => {
-    const lightness = 74 - (index / Math.max(count - 1, 1)) * 36
-    return `hsl(221 68% ${lightness}%)`
-  })
+  const palette = ['#2f56a6', '#efb43f', '#3b9a73', '#7c5fd1', '#dd6b4d', '#2aa7a9']
+  return Array.from({ length: count }, (_, index) => palette[index % palette.length])
 }
 
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`
@@ -408,11 +406,19 @@ export default function Spend() {
 
   const handlePrintReport = () => {
     const previousTitle = document.title
-    document.title = getReportFileName().replace(/\.PDF$/i, '')
-    window.print()
-    window.setTimeout(() => {
+    let cleanupTimer: number | undefined
+    const cleanupPrintMode = () => {
+      if (cleanupTimer) window.clearTimeout(cleanupTimer)
+      document.body.classList.remove('spend-report-printing')
       document.title = previousTitle
-    }, 1000)
+      window.removeEventListener('afterprint', cleanupPrintMode)
+    }
+
+    document.title = getReportFileName().replace(/\.PDF$/i, '')
+    document.body.classList.add('spend-report-printing')
+    window.addEventListener('afterprint', cleanupPrintMode, { once: true })
+    window.print()
+    cleanupTimer = window.setTimeout(cleanupPrintMode, 30_000)
   }
 
   return (
@@ -642,7 +648,7 @@ export default function Spend() {
           </div>
 
           <div className="spend-print-report space-y-6">
-            <section className="rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+            <section className="spend-report-hero rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
               <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.08em] text-[var(--deshazo-blue)]">
@@ -655,7 +661,7 @@ export default function Spend() {
                     Reporting period {toplineSpend.topline_start_str}
                   </p>
                 </div>
-                <div className="rounded-md bg-[var(--deshazo-surface)] px-3 py-2 text-right text-xs font-black uppercase tracking-[0.04em] text-[var(--deshazo-blue)]">
+                <div className="spend-report-badge rounded-md bg-[var(--deshazo-surface)] px-3 py-2 text-right text-xs font-black uppercase tracking-[0.04em] text-[var(--deshazo-blue)]">
                   Finance report
                 </div>
               </div>
@@ -667,7 +673,7 @@ export default function Spend() {
               </section>
             ) : null}
 
-            <section className="grid gap-4 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)] md:grid-cols-2 xl:grid-cols-4">
+            <section className="spend-report-metrics grid gap-4 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)] md:grid-cols-2 xl:grid-cols-4">
               {[
                 ['Total Invoices', toplineSpend.total_invoices.toLocaleString()],
                 ['Total Spend', formatCurrency(toplineSpend.total_spend)],
@@ -686,8 +692,8 @@ export default function Spend() {
               ))}
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-2">
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+            <section className="spend-report-chart-grid grid gap-4 xl:grid-cols-2">
+              <article className="spend-chart-card spend-chart-card-service rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend By Service</h2>
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
@@ -733,7 +739,7 @@ export default function Spend() {
                 </div>
               </article>
 
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-parts rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend By Parts</h2>
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
@@ -779,7 +785,7 @@ export default function Spend() {
                 </div>
               </article>
 
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-average rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Avg. Invoice Amount</h2>
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
@@ -825,7 +831,7 @@ export default function Spend() {
                 </div>
               </article>
 
-              <article className="relative overflow-hidden rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-location relative overflow-hidden rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <div className={locationMappingIsPending ? 'scale-[1.01] opacity-45 blur-[8px] saturate-50' : ''}>
                   <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By Location</h2>
                   <div className="mt-6 flex flex-col items-center justify-center gap-5">
@@ -864,7 +870,7 @@ export default function Spend() {
                 ) : null}
               </article>
 
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-branch rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By DeShazo Branch</h2>
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="space-y-3">
@@ -889,7 +895,7 @@ export default function Spend() {
                 </div>
               </article>
 
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-invoice rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Invoice Size Mix</h2>
                 <div className="mt-6 flex flex-col items-center justify-center gap-5">
                   <div className="relative h-44 w-44 rounded-full bg-[var(--deshazo-surface-2)]" style={invoiceSizeTotal > 0 ? { background: buildConicGradient(invoiceSizeData) } : undefined}>
