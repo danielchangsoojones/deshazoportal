@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
@@ -80,12 +80,17 @@ const splitReportMonth = (value: string) => {
 const buildReportMonth = (month: string, year: string) =>
   /^\d{4}$/.test(year) && /^\d{2}$/.test(month) ? `${year}-${month}` : ''
 
-const defaultDateRangeDraft: DateRangeDraft = {
-  startMonthPart: splitReportMonth(defaultReportDateRange.startMonth).month,
-  startYear: splitReportMonth(defaultReportDateRange.startMonth).year,
-  endMonthPart: splitReportMonth(defaultReportDateRange.endMonth).month,
-  endYear: splitReportMonth(defaultReportDateRange.endMonth).year,
-}
+const getInitialReportDateRange = (searchParams: URLSearchParams) => ({
+  startMonth: searchParams.get('startMonth')?.match(/^\d{4}-\d{2}$/)?.[0] ?? defaultReportDateRange.startMonth,
+  endMonth: searchParams.get('endMonth')?.match(/^\d{4}-\d{2}$/)?.[0] ?? defaultReportDateRange.endMonth,
+})
+
+const getDateRangeDraftFromRange = (dateRange: typeof defaultReportDateRange): DateRangeDraft => ({
+  startMonthPart: splitReportMonth(dateRange.startMonth).month,
+  startYear: splitReportMonth(dateRange.startMonth).year,
+  endMonthPart: splitReportMonth(dateRange.endMonth).month,
+  endYear: splitReportMonth(dateRange.endMonth).year,
+})
 
 const formatMonthLabel = (value: string) => {
   const trimmed = value.trim()
@@ -162,6 +167,7 @@ export default function Spend() {
   const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
   const customerName = getCustomerDisplayName(selectedCustomer)
@@ -173,8 +179,8 @@ export default function Spend() {
   const [jpaUploadError, setJpaUploadError] = useState('')
   const [jpaUploading, setJpaUploading] = useState(false)
   const [analyticsReloadKey, setAnalyticsReloadKey] = useState(0)
-  const [reportDateRange, setReportDateRange] = useState(defaultReportDateRange)
-  const [dateRangeDraft, setDateRangeDraft] = useState(defaultDateRangeDraft)
+  const [reportDateRange, setReportDateRange] = useState(() => getInitialReportDateRange(searchParams))
+  const [dateRangeDraft, setDateRangeDraft] = useState(() => getDateRangeDraftFromRange(getInitialReportDateRange(searchParams)))
   const [spendState, setSpendState] = useState<SpendState>({
     customer: selectedCustomer,
     startMonth: defaultReportDateRange.startMonth,
