@@ -87,8 +87,12 @@ async function loadEnv(filePath) {
   }
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+function normalizeCustomerComparable(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function workbookCustomerMatchesSelectedCustomer(workbookCustomer, selectedCustomerName) {
+  return normalizeCustomerComparable(workbookCustomer) === normalizeCustomerComparable(selectedCustomerName)
 }
 
 function columnLettersToIndex(letters) {
@@ -254,7 +258,7 @@ function parseImportPeriod(value, workbookName, sheetName) {
   throw new Error(`Could not parse workbook month for "${workbookName}" sheet "${sheetName}" from "${text}" or the filename.`)
 }
 
-async function parseWorkbook(workbookPath, customerFilter, importCustomer) {
+async function parseWorkbook(workbookPath, selectedCustomerName, importCustomer) {
   const zip = await JSZip.loadAsync(await fs.readFile(workbookPath))
   const [sharedStrings, sheets] = await Promise.all([readSharedStrings(zip), readWorkbookSheets(zip)])
   const rows = []
@@ -270,7 +274,7 @@ async function parseWorkbook(workbookPath, customerFilter, importCustomer) {
       if (row.rowNumber < 5) continue
       const jobNo = normalizeJobNo(row.values[1])
       const customer = String(row.values[2] ?? '').trim()
-      if (!jobNo || !customer || !customerFilter.test(customer)) continue
+      if (!jobNo || !customer || !workbookCustomerMatchesSelectedCustomer(customer, selectedCustomerName)) continue
 
       const partsRevenue = toNumber(row.values[3])
       const serviceRevenue = toNumber(row.values[4])
@@ -388,9 +392,7 @@ const dryRun = hasFlag('dry-run') || !hasFlag('upload')
 const shouldLookupWorkOrders = hasFlag('lookup-work-orders') || hasFlag('upload')
 const outputPath = path.resolve(getArg('out', 'data/jpa/wabash-may-2026-import.csv'))
 const env = await loadEnv(path.resolve(getArg('env', '.env.local')))
-const customerFilter = new RegExp(escapeRegExp(customer), 'i')
-
-const parsedRows = await parseWorkbook(workbookPath, customerFilter, importCustomer)
+const parsedRows = await parseWorkbook(workbookPath, customer, importCustomer)
 const rows = shouldLookupWorkOrders ? await attachWorkOrders(env, parsedRows, importCustomer) : parsedRows
 const partsTotal = rows.reduce((sum, row) => sum + row.parts_revenue, 0)
 const serviceTotal = rows.reduce((sum, row) => sum + row.service_revenue, 0)

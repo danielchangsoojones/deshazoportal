@@ -188,9 +188,19 @@ function normalizeLocationComparable(value?: string | null) {
   return (value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
 }
 
+function getFinanceWorkbookCustomer(row: FinanceInvoiceRow) {
+  return typeof row.raw_payload?.workbookCustomer === 'string' ? row.raw_payload.workbookCustomer.trim() : ''
+}
+
+function isFinanceRowForSelectedCustomer(row: FinanceInvoiceRow, selectedCustomer: string) {
+  const workbookCustomer = getFinanceWorkbookCustomer(row)
+  if (!workbookCustomer) return true
+
+  return normalizeLocationComparable(workbookCustomer) === normalizeLocationComparable(selectedCustomer)
+}
+
 function getFinanceWorkbookLocation(row: FinanceInvoiceRow) {
-  const workbookCustomer =
-    typeof row.raw_payload?.workbookCustomer === 'string' ? row.raw_payload.workbookCustomer.trim() : ''
+  const workbookCustomer = getFinanceWorkbookCustomer(row)
   if (!workbookCustomer) return ''
 
   return normalizeLocationComparable(workbookCustomer) === normalizeLocationComparable(row.customer)
@@ -291,7 +301,10 @@ async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvo
 
 export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<SpendAnalytics> {
   const selectedCustomer = resolveSelectedCustomer(customer)
-  const financeRows = filterFinanceRowsByDateRange(await fetchAllFinanceRows(selectedCustomer), dateRange)
+  const financeRows = filterFinanceRowsByDateRange(
+    (await fetchAllFinanceRows(selectedCustomer)).filter((row) => isFinanceRowForSelectedCustomer(row, selectedCustomer)),
+    dateRange,
+  )
   if (financeRows.length === 0) return emptySpendAnalytics
 
   const [workOrderRows, locationLookup] = await Promise.all([
@@ -402,7 +415,10 @@ export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnal
 
 export async function getLocationComparisonAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<LocationComparisonItem[]> {
   const selectedCustomer = resolveSelectedCustomer(customer)
-  const financeRows = filterFinanceRowsByDateRange(await fetchAllFinanceRows(selectedCustomer), dateRange)
+  const financeRows = filterFinanceRowsByDateRange(
+    (await fetchAllFinanceRows(selectedCustomer)).filter((row) => isFinanceRowForSelectedCustomer(row, selectedCustomer)),
+    dateRange,
+  )
   if (financeRows.length === 0) return []
 
   const [workOrderRows, locationLookup] = await Promise.all([

@@ -77,8 +77,12 @@ export type JpaFinanceImportResult = {
   total: number
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+function normalizeCustomerComparable(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function workbookCustomerMatchesSelectedCustomer(workbookCustomer: string, selectedCustomerName: string) {
+  return normalizeCustomerComparable(workbookCustomer) === normalizeCustomerComparable(selectedCustomerName)
 }
 
 function columnLettersToIndex(letters: string) {
@@ -235,7 +239,7 @@ function parseImportPeriod(value: unknown, fileName: string, sheetName: string) 
   throw new Error(`Could not parse workbook month for "${fileName}" sheet "${sheetName}" from "${text}" or the filename.`)
 }
 
-async function parseWorkbook(file: File, customerFilter: RegExp, importCustomer: string) {
+async function parseWorkbook(file: File, selectedCustomerName: string, importCustomer: string) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer())
   const [sharedStrings, sheets] = await Promise.all([readSharedStrings(zip), readWorkbookSheets(zip)])
   const rows: FinanceImportRow[] = []
@@ -251,7 +255,7 @@ async function parseWorkbook(file: File, customerFilter: RegExp, importCustomer:
       if (row.rowNumber < 5) continue
       const jobNo = String(row.values[1] ?? '').trim()
       const workbookCustomer = String(row.values[2] ?? '').trim()
-      if (!jobNo || !workbookCustomer || !customerFilter.test(workbookCustomer)) continue
+      if (!jobNo || !workbookCustomer || !workbookCustomerMatchesSelectedCustomer(workbookCustomer, selectedCustomerName)) continue
 
       const partsRevenue = toNumber(row.values[3])
       const serviceRevenue = toNumber(row.values[4])
@@ -332,9 +336,8 @@ async function uploadRows(rows: FinanceImportRow[]) {
 export async function uploadJpaFinanceFiles(files: File[], selectedCustomer: string): Promise<JpaFinanceImportResult> {
   const importCustomer = getCustomerFilterValue(selectedCustomer)
   const customerName = getCustomerDisplayName(selectedCustomer)
-  const customerFilter = new RegExp(escapeRegExp(customerName), 'i')
   const parsedRows = (
-    await Promise.all(files.map((file) => parseWorkbook(file, customerFilter, importCustomer)))
+    await Promise.all(files.map((file) => parseWorkbook(file, customerName, importCustomer)))
   ).flat()
   const rows = await attachWorkOrders(parsedRows, importCustomer)
 
