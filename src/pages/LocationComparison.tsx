@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { Link, useNavigate } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getLocationComparisonAnalytics, type LocationComparisonItem } from '../lib/spendAnalytics'
+import { getPendingInvoiceSpendRuns, syncInvoiceSpendRuns, uploadInvoiceSpendPdf } from '../lib/invoiceSpend'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { isConfigured, supabase } from '../lib/supabase'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -24,6 +27,14 @@ const menuItems = [
 const formatCurrency = (value: number) =>
   `$${Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2).replace(/\.00$/, '')}`
 
+function formatInvoiceSyncIssue(message?: string) {
+  if (!message) return ''
+  if (/load failed/i.test(message)) {
+    return 'Extend is still preparing one or more invoice results. Try Sync again in a minute.'
+  }
+  return message
+}
+
 type LocationComparisonState = {
   customer: string
   data: LocationComparisonItem[]
@@ -34,11 +45,18 @@ type LocationComparisonState = {
 export default function LocationComparison() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const invoiceSpendUploadInputRef = useRef<HTMLInputElement | null>(null)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
   const customerName = getCustomerDisplayName(selectedCustomer)
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
+  const [invoiceSpendUploadStatus, setInvoiceSpendUploadStatus] = useState('')
+  const [invoiceSpendUploadError, setInvoiceSpendUploadError] = useState('')
+  const [invoiceSpendUploading, setInvoiceSpendUploading] = useState(false)
+  const [invoiceSpendSyncing, setInvoiceSpendSyncing] = useState(false)
+  const [comparisonReloadKey, setComparisonReloadKey] = useState(0)
   const [comparisonState, setComparisonState] = useState<LocationComparisonState>({
     customer: selectedCustomer,
     data: [],
@@ -58,11 +76,14 @@ export default function LocationComparison() {
       }
     }
 
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!isMounted) return
       if (!data.user) {
         navigate(customerPath('/login'))
       } else {
+        const nextUserTag = await getCurrentUserTag(data.user.id).catch(() => null)
+        if (!isMounted) return
+        setUserTag(nextUserTag)
         setUser(data.user)
       }
       setAuthLoading(false)
@@ -75,6 +96,12 @@ export default function LocationComparison() {
 
   useEffect(() => {
     let isMounted = true
+    setComparisonState((current) => ({
+      customer: selectedCustomer,
+      data: current.customer === selectedCustomer ? current.data : [],
+      error: '',
+      status: 'loading',
+    }))
 
     getLocationComparisonAnalytics(selectedCustomer)
       .then((nextLocationData) => {
@@ -99,11 +126,104 @@ export default function LocationComparison() {
     return () => {
       isMounted = false
     }
-  }, [selectedCustomer])
+  }, [comparisonReloadKey, selectedCustomer])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
     navigate(customerPath('/login'))
+  }
+
+  const openLocationSpend = (location: string) => {
+    navigate(`${customerPath('/location-spend')}?location=${encodeURIComponent(location)}`)
+  }
+
+  const handleInvoiceSpendUploadClick = () => {
+    if (userTag !== 'developer') return
+    invoiceSpendUploadInputRef.current?.click()
+  }
+
+  const handleInvoiceSpendUploadChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) => file.name.toLowerCase().endsWith('.pdf'))
+    event.target.value = ''
+    if (userTag !== 'developer') return
+    if (files.length === 0) return
+
+    try {
+      setInvoiceSpendUploading(true)
+      setInvoiceSpendUploadError('')
+      setInvoiceSpendUploadStatus(`Saving ${files.length} invoice PDF${files.length === 1 ? '' : 's'} and sending to Extend...`)
+
+      const results = []
+      for (const [index, file] of files.entries()) {
+        setInvoiceSpendUploadStatus(`Saving and sending invoice ${index + 1} of ${files.length}: ${file.name}`)
+        results.push(await uploadInvoiceSpendPdf(file, selectedCustomer))
+      }
+
+      setInvoiceSpendUploadStatus(
+        `${results.length} invoice PDF${results.length === 1 ? '' : 's'} saved and queued. Allocations and stored PDFs will appear after Extend completes.`,
+      )
+    } catch (err) {
+      setInvoiceSpendUploadStatus('')
+      setInvoiceSpendUploadError(err instanceof Error ? err.message : 'Unable to upload invoice PDF.')
+    } finally {
+      setInvoiceSpendUploading(false)
+    }
+  }
+
+  const handleInvoiceSpendSync = async () => {
+    if (userTag !== 'developer') return
+
+    try {
+      setInvoiceSpendSyncing(true)
+      setInvoiceSpendUploadError('')
+      setInvoiceSpendUploadStatus('Checking pending invoice runs...')
+      const pendingRuns = await getPendingInvoiceSpendRuns(selectedCustomer)
+      if (pendingRuns.length === 0) {
+        setInvoiceSpendUploadStatus('No pending invoice runs to sync.')
+        return
+      }
+
+      const results = []
+      for (const [index, run] of pendingRuns.entries()) {
+        setInvoiceSpendUploadStatus(`Syncing invoice run ${index + 1} of ${pendingRuns.length}...`)
+        try {
+          const [result] = await syncInvoiceSpendRuns([run.id])
+          if (result) {
+            results.push(result)
+          } else {
+            results.push({
+              invoiceId: run.id,
+              processed: false,
+              error: 'No sync result was returned.',
+            })
+          }
+        } catch (err) {
+          results.push({
+            invoiceId: run.id,
+            processed: false,
+            error: err instanceof Error ? err.message : 'Unable to sync this invoice run.',
+          })
+        }
+      }
+
+      const processed = results.filter((result) => result.processed).length
+      const failed = results.filter((result) => !result.processed).length
+      const firstIssue = results.find((result) => !result.processed)
+      const issueMessage = formatInvoiceSyncIssue(firstIssue?.error || firstIssue?.message)
+      if (processed > 0) {
+        setComparisonReloadKey((key) => key + 1)
+      }
+      setInvoiceSpendUploadStatus(
+        failed
+          ? `Synced ${processed} invoice run${processed === 1 ? '' : 's'}. ${failed} still pending${issueMessage ? `: ${issueMessage}` : '.'}`
+          : `Synced ${processed} invoice run${processed === 1 ? '' : 's'}. Location data refreshed.`,
+      )
+    } catch (err) {
+      setInvoiceSpendUploadStatus('')
+      setInvoiceSpendUploadError(formatInvoiceSyncIssue(err instanceof Error ? err.message : undefined) || 'Unable to sync invoice runs.')
+    } finally {
+      setInvoiceSpendSyncing(false)
+    }
   }
 
   if (authLoading) {
@@ -127,6 +247,7 @@ export default function LocationComparison() {
   const locationData = comparisonState.customer === selectedCustomer ? comparisonState.data : []
   const loading = comparisonState.customer !== selectedCustomer || comparisonState.status === 'loading'
   const error = comparisonState.customer === selectedCustomer ? comparisonState.error : ''
+  const canUploadInvoiceSpend = userTag === 'developer'
   const initials = fullName
     .split(' ')
     .filter(Boolean)
@@ -237,6 +358,39 @@ export default function LocationComparison() {
                 <span>{customerName} location comparison</span>
               </div>
             </div>
+            {canUploadInvoiceSpend ? (
+              <div className="mt-5 flex flex-wrap items-center gap-3 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <input
+                  ref={invoiceSpendUploadInputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  multiple
+                  className="hidden"
+                  onChange={handleInvoiceSpendUploadChange}
+                />
+                <button
+                  type="button"
+                  onClick={handleInvoiceSpendUploadClick}
+                  disabled={invoiceSpendUploading || invoiceSpendSyncing}
+                  className="inline-flex items-center justify-center rounded-md bg-[#1f7a4d] px-4 py-2.5 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(31,122,77,0.7)] transition hover:bg-[#17633e] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>{invoiceSpendUploading ? 'Uploading invoices...' : 'Upload Invoice Spend PDFs'}</span>
+                  <DeveloperBadge />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleInvoiceSpendSync}
+                  disabled={invoiceSpendUploading || invoiceSpendSyncing}
+                  className="inline-flex items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-2.5 text-sm font-black text-[var(--deshazo-blue)] shadow-[0_14px_28px_-24px_rgba(47,86,166,0.35)] transition hover:bg-[var(--deshazo-surface)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>{invoiceSpendSyncing ? 'Syncing invoice runs...' : 'Sync Invoice Runs'}</span>
+                  <DeveloperBadge />
+                </button>
+                <span className="text-sm font-bold text-[rgba(21,24,33,0.7)]">
+                  {invoiceSpendUploadError || invoiceSpendUploadStatus || 'Save Deshazo/Wabash invoice PDFs and send them to Extend for per-crane spend allocation.'}
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {loading || error || locationData.length === 0 ? (
@@ -250,7 +404,16 @@ export default function LocationComparison() {
                 {locationData.map((location) => (
                   <article
                     key={location.location}
-                    className="group overflow-hidden rounded-[22px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,var(--deshazo-surface)_100%)] shadow-[0_16px_34px_-30px_rgba(47,86,166,0.32)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_40px_-30px_rgba(47,86,166,0.42)]"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openLocationSpend(location.location)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        openLocationSpend(location.location)
+                      }
+                    }}
+                    className="group cursor-pointer overflow-hidden rounded-[22px] border border-[var(--deshazo-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,var(--deshazo-surface)_100%)] shadow-[0_16px_34px_-30px_rgba(47,86,166,0.32)] outline-none transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_40px_-30px_rgba(47,86,166,0.42)] focus:ring-4 focus:ring-[rgba(47,86,166,0.18)]"
                   >
                     <div className="bg-[linear-gradient(90deg,var(--deshazo-blue)_0%,var(--deshazo-blue-deep)_100%)] px-4 py-4 text-white">
                       <h3 className="text-[clamp(22px,2.3vw,28px)] font-extrabold leading-[1.05] tracking-[-0.04em] text-white">
@@ -269,7 +432,7 @@ export default function LocationComparison() {
                         </div>
                         <div className="rounded-xl bg-white px-3 py-3 shadow-[0_10px_24px_-20px_rgba(47,86,166,0.22)]">
                           <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--deshazo-blue-soft)]">
-                            Total Invoices
+                            Uploaded PDFs
                           </p>
                           <p className="mt-1 text-[20px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">
                             {location.total_invoices}
@@ -293,7 +456,7 @@ export default function LocationComparison() {
                         {[
                           ['Total Service Spend', location.total_service_cost],
                           ['Total Parts Spend', location.total_parts_cost],
-                          ['Mapped Invoices', location.mapped_invoice_count],
+                          ['Finance Invoices', location.finance_invoice_count],
                         ].map(([label, value]) => (
                           <div
                             key={label}

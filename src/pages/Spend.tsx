@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { getSpendAnalytics, type SpendAnalytics } from '../lib/spendAnalytics'
+import {
+  clearSpendAnalyticsCache,
+  getLocationComparisonAnalytics,
+  getSpendAnalytics,
+  type LocationComparisonItem,
+  type SpendAnalytics,
+} from '../lib/spendAnalytics'
+import { uploadJpaFinanceFiles } from '../lib/jpaFinanceImport'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { isConfigured, supabase } from '../lib/supabase'
+import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -24,13 +33,64 @@ const menuItems = [
 const buildBlueShades = (count: number) => {
   if (count <= 0) return []
 
-  return Array.from({ length: count }, (_, index) => {
-    const lightness = 74 - (index / Math.max(count - 1, 1)) * 36
-    return `hsl(221 68% ${lightness}%)`
-  })
+  const palette = ['#2f56a6', '#efb43f', '#3b9a73', '#7c5fd1', '#dd6b4d', '#2aa7a9']
+  return Array.from({ length: count }, (_, index) => palette[index % palette.length])
 }
 
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`
+
+const safeFilePart = (value: string) =>
+  value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+const defaultReportDateRange = {
+  startMonth: '',
+  endMonth: '',
+}
+
+const monthOptions = [
+  { value: '01', label: 'Jan' },
+  { value: '02', label: 'Feb' },
+  { value: '03', label: 'Mar' },
+  { value: '04', label: 'Apr' },
+  { value: '05', label: 'May' },
+  { value: '06', label: 'Jun' },
+  { value: '07', label: 'Jul' },
+  { value: '08', label: 'Aug' },
+  { value: '09', label: 'Sep' },
+  { value: '10', label: 'Oct' },
+  { value: '11', label: 'Nov' },
+  { value: '12', label: 'Dec' },
+]
+
+type DateRangeDraft = {
+  startMonthPart: string
+  startYear: string
+  endMonthPart: string
+  endYear: string
+}
+
+const splitReportMonth = (value: string) => {
+  const match = value.match(/^(\d{4})-(\d{2})$/)
+  return {
+    month: match?.[2] ?? '',
+    year: match?.[1] ?? '',
+  }
+}
+
+const buildReportMonth = (month: string, year: string) =>
+  /^\d{4}$/.test(year) && /^\d{2}$/.test(month) ? `${year}-${month}` : ''
+
+const getInitialReportDateRange = (searchParams: URLSearchParams) => ({
+  startMonth: searchParams.get('startMonth')?.match(/^\d{4}-\d{2}$/)?.[0] ?? defaultReportDateRange.startMonth,
+  endMonth: searchParams.get('endMonth')?.match(/^\d{4}-\d{2}$/)?.[0] ?? defaultReportDateRange.endMonth,
+})
+
+const getDateRangeDraftFromRange = (dateRange: typeof defaultReportDateRange): DateRangeDraft => ({
+  startMonthPart: splitReportMonth(dateRange.startMonth).month,
+  startYear: splitReportMonth(dateRange.startMonth).year,
+  endMonthPart: splitReportMonth(dateRange.endMonth).month,
+  endYear: splitReportMonth(dateRange.endMonth).year,
+})
 
 const formatMonthLabel = (value: string) => {
   const trimmed = value.trim()
@@ -94,7 +154,10 @@ const getBarHeight = (value: number, maxValue: number, plotHeight?: number) => {
 
 type SpendState = {
   customer: string
+  startMonth: string
+  endMonth: string
   analytics: SpendAnalytics
+  locationComparison: LocationComparisonItem[]
   error: string
   status: 'loading' | 'ready'
 }
@@ -104,14 +167,26 @@ export default function Spend() {
   const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
   const customerName = getCustomerDisplayName(selectedCustomer)
   const customAnalyticsRef = useRef<HTMLDivElement | null>(null)
+  const jpaUploadInputRef = useRef<HTMLInputElement | null>(null)
   const [customAnalyticsMessage, setCustomAnalyticsMessage] = useState('')
+  const [userTag, setUserTag] = useState<UserTag | null>(null)
+  const [jpaUploadStatus, setJpaUploadStatus] = useState('')
+  const [jpaUploadError, setJpaUploadError] = useState('')
+  const [jpaUploading, setJpaUploading] = useState(false)
+  const [analyticsReloadKey, setAnalyticsReloadKey] = useState(0)
+  const [reportDateRange, setReportDateRange] = useState(() => getInitialReportDateRange(searchParams))
+  const [dateRangeDraft, setDateRangeDraft] = useState(() => getDateRangeDraftFromRange(getInitialReportDateRange(searchParams)))
   const [spendState, setSpendState] = useState<SpendState>({
     customer: selectedCustomer,
+    startMonth: defaultReportDateRange.startMonth,
+    endMonth: defaultReportDateRange.endMonth,
     analytics: emptyAnalytics,
+    locationComparison: [],
     error: '',
     status: 'loading',
   })
@@ -128,11 +203,14 @@ export default function Spend() {
       }
     }
 
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!isMounted) return
       if (!data.user) {
         navigate(customerPath('/login'))
       } else {
+        const nextUserTag = await getCurrentUserTag(data.user.id).catch(() => null)
+        if (!isMounted) return
+        setUserTag(nextUserTag)
         setUser(data.user)
       }
       setAuthLoading(false)
@@ -146,12 +224,18 @@ export default function Spend() {
   useEffect(() => {
     let isMounted = true
 
-    getSpendAnalytics(selectedCustomer)
-      .then((nextAnalytics) => {
+    Promise.all([
+      getSpendAnalytics(selectedCustomer, reportDateRange),
+      getLocationComparisonAnalytics(selectedCustomer, reportDateRange),
+    ])
+      .then(([nextAnalytics, nextLocationComparison]) => {
         if (!isMounted) return
         setSpendState({
           customer: selectedCustomer,
+          startMonth: reportDateRange.startMonth,
+          endMonth: reportDateRange.endMonth,
           analytics: nextAnalytics,
+          locationComparison: nextLocationComparison,
           error: '',
           status: 'ready',
         })
@@ -160,7 +244,10 @@ export default function Spend() {
         if (!isMounted) return
         setSpendState({
           customer: selectedCustomer,
+          startMonth: reportDateRange.startMonth,
+          endMonth: reportDateRange.endMonth,
           analytics: emptyAnalytics,
+          locationComparison: [],
           error: err instanceof Error ? err.message : 'Unable to load spend analytics.',
           status: 'ready',
         })
@@ -169,7 +256,7 @@ export default function Spend() {
     return () => {
       isMounted = false
     }
-  }, [selectedCustomer])
+  }, [analyticsReloadKey, reportDateRange, selectedCustomer])
 
   useEffect(() => {
     if (!customAnalyticsMessage) return
@@ -190,6 +277,36 @@ export default function Spend() {
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
     navigate(customerPath('/login'))
+  }
+
+  const handleJpaUploadClick = () => {
+    if (userTag !== 'developer') return
+    jpaUploadInputRef.current?.click()
+  }
+
+  const handleJpaUploadChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (userTag !== 'developer') return
+    if (files.length === 0) return
+
+    try {
+      setJpaUploading(true)
+      setJpaUploadError('')
+      setJpaUploadStatus(`Uploading ${files.length} JPA file${files.length === 1 ? '' : 's'}...`)
+      const result = await uploadJpaFinanceFiles(files, selectedCustomer)
+      setJpaUploadStatus(
+        `Uploaded ${result.rows.toLocaleString()} rows from ${result.files} file${result.files === 1 ? '' : 's'}; ` +
+          `${result.matchedWorkOrders.toLocaleString()} matched work orders; total ${formatCurrency(Math.round(result.total))}.`,
+      )
+      clearSpendAnalyticsCache(selectedCustomer)
+      setAnalyticsReloadKey((key) => key + 1)
+    } catch (err) {
+      setJpaUploadStatus('')
+      setJpaUploadError(err instanceof Error ? err.message : 'Unable to upload JPA finance file.')
+    } finally {
+      setJpaUploading(false)
+    }
   }
 
   if (authLoading) {
@@ -217,9 +334,14 @@ export default function Spend() {
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
 
-  const analytics = spendState.customer === selectedCustomer ? spendState.analytics : emptyAnalytics
-  const isLoading = spendState.customer !== selectedCustomer || spendState.status === 'loading'
-  const error = spendState.customer === selectedCustomer ? spendState.error : ''
+  const isCurrentReportRange =
+    spendState.customer === selectedCustomer &&
+    spendState.startMonth === reportDateRange.startMonth &&
+    spendState.endMonth === reportDateRange.endMonth
+  const analytics = isCurrentReportRange ? spendState.analytics : emptyAnalytics
+  const locationComparison = isCurrentReportRange ? spendState.locationComparison : []
+  const isLoading = !isCurrentReportRange || spendState.status === 'loading'
+  const error = isCurrentReportRange ? spendState.error : ''
   const locationSpendTotal = analytics.locationSpend.reduce((sum, item) => sum + item.spend, 0)
   const locationColors = buildUniqueChartColors(analytics.locationSpend.length)
   const locationSpendData = analytics.locationSpend.map((item, index) => ({
@@ -244,6 +366,8 @@ export default function Spend() {
   const monthlyPartsSpendData = analytics.monthlyPartsSpend
   const monthlyServiceSpendData = analytics.monthlyServiceSpend
   const avgMoMData = analytics.averageInvoiceSpend
+  const locationComparisonTotal = locationComparison.reduce((sum, item) => sum + item.total_invoice_cost, 0)
+  const topLocationComparison = locationComparison[0] ?? null
 
   const maxMonthlyPartsSpend = monthlyPartsSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
   const maxMonthlyServiceSpend = monthlyServiceSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
@@ -253,10 +377,59 @@ export default function Spend() {
   const unmappedLocationInvoiceCount = Math.max(toplineSpend.total_invoices - analytics.locationMappedInvoiceCount, 0)
   const locationMappingIsPending =
     hasFinanceData && analytics.locationMappedInvoiceCount === 0
+  const canUploadJpa = userTag === 'developer'
+  const handleDateRangePartChange = (field: keyof DateRangeDraft, value: string) => {
+    setDateRangeDraft((current) => {
+      const next = {
+        ...current,
+        [field]: field === 'startYear' || field === 'endYear' ? value.replace(/\D/g, '').slice(0, 4) : value,
+      }
+
+      setReportDateRange({
+        startMonth: buildReportMonth(next.startMonthPart, next.startYear),
+        endMonth: buildReportMonth(next.endMonthPart, next.endYear),
+      })
+
+      return next
+    })
+  }
+
+  const clearDateRange = () => {
+    setDateRangeDraft({
+      startMonthPart: '',
+      startYear: '',
+      endMonthPart: '',
+      endYear: '',
+    })
+    setReportDateRange({ startMonth: '', endMonth: '' })
+  }
+  const getReportFileName = () => {
+    const rangePart = reportDateRange.startMonth && reportDateRange.endMonth
+      ? `from-${reportDateRange.startMonth}-to-${reportDateRange.endMonth}`
+      : 'all-dates'
+    return `${safeFilePart(customerName)}-spend-and-location-comparison-${rangePart}.PDF`
+  }
+
+  const handlePrintReport = () => {
+    const previousTitle = document.title
+    let cleanupTimer: number | undefined
+    const cleanupPrintMode = () => {
+      if (cleanupTimer) window.clearTimeout(cleanupTimer)
+      document.body.classList.remove('spend-report-printing')
+      document.title = previousTitle
+      window.removeEventListener('afterprint', cleanupPrintMode)
+    }
+
+    document.title = getReportFileName().replace(/\.PDF$/i, '')
+    document.body.classList.add('spend-report-printing')
+    window.addEventListener('afterprint', cleanupPrintMode, { once: true })
+    window.print()
+    cleanupTimer = window.setTimeout(cleanupPrintMode, 30_000)
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
-      <header className="sticky top-0 z-40 bg-[var(--deshazo-blue)] px-5 py-3 shadow-sm">
+      <header className="spend-no-print sticky top-0 z-40 bg-[var(--deshazo-blue)] px-5 py-3 shadow-sm">
         <div className="flex w-full items-center justify-between gap-4">
           <button
             type="button"
@@ -277,7 +450,7 @@ export default function Spend() {
 
       <main className="flex w-full items-stretch">
         {menuOpen && (
-          <aside className="sticky top-[60px] hidden h-[calc(100vh-60px)] w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
+          <aside className="spend-no-print sticky top-[60px] hidden h-[calc(100vh-60px)] w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
             <div className="flex-1 px-4 py-5">
               <div className="rounded-[24px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/50 p-4">
                 <nav className="space-y-2">
@@ -357,10 +530,14 @@ export default function Spend() {
                 <span>{customerName} spend analytics</span>
               </div>
             </div>
-            <div ref={customAnalyticsRef} className="mt-5 flex flex-wrap items-center gap-3">
+            <div ref={customAnalyticsRef} className="spend-no-print mt-5 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => setCustomAnalyticsMessage('Email danieljones@blockstampsf.com to contact us.')}
+                onClick={() =>
+                  setCustomAnalyticsMessage((message) =>
+                    message ? '' : 'Email danieljones@blockstampsf.com to contact us.',
+                  )
+                }
                 className="inline-flex items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-4 py-2.5 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)]"
               >
                 Want a custom analytic?
@@ -369,16 +546,140 @@ export default function Spend() {
                 <p className="text-sm font-bold text-[rgba(21,24,33,0.7)]">{customAnalyticsMessage}</p>
               ) : null}
             </div>
+            <div className="spend-no-print mt-4 flex flex-wrap items-end gap-3 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-[0.04em] text-[rgba(21,24,33,0.55)]">
+                    From
+                  </span>
+                  <label className="flex w-[132px] flex-col gap-1">
+                    <span className="sr-only">From month</span>
+                    <select
+                      aria-label="From month"
+                      value={dateRangeDraft.startMonthPart}
+                      onChange={(event) => handleDateRangePartChange('startMonthPart', event.target.value)}
+                      className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                    >
+                      <option value="">Month</option>
+                      {monthOptions.map((month) => (
+                        <option key={month.value} value={month.value}>{month.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex w-[112px] flex-col gap-1">
+                    <span className="sr-only">From year</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      aria-label="From year"
+                      placeholder="YYYY"
+                      value={dateRangeDraft.startYear}
+                      onChange={(event) => handleDateRangePartChange('startYear', event.target.value)}
+                      className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] placeholder:text-[rgba(21,24,33,0.38)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                    />
+                  </label>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-[0.04em] text-[rgba(21,24,33,0.55)]">
+                    To
+                  </span>
+                  <label className="flex w-[132px] flex-col gap-1">
+                    <span className="sr-only">To month</span>
+                    <select
+                      aria-label="To month"
+                      value={dateRangeDraft.endMonthPart}
+                      onChange={(event) => handleDateRangePartChange('endMonthPart', event.target.value)}
+                      className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                    >
+                      <option value="">Month</option>
+                      {monthOptions.map((month) => (
+                        <option key={month.value} value={month.value}>{month.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex w-[112px] flex-col gap-1">
+                    <span className="sr-only">To year</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      aria-label="To year"
+                      placeholder="2025 or YYYY"
+                      value={dateRangeDraft.endYear}
+                      onChange={(event) => handleDateRangePartChange('endYear', event.target.value)}
+                      className="h-11 rounded-md border border-[var(--deshazo-border)] bg-[#f8fafc] px-3 text-sm font-bold normal-case tracking-normal text-[var(--deshazo-text)] placeholder:text-[rgba(21,24,33,0.38)] focus:border-[var(--deshazo-blue)] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[rgba(6,24,73,0.14)]"
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearDateRange}
+                  className="inline-flex h-11 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white px-4 text-sm font-black text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
+                >
+                  All dates
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintReport}
+                  disabled={isLoading || !hasFinanceData}
+                  className="inline-flex h-11 items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-4 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Download PDF
+                </button>
+            </div>
+            {canUploadJpa ? (
+              <div className="spend-no-print mt-4 flex flex-wrap items-center gap-3 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-3 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <input
+                  ref={jpaUploadInputRef}
+                  type="file"
+                  accept=".xlsx,.xlsm,.jpa,.JPA"
+                  multiple
+                  className="hidden"
+                  onChange={handleJpaUploadChange}
+                />
+                <button
+                  type="button"
+                  onClick={handleJpaUploadClick}
+                  disabled={jpaUploading}
+                  className="inline-flex items-center justify-center rounded-md bg-[var(--deshazo-blue)] px-4 py-2.5 text-sm font-black text-white shadow-[0_14px_28px_-22px_rgba(47,86,166,0.7)] transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>{jpaUploading ? 'Uploading JPA...' : 'Upload JPA'}</span>
+                  <DeveloperBadge />
+                </button>
+                <span className="text-sm font-bold text-[rgba(21,24,33,0.7)]">
+                  {jpaUploadError || jpaUploadStatus || 'Import monthly JPA finance workbooks for this customer.'}
+                </span>
+              </div>
+            ) : null}
           </div>
 
-          <div className="space-y-6">
+          <div className="spend-print-report space-y-6">
+            <section className="spend-report-hero rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.08em] text-[var(--deshazo-blue)]">
+                    Spend Analytics
+                  </p>
+                  <h1 className="mt-1 text-[28px] font-black leading-tight tracking-[-0.04em] text-[var(--deshazo-text)]">
+                    {customerName} Spend Overview
+                  </h1>
+                  <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+                    Reporting period {toplineSpend.topline_start_str}
+                  </p>
+                </div>
+                <div className="spend-report-badge rounded-md bg-[var(--deshazo-surface)] px-3 py-2 text-right text-xs font-black uppercase tracking-[0.04em] text-[var(--deshazo-blue)]">
+                  Finance report
+                </div>
+              </div>
+            </section>
+
             {isLoading || error || !hasFinanceData ? (
               <section className="rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 text-sm font-semibold text-[rgba(21,24,33,0.68)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 {isLoading ? 'Loading spend analytics...' : error || 'No JPA finance invoices have been imported for this customer yet.'}
               </section>
             ) : null}
 
-            <section className="grid gap-4 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)] md:grid-cols-2 xl:grid-cols-4">
+            <section className="spend-report-metrics grid gap-4 rounded-[14px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)] md:grid-cols-2 xl:grid-cols-4">
               {[
                 ['Total Invoices', toplineSpend.total_invoices.toLocaleString()],
                 ['Total Spend', formatCurrency(toplineSpend.total_spend)],
@@ -397,8 +698,8 @@ export default function Spend() {
               ))}
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-2">
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+            <section className="spend-report-chart-grid grid gap-4 xl:grid-cols-2">
+              <article className="spend-chart-card spend-chart-card-service rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend By Service</h2>
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
@@ -444,7 +745,7 @@ export default function Spend() {
                 </div>
               </article>
 
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-parts rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend By Parts</h2>
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
@@ -490,7 +791,7 @@ export default function Spend() {
                 </div>
               </article>
 
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-average rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Avg. Invoice Amount</h2>
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
@@ -536,7 +837,7 @@ export default function Spend() {
                 </div>
               </article>
 
-              <article className="relative overflow-hidden rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-location relative overflow-hidden rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <div className={locationMappingIsPending ? 'scale-[1.01] opacity-45 blur-[8px] saturate-50' : ''}>
                   <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By Location</h2>
                   <div className="mt-6 flex flex-col items-center justify-center gap-5">
@@ -575,7 +876,7 @@ export default function Spend() {
                 ) : null}
               </article>
 
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-branch rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By DeShazo Branch</h2>
                 <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="space-y-3">
@@ -600,7 +901,7 @@ export default function Spend() {
                 </div>
               </article>
 
-              <article className="rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-invoice rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Invoice Size Mix</h2>
                 <div className="mt-6 flex flex-col items-center justify-center gap-5">
                   <div className="relative h-44 w-44 rounded-full bg-[var(--deshazo-surface-2)]" style={invoiceSizeTotal > 0 ? { background: buildConicGradient(invoiceSizeData) } : undefined}>
@@ -620,6 +921,105 @@ export default function Spend() {
                   </div>
                 </div>
               </article>
+            </section>
+
+            <section className="spend-print-break rounded-[16px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.08em] text-[var(--deshazo-blue)]">
+                    Location Comparison
+                  </p>
+                  <h2 className="mt-1 text-[24px] font-black tracking-[-0.04em] text-[var(--deshazo-text)]">
+                    Spend by Location Detail
+                  </h2>
+                  <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+                    Ranked by total cost for {toplineSpend.topline_start_str}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-right sm:grid-cols-4">
+                  {[
+                    ['Locations', locationComparison.length.toLocaleString()],
+                    ['Total Jobs', locationComparison.reduce((sum, item) => sum + item.total_jobs, 0).toLocaleString()],
+                    ['Finance Invoices', locationComparison.reduce((sum, item) => sum + item.finance_invoice_count, 0).toLocaleString()],
+                    ['Top Location', topLocationComparison?.location ?? 'None'],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-md bg-[var(--deshazo-surface)] px-3 py-2">
+                      <p className="text-[10px] font-black uppercase tracking-[0.05em] text-[rgba(21,24,33,0.48)]">{label}</p>
+                      <p className="mt-0.5 text-sm font-black text-[var(--deshazo-text)]">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-[980px] w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="bg-[var(--deshazo-blue)] text-white">
+                      {['Location', 'Jobs', 'Finance Invoices', 'Uploaded PDFs', 'Total Cost', 'Avg. Invoice', 'Service', 'Parts', 'Mapped', 'Mix'].map((heading) => (
+                        <th key={heading} className="px-3 py-2 text-xs font-black uppercase tracking-[0.04em]">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {locationComparison.map((item) => {
+                      const servicePercent = item.total_invoice_cost > 0
+                        ? Math.round((item.total_service_cost / item.total_invoice_cost) * 100)
+                        : 0
+                      const partsPercent = Math.max(0, 100 - servicePercent)
+                      const totalPercent = locationComparisonTotal > 0
+                        ? Number(((item.total_invoice_cost / locationComparisonTotal) * 100).toFixed(2))
+                        : 0
+
+                      return (
+                        <tr key={item.location} className="border-b border-[var(--deshazo-border)]">
+                          <td className="px-3 py-3 align-top">
+                            <p className="font-black text-[var(--deshazo-text)]">{item.location}</p>
+                            <p className="mt-0.5 text-xs font-semibold text-[rgba(21,24,33,0.45)]">
+                              {totalPercent}% of total spend
+                            </p>
+                          </td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.total_jobs.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.finance_invoice_count.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.uploaded_invoice_count.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top font-black text-[var(--deshazo-text)]">{formatCurrency(item.total_invoice_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.average_invoice_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.total_service_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.total_parts_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.mapped_invoice_count.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top">
+                            <div className="h-3 w-32 overflow-hidden rounded-full bg-[#efb634]">
+                              <div className="h-full bg-[var(--deshazo-blue-soft)]" style={{ width: `${servicePercent}%` }} />
+                            </div>
+                            <p className="mt-1 text-[11px] font-semibold text-[rgba(21,24,33,0.48)]">
+                              {servicePercent}% service / {partsPercent}% parts
+                            </p>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {locationComparison.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-3 py-8 text-center text-sm font-semibold text-[rgba(21,24,33,0.48)]">
+                          No location comparison rows for this date range.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-4 text-xs font-bold text-[rgba(21,24,33,0.52)]">
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-[var(--deshazo-blue-soft)]" />
+                  Service spend
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-[#efb634]" />
+                  Parts spend
+                </span>
+                <span>Unmapped invoices are shown as a separate location row.</span>
+              </div>
             </section>
           </div>
         </section>

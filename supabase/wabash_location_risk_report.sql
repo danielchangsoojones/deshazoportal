@@ -1,8 +1,16 @@
 create index if not exists deshazo_external_work_orders_customer_wo_idx
   on public.deshazo_external_work_orders (lower(trim(coalesce(customer, bill_to_name, ''))), work_order_id);
 
+create index if not exists deshazo_external_work_orders_wabash_wo_idx
+  on public.deshazo_external_work_orders (work_order_id)
+  where lower(trim(coalesce(customer, bill_to_name, ''))) = 'wabash';
+
 create index if not exists deshazo_external_report_cranes_wo_contact_idx
   on public.deshazo_external_report_cranes (work_order_id, contact_code);
+
+create index if not exists deshazo_external_report_cranes_wo_contact_expr_idx
+  on public.deshazo_external_report_cranes (work_order_id, upper(trim(contact_code)), id)
+  where nullif(trim(contact_code), '') is not null;
 
 create index if not exists deshazo_external_report_inspections_crane_latest_idx
   on public.deshazo_external_report_inspections (crane_row_id, inspection_date desc, completed_at desc, id desc);
@@ -12,6 +20,9 @@ create index if not exists deshazo_external_report_sections_inspection_idx
 
 create index if not exists deshazo_external_report_points_section_condition_idx
   on public.deshazo_external_report_points (section_row_id, condition);
+
+create index if not exists deshazo_external_report_points_section_condition_expr_idx
+  on public.deshazo_external_report_points (section_row_id, upper(trim(condition)));
 
 drop function if exists public.get_wabash_location_risk_report(integer);
 
@@ -32,8 +43,8 @@ stable
 security invoker
 set search_path = public
 as $$
-  with wabash_inspections as materialized (
-    select
+  with latest_assets as materialized (
+    select distinct on (upper(trim(c.contact_code)))
       upper(trim(c.contact_code)) as unit_id,
       coalesce(
         nullif(trim(concat_ws(
@@ -45,11 +56,7 @@ as $$
         nullif(trim(w.service_location_name), ''),
         'Unassigned'
       ) as location,
-      i.id as inspection_row_id,
-      row_number() over (
-        partition by upper(trim(c.contact_code))
-        order by i.inspection_date desc nulls last, i.completed_at desc nulls last, i.id desc
-      ) as latest_rank
+      i.id as inspection_row_id
     from public.deshazo_external_work_orders w
     join public.deshazo_external_report_cranes c
       on c.work_order_id = w.work_order_id
@@ -58,14 +65,11 @@ as $$
     where
       lower(trim(coalesce(w.customer, w.bill_to_name, ''))) = 'wabash'
       and nullif(trim(c.contact_code), '') is not null
-  ),
-  latest_assets as materialized (
-    select
-      unit_id,
-      location,
-      inspection_row_id
-    from wabash_inspections
-    where latest_rank = 1
+    order by
+      upper(trim(c.contact_code)),
+      i.inspection_date desc nulls last,
+      i.completed_at desc nulls last,
+      i.id desc
   ),
   location_aliases as (
     select *
@@ -107,7 +111,7 @@ as $$
   ),
   issue_counts as (
     select
-      la.unit_id,
+      la.inspection_row_id,
       count(*) filter (where upper(trim(p.condition)) in ('REPAIR', 'DO NOT OPERATE / SAFETY'))::integer as safety_issue_count,
       count(*) filter (where upper(trim(p.condition)) = 'MONITOR')::integer as monitor_issue_count
     from latest_assets la
@@ -116,7 +120,7 @@ as $$
     join public.deshazo_external_report_points p
       on p.section_row_id = s.id
     where upper(trim(p.condition)) in ('REPAIR', 'MONITOR', 'DO NOT OPERATE / SAFETY')
-    group by la.unit_id
+    group by la.inspection_row_id
   ),
   location_assets as (
     select
@@ -131,7 +135,7 @@ as $$
     left join location_aliases alias
       on alias.alias_value = location_keys.raw_location_value
     left join issue_counts ic
-      on ic.unit_id = la.unit_id
+      on ic.inspection_row_id = la.inspection_row_id
   ),
   location_totals as (
     select

@@ -6,6 +6,32 @@ import { createClient } from '@supabase/supabase-js'
 
 const defaultWorkbook = 'data/jpa/Service JPA - Master - May 2026 - Final.xlsx'
 const skippedSheets = new Set(['JPA Summary', 'SVC Summary', 'ALL JOBS'])
+const monthNumbersByName = new Map([
+  ['jan', 1],
+  ['january', 1],
+  ['feb', 2],
+  ['february', 2],
+  ['mar', 3],
+  ['march', 3],
+  ['apr', 4],
+  ['april', 4],
+  ['may', 5],
+  ['jun', 6],
+  ['june', 6],
+  ['jul', 7],
+  ['july', 7],
+  ['aug', 8],
+  ['august', 8],
+  ['sep', 9],
+  ['sept', 9],
+  ['september', 9],
+  ['oct', 10],
+  ['october', 10],
+  ['nov', 11],
+  ['november', 11],
+  ['dec', 12],
+  ['december', 12],
+])
 
 function getArg(name, fallback = '') {
   const prefix = `--${name}=`
@@ -61,8 +87,12 @@ async function loadEnv(filePath) {
   }
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+function normalizeCustomerComparable(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function workbookCustomerMatchesSelectedCustomer(workbookCustomer, selectedCustomerName) {
+  return normalizeCustomerComparable(workbookCustomer) === normalizeCustomerComparable(selectedCustomerName)
 }
 
 function columnLettersToIndex(letters) {
@@ -186,16 +216,49 @@ function toNumber(value) {
   return 0
 }
 
-function parseImportPeriod(value) {
-  const text = String(value ?? '').trim()
-  const match = text.match(/^([A-Za-z]+)\s+(\d{4})$/)
-  if (!match) throw new Error(`Could not parse workbook month from "${text}".`)
-  const monthIndex = new Date(`${match[1]} 1, ${match[2]}`).getMonth()
-  if (!Number.isFinite(monthIndex)) throw new Error(`Could not parse workbook month from "${text}".`)
-  return `${match[2]}-${String(monthIndex + 1).padStart(2, '0')}-01`
+function formatImportPeriod(year, month) {
+  return `${year}-${String(month).padStart(2, '0')}-01`
 }
 
-async function parseWorkbook(workbookPath, customerFilter, importCustomer) {
+function tryParseImportPeriod(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return null
+
+  const monthNameYear = text.match(/(?:^|[^A-Za-z])([A-Za-z]{3,9})[^A-Za-z0-9]+((?:19|20)\d{2})(?:$|[^0-9])/)
+  const yearMonthName = text.match(/(?:^|[^0-9])((?:19|20)\d{2})[^A-Za-z0-9]+([A-Za-z]{3,9})(?:$|[^A-Za-z])/)
+  const yearMonthNumber = text.match(/(?:^|[^0-9])((?:19|20)\d{2})[-_ .]*(0?[1-9]|1[0-2])(?:$|[^0-9])/)
+  const monthNumberYear = text.match(/(?:^|[^0-9])(0?[1-9]|1[0-2])[-_ .]+((?:19|20)\d{2})(?:$|[^0-9])/)
+
+  if (monthNameYear) {
+    const month = monthNumbersByName.get(monthNameYear[1].toLowerCase())
+    if (month) return formatImportPeriod(monthNameYear[2], month)
+  }
+
+  if (yearMonthName) {
+    const month = monthNumbersByName.get(yearMonthName[2].toLowerCase())
+    if (month) return formatImportPeriod(yearMonthName[1], month)
+  }
+
+  if (yearMonthNumber) {
+    return formatImportPeriod(yearMonthNumber[1], Number(yearMonthNumber[2]))
+  }
+
+  if (monthNumberYear) {
+    return formatImportPeriod(monthNumberYear[2], Number(monthNumberYear[1]))
+  }
+
+  return null
+}
+
+function parseImportPeriod(value, workbookName, sheetName) {
+  const period = tryParseImportPeriod(value) ?? tryParseImportPeriod(workbookName)
+  if (period) return period
+
+  const text = String(value ?? '').trim()
+  throw new Error(`Could not parse workbook month for "${workbookName}" sheet "${sheetName}" from "${text}" or the filename.`)
+}
+
+async function parseWorkbook(workbookPath, selectedCustomerName, importCustomer) {
   const zip = await JSZip.loadAsync(await fs.readFile(workbookPath))
   const [sharedStrings, sheets] = await Promise.all([readSharedStrings(zip), readWorkbookSheets(zip)])
   const rows = []
@@ -205,13 +268,13 @@ async function parseWorkbook(workbookPath, customerFilter, importCustomer) {
     const sheetXml = await getZipText(zip, sheet.path)
     if (!sheetXml) continue
     const parsedRows = parseSheetRows(sheetXml, sharedStrings)
-    const period = parseImportPeriod(parsedRows.find((row) => row.rowNumber === 2)?.values[0])
+    const period = parseImportPeriod(parsedRows.find((row) => row.rowNumber === 2)?.values[0], path.basename(workbookPath), sheet.name)
 
     for (const row of parsedRows) {
       if (row.rowNumber < 5) continue
       const jobNo = normalizeJobNo(row.values[1])
       const customer = String(row.values[2] ?? '').trim()
-      if (!jobNo || !customer || !customerFilter.test(customer)) continue
+      if (!jobNo || !customer || !workbookCustomerMatchesSelectedCustomer(customer, selectedCustomerName)) continue
 
       const partsRevenue = toNumber(row.values[3])
       const serviceRevenue = toNumber(row.values[4])
@@ -329,9 +392,7 @@ const dryRun = hasFlag('dry-run') || !hasFlag('upload')
 const shouldLookupWorkOrders = hasFlag('lookup-work-orders') || hasFlag('upload')
 const outputPath = path.resolve(getArg('out', 'data/jpa/wabash-may-2026-import.csv'))
 const env = await loadEnv(path.resolve(getArg('env', '.env.local')))
-const customerFilter = new RegExp(escapeRegExp(customer), 'i')
-
-const parsedRows = await parseWorkbook(workbookPath, customerFilter, importCustomer)
+const parsedRows = await parseWorkbook(workbookPath, customer, importCustomer)
 const rows = shouldLookupWorkOrders ? await attachWorkOrders(env, parsedRows, importCustomer) : parsedRows
 const partsTotal = rows.reduce((sum, row) => sum + row.parts_revenue, 0)
 const serviceTotal = rows.reduce((sum, row) => sum + row.service_revenue, 0)

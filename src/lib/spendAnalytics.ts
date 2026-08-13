@@ -1,4 +1,5 @@
 import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './customerRouting'
+import { getInvoiceSpendLocationSummaries } from './invoiceSpend'
 import { getCustomerLocationLookup, getLocationOptionFromLabel } from './portalLocations'
 import { supabase } from './supabase'
 
@@ -37,11 +38,18 @@ export type LocationComparisonItem = {
   location: string
   total_jobs: number
   total_invoices: number
+  finance_invoice_count: number
+  uploaded_invoice_count: number
   average_invoice_cost: number
   total_invoice_cost: number
   total_service_cost: number
   total_parts_cost: number
   mapped_invoice_count: number
+}
+
+export type SpendAnalyticsDateRange = {
+  startMonth?: string
+  endMonth?: string
 }
 
 type FinanceInvoiceRow = {
@@ -68,6 +76,9 @@ type WorkOrderLocationRow = {
   bill_to_state: string | null
   raw_payload: Record<string, unknown> | null
 }
+
+const financeRowsCache = new Map<string, { loadedAt: number; rows: FinanceInvoiceRow[] }>()
+const financeRowsCacheTtlMs = 60_000
 
 const emptySpendAnalytics: SpendAnalytics = {
   topline: {
@@ -118,6 +129,27 @@ function monthKey(value: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
+function normalizeMonthInput(value?: string) {
+  const trimmed = (value ?? '').trim()
+  return /^\d{4}-\d{2}$/.test(trimmed) ? trimmed : ''
+}
+
+function filterFinanceRowsByDateRange(rows: FinanceInvoiceRow[], dateRange?: SpendAnalyticsDateRange) {
+  const startMonth = normalizeMonthInput(dateRange?.startMonth)
+  const endMonth = normalizeMonthInput(dateRange?.endMonth)
+  const normalizedStart = startMonth && endMonth && startMonth > endMonth ? endMonth : startMonth
+  const normalizedEnd = startMonth && endMonth && startMonth > endMonth ? startMonth : endMonth
+
+  if (!normalizedStart && !normalizedEnd) return rows
+
+  return rows.filter((row) => {
+    const rowMonth = monthKey(row.import_period)
+    if (normalizedStart && rowMonth < normalizedStart) return false
+    if (normalizedEnd && rowMonth > normalizedEnd) return false
+    return true
+  })
+}
+
 function monthLabel(value: string) {
   const date = new Date(`${value}-01T00:00:00`)
   if (Number.isNaN(date.getTime())) return value
@@ -156,9 +188,19 @@ function normalizeLocationComparable(value?: string | null) {
   return (value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
 }
 
+function getFinanceWorkbookCustomer(row: FinanceInvoiceRow) {
+  return typeof row.raw_payload?.workbookCustomer === 'string' ? row.raw_payload.workbookCustomer.trim() : ''
+}
+
+function isFinanceRowForSelectedCustomer(row: FinanceInvoiceRow, selectedCustomer: string) {
+  const workbookCustomer = getFinanceWorkbookCustomer(row)
+  if (!workbookCustomer) return true
+
+  return normalizeLocationComparable(workbookCustomer) === normalizeLocationComparable(selectedCustomer)
+}
+
 function getFinanceWorkbookLocation(row: FinanceInvoiceRow) {
-  const workbookCustomer =
-    typeof row.raw_payload?.workbookCustomer === 'string' ? row.raw_payload.workbookCustomer.trim() : ''
+  const workbookCustomer = getFinanceWorkbookCustomer(row)
   if (!workbookCustomer) return ''
 
   return normalizeLocationComparable(workbookCustomer) === normalizeLocationComparable(row.customer)
@@ -167,6 +209,11 @@ function getFinanceWorkbookLocation(row: FinanceInvoiceRow) {
 }
 
 async function fetchAllFinanceRows(customer: string) {
+  const cachedRows = financeRowsCache.get(customer)
+  if (cachedRows && Date.now() - cachedRows.loadedAt < financeRowsCacheTtlMs) {
+    return cachedRows.rows
+  }
+
   const client = requireSupabase()
   const rows: FinanceInvoiceRow[] = []
   const pageSize = 1000
@@ -192,16 +239,37 @@ async function fetchAllFinanceRows(customer: string) {
     if (pageRows.length < pageSize) break
   }
 
+  financeRowsCache.set(customer, { loadedAt: Date.now(), rows })
   return rows
+}
+
+export function clearSpendAnalyticsCache(customer?: string) {
+  if (customer) {
+    financeRowsCache.delete(resolveSelectedCustomer(customer))
+    return
+  }
+
+  financeRowsCache.clear()
 }
 
 async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvoiceRow[]) {
   const client = requireSupabase()
+  const rowsNeedingWorkOrderLookup = financeRows.filter((row) => {
+    const hasStoredLocation =
+      row.location_label?.trim() ||
+      row.customer_location_name?.trim() ||
+      row.service_location_name?.trim() ||
+      getFinanceWorkbookLocation(row)
+
+    return !hasStoredLocation
+  })
+  if (rowsNeedingWorkOrderLookup.length === 0) return []
+
   const workOrderIds = Array.from(new Set(
-    financeRows.map((row) => row.work_order_id).filter((value): value is number => typeof value === 'number'),
+    rowsNeedingWorkOrderLookup.map((row) => row.work_order_id).filter((value): value is number => typeof value === 'number'),
   ))
   const jobNos = Array.from(new Set(
-    financeRows.map((row) => row.job_no.trim()).filter(Boolean),
+    rowsNeedingWorkOrderLookup.map((row) => row.job_no.trim()).filter(Boolean),
   ))
   const rows: WorkOrderLocationRow[] = []
 
@@ -231,9 +299,12 @@ async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvo
   return rows
 }
 
-export async function getSpendAnalytics(customer?: string): Promise<SpendAnalytics> {
+export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<SpendAnalytics> {
   const selectedCustomer = resolveSelectedCustomer(customer)
-  const financeRows = await fetchAllFinanceRows(selectedCustomer)
+  const financeRows = filterFinanceRowsByDateRange(
+    (await fetchAllFinanceRows(selectedCustomer)).filter((row) => isFinanceRowForSelectedCustomer(row, selectedCustomer)),
+    dateRange,
+  )
   if (financeRows.length === 0) return emptySpendAnalytics
 
   const [workOrderRows, locationLookup] = await Promise.all([
@@ -342,15 +413,25 @@ export async function getSpendAnalytics(customer?: string): Promise<SpendAnalyti
   }
 }
 
-export async function getLocationComparisonAnalytics(customer?: string): Promise<LocationComparisonItem[]> {
+export async function getLocationComparisonAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<LocationComparisonItem[]> {
   const selectedCustomer = resolveSelectedCustomer(customer)
-  const financeRows = await fetchAllFinanceRows(selectedCustomer)
+  const financeRows = filterFinanceRowsByDateRange(
+    (await fetchAllFinanceRows(selectedCustomer)).filter((row) => isFinanceRowForSelectedCustomer(row, selectedCustomer)),
+    dateRange,
+  )
   if (financeRows.length === 0) return []
 
   const [workOrderRows, locationLookup] = await Promise.all([
     loadWorkOrderLocations(selectedCustomer, financeRows),
     getCustomerLocationLookup(selectedCustomer),
   ])
+  const uploadedLocationSummaries = await getInvoiceSpendLocationSummaries(selectedCustomer)
+  const uploadedInvoicesByLocation = new Map(
+    uploadedLocationSummaries.map((summary) => [
+      locationLookup.aliases.get(getLocationOptionFromLabel(summary.location)?.value ?? '')?.label || summary.location,
+      summary.invoiceCount,
+    ]),
+  )
   const workOrderById = new Map(workOrderRows.map((row) => [String(row.work_order_id), row]))
   const workOrderByJobNo = new Map(workOrderRows.filter((row) => row.job_no).map((row) => [row.job_no ?? '', row]))
   const locations = new Map<string, {
@@ -397,7 +478,9 @@ export async function getLocationComparisonAnalytics(customer?: string): Promise
     .map(([location, group]) => ({
       location,
       total_jobs: group.jobNos.size,
-      total_invoices: group.totalInvoices,
+      total_invoices: uploadedInvoicesByLocation.get(location) ?? 0,
+      finance_invoice_count: group.totalInvoices,
+      uploaded_invoice_count: uploadedInvoicesByLocation.get(location) ?? 0,
       average_invoice_cost: group.totalInvoices > 0 ? Math.round(group.totalInvoiceCost / group.totalInvoices) : 0,
       total_invoice_cost: Math.round(group.totalInvoiceCost),
       total_service_cost: Math.round(group.totalServiceCost),
