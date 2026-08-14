@@ -10,6 +10,8 @@ import {
   getLocationComparisonAnalytics,
   getSpendAnalytics,
   type LocationComparisonItem,
+  type MonthlySpend,
+  type SpendChartItem,
   type SpendAnalytics,
 } from '../lib/spendAnalytics'
 import { uploadJpaFinanceFiles } from '../lib/jpaFinanceImport'
@@ -170,6 +172,76 @@ const getBarHeight = (value: number, maxValue: number, plotHeight?: number) => {
   if (value <= 0 || maxValue <= 0) return 0
   const ratio = value / maxValue
   return plotHeight ? ratio * plotHeight : ratio * 100
+}
+
+function SpendPrintBarList({
+  items,
+  labelFormatter = (label: string) => label,
+  color = 'var(--deshazo-blue)',
+}: {
+  items: SpendChartItem[] | MonthlySpend[]
+  labelFormatter?: (label: string) => string
+  color?: string
+}) {
+  const maxSpend = items.reduce((max, item) => Math.max(max, item.spend), 0)
+
+  return (
+    <div className="spend-print-chart-list hidden">
+      {items.map((item) => {
+        const width = maxSpend > 0 ? Math.max(1, (item.spend / maxSpend) * 100) : 0
+        const label = 'month' in item ? item.month : item.label
+
+        return (
+          <div key={label} className="spend-print-bar-row">
+            <span className="spend-print-bar-label">{labelFormatter(label)}</span>
+            <span className="spend-print-bar-track">
+              <span className="spend-print-bar-fill" style={{ width: `${width}%`, backgroundColor: color }} />
+            </span>
+            <span className="spend-print-bar-value">{formatCurrency(item.spend)}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function SpendPrintDualBarList({
+  repairItems,
+  inspectionItems,
+}: {
+  repairItems: MonthlySpend[]
+  inspectionItems: MonthlySpend[]
+}) {
+  const maxSpend = [...repairItems, ...inspectionItems].reduce((max, item) => Math.max(max, item.spend), 0)
+
+  return (
+    <div className="spend-print-chart-list hidden">
+      {repairItems.map((repairItem, index) => {
+        const inspectionItem = inspectionItems[index] ?? { month: repairItem.month, spend: 0 }
+        const repairWidth = maxSpend > 0 ? Math.max(1, (repairItem.spend / maxSpend) * 100) : 0
+        const inspectionWidth = maxSpend > 0 ? Math.max(1, (inspectionItem.spend / maxSpend) * 100) : 0
+
+        return (
+          <div key={repairItem.month} className="spend-print-dual-row">
+            <span className="spend-print-bar-label">{formatMonthLabel(repairItem.month)}</span>
+            <span className="spend-print-dual-bars">
+              <span className="spend-print-dual-track">
+                <span className="spend-print-bar-fill" style={{ width: `${repairWidth}%`, backgroundColor: '#4a9960' }} />
+              </span>
+              <span className="spend-print-dual-track">
+                <span className="spend-print-bar-fill" style={{ width: `${inspectionWidth}%`, backgroundColor: '#f2b43f' }} />
+              </span>
+            </span>
+            <span className="spend-print-bar-value">{formatCurrency(repairItem.spend)} / {formatCurrency(inspectionItem.spend)}</span>
+          </div>
+        )
+      })}
+      <div className="spend-print-chart-legend">
+        <span><i style={{ backgroundColor: '#4a9960' }} /> Repairs</span>
+        <span><i style={{ backgroundColor: '#f2b43f' }} /> Inspections</span>
+      </div>
+    </div>
+  )
 }
 
 type SpendState = {
@@ -725,7 +797,7 @@ export default function Spend() {
             <section className="spend-report-chart-grid grid gap-4 xl:grid-cols-2">
               <article className="spend-chart-card spend-chart-card-work-type rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Repair vs Inspection Spend</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                <div className="spend-screen-chart-body mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
                     <div className="min-w-[720px]">
                       <div className="grid h-56 grid-rows-[1fr_auto]">
@@ -774,11 +846,12 @@ export default function Spend() {
                     <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-sm bg-[#f2b43f]" /> Inspections</span>
                   </div>
                 </div>
+                <SpendPrintDualBarList repairItems={monthlyRepairSpendData} inspectionItems={monthlyInspectionSpendData} />
               </article>
 
               <article className="spend-chart-card spend-chart-card-repair-category rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Repair Spend Categories</h2>
-                <div className="mt-5 space-y-4 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                <div className="spend-screen-chart-body mt-5 space-y-4 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   {repairCategoryData.map((item) => {
                     const width = toplineSpend.repair_spend > 0 ? Math.min(100, (item.spend / toplineSpend.repair_spend) * 100) : 0
                     return (
@@ -795,11 +868,12 @@ export default function Spend() {
                     Freight and labor are shown when the finance import provides those columns.
                   </div>
                 </div>
+                <SpendPrintBarList items={repairCategoryData} color="var(--deshazo-blue)" />
               </article>
 
               <article className="spend-chart-card spend-chart-card-service rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Service Spend</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                <div className="spend-screen-chart-body mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
@@ -841,11 +915,12 @@ export default function Spend() {
                       </div>
                   </div>
                 </div>
+                <SpendPrintBarList items={monthlyServiceSpendData} labelFormatter={formatMonthLabel} color="var(--deshazo-blue)" />
               </article>
 
               <article className="spend-chart-card spend-chart-card-parts rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Parts Spend</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                <div className="spend-screen-chart-body mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
@@ -887,11 +962,12 @@ export default function Spend() {
                       </div>
                   </div>
                 </div>
+                <SpendPrintBarList items={monthlyPartsSpendData} labelFormatter={formatMonthLabel} color="#efb43f" />
               </article>
 
               <article className="spend-chart-card spend-chart-card-average rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Avg. Invoice Amount</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                <div className="spend-screen-chart-body mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
@@ -933,10 +1009,11 @@ export default function Spend() {
                       </div>
                   </div>
                 </div>
+                <SpendPrintBarList items={avgMoMData} labelFormatter={formatMonthLabel} color="#3b9a73" />
               </article>
 
               <article className="spend-chart-card spend-chart-card-location relative overflow-hidden rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-                <div className={locationMappingIsPending ? 'scale-[1.01] opacity-45 blur-[8px] saturate-50' : ''}>
+                <div className={`spend-screen-chart-body ${locationMappingIsPending ? 'scale-[1.01] opacity-45 blur-[8px] saturate-50' : ''}`}>
                   <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By Location</h2>
                   <div className="mt-6 flex flex-col items-center justify-center gap-5">
                     {locationSpendData.length > 0 ? (
@@ -965,6 +1042,7 @@ export default function Spend() {
                     )}
                   </div>
                 </div>
+                <SpendPrintBarList items={locationSpendData} color="#7c5fd1" />
                 {locationMappingIsPending ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-white/72 px-6 text-center backdrop-blur-md">
                     <div className="max-w-[360px] rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-3 text-sm font-black text-[var(--deshazo-text)] shadow-[0_22px_54px_-28px_rgba(47,86,166,0.42)]">
