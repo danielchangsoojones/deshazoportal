@@ -2596,9 +2596,18 @@ export default function AssetInfo() {
                             {spendAnalytics.recentInvoices.map((invoice, index) => (
                               <div key={invoice.id} className={`flex items-center justify-between gap-4 px-4 py-3 ${index > 0 ? 'border-t border-[var(--deshazo-border)]' : ''}`}>
                                 <div className="min-w-0">
-                                  <p className="truncate text-[14px] font-black text-[var(--deshazo-text)]">{invoice.invoiceNumber || 'Invoice'}</p>
+                                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                    <p className="truncate text-[14px] font-black text-[var(--deshazo-text)]">{invoice.invoiceNumber || 'Invoice'}</p>
+                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${
+                                      invoice.spendKind === 'inspection'
+                                        ? 'bg-[#fff4d7] text-[#8a6500]'
+                                        : 'bg-[#e8f5ee] text-[#2f6f4f]'
+                                    }`}>
+                                      {invoice.spendKind === 'inspection' ? 'Inspection' : 'Repair'}
+                                    </span>
+                                  </div>
                                   <p className="mt-1 text-[12px] font-semibold text-[rgba(21,24,33,0.52)]">
-                                    {formatInvoiceDate(invoice.invoiceDate)}{invoice.jobNumber ? ` · Job ${invoice.jobNumber}` : ''}
+                                    {formatInvoiceDate(invoice.invoiceDate)}{invoice.jobNumber ? ` · Job ${invoice.jobNumber}` : ''}{invoice.workOrderType ? ` · ${invoice.workOrderType}` : ''}
                                   </p>
                                 </div>
                                 <div className="shrink-0 text-right">

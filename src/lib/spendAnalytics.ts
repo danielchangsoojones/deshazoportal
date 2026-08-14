@@ -8,6 +8,8 @@ export type SpendChartItem = {
   spend: number
 }
 
+export type WorkSpendKind = 'inspection' | 'repair'
+
 export type MonthlySpend = {
   month: string
   spend: number
@@ -18,13 +20,25 @@ export type ToplineSpend = {
   total_service_spend: number
   total_spend: number
   total_invoices: number
+  inspection_spend: number
+  inspection_invoice_count: number
+  repair_spend: number
+  repair_invoice_count: number
+  repair_parts_spend: number
+  repair_service_spend: number
+  repair_freight_spend: number
+  repair_labor_spend: number
   topline_start_str: string
 }
 
 export type SpendAnalytics = {
   topline: ToplineSpend
   serviceTypeSpend: SpendChartItem[]
+  workTypeSpend: SpendChartItem[]
+  repairCategorySpend: SpendChartItem[]
   monthlySpend: MonthlySpend[]
+  monthlyInspectionSpend: MonthlySpend[]
+  monthlyRepairSpend: MonthlySpend[]
   monthlyPartsSpend: MonthlySpend[]
   monthlyServiceSpend: MonthlySpend[]
   averageInvoiceSpend: MonthlySpend[]
@@ -44,6 +58,14 @@ export type LocationComparisonItem = {
   total_invoice_cost: number
   total_service_cost: number
   total_parts_cost: number
+  inspection_invoice_count: number
+  repair_invoice_count: number
+  total_inspection_cost: number
+  total_repair_cost: number
+  repair_parts_cost: number
+  repair_service_cost: number
+  repair_freight_cost: number
+  repair_labor_cost: number
   mapped_invoice_count: number
 }
 
@@ -70,6 +92,7 @@ type FinanceInvoiceRow = {
 type WorkOrderLocationRow = {
   work_order_id: number
   job_no: string | null
+  job_type: string | null
   customer_location_name: string | null
   service_location_name: string | null
   bill_to_city: string | null
@@ -86,13 +109,33 @@ const emptySpendAnalytics: SpendAnalytics = {
     total_service_spend: 0,
     total_spend: 0,
     total_invoices: 0,
+    inspection_spend: 0,
+    inspection_invoice_count: 0,
+    repair_spend: 0,
+    repair_invoice_count: 0,
+    repair_parts_spend: 0,
+    repair_service_spend: 0,
+    repair_freight_spend: 0,
+    repair_labor_spend: 0,
     topline_start_str: 'No finance data imported',
   },
   serviceTypeSpend: [
     { label: 'Parts', spend: 0 },
     { label: 'Service', spend: 0 },
   ],
+  workTypeSpend: [
+    { label: 'Repairs', spend: 0 },
+    { label: 'Inspections', spend: 0 },
+  ],
+  repairCategorySpend: [
+    { label: 'Parts', spend: 0 },
+    { label: 'Service', spend: 0 },
+    { label: 'Freight', spend: 0 },
+    { label: 'Labor', spend: 0 },
+  ],
   monthlySpend: [],
+  monthlyInspectionSpend: [],
+  monthlyRepairSpend: [],
   monthlyPartsSpend: [],
   monthlyServiceSpend: [],
   averageInvoiceSpend: [],
@@ -208,6 +251,31 @@ function getFinanceWorkbookLocation(row: FinanceInvoiceRow) {
     : workbookCustomer
 }
 
+function getFinanceWorkOrderType(row: FinanceInvoiceRow, workOrder?: WorkOrderLocationRow) {
+  const rawType = row.raw_payload?.workOrderJobType
+  return (typeof rawType === 'string' ? rawType : workOrder?.job_type ?? '').trim()
+}
+
+export function getWorkSpendKind(jobType: string): WorkSpendKind {
+  const normalizedType = jobType.trim().toLowerCase()
+  const isRepairType =
+    normalizedType.includes('repair') ||
+    normalizedType.includes('service call') ||
+    normalizedType.includes('retail parts') ||
+    normalizedType.includes('installation') ||
+    normalizedType.includes('modification') ||
+    normalizedType.includes('emergency') ||
+    normalizedType.includes('labor') ||
+    normalizedType.includes('freight')
+
+  if (isRepairType) return 'repair'
+  return normalizedType.includes('inspection') ? 'inspection' : 'repair'
+}
+
+export function getWorkSpendKindLabel(kind: WorkSpendKind) {
+  return kind === 'inspection' ? 'Inspection' : 'Repair'
+}
+
 async function fetchAllFinanceRows(customer: string) {
   const cachedRows = financeRowsCache.get(customer)
   if (cachedRows && Date.now() - cachedRows.loadedAt < financeRowsCacheTtlMs) {
@@ -254,29 +322,18 @@ export function clearSpendAnalyticsCache(customer?: string) {
 
 async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvoiceRow[]) {
   const client = requireSupabase()
-  const rowsNeedingWorkOrderLookup = financeRows.filter((row) => {
-    const hasStoredLocation =
-      row.location_label?.trim() ||
-      row.customer_location_name?.trim() ||
-      row.service_location_name?.trim() ||
-      getFinanceWorkbookLocation(row)
-
-    return !hasStoredLocation
-  })
-  if (rowsNeedingWorkOrderLookup.length === 0) return []
-
   const workOrderIds = Array.from(new Set(
-    rowsNeedingWorkOrderLookup.map((row) => row.work_order_id).filter((value): value is number => typeof value === 'number'),
+    financeRows.map((row) => row.work_order_id).filter((value): value is number => typeof value === 'number'),
   ))
   const jobNos = Array.from(new Set(
-    rowsNeedingWorkOrderLookup.map((row) => row.job_no.trim()).filter(Boolean),
+    financeRows.map((row) => row.job_no.trim()).filter(Boolean),
   ))
   const rows: WorkOrderLocationRow[] = []
 
   if (workOrderIds.length > 0) {
     const { data, error } = await client
       .from('deshazo_external_work_orders')
-      .select('work_order_id, job_no, customer_location_name, service_location_name, bill_to_city, bill_to_state, raw_payload')
+      .select('work_order_id, job_no, job_type, customer_location_name, service_location_name, bill_to_city, bill_to_state, raw_payload')
       .eq('customer', customer)
       .in('work_order_id', workOrderIds)
 
@@ -288,7 +345,7 @@ async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvo
     const chunk = jobNos.slice(index, index + 200)
     const { data, error } = await client
       .from('deshazo_external_work_orders')
-      .select('work_order_id, job_no, customer_location_name, service_location_name, bill_to_city, bill_to_state, raw_payload')
+      .select('work_order_id, job_no, job_type, customer_location_name, service_location_name, bill_to_city, bill_to_state, raw_payload')
       .eq('customer', customer)
       .in('job_no', chunk)
 
@@ -313,7 +370,7 @@ export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnal
   ])
   const workOrderById = new Map(workOrderRows.map((row) => [String(row.work_order_id), row]))
   const workOrderByJobNo = new Map(workOrderRows.filter((row) => row.job_no).map((row) => [row.job_no ?? '', row]))
-  const monthTotals = new Map<string, { total: number; parts: number; service: number; count: number }>()
+  const monthTotals = new Map<string, { total: number; inspection: number; repair: number; parts: number; service: number; count: number }>()
   const locationTotals = new Map<string, number>()
   const branchTotals = new Map<string, number>()
   const invoiceSizeTotals = new Map<string, number>()
@@ -321,30 +378,47 @@ export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnal
   let partsTotal = 0
   let serviceTotal = 0
   let totalSpend = 0
+  let inspectionSpend = 0
+  let inspectionInvoiceCount = 0
+  let repairSpend = 0
+  let repairInvoiceCount = 0
+  let repairPartsSpend = 0
+  let repairServiceSpend = 0
   let locationMappedInvoiceCount = 0
 
   financeRows.forEach((row) => {
     const partsSpend = toNumber(row.parts_revenue)
     const serviceSpend = toNumber(row.service_revenue)
     const invoiceTotal = toNumber(row.total_revenue) || partsSpend + serviceSpend
+    const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
+    const spendKind = getWorkSpendKind(getFinanceWorkOrderType(row, workOrder))
     const key = monthKey(row.import_period)
-    const month = monthTotals.get(key) ?? { total: 0, parts: 0, service: 0, count: 0 }
+    const month = monthTotals.get(key) ?? { total: 0, inspection: 0, repair: 0, parts: 0, service: 0, count: 0 }
     month.total += invoiceTotal
     month.parts += partsSpend
     month.service += serviceSpend
+    month[spendKind] += invoiceTotal
     month.count += 1
     monthTotals.set(key, month)
 
     partsTotal += partsSpend
     serviceTotal += serviceSpend
     totalSpend += invoiceTotal
+    if (spendKind === 'inspection') {
+      inspectionSpend += invoiceTotal
+      inspectionInvoiceCount += 1
+    } else {
+      repairSpend += invoiceTotal
+      repairInvoiceCount += 1
+      repairPartsSpend += partsSpend
+      repairServiceSpend += serviceSpend
+    }
     const branchLabel = row.source_sheet_name?.trim() || 'Unknown branch'
     branchTotals.set(branchLabel, (branchTotals.get(branchLabel) ?? 0) + invoiceTotal)
     const invoiceSizeLabel =
       invoiceTotal < 1000 ? 'Under $1k' : invoiceTotal < 5000 ? '$1k - $5k' : '$5k+'
     invoiceSizeTotals.set(invoiceSizeLabel, (invoiceSizeTotals.get(invoiceSizeLabel) ?? 0) + invoiceTotal)
 
-    const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
     const mappedLocation =
       row.location_label ||
       getWorkOrderLocation(workOrder) ||
@@ -363,6 +437,14 @@ export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnal
   const monthlySpend = months.map((month) => ({
     month,
     spend: Math.round(monthTotals.get(month)?.total ?? 0),
+  }))
+  const monthlyInspectionSpend = months.map((month) => ({
+    month,
+    spend: Math.round(monthTotals.get(month)?.inspection ?? 0),
+  }))
+  const monthlyRepairSpend = months.map((month) => ({
+    month,
+    spend: Math.round(monthTotals.get(month)?.repair ?? 0),
   }))
   const monthlyPartsSpend = months.map((month) => ({
     month,
@@ -396,13 +478,33 @@ export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnal
       total_service_spend: Math.round(serviceTotal),
       total_spend: Math.round(totalSpend),
       total_invoices: financeRows.length,
+      inspection_spend: Math.round(inspectionSpend),
+      inspection_invoice_count: inspectionInvoiceCount,
+      repair_spend: Math.round(repairSpend),
+      repair_invoice_count: repairInvoiceCount,
+      repair_parts_spend: Math.round(repairPartsSpend),
+      repair_service_spend: Math.round(repairServiceSpend),
+      repair_freight_spend: 0,
+      repair_labor_spend: 0,
       topline_start_str: rangeLabel(months),
     },
     serviceTypeSpend: [
       { label: 'Parts', spend: Math.round(partsTotal) },
       { label: 'Service', spend: Math.round(serviceTotal) },
     ],
+    workTypeSpend: [
+      { label: 'Repairs', spend: Math.round(repairSpend) },
+      { label: 'Inspections', spend: Math.round(inspectionSpend) },
+    ],
+    repairCategorySpend: [
+      { label: 'Parts', spend: Math.round(repairPartsSpend) },
+      { label: 'Service', spend: Math.round(repairServiceSpend) },
+      { label: 'Freight', spend: 0 },
+      { label: 'Labor', spend: 0 },
+    ],
     monthlySpend,
+    monthlyInspectionSpend,
+    monthlyRepairSpend,
     monthlyPartsSpend,
     monthlyServiceSpend,
     averageInvoiceSpend,
@@ -440,6 +542,14 @@ export async function getLocationComparisonAnalytics(customer?: string, dateRang
     totalInvoiceCost: number
     totalServiceCost: number
     totalPartsCost: number
+    inspectionInvoiceCount: number
+    repairInvoiceCount: number
+    totalInspectionCost: number
+    totalRepairCost: number
+    repairPartsCost: number
+    repairServiceCost: number
+    repairFreightCost: number
+    repairLaborCost: number
     mappedInvoiceCount: number
   }>()
 
@@ -448,6 +558,7 @@ export async function getLocationComparisonAnalytics(customer?: string, dateRang
     const serviceSpend = toNumber(row.service_revenue)
     const invoiceTotal = toNumber(row.total_revenue) || partsSpend + serviceSpend
     const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
+    const spendKind = getWorkSpendKind(getFinanceWorkOrderType(row, workOrder))
     const mappedLocation =
       row.location_label ||
       getWorkOrderLocation(workOrder) ||
@@ -462,6 +573,14 @@ export async function getLocationComparisonAnalytics(customer?: string, dateRang
       totalInvoiceCost: 0,
       totalServiceCost: 0,
       totalPartsCost: 0,
+      inspectionInvoiceCount: 0,
+      repairInvoiceCount: 0,
+      totalInspectionCost: 0,
+      totalRepairCost: 0,
+      repairPartsCost: 0,
+      repairServiceCost: 0,
+      repairFreightCost: 0,
+      repairLaborCost: 0,
       mappedInvoiceCount: 0,
     }
 
@@ -470,6 +589,15 @@ export async function getLocationComparisonAnalytics(customer?: string, dateRang
     group.totalInvoiceCost += invoiceTotal
     group.totalServiceCost += serviceSpend
     group.totalPartsCost += partsSpend
+    if (spendKind === 'inspection') {
+      group.inspectionInvoiceCount += 1
+      group.totalInspectionCost += invoiceTotal
+    } else {
+      group.repairInvoiceCount += 1
+      group.totalRepairCost += invoiceTotal
+      group.repairPartsCost += partsSpend
+      group.repairServiceCost += serviceSpend
+    }
     if (mappedLocation) group.mappedInvoiceCount += 1
     locations.set(location, group)
   })
@@ -485,6 +613,14 @@ export async function getLocationComparisonAnalytics(customer?: string, dateRang
       total_invoice_cost: Math.round(group.totalInvoiceCost),
       total_service_cost: Math.round(group.totalServiceCost),
       total_parts_cost: Math.round(group.totalPartsCost),
+      inspection_invoice_count: group.inspectionInvoiceCount,
+      repair_invoice_count: group.repairInvoiceCount,
+      total_inspection_cost: Math.round(group.totalInspectionCost),
+      total_repair_cost: Math.round(group.totalRepairCost),
+      repair_parts_cost: Math.round(group.repairPartsCost),
+      repair_service_cost: Math.round(group.repairServiceCost),
+      repair_freight_cost: Math.round(group.repairFreightCost),
+      repair_labor_cost: Math.round(group.repairLaborCost),
       mapped_invoice_count: group.mappedInvoiceCount,
     }))
     .sort((left, right) => right.total_invoice_cost - left.total_invoice_cost)

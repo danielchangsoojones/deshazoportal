@@ -319,7 +319,7 @@ async function attachWorkOrders(env, rows, importCustomer) {
     const chunk = jobNos.slice(index, index + 200)
     const { data, error } = await supabase
       .from('deshazo_external_work_orders')
-      .select('work_order_id, job_no, customer_location_name, service_location_name')
+      .select('work_order_id, job_no, job_type, customer_location_name, service_location_name')
       .eq('customer', importCustomer)
       .in('job_no', chunk)
 
@@ -336,6 +336,10 @@ async function attachWorkOrders(env, rows, importCustomer) {
       customer_location_name: match.customer_location_name,
       service_location_name: match.service_location_name,
       location_label: match.customer_location_name || match.service_location_name,
+      raw_payload: {
+        ...row.raw_payload,
+        workOrderJobType: match.job_type,
+      },
     } : row
   })
 }
