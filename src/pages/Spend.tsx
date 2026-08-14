@@ -7,8 +7,7 @@ import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   clearSpendAnalyticsCache,
-  getLocationComparisonAnalytics,
-  getSpendAnalytics,
+  getSpendDashboardAnalytics,
   type LocationComparisonItem,
   type MonthlySpend,
   type SpendChartItem,
@@ -244,6 +243,64 @@ function SpendPrintDualBarList({
   )
 }
 
+function SpendPrintLocationPie({ items }: { items: (SpendChartItem & { value: number; color: string })[] }) {
+  if (items.length === 0) {
+    return (
+      <div className="spend-print-location-pie hidden">
+        <div className="spend-print-location-empty">No mapped locations</div>
+      </div>
+    )
+  }
+
+  const segments = items.map((item, index) => {
+    const previousValue = items.slice(0, index).reduce((sum, segment) => sum + segment.value, 0)
+    return {
+      ...item,
+      offset: -previousValue,
+      dash: Math.max(item.value, 0.25),
+    }
+  })
+
+  return (
+    <div className="spend-print-location-pie hidden">
+      <div className="spend-print-location-title">Factory Spend</div>
+      <div className="spend-print-location-donut">
+        <svg viewBox="0 0 120 120" role="img" aria-label="Spend by factory pie chart">
+          <circle cx="60" cy="60" r="45" fill="none" stroke="#eef3ff" strokeWidth="22" />
+          {segments.map((segment) => (
+            <circle
+              key={segment.label}
+              cx="60"
+              cy="60"
+              r="45"
+              fill="none"
+              pathLength="100"
+              stroke={segment.color}
+              strokeDasharray={`${segment.dash} ${100 - segment.dash}`}
+              strokeDashoffset={segment.offset}
+              strokeWidth="22"
+              transform="rotate(-90 60 60)"
+            />
+          ))}
+          <circle cx="60" cy="60" r="30" fill="#ffffff" />
+          <text x="60" y="56" textAnchor="middle" className="spend-print-location-donut-label">Factory</text>
+          <text x="60" y="70" textAnchor="middle" className="spend-print-location-donut-label">Spend</text>
+        </svg>
+      </div>
+      <div className="spend-print-location-legend">
+        {items.map((item) => (
+          <div key={item.label} className="spend-print-location-legend-row">
+            <span className="spend-print-location-swatch" style={{ backgroundColor: item.color }} />
+            <span className="spend-print-location-name">{item.label}</span>
+            <span className="spend-print-location-percent">{item.value}%</span>
+            <span className="spend-print-location-value">{formatCurrency(item.spend)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 type SpendState = {
   customer: string
   startMonth: string
@@ -316,11 +373,8 @@ export default function Spend() {
   useEffect(() => {
     let isMounted = true
 
-    Promise.all([
-      getSpendAnalytics(selectedCustomer, reportDateRange),
-      getLocationComparisonAnalytics(selectedCustomer, reportDateRange),
-    ])
-      .then(([nextAnalytics, nextLocationComparison]) => {
+    getSpendDashboardAnalytics(selectedCustomer, reportDateRange)
+      .then(({ spendAnalytics: nextAnalytics, locationComparison: nextLocationComparison }) => {
         if (!isMounted) return
         setSpendState({
           customer: selectedCustomer,
@@ -441,12 +495,6 @@ export default function Spend() {
     value: locationSpendTotal > 0 ? Number(((item.spend / locationSpendTotal) * 100).toFixed(2)) : 0,
     color: locationColors[index] ?? `hsl(${(index * 31) % 360} 62% 56%)`,
   }))
-  const branchColors = buildUniqueChartColors(analytics.branchSpend.length)
-  const branchSpendData = analytics.branchSpend.map((item, index) => ({
-    ...item,
-    color: branchColors[index] ?? `hsl(${(index * 31) % 360} 62% 56%)`,
-  }))
-  const maxBranchSpend = branchSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
   const invoiceSizeTotal = analytics.invoiceSizeSpend.reduce((sum, item) => sum + item.spend, 0)
   const invoiceSizeColors = buildBlueShades(analytics.invoiceSizeSpend.length)
   const invoiceSizeData = analytics.invoiceSizeSpend.map((item, index) => ({
@@ -508,9 +556,9 @@ export default function Spend() {
 
   const handlePrintReport = () => {
     const previousTitle = document.title
-    let cleanupTimer: number | undefined
+    let cleanupTimer = 0
     const cleanupPrintMode = () => {
-      if (cleanupTimer) window.clearTimeout(cleanupTimer)
+      if (cleanupTimer > 0) window.clearTimeout(cleanupTimer)
       document.body.classList.remove('spend-report-printing')
       document.title = previousTitle
       window.removeEventListener('afterprint', cleanupPrintMode)
@@ -795,7 +843,7 @@ export default function Spend() {
             </section>
 
             <section className="spend-report-chart-grid grid gap-4 xl:grid-cols-2">
-              <article className="spend-chart-card spend-chart-card-work-type rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <article className="spend-chart-card spend-chart-card-work-type rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)] xl:col-span-2">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Repair vs Inspection Spend</h2>
                 <div className="spend-screen-chart-body mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
@@ -1042,7 +1090,7 @@ export default function Spend() {
                     )}
                   </div>
                 </div>
-                <SpendPrintBarList items={locationSpendData} color="#7c5fd1" />
+                <SpendPrintLocationPie items={locationSpendData} />
                 {locationMappingIsPending ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-white/72 px-6 text-center backdrop-blur-md">
                     <div className="max-w-[360px] rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-3 text-sm font-black text-[var(--deshazo-text)] shadow-[0_22px_54px_-28px_rgba(47,86,166,0.42)]">
@@ -1052,34 +1100,9 @@ export default function Spend() {
                 ) : null}
               </article>
 
-              <article className="spend-chart-card spend-chart-card-branch rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By DeShazo Branch</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
-                  <div className="space-y-3">
-                    {branchSpendData.slice(0, 8).map((item) => {
-                      const width = maxBranchSpend > 0 ? (item.spend / maxBranchSpend) * 100 : 0
-                      return (
-                        <div key={item.label} className="grid grid-cols-[92px_minmax(0,1fr)_88px] items-center gap-3">
-                          <span className="truncate text-xs font-bold text-[rgba(21,24,33,0.58)]">{item.label}</span>
-                          <div className="h-5 overflow-hidden rounded-sm bg-white shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
-                            <div className="h-full rounded-sm" style={{ width: `${width}%`, backgroundColor: item.color }} />
-                          </div>
-                          <span className="text-right text-xs font-bold text-[rgba(21,24,33,0.66)]">{formatCurrency(item.spend)}</span>
-                        </div>
-                      )
-                    })}
-                    {branchSpendData.length === 0 ? (
-                      <div className="flex h-44 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                        No branch spend
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </article>
-
               <article className="spend-chart-card spend-chart-card-invoice rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Invoice Size Mix</h2>
-                <div className="mt-6 flex flex-col items-center justify-center gap-5">
+                <div className="spend-screen-chart-body mt-6 flex flex-col items-center justify-center gap-5">
                   <div className="relative h-44 w-44 rounded-full bg-[var(--deshazo-surface-2)]" style={invoiceSizeTotal > 0 ? { background: buildConicGradient(invoiceSizeData) } : undefined}>
                     <div className="absolute left-1/2 top-1/2 flex h-24 w-24 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-center text-[11px] font-semibold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
                       Invoice mix
@@ -1096,6 +1119,7 @@ export default function Spend() {
                     ))}
                   </div>
                 </div>
+                <SpendPrintBarList items={invoiceSizeData} color="#efb43f" />
               </article>
             </section>
 
@@ -1131,11 +1155,29 @@ export default function Spend() {
                 <table className="min-w-[980px] w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="bg-[var(--deshazo-blue)] text-white">
-                      {['Location', 'Jobs', 'Invoices', 'Repair Cost', 'Inspection Cost', 'Avg. Invoice', 'Repair Service', 'Repair Parts', 'Uploaded PDFs', 'Mix'].map((heading) => (
+                      {[
+                        ['Location'],
+                        ['Jobs'],
+                        ['Invoices'],
+                        ['Repair', 'Cost'],
+                        ['Inspection', 'Cost'],
+                        ['Avg.', 'Invoice'],
+                        ['Repair', 'Service'],
+                        ['Repair', 'Parts'],
+                        ['Uploaded', 'PDFs'],
+                        ['Mix'],
+                      ].map((headingParts) => {
+                        const heading = headingParts.join(' ')
+                        return (
                         <th key={heading} className="px-3 py-2 text-xs font-black uppercase tracking-[0.04em]">
-                          {heading}
+                          {headingParts.map((part) => (
+                            <span key={part} className="spend-table-heading-part">
+                              {part}
+                            </span>
+                          ))}
                         </th>
-                      ))}
+                        )
+                      })}
                     </tr>
                   </thead>
                   <tbody>

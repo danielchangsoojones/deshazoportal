@@ -418,11 +418,12 @@ export async function syncInvoiceSpendRuns(invoiceIds: string[]): Promise<Invoic
   return Array.isArray(results) ? results as InvoiceSpendSyncResult[] : []
 }
 
-async function fetchInvoiceSpendAllocations(customer?: string) {
+async function fetchInvoiceSpendAllocations(customer?: string, options: { includeWorkOrderTypes?: boolean } = {}) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
+  const includeWorkOrderTypes = options.includeWorkOrderTypes ?? true
   const selectedCustomer = resolveSelectedCustomer(customer)
   const rows: InvoiceSpendAllocationRow[] = []
 
@@ -446,7 +447,7 @@ async function fetchInvoiceSpendAllocations(customer?: string) {
     if (pageRows.length < pageSize) break
   }
 
-  const workOrderTypes = await loadAllocationWorkOrderTypes(selectedCustomer, rows)
+  const workOrderTypes = includeWorkOrderTypes ? await loadAllocationWorkOrderTypes(selectedCustomer, rows) : new Map<string, string>()
   const uniqueAllocations = new Map<string, InvoiceSpendAllocation>()
 
   rows.map((row) => mapAllocation({
@@ -503,7 +504,7 @@ function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
 }
 
 export async function getInvoiceSpendLocationSummaries(customer?: string): Promise<InvoiceSpendLocationSummary[]> {
-  const allocations = await fetchInvoiceSpendAllocations(customer)
+  const allocations = await fetchInvoiceSpendAllocations(customer, { includeWorkOrderTypes: false })
   const locations = new Map<string, InvoiceSpendAllocation[]>()
 
   allocations.forEach((allocation) => {

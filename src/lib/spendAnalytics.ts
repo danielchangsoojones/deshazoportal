@@ -74,6 +74,11 @@ export type SpendAnalyticsDateRange = {
   endMonth?: string
 }
 
+export type SpendDashboardAnalytics = {
+  spendAnalytics: SpendAnalytics
+  locationComparison: LocationComparisonItem[]
+}
+
 type FinanceInvoiceRow = {
   import_period: string
   customer: string
@@ -326,7 +331,7 @@ async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvo
     financeRows.map((row) => row.work_order_id).filter((value): value is number => typeof value === 'number'),
   ))
   const jobNos = Array.from(new Set(
-    financeRows.map((row) => row.job_no.trim()).filter(Boolean),
+    financeRows.filter((row) => typeof row.work_order_id !== 'number').map((row) => row.job_no.trim()).filter(Boolean),
   ))
   const rows: WorkOrderLocationRow[] = []
 
@@ -356,18 +361,13 @@ async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvo
   return rows
 }
 
-export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<SpendAnalytics> {
-  const selectedCustomer = resolveSelectedCustomer(customer)
-  const financeRows = filterFinanceRowsByDateRange(
-    (await fetchAllFinanceRows(selectedCustomer)).filter((row) => isFinanceRowForSelectedCustomer(row, selectedCustomer)),
-    dateRange,
-  )
+function buildSpendAnalytics(
+  financeRows: FinanceInvoiceRow[],
+  workOrderRows: WorkOrderLocationRow[],
+  locationLookup: Awaited<ReturnType<typeof getCustomerLocationLookup>>,
+): SpendAnalytics {
   if (financeRows.length === 0) return emptySpendAnalytics
 
-  const [workOrderRows, locationLookup] = await Promise.all([
-    loadWorkOrderLocations(selectedCustomer, financeRows),
-    getCustomerLocationLookup(selectedCustomer),
-  ])
   const workOrderById = new Map(workOrderRows.map((row) => [String(row.work_order_id), row]))
   const workOrderByJobNo = new Map(workOrderRows.filter((row) => row.job_no).map((row) => [row.job_no ?? '', row]))
   const monthTotals = new Map<string, { total: number; inspection: number; repair: number; parts: number; service: number; count: number }>()
@@ -515,19 +515,14 @@ export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnal
   }
 }
 
-export async function getLocationComparisonAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<LocationComparisonItem[]> {
-  const selectedCustomer = resolveSelectedCustomer(customer)
-  const financeRows = filterFinanceRowsByDateRange(
-    (await fetchAllFinanceRows(selectedCustomer)).filter((row) => isFinanceRowForSelectedCustomer(row, selectedCustomer)),
-    dateRange,
-  )
+function buildLocationComparisonAnalytics(
+  financeRows: FinanceInvoiceRow[],
+  workOrderRows: WorkOrderLocationRow[],
+  locationLookup: Awaited<ReturnType<typeof getCustomerLocationLookup>>,
+  uploadedLocationSummaries: Awaited<ReturnType<typeof getInvoiceSpendLocationSummaries>>,
+): LocationComparisonItem[] {
   if (financeRows.length === 0) return []
 
-  const [workOrderRows, locationLookup] = await Promise.all([
-    loadWorkOrderLocations(selectedCustomer, financeRows),
-    getCustomerLocationLookup(selectedCustomer),
-  ])
-  const uploadedLocationSummaries = await getInvoiceSpendLocationSummaries(selectedCustomer)
   const uploadedInvoicesByLocation = new Map(
     uploadedLocationSummaries.map((summary) => [
       locationLookup.aliases.get(getLocationOptionFromLabel(summary.location)?.value ?? '')?.label || summary.location,
@@ -624,4 +619,52 @@ export async function getLocationComparisonAnalytics(customer?: string, dateRang
       mapped_invoice_count: group.mappedInvoiceCount,
     }))
     .sort((left, right) => right.total_invoice_cost - left.total_invoice_cost)
+}
+
+async function loadSpendAnalyticsContext(customer?: string, dateRange?: SpendAnalyticsDateRange) {
+  const selectedCustomer = resolveSelectedCustomer(customer)
+  const financeRows = filterFinanceRowsByDateRange(
+    (await fetchAllFinanceRows(selectedCustomer)).filter((row) => isFinanceRowForSelectedCustomer(row, selectedCustomer)),
+    dateRange,
+  )
+
+  if (financeRows.length === 0) {
+    return {
+      selectedCustomer,
+      financeRows,
+      workOrderRows: [] as WorkOrderLocationRow[],
+      locationLookup: await getCustomerLocationLookup(selectedCustomer),
+    }
+  }
+
+  const [workOrderRows, locationLookup] = await Promise.all([
+    loadWorkOrderLocations(selectedCustomer, financeRows),
+    getCustomerLocationLookup(selectedCustomer),
+  ])
+
+  return { selectedCustomer, financeRows, workOrderRows, locationLookup }
+}
+
+export async function getSpendAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<SpendAnalytics> {
+  const { financeRows, workOrderRows, locationLookup } = await loadSpendAnalyticsContext(customer, dateRange)
+  return buildSpendAnalytics(financeRows, workOrderRows, locationLookup)
+}
+
+export async function getLocationComparisonAnalytics(customer?: string, dateRange?: SpendAnalyticsDateRange): Promise<LocationComparisonItem[]> {
+  const { selectedCustomer, financeRows, workOrderRows, locationLookup } = await loadSpendAnalyticsContext(customer, dateRange)
+  const uploadedLocationSummaries = await getInvoiceSpendLocationSummaries(selectedCustomer)
+  return buildLocationComparisonAnalytics(financeRows, workOrderRows, locationLookup, uploadedLocationSummaries)
+}
+
+export async function getSpendDashboardAnalytics(
+  customer?: string,
+  dateRange?: SpendAnalyticsDateRange,
+): Promise<SpendDashboardAnalytics> {
+  const { selectedCustomer, financeRows, workOrderRows, locationLookup } = await loadSpendAnalyticsContext(customer, dateRange)
+  const uploadedLocationSummaries = await getInvoiceSpendLocationSummaries(selectedCustomer)
+
+  return {
+    spendAnalytics: buildSpendAnalytics(financeRows, workOrderRows, locationLookup),
+    locationComparison: buildLocationComparisonAnalytics(financeRows, workOrderRows, locationLookup, uploadedLocationSummaries),
+  }
 }
