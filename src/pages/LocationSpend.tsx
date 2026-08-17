@@ -8,7 +8,11 @@ import {
   type InvoiceSpendCraneSummary,
 } from '../lib/invoiceSpend'
 import { getCustomerLocationOptions, normalizeLocationValue, type PortalLocationOption } from '../lib/portalLocations'
-import { getLocationComparisonAnalytics, type LocationComparisonItem } from '../lib/spendAnalytics'
+import {
+  getLocationSpendPageAnalytics,
+  type LocationComparisonItem,
+  type LocationSpendInvoiceItem,
+} from '../lib/spendAnalytics'
 import { isConfigured, supabase } from '../lib/supabase'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { usePortalMenu } from '../lib/usePortalMenu'
@@ -30,6 +34,7 @@ const formatCurrency = (value: number) =>
   `$${Math.round(value).toLocaleString()}`
 
 const pageSize = 24
+const showRepairInvoicesSessionKey = 'deshazo-location-spend-show-repair-invoices'
 
 const buildVisiblePages = (currentPage: number, totalPages: number) => {
   if (totalPages <= 8) return Array.from({ length: totalPages }, (_, index) => index + 1)
@@ -54,6 +59,7 @@ type LocationSpendState = {
   customer: string
   location: string
   data: InvoiceSpendCraneSummary[]
+  invoices: LocationSpendInvoiceItem[]
   financeSummary: LocationComparisonItem | null
   error: string
   status: 'loading' | 'ready'
@@ -88,7 +94,7 @@ function combineFinanceLocations(locations: LocationComparisonItem[]): LocationC
   }
 }
 
-function SpendRing({ spend, totalSpend }: { spend: number; totalSpend: number }) {
+function SpendRing({ spend, totalSpend, label = 'Share of invoice spend' }: { spend: number; totalSpend: number; label?: string }) {
   const percentage = totalSpend > 0 ? Math.min(100, (spend / totalSpend) * 100) : 0
   const degrees = percentage * 3.6
 
@@ -107,7 +113,7 @@ function SpendRing({ spend, totalSpend }: { spend: number; totalSpend: number })
       </div>
       <div>
         <p className="text-[20px] font-black leading-none text-[var(--deshazo-text)]">{formatCurrency(spend)}</p>
-        <p className="mt-1 text-[13px] font-semibold text-[rgba(21,24,33,0.62)]">Share of invoice spend</p>
+        <p className="mt-1 text-[13px] font-semibold text-[rgba(21,24,33,0.62)]">{label}</p>
       </div>
     </div>
   )
@@ -127,12 +133,20 @@ export default function LocationSpend() {
     customer: selectedCustomer,
     location,
     data: [],
+    invoices: [],
     financeSummary: null,
     error: '',
     status: 'loading',
   })
   const [craneSearch, setCraneSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
+  const [showRepairInvoices, setShowRepairInvoices] = useState(() => {
+    try {
+      return window.sessionStorage.getItem(showRepairInvoicesSessionKey) === 'true'
+    } catch {
+      return false
+    }
+  })
   const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
   const [locationsLoading, setLocationsLoading] = useState(true)
   const [locationMenuOpen, setLocationMenuOpen] = useState(false)
@@ -191,6 +205,7 @@ export default function LocationSpend() {
         customer: selectedCustomer,
         location,
         data: [],
+        invoices: [],
         financeSummary: null,
         error: 'Choose a location from Location Comparison to view crane spend.',
         status: 'ready',
@@ -210,10 +225,11 @@ export default function LocationSpend() {
 
     Promise.all([
       getInvoiceSpendCranesForLocation(location, selectedCustomer),
-      getLocationComparisonAnalytics(selectedCustomer),
+      getLocationSpendPageAnalytics(location, selectedCustomer),
     ])
-      .then(([nextData, financeLocations]) => {
+      .then(([nextData, pageAnalytics]) => {
         if (!isMounted) return
+        const financeLocations = pageAnalytics.locationComparison
         const financeSummary =
           location === 'all'
             ? combineFinanceLocations(financeLocations)
@@ -222,6 +238,7 @@ export default function LocationSpend() {
           customer: selectedCustomer,
           location,
           data: nextData,
+          invoices: pageAnalytics.invoices,
           financeSummary,
           error: '',
           status: 'ready',
@@ -233,6 +250,7 @@ export default function LocationSpend() {
           customer: selectedCustomer,
           location,
           data: [],
+          invoices: [],
           financeSummary: null,
           error: err instanceof Error ? err.message : 'Unable to load crane spend for this location.',
           status: 'ready',
@@ -246,20 +264,38 @@ export default function LocationSpend() {
 
   const totals = useMemo(() => {
     const allocatedSpend = spendState.data.reduce((sum, crane) => sum + crane.totalSpend, 0)
+    const allocatedRepairSpend = spendState.data.reduce((sum, crane) => sum + crane.repairSpend, 0)
+    const allocatedInspectionSpend = spendState.data.reduce((sum, crane) => sum + crane.inspectionSpend, 0)
     const invoiceKeys = new Set(
       spendState.data.flatMap((crane) =>
         crane.allocations.map((allocation) => allocation.invoiceNumber || allocation.jobNumber || allocation.invoiceId),
       ),
     )
+    const repairInvoiceKeys = new Set(
+      spendState.data.flatMap((crane) =>
+        crane.allocations
+          .filter((allocation) => allocation.spendKind === 'repair')
+          .map((allocation) => allocation.invoiceNumber || allocation.jobNumber || allocation.invoiceId),
+      ),
+    )
+    const inspectionInvoiceKeys = new Set(
+      spendState.data.flatMap((crane) =>
+        crane.allocations
+          .filter((allocation) => allocation.spendKind === 'inspection')
+          .map((allocation) => allocation.invoiceNumber || allocation.jobNumber || allocation.invoiceId),
+      ),
+    )
     return {
       totalSpend: spendState.financeSummary?.total_invoice_cost ?? allocatedSpend,
-      repairSpend: spendState.financeSummary?.total_repair_cost ?? allocatedSpend,
-      inspectionSpend: spendState.financeSummary?.total_inspection_cost ?? 0,
+      repairSpend: spendState.financeSummary?.total_repair_cost ?? allocatedRepairSpend,
+      inspectionSpend: spendState.financeSummary?.total_inspection_cost ?? allocatedInspectionSpend,
       invoiceCount: spendState.financeSummary?.finance_invoice_count ?? invoiceKeys.size,
-      repairInvoiceCount: spendState.financeSummary?.repair_invoice_count ?? invoiceKeys.size,
-      inspectionInvoiceCount: spendState.financeSummary?.inspection_invoice_count ?? 0,
+      repairInvoiceCount: spendState.financeSummary?.repair_invoice_count ?? repairInvoiceKeys.size,
+      inspectionInvoiceCount: spendState.financeSummary?.inspection_invoice_count ?? inspectionInvoiceKeys.size,
       craneCount: spendState.data.length,
       allocatedSpend,
+      allocatedRepairSpend,
+      allocatedInspectionSpend,
       allocatedInvoiceCount: invoiceKeys.size,
     }
   }, [spendState.data, spendState.financeSummary])
@@ -277,13 +313,47 @@ export default function LocationSpend() {
     )
   }, [craneSearch, spendState.data])
 
-  const totalPages = Math.max(1, Math.ceil(visibleCranes.length / pageSize))
+  const repairInvoices = useMemo(
+    () => spendState.invoices.filter((invoice) => invoice.spend_kind === 'repair'),
+    [spendState.invoices],
+  )
+
+  const visibleRepairInvoices = useMemo(() => {
+    const query = craneSearch.trim().toLowerCase()
+    if (!query) return repairInvoices
+    return repairInvoices.filter((invoice) =>
+      [
+        invoice.job_no,
+        invoice.work_order_id ? String(invoice.work_order_id) : '',
+        invoice.work_type,
+        invoice.location,
+      ].some((value) => value.toLowerCase().includes(query)),
+    )
+  }, [craneSearch, repairInvoices])
+
+  const rankingItems = useMemo(
+    () => [
+      ...(showRepairInvoices ? visibleRepairInvoices.map((invoice) => ({ type: 'repair-invoice' as const, invoice })) : []),
+      ...visibleCranes.map((crane) => ({ type: 'crane' as const, crane })),
+    ],
+    [showRepairInvoices, visibleCranes, visibleRepairInvoices],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(rankingItems.length / pageSize))
   const pageNumbers = buildVisiblePages(currentPage, totalPages)
-  const paginatedCranes = visibleCranes.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const paginatedRankingItems = rankingItems.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [craneSearch, location, selectedCustomer])
+  }, [craneSearch, location, selectedCustomer, showRepairInvoices])
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(showRepairInvoicesSessionKey, String(showRepairInvoices))
+    } catch {
+      // Session storage is optional; the checkbox still works without persistence.
+    }
+  }, [showRepairInvoices])
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages))
@@ -570,10 +640,24 @@ export default function LocationSpend() {
                   <div>
                     <h2 className="text-[18px] font-black text-[var(--deshazo-text)]">Crane Cost Ranking</h2>
                     <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.64)]">
-                      {visibleCranes.length} crane{visibleCranes.length === 1 ? '' : 's'} shown · highest allocated invoice cost first
+                      {visibleCranes.length} crane{visibleCranes.length === 1 ? '' : 's'}
+                      {showRepairInvoices && visibleRepairInvoices.length > 0
+                        ? ` + ${visibleRepairInvoices.length} repair invoice${visibleRepairInvoices.length === 1 ? '' : 's'}`
+                        : ''} shown · highest repair cost first
                     </p>
                   </div>
                   <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
+                    {repairInvoices.length > 0 ? (
+                      <label className="flex h-9 w-fit items-center gap-2 rounded-md border border-[var(--deshazo-border)] bg-white px-3 text-sm font-bold text-[var(--deshazo-text)]">
+                        <input
+                          type="checkbox"
+                          checked={showRepairInvoices}
+                          onChange={(event) => setShowRepairInvoices(event.currentTarget.checked)}
+                          className="h-4 w-4 accent-[#2f6f4f]"
+                        />
+                        <span>Show repair invoices</span>
+                      </label>
+                    ) : null}
                     {totalPages > 1 ? (
                       <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[rgba(21,24,33,0.76)]">
                         <button
@@ -616,47 +700,120 @@ export default function LocationSpend() {
                   </div>
                 </div>
 
-                {visibleCranes.length === 0 ? (
+                {rankingItems.length === 0 ? (
                   <div className="flex min-h-[420px] items-center justify-center rounded-[10px] bg-white px-6 text-center">
                     <div>
-                    <p className="text-base font-black text-[var(--deshazo-text)]">No matching cranes</p>
+                    <p className="text-base font-black text-[var(--deshazo-text)]">No matching spend items</p>
                     <p className="mt-1 text-sm text-[rgba(21,24,33,0.58)]">Try another D-number, job, or invoice.</p>
                     </div>
                   </div>
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    {paginatedCranes.map((crane) => (
-                      <Link
-                        key={crane.dNumber}
-                        to={`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics&from=location-comparison`}
-                        className="group overflow-hidden rounded-[10px] border border-[var(--deshazo-border)] bg-white shadow-[0_14px_30px_-28px_rgba(47,86,166,0.22)] transition hover:border-[#9eb3d7] focus:outline-none focus:ring-2 focus:ring-[var(--deshazo-blue)]"
-                      >
-                        <article className="flex h-full flex-col">
-                          <div className="flex-1 space-y-1 px-4 py-4">
-                            <p className="text-[18px] font-extrabold uppercase leading-[1.1] text-[var(--deshazo-text)]">{crane.dNumber}</p>
-                            <p className="line-clamp-2 min-h-[40px] text-[15px] font-medium leading-5 text-[rgba(21,24,33,0.72)]">
-                              {crane.craneDescription || 'No crane description'}
-                            </p>
-                            <div className="flex items-center gap-2 pt-1 text-[15px] font-semibold text-[var(--deshazo-text)]">
-                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#d7b94a] bg-[#ffe680]">
-                                <span className="h-2 w-2 rounded-full bg-[#725900]" />
-                              </span>
-                              <span className="truncate">{crane.craneLocation || crane.locationLabel || 'Location unavailable'}</span>
+                    {paginatedRankingItems.map((item) => {
+                      if (item.type === 'repair-invoice') {
+                        const { invoice } = item
+                        const repairInvoiceDetailsPath = invoice.work_order_id && invoice.has_report
+                          ? `${customerPath('/deshazo-external-reports')}?workOrderId=${encodeURIComponent(invoice.work_order_id)}`
+                          : `${customerPath('/deshazo-work-orders')}?search=${encodeURIComponent(invoice.job_no || String(invoice.work_order_id ?? ''))}`
+                        return (
+                          <Link
+                            key={`repair-invoice-${invoice.job_no}-${invoice.work_order_id ?? 'no-work-order'}-${invoice.import_period}`}
+                            to={repairInvoiceDetailsPath}
+                            className="group flex h-full flex-col overflow-hidden rounded-[10px] border-2 border-[#4a9960] bg-white shadow-[0_14px_30px_-28px_rgba(47,86,166,0.22)] transition hover:border-[#2f6f4f] focus:outline-none focus:ring-2 focus:ring-[#2f6f4f]"
+                          >
+                            <div className="flex-1 space-y-2 px-4 py-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-[11px] font-black uppercase tracking-[0.03em] text-[#2f6f4f]">Repair Invoice</p>
+                                  <p className="mt-1 truncate text-[18px] font-extrabold leading-[1.1] text-[var(--deshazo-text)]">
+                                    Job {invoice.job_no || '-'}
+                                  </p>
+                                </div>
+                              </div>
+                              <p className="line-clamp-2 min-h-[40px] text-[15px] font-medium leading-5 text-[rgba(21,24,33,0.72)]">
+                                {invoice.work_type}
+                              </p>
+                              <div className="flex items-center gap-2 pt-1 text-[15px] font-semibold text-[var(--deshazo-text)]">
+                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#b8d9c4] bg-[#e7f6ed]">
+                                  <span className="h-2 w-2 rounded-full bg-[#2f6f4f]" />
+                                </span>
+                                <span className="truncate">{invoice.location}</span>
+                              </div>
+                              <p className="pt-1 text-[15px] font-medium text-[rgba(21,24,33,0.78)]">
+                                {invoice.work_order_id ? `WO ${invoice.work_order_id} · ` : ''}{formatDate(invoice.import_period)}
+                              </p>
                             </div>
-                            <p className="pt-1 text-[15px] font-medium text-[rgba(21,24,33,0.78)]">
-                              Latest invoice {formatDate(crane.latestInvoiceDate)}
-                            </p>
-                          </div>
 
-                          <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
-                            <SpendRing spend={crane.totalSpend} totalSpend={totals.totalSpend} />
-                            <span className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-[4px] bg-[var(--deshazo-blue)] text-[14px] font-bold text-white transition group-hover:bg-[var(--deshazo-blue-deep)]">
-                              See Details
-                            </span>
-                          </div>
-                        </article>
-                      </Link>
-                    ))}
+                            <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
+                              <SpendRing spend={invoice.total_revenue} totalSpend={totals.repairSpend || totals.totalSpend} label="Share of repair spend" />
+                              <div className="mt-4 grid grid-cols-2 gap-2">
+                                <div className="rounded-[6px] border border-[#d7e8dd] bg-[#f3faf6] px-3 py-2">
+                                  <p className="text-[11px] font-black uppercase tracking-[0.02em] text-[#2f6f4f]">Service</p>
+                                  <p className="mt-1 text-[18px] font-black text-[#2f6f4f]">{formatCurrency(invoice.service_revenue)}</p>
+                                </div>
+                                <div className="rounded-[6px] border border-[#d7e8dd] bg-[#f3faf6] px-3 py-2">
+                                  <p className="text-[11px] font-black uppercase tracking-[0.02em] text-[#2f6f4f]">Parts</p>
+                                  <p className="mt-1 text-[18px] font-black text-[#2f6f4f]">{formatCurrency(invoice.parts_revenue)}</p>
+                                </div>
+                              </div>
+                              <div className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-[4px] bg-[#2f6f4f] text-[14px] font-bold text-white transition group-hover:bg-[#24593f]">
+                                See Details
+                              </div>
+                            </div>
+                          </Link>
+                        )
+                      }
+
+                      const { crane } = item
+                      return (
+                        <Link
+                          key={crane.dNumber}
+                          to={`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics&from=location-comparison`}
+                          className="group overflow-hidden rounded-[10px] border border-[var(--deshazo-border)] bg-white shadow-[0_14px_30px_-28px_rgba(47,86,166,0.22)] transition hover:border-[#9eb3d7] focus:outline-none focus:ring-2 focus:ring-[var(--deshazo-blue)]"
+                        >
+                          <article className="flex h-full flex-col">
+                            <div className="flex-1 space-y-1 px-4 py-4">
+                              <p className="text-[18px] font-extrabold uppercase leading-[1.1] text-[var(--deshazo-text)]">{crane.dNumber}</p>
+                              <p className="line-clamp-2 min-h-[40px] text-[15px] font-medium leading-5 text-[rgba(21,24,33,0.72)]">
+                                {crane.craneDescription || 'No crane description'}
+                              </p>
+                              <div className="flex items-center gap-2 pt-1 text-[15px] font-semibold text-[var(--deshazo-text)]">
+                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#d7b94a] bg-[#ffe680]">
+                                  <span className="h-2 w-2 rounded-full bg-[#725900]" />
+                                </span>
+                                <span className="truncate">{crane.craneLocation || crane.locationLabel || 'Location unavailable'}</span>
+                              </div>
+                              <p className="pt-1 text-[15px] font-medium text-[rgba(21,24,33,0.78)]">
+                                Latest invoice {formatDate(crane.latestInvoiceDate)}
+                              </p>
+                            </div>
+
+                            <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
+                              <SpendRing spend={crane.repairSpend} totalSpend={totals.repairSpend || totals.totalSpend} label="Share of repair spend" />
+                              <div className="mt-4 grid grid-cols-2 gap-2">
+                                <div className="rounded-[6px] border border-[#d7e8dd] bg-[#f3faf6] px-3 py-2">
+                                  <p className="text-[11px] font-black uppercase tracking-[0.02em] text-[#2f6f4f]">Repair</p>
+                                  <p className="mt-1 text-[18px] font-black text-[#2f6f4f]">{formatCurrency(crane.repairSpend)}</p>
+                                  <p className="mt-0.5 text-[11px] font-semibold text-[rgba(21,24,33,0.48)]">
+                                    {crane.repairInvoiceCount} invoice{crane.repairInvoiceCount === 1 ? '' : 's'}
+                                  </p>
+                                </div>
+                                <div className="rounded-[6px] border border-[#ead99b] bg-[#fff9e8] px-3 py-2">
+                                  <p className="text-[11px] font-black uppercase tracking-[0.02em] text-[#8a6500]">Inspection</p>
+                                  <p className="mt-1 text-[18px] font-black text-[#8a6500]">{formatCurrency(crane.inspectionSpend)}</p>
+                                  <p className="mt-0.5 text-[11px] font-semibold text-[rgba(21,24,33,0.48)]">
+                                    {crane.inspectionInvoiceCount} invoice{crane.inspectionInvoiceCount === 1 ? '' : 's'}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-[4px] bg-[var(--deshazo-blue)] text-[14px] font-bold text-white transition group-hover:bg-[var(--deshazo-blue-deep)]">
+                                See Details
+                              </span>
+                            </div>
+                          </article>
+                        </Link>
+                      )
+                    })}
                   </div>
                 )}
               </div>
