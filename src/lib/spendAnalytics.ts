@@ -69,6 +69,20 @@ export type LocationComparisonItem = {
   mapped_invoice_count: number
 }
 
+export type LocationSpendInvoiceItem = {
+  job_no: string
+  work_order_id: number | null
+  asset_d_number: string
+  has_report: boolean
+  location: string
+  import_period: string
+  work_type: string
+  spend_kind: WorkSpendKind
+  parts_revenue: number
+  service_revenue: number
+  total_revenue: number
+}
+
 export type SpendAnalyticsDateRange = {
   startMonth?: string
   endMonth?: string
@@ -77,6 +91,11 @@ export type SpendAnalyticsDateRange = {
 export type SpendDashboardAnalytics = {
   spendAnalytics: SpendAnalytics
   locationComparison: LocationComparisonItem[]
+}
+
+export type LocationSpendPageAnalytics = {
+  locationComparison: LocationComparisonItem[]
+  invoices: LocationSpendInvoiceItem[]
 }
 
 type FinanceInvoiceRow = {
@@ -102,6 +121,16 @@ type WorkOrderLocationRow = {
   service_location_name: string | null
   bill_to_city: string | null
   bill_to_state: string | null
+  raw_payload: Record<string, unknown> | null
+}
+
+type ReportCraneDNumberRow = {
+  work_order_id: number | null
+  contact_code: string | null
+}
+
+type ReportPayloadDNumberRow = {
+  work_order_id: number
   raw_payload: Record<string, unknown> | null
 }
 
@@ -621,6 +650,129 @@ function buildLocationComparisonAnalytics(
     .sort((left, right) => right.total_invoice_cost - left.total_invoice_cost)
 }
 
+function extractDNumberFromUnknown(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.match(/\bD\d+\b/i)?.[0]?.toUpperCase() ?? ''
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const match = extractDNumberFromUnknown(item)
+      if (match) return match
+    }
+    return ''
+  }
+
+  if (value && typeof value === 'object') {
+    for (const nestedValue of Object.values(value as Record<string, unknown>)) {
+      const match = extractDNumberFromUnknown(nestedValue)
+      if (match) return match
+    }
+  }
+
+  return ''
+}
+
+async function loadWorkOrderDNumbers(customer: string, workOrderIds: number[]) {
+  if (!supabase || workOrderIds.length === 0) return new Map<number, string>()
+
+  const selectedCustomer = resolveSelectedCustomer(customer)
+  const dNumbers = new Map<number, string>()
+
+  const { data: craneRows } = await supabase
+    .from('deshazo_external_report_cranes')
+    .select('work_order_id, contact_code')
+    .in('work_order_id', workOrderIds)
+
+  ;((craneRows ?? []) as ReportCraneDNumberRow[]).forEach((row) => {
+    const workOrderId = row.work_order_id
+    const dNumber = extractDNumberFromUnknown(row.contact_code)
+    if (typeof workOrderId === 'number' && dNumber && !dNumbers.has(workOrderId)) {
+      dNumbers.set(workOrderId, dNumber)
+    }
+  })
+
+  const missingWorkOrderIds = workOrderIds.filter((workOrderId) => !dNumbers.has(workOrderId))
+  if (missingWorkOrderIds.length === 0) return dNumbers
+
+  const { data: reportRows } = await supabase
+    .from('deshazo_external_inspection_reports')
+    .select('work_order_id, raw_payload')
+    .eq('customer', selectedCustomer)
+    .in('work_order_id', missingWorkOrderIds)
+
+  ;((reportRows ?? []) as ReportPayloadDNumberRow[]).forEach((row) => {
+    const dNumber = extractDNumberFromUnknown(row.raw_payload)
+    if (dNumber && !dNumbers.has(row.work_order_id)) {
+      dNumbers.set(row.work_order_id, dNumber)
+    }
+  })
+
+  return dNumbers
+}
+
+async function loadWorkOrderReportIds(customer: string, workOrderIds: number[]) {
+  if (!supabase || workOrderIds.length === 0) return new Set<number>()
+
+  const selectedCustomer = resolveSelectedCustomer(customer)
+  const { data } = await supabase
+    .from('deshazo_external_inspection_reports')
+    .select('work_order_id')
+    .eq('customer', selectedCustomer)
+    .in('work_order_id', workOrderIds)
+
+  return new Set(((data ?? []) as Array<{ work_order_id: number }>).map((row) => row.work_order_id))
+}
+
+function buildLocationSpendInvoices(
+  location: string,
+  financeRows: FinanceInvoiceRow[],
+  workOrderRows: WorkOrderLocationRow[],
+  locationLookup: Awaited<ReturnType<typeof getCustomerLocationLookup>>,
+  workOrderDNumbers = new Map<number, string>(),
+): LocationSpendInvoiceItem[] {
+  const selectedLocation = normalizeLocationComparable(location)
+  const workOrderById = new Map(workOrderRows.map((row) => [String(row.work_order_id), row]))
+  const workOrderByJobNo = new Map(workOrderRows.filter((row) => row.job_no).map((row) => [row.job_no ?? '', row]))
+
+  return financeRows
+    .map((row) => {
+      const partsSpend = toNumber(row.parts_revenue)
+      const serviceSpend = toNumber(row.service_revenue)
+      const invoiceTotal = toNumber(row.total_revenue) || partsSpend + serviceSpend
+      const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
+      const workType = getFinanceWorkOrderType(row, workOrder)
+      const mappedLocation =
+        row.location_label ||
+        getWorkOrderLocation(workOrder) ||
+        row.customer_location_name ||
+        row.service_location_name ||
+        getFinanceWorkbookLocation(row)
+      const rawLocation = mappedLocation || 'Unmapped'
+      const resolvedLocation = locationLookup.aliases.get(getLocationOptionFromLabel(rawLocation)?.value ?? '')?.label || rawLocation
+
+      return {
+        job_no: row.job_no,
+        work_order_id: row.work_order_id,
+        asset_d_number: row.work_order_id ? workOrderDNumbers.get(row.work_order_id) ?? '' : '',
+        has_report: false,
+        location: resolvedLocation,
+        import_period: row.import_period,
+        work_type: workType || 'Unclassified',
+        spend_kind: getWorkSpendKind(workType),
+        parts_revenue: Math.round(partsSpend),
+        service_revenue: Math.round(serviceSpend),
+        total_revenue: Math.round(invoiceTotal),
+      }
+    })
+    .filter((row) => location === 'all' || normalizeLocationComparable(row.location) === selectedLocation)
+    .sort((left, right) =>
+      left.spend_kind.localeCompare(right.spend_kind) ||
+      right.total_revenue - left.total_revenue ||
+      right.import_period.localeCompare(left.import_period),
+    )
+}
+
 async function loadSpendAnalyticsContext(customer?: string, dateRange?: SpendAnalyticsDateRange) {
   const selectedCustomer = resolveSelectedCustomer(customer)
   const financeRows = filterFinanceRowsByDateRange(
@@ -654,6 +806,55 @@ export async function getLocationComparisonAnalytics(customer?: string, dateRang
   const { selectedCustomer, financeRows, workOrderRows, locationLookup } = await loadSpendAnalyticsContext(customer, dateRange)
   const uploadedLocationSummaries = await getInvoiceSpendLocationSummaries(selectedCustomer)
   return buildLocationComparisonAnalytics(financeRows, workOrderRows, locationLookup, uploadedLocationSummaries)
+}
+
+export async function getLocationSpendInvoices(
+  location: string,
+  customer?: string,
+  dateRange?: SpendAnalyticsDateRange,
+): Promise<LocationSpendInvoiceItem[]> {
+  const { selectedCustomer, financeRows, workOrderRows, locationLookup } = await loadSpendAnalyticsContext(customer, dateRange)
+  const invoices = buildLocationSpendInvoices(location, financeRows, workOrderRows, locationLookup)
+  const workOrderIds = Array.from(new Set(
+    invoices
+      .filter((invoice) => invoice.spend_kind === 'repair')
+      .map((invoice) => invoice.work_order_id)
+      .filter((value): value is number => typeof value === 'number'),
+  ))
+  const workOrderDNumbers = await loadWorkOrderDNumbers(selectedCustomer, workOrderIds)
+  const reportWorkOrderIds = await loadWorkOrderReportIds(selectedCustomer, workOrderIds)
+  return invoices.map((invoice) => ({
+    ...invoice,
+    asset_d_number: invoice.work_order_id ? workOrderDNumbers.get(invoice.work_order_id) ?? '' : '',
+    has_report: invoice.work_order_id ? reportWorkOrderIds.has(invoice.work_order_id) : false,
+  }))
+}
+
+export async function getLocationSpendPageAnalytics(
+  location: string,
+  customer?: string,
+  dateRange?: SpendAnalyticsDateRange,
+): Promise<LocationSpendPageAnalytics> {
+  const { selectedCustomer, financeRows, workOrderRows, locationLookup } = await loadSpendAnalyticsContext(customer, dateRange)
+  const uploadedLocationSummaries = await getInvoiceSpendLocationSummaries(selectedCustomer)
+  const invoices = buildLocationSpendInvoices(location, financeRows, workOrderRows, locationLookup)
+  const workOrderIds = Array.from(new Set(
+    invoices
+      .filter((invoice) => invoice.spend_kind === 'repair')
+      .map((invoice) => invoice.work_order_id)
+      .filter((value): value is number => typeof value === 'number'),
+  ))
+  const workOrderDNumbers = await loadWorkOrderDNumbers(selectedCustomer, workOrderIds)
+  const reportWorkOrderIds = await loadWorkOrderReportIds(selectedCustomer, workOrderIds)
+
+  return {
+    locationComparison: buildLocationComparisonAnalytics(financeRows, workOrderRows, locationLookup, uploadedLocationSummaries),
+    invoices: invoices.map((invoice) => ({
+      ...invoice,
+      asset_d_number: invoice.work_order_id ? workOrderDNumbers.get(invoice.work_order_id) ?? '' : '',
+      has_report: invoice.work_order_id ? reportWorkOrderIds.has(invoice.work_order_id) : false,
+    })),
+  }
 }
 
 export async function getSpendDashboardAnalytics(
