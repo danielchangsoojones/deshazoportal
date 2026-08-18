@@ -11,7 +11,7 @@ import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
-const financeReleasedCards = new Set(['Spend', 'Location Comparison'])
+const financeReleasedCards = new Set(['Spend', 'Location Comparison', 'Calendar'])
 
 const portalCards = [
   {
@@ -39,6 +39,14 @@ const portalCards = [
     title: 'Location Comparison',
     description: 'Compare parts and labor times across different facilities and identify outliers quickly.',
     href: '/location-comparison',
+    developerOnly: true,
+    oldDb: true,
+  },
+  {
+    eyebrow: 'Scheduling',
+    title: 'Calendar',
+    description: 'Plan service jobs by technician with a drag-and-drop demo calendar and quick job editor.',
+    href: '/calendar',
     developerOnly: true,
     oldDb: true,
   },
