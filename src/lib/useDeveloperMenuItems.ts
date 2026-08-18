@@ -8,7 +8,7 @@ type PortalMenuItem = {
   href?: string
 }
 
-const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Document Reports', 'Customer Quotes'])
+const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Calendar', 'Document Reports', 'Customer Quotes'])
 const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
 const financeReleasedLabels = new Set(['Spend', 'Location Comparison'])
 const calendarMenuItem = { label: 'Calendar', href: '/calendar' }

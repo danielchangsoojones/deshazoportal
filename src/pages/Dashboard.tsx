@@ -11,7 +11,7 @@ import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
-const financeReleasedCards = new Set(['Spend', 'Location Comparison', 'Calendar'])
+const financeReleasedCards = new Set(['Spend', 'Location Comparison'])
 
 const portalCards = [
   {
