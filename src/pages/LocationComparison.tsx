@@ -8,7 +8,7 @@ import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getLocationComparisonAnalytics, type LocationComparisonItem } from '../lib/spendAnalytics'
 import { getPendingInvoiceSpendRuns, syncInvoiceSpendRuns, uploadInvoiceSpendPdf } from '../lib/invoiceSpend'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
-import { isConfigured, supabase } from '../lib/supabase'
+import { getCurrentSupabaseUser, isConfigured, supabase } from '../lib/supabase'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
 const menuItems = [
@@ -76,15 +76,15 @@ export default function LocationComparison() {
       }
     }
 
-    supabase.auth.getUser().then(async ({ data }) => {
+    getCurrentSupabaseUser().then(async (nextUser) => {
       if (!isMounted) return
-      if (!data.user) {
+      if (!nextUser) {
         navigate(customerPath('/login'))
       } else {
-        const nextUserTag = await getCurrentUserTag(data.user.id).catch(() => null)
+        const nextUserTag = await getCurrentUserTag(nextUser.id).catch(() => null)
         if (!isMounted) return
         setUserTag(nextUserTag)
-        setUser(data.user)
+        setUser(nextUser)
       }
       setAuthLoading(false)
     })

@@ -10,14 +10,6 @@ export const supabase = isConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null
 
-function clearSupabaseAuthStorage() {
-  if (typeof window === 'undefined') return
-
-  Object.keys(window.localStorage)
-    .filter((key) => key.startsWith('sb-') && key.endsWith('-auth-token'))
-    .forEach((key) => window.localStorage.removeItem(key))
-}
-
 export async function getCurrentSupabaseUser(timeoutMs = 8000): Promise<User | null> {
   if (!supabase) return null
 
@@ -27,11 +19,13 @@ export async function getCurrentSupabaseUser(timeoutMs = 8000): Promise<User | n
   })
 
   try {
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (sessionData.session?.user) return sessionData.session.user
+
     const { data, error } = await Promise.race([supabase.auth.getUser(), timeout])
     if (error) throw new Error(error.message)
     return data.user ?? null
-  } catch (error) {
-    clearSupabaseAuthStorage()
+  } catch {
     return null
   } finally {
     window.clearTimeout(timeoutId)

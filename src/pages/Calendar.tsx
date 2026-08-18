@@ -6,7 +6,8 @@ import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
-import { isConfigured, supabase } from '../lib/supabase'
+import { getCurrentSupabaseUser, isConfigured, supabase } from '../lib/supabase'
+import { getCurrentUserTag } from '../lib/userTags'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -714,6 +715,7 @@ function buildBlankJob(resourceId = resources[0].id, dayIndex = todayDayIndex, b
 
 export default function Calendar() {
   const [user, setUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [jobs, setJobs] = useState(initialJobs)
   const [editingJob, setEditingJob] = useState<EditingJobState | null>(null)
   const [draggedJobId, setDraggedJobId] = useState<string | null>(null)
@@ -727,17 +729,34 @@ export default function Calendar() {
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Calendar')
 
   useEffect(() => {
+    let isMounted = true
+
     if (!isConfigured || !supabase) {
       navigate(customerPath('/login'))
-      return
+      return () => {
+        isMounted = false
+      }
     }
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) {
+
+    getCurrentSupabaseUser().then(async (nextUser) => {
+      if (!isMounted) return
+      if (!nextUser) {
         navigate(customerPath('/login'))
       } else {
-        setUser(data.user)
+        const nextUserTag = await getCurrentUserTag(nextUser.id).catch(() => null)
+        if (!isMounted) return
+        if (nextUserTag !== 'developer') {
+          navigate(customerPath('/dashboard'), { replace: true })
+          return
+        }
+        setUser(nextUser)
       }
+      setAuthLoading(false)
     })
+
+    return () => {
+      isMounted = false
+    }
   }, [customerPath, navigate])
 
   const visibleJobs = useMemo(
@@ -887,7 +906,7 @@ export default function Calendar() {
     setEditingJob(null)
   }
 
-  if (!user) return null
+  if (authLoading || !user) return null
 
   const fullName =
     user.user_metadata?.full_name ||

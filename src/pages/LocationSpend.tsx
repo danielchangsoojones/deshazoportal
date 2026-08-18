@@ -13,7 +13,7 @@ import {
   type LocationComparisonItem,
   type LocationSpendInvoiceItem,
 } from '../lib/spendAnalytics'
-import { isConfigured, supabase } from '../lib/supabase'
+import { getCurrentSupabaseUser, isConfigured, supabase } from '../lib/supabase'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { usePortalMenu } from '../lib/usePortalMenu'
 
@@ -182,12 +182,12 @@ export default function LocationSpend() {
       }
     }
 
-    supabase.auth.getUser().then(({ data }) => {
+    getCurrentSupabaseUser().then((nextUser) => {
       if (!isMounted) return
-      if (!data.user) {
+      if (!nextUser) {
         navigate(customerPath('/login'))
       } else {
-        setUser(data.user)
+        setUser(nextUser)
       }
       setAuthLoading(false)
     })

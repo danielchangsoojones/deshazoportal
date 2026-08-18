@@ -48,7 +48,6 @@ const portalCards = [
     description: 'Plan service jobs by technician with a drag-and-drop demo calendar and quick job editor.',
     href: '/calendar',
     developerOnly: true,
-    oldDb: true,
   },
   {
     eyebrow: 'Documents',
