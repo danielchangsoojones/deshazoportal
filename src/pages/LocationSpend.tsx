@@ -76,6 +76,14 @@ function combineFinanceLocations(locations: LocationComparisonItem[]): LocationC
     total_invoice_cost: totalInvoiceCost,
     total_service_cost: locations.reduce((sum, item) => sum + item.total_service_cost, 0),
     total_parts_cost: locations.reduce((sum, item) => sum + item.total_parts_cost, 0),
+    inspection_invoice_count: locations.reduce((sum, item) => sum + item.inspection_invoice_count, 0),
+    repair_invoice_count: locations.reduce((sum, item) => sum + item.repair_invoice_count, 0),
+    total_inspection_cost: locations.reduce((sum, item) => sum + item.total_inspection_cost, 0),
+    total_repair_cost: locations.reduce((sum, item) => sum + item.total_repair_cost, 0),
+    repair_parts_cost: locations.reduce((sum, item) => sum + item.repair_parts_cost, 0),
+    repair_service_cost: locations.reduce((sum, item) => sum + item.repair_service_cost, 0),
+    repair_freight_cost: locations.reduce((sum, item) => sum + item.repair_freight_cost, 0),
+    repair_labor_cost: locations.reduce((sum, item) => sum + item.repair_labor_cost, 0),
     mapped_invoice_count: locations.reduce((sum, item) => sum + item.mapped_invoice_count, 0),
   }
 }
@@ -245,7 +253,11 @@ export default function LocationSpend() {
     )
     return {
       totalSpend: spendState.financeSummary?.total_invoice_cost ?? allocatedSpend,
+      repairSpend: spendState.financeSummary?.total_repair_cost ?? allocatedSpend,
+      inspectionSpend: spendState.financeSummary?.total_inspection_cost ?? 0,
       invoiceCount: spendState.financeSummary?.finance_invoice_count ?? invoiceKeys.size,
+      repairInvoiceCount: spendState.financeSummary?.repair_invoice_count ?? invoiceKeys.size,
+      inspectionInvoiceCount: spendState.financeSummary?.inspection_invoice_count ?? 0,
       craneCount: spendState.data.length,
       allocatedSpend,
       allocatedInvoiceCount: invoiceKeys.size,
@@ -511,11 +523,19 @@ export default function LocationSpend() {
                 <p className="text-[14px] font-bold uppercase tracking-[0.03em] text-[rgba(21,24,33,0.58)]">Total Spend</p>
                 <p className="mt-1 text-[28px] font-extrabold text-[var(--deshazo-text)]">{formatCurrency(totals.totalSpend)}</p>
               </div>
+              <div className="min-w-[170px]">
+                <p className="text-[14px] font-bold uppercase tracking-[0.03em] text-[rgba(21,24,33,0.58)]">Repair Spend</p>
+                <p className="mt-1 text-[28px] font-extrabold text-[#4a9960]">{formatCurrency(totals.repairSpend)}</p>
+              </div>
+              <div className="min-w-[170px]">
+                <p className="text-[14px] font-bold uppercase tracking-[0.03em] text-[rgba(21,24,33,0.58)]">Inspection Spend</p>
+                <p className="mt-1 text-[28px] font-extrabold text-[#9a6a00]">{formatCurrency(totals.inspectionSpend)}</p>
+              </div>
               <div className="flex min-w-[150px] items-center justify-center rounded-[6px] border border-[var(--deshazo-border)] px-6 py-3">
                 <div className="text-center">
-                  <p className="text-[24px] font-extrabold text-[var(--deshazo-text)]">{totals.invoiceCount}</p>
+                  <p className="text-[24px] font-extrabold text-[var(--deshazo-text)]">{totals.repairInvoiceCount}</p>
                   <div className="mt-1 h-[2px] w-24 bg-[var(--deshazo-blue)]" />
-                  <p className="text-[18px] font-medium text-[var(--deshazo-blue)]">Invoices</p>
+                  <p className="text-[18px] font-medium text-[var(--deshazo-blue)]">Repair Invoices</p>
                 </div>
               </div>
               <div className="flex min-w-[150px] items-center justify-center rounded-[6px] border border-[var(--deshazo-border)] px-6 py-3">
@@ -550,7 +570,7 @@ export default function LocationSpend() {
                   <div>
                     <h2 className="text-[18px] font-black text-[var(--deshazo-text)]">Crane Cost Ranking</h2>
                     <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.64)]">
-                      {visibleCranes.length} crane{visibleCranes.length === 1 ? '' : 's'} shown · highest cost first
+                      {visibleCranes.length} crane{visibleCranes.length === 1 ? '' : 's'} shown · highest allocated invoice cost first
                     </p>
                   </div>
                   <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">

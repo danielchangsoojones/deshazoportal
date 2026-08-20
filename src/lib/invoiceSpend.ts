@@ -18,6 +18,8 @@ export type InvoiceSpendAllocation = {
   invoiceDate: string
   jobNumber: string
   workOrderId: number | null
+  workOrderType: string
+  spendKind: 'inspection' | 'repair'
   craneRowId: string | null
   dNumber: string
   craneDescription: string
@@ -121,6 +123,7 @@ type InvoiceSpendAllocationRow = {
   invoice_date: string | null
   job_number: string | null
   work_order_id: number | null
+  job_type?: string | null
   crane_row_id: string | null
   d_number: string | null
   crane_description: string | null
@@ -134,6 +137,12 @@ type InvoiceSpendAllocationRow = {
   source_document_bucket: string | null
   source_document_file_path: string | null
   source_document_name: string | null
+}
+
+type AllocationWorkOrderRow = {
+  work_order_id: number
+  job_no: string | null
+  job_type: string | null
 }
 
 const pageSize = 1000
@@ -204,7 +213,24 @@ function getAllocationLineKey(allocation: InvoiceSpendAllocation) {
   ].join(':')
 }
 
+function getSpendKind(jobType: string): InvoiceSpendAllocation['spendKind'] {
+  const normalizedType = jobType.trim().toLowerCase()
+  const isRepairType =
+    normalizedType.includes('repair') ||
+    normalizedType.includes('service call') ||
+    normalizedType.includes('retail parts') ||
+    normalizedType.includes('installation') ||
+    normalizedType.includes('modification') ||
+    normalizedType.includes('emergency') ||
+    normalizedType.includes('labor') ||
+    normalizedType.includes('freight')
+
+  if (isRepairType) return 'repair'
+  return normalizedType.includes('inspection') ? 'inspection' : 'repair'
+}
+
 function mapAllocation(row: InvoiceSpendAllocationRow): InvoiceSpendAllocation {
+  const workOrderType = row.job_type ?? ''
   return {
     id: row.id,
     invoiceId: row.invoice_id,
@@ -213,6 +239,8 @@ function mapAllocation(row: InvoiceSpendAllocationRow): InvoiceSpendAllocation {
     invoiceDate: row.invoice_date ?? '',
     jobNumber: row.job_number ?? '',
     workOrderId: row.work_order_id,
+    workOrderType,
+    spendKind: getSpendKind(workOrderType),
     craneRowId: row.crane_row_id,
     dNumber: (row.d_number ?? '').trim().toUpperCase(),
     craneDescription: row.crane_description ?? '',
@@ -227,6 +255,46 @@ function mapAllocation(row: InvoiceSpendAllocationRow): InvoiceSpendAllocation {
     sourceDocumentFilePath: row.source_document_file_path ?? '',
     sourceDocumentName: row.source_document_name ?? '',
   }
+}
+
+async function loadAllocationWorkOrderTypes(customer: string, rows: InvoiceSpendAllocationRow[]) {
+  if (!supabase || rows.length === 0) return new Map<string, string>()
+
+  const workOrderIds = Array.from(new Set(
+    rows.map((row) => row.work_order_id).filter((value): value is number => typeof value === 'number'),
+  ))
+  const jobNumbers = Array.from(new Set(rows.map((row) => row.job_number?.trim()).filter((value): value is string => Boolean(value))))
+  const workOrders: AllocationWorkOrderRow[] = []
+
+  if (workOrderIds.length > 0) {
+    const { data, error } = await supabase
+      .from('deshazo_external_work_orders')
+      .select('work_order_id, job_no, job_type')
+      .eq('customer', customer)
+      .in('work_order_id', workOrderIds)
+
+    if (!error) workOrders.push(...((data ?? []) as AllocationWorkOrderRow[]))
+  }
+
+  for (let index = 0; index < jobNumbers.length; index += 200) {
+    const chunk = jobNumbers.slice(index, index + 200)
+    const { data, error } = await supabase
+      .from('deshazo_external_work_orders')
+      .select('work_order_id, job_no, job_type')
+      .eq('customer', customer)
+      .in('job_no', chunk)
+
+    if (!error) workOrders.push(...((data ?? []) as AllocationWorkOrderRow[]))
+  }
+
+  const types = new Map<string, string>()
+  workOrders.forEach((workOrder) => {
+    const jobType = workOrder.job_type?.trim() ?? ''
+    if (!jobType) return
+    types.set(`id:${workOrder.work_order_id}`, jobType)
+    if (workOrder.job_no) types.set(`job:${workOrder.job_no.trim()}`, jobType)
+  })
+  return types
 }
 
 function mapInvoiceRun(row: InvoiceSpendInvoiceRow): InvoiceSpendInvoiceRun {
@@ -350,11 +418,12 @@ export async function syncInvoiceSpendRuns(invoiceIds: string[]): Promise<Invoic
   return Array.isArray(results) ? results as InvoiceSpendSyncResult[] : []
 }
 
-async function fetchInvoiceSpendAllocations(customer?: string) {
+async function fetchInvoiceSpendAllocations(customer?: string, options: { includeWorkOrderTypes?: boolean } = {}) {
   if (!supabase) {
     throw new Error('Supabase is not configured.')
   }
 
+  const includeWorkOrderTypes = options.includeWorkOrderTypes ?? true
   const selectedCustomer = resolveSelectedCustomer(customer)
   const rows: InvoiceSpendAllocationRow[] = []
 
@@ -378,9 +447,15 @@ async function fetchInvoiceSpendAllocations(customer?: string) {
     if (pageRows.length < pageSize) break
   }
 
+  const workOrderTypes = includeWorkOrderTypes ? await loadAllocationWorkOrderTypes(selectedCustomer, rows) : new Map<string, string>()
   const uniqueAllocations = new Map<string, InvoiceSpendAllocation>()
 
-  rows.map(mapAllocation).forEach((allocation) => {
+  rows.map((row) => mapAllocation({
+    ...row,
+    job_type: (row.work_order_id ? workOrderTypes.get(`id:${row.work_order_id}`) : undefined) ||
+      (row.job_number ? workOrderTypes.get(`job:${row.job_number.trim()}`) : undefined) ||
+      null,
+  })).forEach((allocation) => {
     const allocationKey = getAllocationLineKey(allocation)
     const current = uniqueAllocations.get(allocationKey)
     if (!current || (!current.sourceDocumentFilePath && allocation.sourceDocumentFilePath)) {
@@ -429,7 +504,7 @@ function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
 }
 
 export async function getInvoiceSpendLocationSummaries(customer?: string): Promise<InvoiceSpendLocationSummary[]> {
-  const allocations = await fetchInvoiceSpendAllocations(customer)
+  const allocations = await fetchInvoiceSpendAllocations(customer, { includeWorkOrderTypes: false })
   const locations = new Map<string, InvoiceSpendAllocation[]>()
 
   allocations.forEach((allocation) => {

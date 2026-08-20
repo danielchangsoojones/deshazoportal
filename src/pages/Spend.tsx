@@ -7,9 +7,10 @@ import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   clearSpendAnalyticsCache,
-  getLocationComparisonAnalytics,
-  getSpendAnalytics,
+  getSpendDashboardAnalytics,
   type LocationComparisonItem,
+  type MonthlySpend,
+  type SpendChartItem,
   type SpendAnalytics,
 } from '../lib/spendAnalytics'
 import { uploadJpaFinanceFiles } from '../lib/jpaFinanceImport'
@@ -130,13 +131,33 @@ const emptyAnalytics: SpendAnalytics = {
     total_service_spend: 0,
     total_spend: 0,
     total_invoices: 0,
+    inspection_spend: 0,
+    inspection_invoice_count: 0,
+    repair_spend: 0,
+    repair_invoice_count: 0,
+    repair_parts_spend: 0,
+    repair_service_spend: 0,
+    repair_freight_spend: 0,
+    repair_labor_spend: 0,
     topline_start_str: 'No finance data imported',
   },
   serviceTypeSpend: [
     { label: 'Parts', spend: 0 },
     { label: 'Service', spend: 0 },
   ],
+  workTypeSpend: [
+    { label: 'Repairs', spend: 0 },
+    { label: 'Inspections', spend: 0 },
+  ],
+  repairCategorySpend: [
+    { label: 'Parts', spend: 0 },
+    { label: 'Service', spend: 0 },
+    { label: 'Freight', spend: 0 },
+    { label: 'Labor', spend: 0 },
+  ],
   monthlySpend: [],
+  monthlyInspectionSpend: [],
+  monthlyRepairSpend: [],
   monthlyPartsSpend: [],
   monthlyServiceSpend: [],
   averageInvoiceSpend: [],
@@ -150,6 +171,134 @@ const getBarHeight = (value: number, maxValue: number, plotHeight?: number) => {
   if (value <= 0 || maxValue <= 0) return 0
   const ratio = value / maxValue
   return plotHeight ? ratio * plotHeight : ratio * 100
+}
+
+function SpendPrintBarList({
+  items,
+  labelFormatter = (label: string) => label,
+  color = 'var(--deshazo-blue)',
+}: {
+  items: SpendChartItem[] | MonthlySpend[]
+  labelFormatter?: (label: string) => string
+  color?: string
+}) {
+  const maxSpend = items.reduce((max, item) => Math.max(max, item.spend), 0)
+
+  return (
+    <div className="spend-print-chart-list hidden">
+      {items.map((item) => {
+        const width = maxSpend > 0 ? Math.max(1, (item.spend / maxSpend) * 100) : 0
+        const label = 'month' in item ? item.month : item.label
+
+        return (
+          <div key={label} className="spend-print-bar-row">
+            <span className="spend-print-bar-label">{labelFormatter(label)}</span>
+            <span className="spend-print-bar-track">
+              <span className="spend-print-bar-fill" style={{ width: `${width}%`, backgroundColor: color }} />
+            </span>
+            <span className="spend-print-bar-value">{formatCurrency(item.spend)}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function SpendPrintDualBarList({
+  repairItems,
+  inspectionItems,
+}: {
+  repairItems: MonthlySpend[]
+  inspectionItems: MonthlySpend[]
+}) {
+  const maxSpend = [...repairItems, ...inspectionItems].reduce((max, item) => Math.max(max, item.spend), 0)
+
+  return (
+    <div className="spend-print-chart-list hidden">
+      {repairItems.map((repairItem, index) => {
+        const inspectionItem = inspectionItems[index] ?? { month: repairItem.month, spend: 0 }
+        const repairWidth = maxSpend > 0 ? Math.max(1, (repairItem.spend / maxSpend) * 100) : 0
+        const inspectionWidth = maxSpend > 0 ? Math.max(1, (inspectionItem.spend / maxSpend) * 100) : 0
+
+        return (
+          <div key={repairItem.month} className="spend-print-dual-row">
+            <span className="spend-print-bar-label">{formatMonthLabel(repairItem.month)}</span>
+            <span className="spend-print-dual-bars">
+              <span className="spend-print-dual-track">
+                <span className="spend-print-bar-fill" style={{ width: `${repairWidth}%`, backgroundColor: '#4a9960' }} />
+              </span>
+              <span className="spend-print-dual-track">
+                <span className="spend-print-bar-fill" style={{ width: `${inspectionWidth}%`, backgroundColor: '#f2b43f' }} />
+              </span>
+            </span>
+            <span className="spend-print-bar-value">{formatCurrency(repairItem.spend)} / {formatCurrency(inspectionItem.spend)}</span>
+          </div>
+        )
+      })}
+      <div className="spend-print-chart-legend">
+        <span><i style={{ backgroundColor: '#4a9960' }} /> Repairs</span>
+        <span><i style={{ backgroundColor: '#f2b43f' }} /> Inspections</span>
+      </div>
+    </div>
+  )
+}
+
+function SpendPrintLocationPie({ items }: { items: (SpendChartItem & { value: number; color: string })[] }) {
+  if (items.length === 0) {
+    return (
+      <div className="spend-print-location-pie hidden">
+        <div className="spend-print-location-empty">No mapped locations</div>
+      </div>
+    )
+  }
+
+  const segments = items.map((item, index) => {
+    const previousValue = items.slice(0, index).reduce((sum, segment) => sum + segment.value, 0)
+    return {
+      ...item,
+      offset: -previousValue,
+      dash: Math.max(item.value, 0.25),
+    }
+  })
+
+  return (
+    <div className="spend-print-location-pie hidden">
+      <div className="spend-print-location-title">Factory Spend</div>
+      <div className="spend-print-location-donut">
+        <svg viewBox="0 0 120 120" role="img" aria-label="Spend by factory pie chart">
+          <circle cx="60" cy="60" r="45" fill="none" stroke="#eef3ff" strokeWidth="22" />
+          {segments.map((segment) => (
+            <circle
+              key={segment.label}
+              cx="60"
+              cy="60"
+              r="45"
+              fill="none"
+              pathLength="100"
+              stroke={segment.color}
+              strokeDasharray={`${segment.dash} ${100 - segment.dash}`}
+              strokeDashoffset={segment.offset}
+              strokeWidth="22"
+              transform="rotate(-90 60 60)"
+            />
+          ))}
+          <circle cx="60" cy="60" r="30" fill="#ffffff" />
+          <text x="60" y="56" textAnchor="middle" className="spend-print-location-donut-label">Factory</text>
+          <text x="60" y="70" textAnchor="middle" className="spend-print-location-donut-label">Spend</text>
+        </svg>
+      </div>
+      <div className="spend-print-location-legend">
+        {items.map((item) => (
+          <div key={item.label} className="spend-print-location-legend-row">
+            <span className="spend-print-location-swatch" style={{ backgroundColor: item.color }} />
+            <span className="spend-print-location-name">{item.label}</span>
+            <span className="spend-print-location-percent">{item.value}%</span>
+            <span className="spend-print-location-value">{formatCurrency(item.spend)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 type SpendState = {
@@ -224,11 +373,8 @@ export default function Spend() {
   useEffect(() => {
     let isMounted = true
 
-    Promise.all([
-      getSpendAnalytics(selectedCustomer, reportDateRange),
-      getLocationComparisonAnalytics(selectedCustomer, reportDateRange),
-    ])
-      .then(([nextAnalytics, nextLocationComparison]) => {
+    getSpendDashboardAnalytics(selectedCustomer, reportDateRange)
+      .then(({ spendAnalytics: nextAnalytics, locationComparison: nextLocationComparison }) => {
         if (!isMounted) return
         setSpendState({
           customer: selectedCustomer,
@@ -349,12 +495,6 @@ export default function Spend() {
     value: locationSpendTotal > 0 ? Number(((item.spend / locationSpendTotal) * 100).toFixed(2)) : 0,
     color: locationColors[index] ?? `hsl(${(index * 31) % 360} 62% 56%)`,
   }))
-  const branchColors = buildUniqueChartColors(analytics.branchSpend.length)
-  const branchSpendData = analytics.branchSpend.map((item, index) => ({
-    ...item,
-    color: branchColors[index] ?? `hsl(${(index * 31) % 360} 62% 56%)`,
-  }))
-  const maxBranchSpend = branchSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
   const invoiceSizeTotal = analytics.invoiceSizeSpend.reduce((sum, item) => sum + item.spend, 0)
   const invoiceSizeColors = buildBlueShades(analytics.invoiceSizeSpend.length)
   const invoiceSizeData = analytics.invoiceSizeSpend.map((item, index) => ({
@@ -363,14 +503,18 @@ export default function Spend() {
     color: invoiceSizeColors[index] ?? 'hsl(221 68% 52%)',
   }))
   const toplineSpend = analytics.topline
+  const repairCategoryData = analytics.repairCategorySpend.filter((item) => item.spend > 0 || ['Freight', 'Labor'].includes(item.label))
   const monthlyPartsSpendData = analytics.monthlyPartsSpend
   const monthlyServiceSpendData = analytics.monthlyServiceSpend
+  const monthlyRepairSpendData = analytics.monthlyRepairSpend
+  const monthlyInspectionSpendData = analytics.monthlyInspectionSpend
   const avgMoMData = analytics.averageInvoiceSpend
   const locationComparisonTotal = locationComparison.reduce((sum, item) => sum + item.total_invoice_cost, 0)
   const topLocationComparison = locationComparison[0] ?? null
 
   const maxMonthlyPartsSpend = monthlyPartsSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
   const maxMonthlyServiceSpend = monthlyServiceSpendData.reduce((max, item) => Math.max(max, item.spend), 0)
+  const maxMonthlyWorkSpend = [...monthlyRepairSpendData, ...monthlyInspectionSpendData].reduce((max, item) => Math.max(max, item.spend), 0)
   const maxAvgMoM = avgMoMData.reduce((max, item) => Math.max(max, item.spend), 0)
   const plotHeight = 184
   const hasFinanceData = toplineSpend.total_invoices > 0
@@ -412,9 +556,9 @@ export default function Spend() {
 
   const handlePrintReport = () => {
     const previousTitle = document.title
-    let cleanupTimer: number | undefined
+    let cleanupTimer = 0
     const cleanupPrintMode = () => {
-      if (cleanupTimer) window.clearTimeout(cleanupTimer)
+      if (cleanupTimer > 0) window.clearTimeout(cleanupTimer)
       document.body.classList.remove('spend-report-printing')
       document.title = previousTitle
       window.removeEventListener('afterprint', cleanupPrintMode)
@@ -683,8 +827,8 @@ export default function Spend() {
               {[
                 ['Total Invoices', toplineSpend.total_invoices.toLocaleString()],
                 ['Total Spend', formatCurrency(toplineSpend.total_spend)],
-                ['Parts Spend', formatCurrency(toplineSpend.total_parts_spend)],
-                ['Service Spend', formatCurrency(toplineSpend.total_service_spend)],
+                ['Repair Spend', formatCurrency(toplineSpend.repair_spend)],
+                ['Inspection Spend', formatCurrency(toplineSpend.inspection_spend)],
               ].map(([label, value]) => (
                 <article key={label} className="rounded-xl px-2 py-1">
                   <p className="text-[15px] font-bold text-[var(--deshazo-text)]">{label}</p>
@@ -699,9 +843,85 @@ export default function Spend() {
             </section>
 
             <section className="spend-report-chart-grid grid gap-4 xl:grid-cols-2">
+              <article className="spend-chart-card spend-chart-card-work-type rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)] xl:col-span-2">
+                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Repair vs Inspection Spend</h2>
+                <div className="spend-screen-chart-body mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                  <div className="scrollbar-hidden overflow-x-auto">
+                    <div className="min-w-[720px]">
+                      <div className="grid h-56 grid-rows-[1fr_auto]">
+                        <div className="relative">
+                          <div className="absolute inset-0 flex flex-col justify-between">
+                            {Array.from({ length: 5 }).map((_, index) => {
+                              const tickValue = Math.round((maxMonthlyWorkSpend / 4) * (4 - index))
+                              return (
+                                <div key={index} className="flex items-center gap-3">
+                                  <span className="w-12 text-xs text-[rgba(21,24,33,0.45)]">
+                                    {formatCurrency(tickValue)}
+                                  </span>
+                                  <div className="h-px flex-1 bg-[var(--deshazo-border)]" />
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div className="absolute inset-x-14 bottom-0 top-0 flex items-end justify-between gap-3">
+                            {monthlyRepairSpendData.map((point, index) => {
+                              const inspectionPoint = monthlyInspectionSpendData[index]
+                              const repairHeight = getBarHeight(point.spend, maxMonthlyWorkSpend, plotHeight)
+                              const inspectionHeight = getBarHeight(inspectionPoint?.spend ?? 0, maxMonthlyWorkSpend, plotHeight)
+                              return (
+                                <div key={point.month} className="flex h-full min-w-[54px] flex-1 items-end justify-center gap-1">
+                                  <div className="w-full max-w-[24px] rounded-t-md bg-[#4a9960]" style={{ height: `${repairHeight}px` }} />
+                                  <div className="w-full max-w-[24px] rounded-t-md bg-[#f2b43f]" style={{ height: `${inspectionHeight}px` }} />
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                        <div className="mt-2 ml-14 flex justify-between gap-3">
+                          {monthlyRepairSpendData.map((point) => (
+                            <div key={point.month} className="flex min-w-[54px] flex-1 justify-center">
+                              <span className="text-center text-[11px] text-[rgba(21,24,33,0.55)]">
+                                {formatMonthLabel(point.month)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-5 text-xs font-bold text-[rgba(21,24,33,0.58)]">
+                    <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-sm bg-[#4a9960]" /> Repairs</span>
+                    <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-sm bg-[#f2b43f]" /> Inspections</span>
+                  </div>
+                </div>
+                <SpendPrintDualBarList repairItems={monthlyRepairSpendData} inspectionItems={monthlyInspectionSpendData} />
+              </article>
+
+              <article className="spend-chart-card spend-chart-card-repair-category rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Repair Spend Categories</h2>
+                <div className="spend-screen-chart-body mt-5 space-y-4 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                  {repairCategoryData.map((item) => {
+                    const width = toplineSpend.repair_spend > 0 ? Math.min(100, (item.spend / toplineSpend.repair_spend) * 100) : 0
+                    return (
+                      <div key={item.label} className="grid grid-cols-[86px_minmax(0,1fr)_96px] items-center gap-3">
+                        <span className="text-sm font-black text-[rgba(21,24,33,0.68)]">{item.label}</span>
+                        <div className="h-6 overflow-hidden rounded-sm bg-white shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
+                          <div className="h-full rounded-sm bg-[var(--deshazo-blue)]" style={{ width: `${width}%` }} />
+                        </div>
+                        <span className="text-right text-sm font-black text-[var(--deshazo-text)]">{formatCurrency(item.spend)}</span>
+                      </div>
+                    )
+                  })}
+                  <div className="rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-xs font-semibold text-[rgba(21,24,33,0.55)]">
+                    Freight and labor are shown when the finance import provides those columns.
+                  </div>
+                </div>
+                <SpendPrintBarList items={repairCategoryData} color="var(--deshazo-blue)" />
+              </article>
+
               <article className="spend-chart-card spend-chart-card-service rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend By Service</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Service Spend</h2>
+                <div className="spend-screen-chart-body mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
@@ -743,11 +963,12 @@ export default function Spend() {
                       </div>
                   </div>
                 </div>
+                <SpendPrintBarList items={monthlyServiceSpendData} labelFormatter={formatMonthLabel} color="var(--deshazo-blue)" />
               </article>
 
               <article className="spend-chart-card spend-chart-card-parts rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Spend By Parts</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Month Over Month Parts Spend</h2>
+                <div className="spend-screen-chart-body mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
@@ -789,11 +1010,12 @@ export default function Spend() {
                       </div>
                   </div>
                 </div>
+                <SpendPrintBarList items={monthlyPartsSpendData} labelFormatter={formatMonthLabel} color="#efb43f" />
               </article>
 
               <article className="spend-chart-card spend-chart-card-average rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Avg. Invoice Amount</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
+                <div className="spend-screen-chart-body mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
                   <div className="scrollbar-hidden overflow-x-auto">
                       <div className="min-w-[720px]">
                         <div className="grid h-56 grid-rows-[1fr_auto]">
@@ -835,10 +1057,11 @@ export default function Spend() {
                       </div>
                   </div>
                 </div>
+                <SpendPrintBarList items={avgMoMData} labelFormatter={formatMonthLabel} color="#3b9a73" />
               </article>
 
               <article className="spend-chart-card spend-chart-card-location relative overflow-hidden rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-                <div className={locationMappingIsPending ? 'scale-[1.01] opacity-45 blur-[8px] saturate-50' : ''}>
+                <div className={`spend-screen-chart-body ${locationMappingIsPending ? 'scale-[1.01] opacity-45 blur-[8px] saturate-50' : ''}`}>
                   <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By Location</h2>
                   <div className="mt-6 flex flex-col items-center justify-center gap-5">
                     {locationSpendData.length > 0 ? (
@@ -867,6 +1090,7 @@ export default function Spend() {
                     )}
                   </div>
                 </div>
+                <SpendPrintLocationPie items={locationSpendData} />
                 {locationMappingIsPending ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-white/72 px-6 text-center backdrop-blur-md">
                     <div className="max-w-[360px] rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-3 text-sm font-black text-[var(--deshazo-text)] shadow-[0_22px_54px_-28px_rgba(47,86,166,0.42)]">
@@ -876,34 +1100,9 @@ export default function Spend() {
                 ) : null}
               </article>
 
-              <article className="spend-chart-card spend-chart-card-branch rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-                <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Spend By DeShazo Branch</h2>
-                <div className="mt-5 rounded-[14px] bg-[linear-gradient(180deg,rgba(238,243,255,0.5)_0%,rgba(255,255,255,1)_100%)] p-4">
-                  <div className="space-y-3">
-                    {branchSpendData.slice(0, 8).map((item) => {
-                      const width = maxBranchSpend > 0 ? (item.spend / maxBranchSpend) * 100 : 0
-                      return (
-                        <div key={item.label} className="grid grid-cols-[92px_minmax(0,1fr)_88px] items-center gap-3">
-                          <span className="truncate text-xs font-bold text-[rgba(21,24,33,0.58)]">{item.label}</span>
-                          <div className="h-5 overflow-hidden rounded-sm bg-white shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
-                            <div className="h-full rounded-sm" style={{ width: `${width}%`, backgroundColor: item.color }} />
-                          </div>
-                          <span className="text-right text-xs font-bold text-[rgba(21,24,33,0.66)]">{formatCurrency(item.spend)}</span>
-                        </div>
-                      )
-                    })}
-                    {branchSpendData.length === 0 ? (
-                      <div className="flex h-44 items-center justify-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                        No branch spend
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </article>
-
               <article className="spend-chart-card spend-chart-card-invoice rounded-[16px] border-[6px] border-[var(--deshazo-surface-2)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
                 <h2 className="text-[22px] font-bold tracking-[-0.04em] text-[var(--deshazo-text)]">Invoice Size Mix</h2>
-                <div className="mt-6 flex flex-col items-center justify-center gap-5">
+                <div className="spend-screen-chart-body mt-6 flex flex-col items-center justify-center gap-5">
                   <div className="relative h-44 w-44 rounded-full bg-[var(--deshazo-surface-2)]" style={invoiceSizeTotal > 0 ? { background: buildConicGradient(invoiceSizeData) } : undefined}>
                     <div className="absolute left-1/2 top-1/2 flex h-24 w-24 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-center text-[11px] font-semibold text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.08)]">
                       Invoice mix
@@ -920,6 +1119,7 @@ export default function Spend() {
                     ))}
                   </div>
                 </div>
+                <SpendPrintBarList items={invoiceSizeData} color="#efb43f" />
               </article>
             </section>
 
@@ -955,17 +1155,35 @@ export default function Spend() {
                 <table className="min-w-[980px] w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="bg-[var(--deshazo-blue)] text-white">
-                      {['Location', 'Jobs', 'Finance Invoices', 'Uploaded PDFs', 'Total Cost', 'Avg. Invoice', 'Service', 'Parts', 'Mapped', 'Mix'].map((heading) => (
+                      {[
+                        ['Location'],
+                        ['Jobs'],
+                        ['Invoices'],
+                        ['Repair', 'Cost'],
+                        ['Inspection', 'Cost'],
+                        ['Avg.', 'Invoice'],
+                        ['Repair', 'Service'],
+                        ['Repair', 'Parts'],
+                        ['Uploaded', 'PDFs'],
+                        ['Mix'],
+                      ].map((headingParts) => {
+                        const heading = headingParts.join(' ')
+                        return (
                         <th key={heading} className="px-3 py-2 text-xs font-black uppercase tracking-[0.04em]">
-                          {heading}
+                          {headingParts.map((part) => (
+                            <span key={part} className="spend-table-heading-part">
+                              {part}
+                            </span>
+                          ))}
                         </th>
-                      ))}
+                        )
+                      })}
                     </tr>
                   </thead>
                   <tbody>
                     {locationComparison.map((item) => {
-                      const servicePercent = item.total_invoice_cost > 0
-                        ? Math.round((item.total_service_cost / item.total_invoice_cost) * 100)
+                      const servicePercent = item.total_repair_cost > 0
+                        ? Math.round((item.repair_service_cost / item.total_repair_cost) * 100)
                         : 0
                       const partsPercent = Math.max(0, 100 - servicePercent)
                       const totalPercent = locationComparisonTotal > 0
@@ -982,18 +1200,18 @@ export default function Spend() {
                           </td>
                           <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.total_jobs.toLocaleString()}</td>
                           <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.finance_invoice_count.toLocaleString()}</td>
-                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.uploaded_invoice_count.toLocaleString()}</td>
-                          <td className="px-3 py-3 align-top font-black text-[var(--deshazo-text)]">{formatCurrency(item.total_invoice_cost)}</td>
+                          <td className="px-3 py-3 align-top font-black text-[var(--deshazo-text)]">{formatCurrency(item.total_repair_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.total_inspection_cost)}</td>
                           <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.average_invoice_cost)}</td>
-                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.total_service_cost)}</td>
-                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.total_parts_cost)}</td>
-                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.mapped_invoice_count.toLocaleString()}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.repair_service_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{formatCurrency(item.repair_parts_cost)}</td>
+                          <td className="px-3 py-3 align-top font-bold text-[rgba(21,24,33,0.72)]">{item.uploaded_invoice_count.toLocaleString()}</td>
                           <td className="px-3 py-3 align-top">
                             <div className="h-3 w-32 overflow-hidden rounded-full bg-[#efb634]">
                               <div className="h-full bg-[var(--deshazo-blue-soft)]" style={{ width: `${servicePercent}%` }} />
                             </div>
                             <p className="mt-1 text-[11px] font-semibold text-[rgba(21,24,33,0.48)]">
-                              {servicePercent}% service / {partsPercent}% parts
+                              {servicePercent}% service / {partsPercent}% parts repairs
                             </p>
                           </td>
                         </tr>
@@ -1001,7 +1219,7 @@ export default function Spend() {
                     })}
                     {locationComparison.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="px-3 py-8 text-center text-sm font-semibold text-[rgba(21,24,33,0.48)]">
+                        <td colSpan={10} className="px-3 py-8 text-center text-sm font-semibold text-[rgba(21,24,33,0.48)]">
                           No location comparison rows for this date range.
                         </td>
                       </tr>
