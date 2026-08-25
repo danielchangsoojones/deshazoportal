@@ -8,9 +8,23 @@ type PortalMenuItem = {
   href?: string
 }
 
-const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Document Reports', 'Customer Quotes'])
+const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Calendar', 'Document Reports', 'Customer Quotes'])
 const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
 const financeReleasedLabels = new Set(['Spend', 'Location Comparison'])
+const calendarMenuItem = { label: 'Calendar', href: '/calendar' }
+
+function withCalendarMenuItem<T extends PortalMenuItem>(menuItems: T[]) {
+  if (menuItems.some((item) => item.label === calendarMenuItem.label)) return menuItems
+
+  const locationComparisonIndex = menuItems.findIndex((item) => item.label === 'Location Comparison')
+  if (locationComparisonIndex === -1) return menuItems
+
+  return [
+    ...menuItems.slice(0, locationComparisonIndex + 1),
+    calendarMenuItem as T,
+    ...menuItems.slice(locationComparisonIndex + 1),
+  ]
+}
 
 export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], activeKey: string) {
   const [userTag, setUserTag] = useState<UserTag | null>(null)
@@ -43,7 +57,7 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
 
   return useMemo(
     () =>
-      menuItems
+      withCalendarMenuItem(menuItems)
         .filter((item) => {
           const developerOnly =
             developerOnlyLabels.has(item.label) && !(isFinanceReleased && financeReleasedLabels.has(item.label))

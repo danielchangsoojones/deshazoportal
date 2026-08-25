@@ -43,6 +43,13 @@ const portalCards = [
     oldDb: true,
   },
   {
+    eyebrow: 'Scheduling',
+    title: 'Calendar',
+    description: 'Plan service jobs by technician with a drag-and-drop demo calendar and quick job editor.',
+    href: '/calendar',
+    developerOnly: true,
+  },
+  {
     eyebrow: 'Documents',
     title: 'Document Reports',
     description: 'Download maintenance reports, summaries, and supporting PDFs from one place.',

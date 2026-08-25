@@ -49,7 +49,11 @@ export type InvoiceSpendCraneSummary = {
   craneLocation: string
   locationLabel: string
   totalSpend: number
+  repairSpend: number
+  inspectionSpend: number
   invoiceCount: number
+  repairInvoiceCount: number
+  inspectionInvoiceCount: number
   latestInvoiceDate: string
   allocations: InvoiceSpendAllocation[]
 }
@@ -62,11 +66,17 @@ export type InvoiceSpendMonthlyPoint = {
 export type CraneInvoiceSpendAnalytics = {
   dNumber: string
   totalSpend: number
+  repairSpend: number
+  inspectionSpend: number
   associatedInvoiceSpend: number
   invoiceCount: number
+  repairInvoiceCount: number
+  inspectionInvoiceCount: number
   averageInvoiceSpend: number
   latestInvoiceDate: string
   monthlySpend: InvoiceSpendMonthlyPoint[]
+  monthlyRepairSpend: InvoiceSpendMonthlyPoint[]
+  monthlyInspectionSpend: InvoiceSpendMonthlyPoint[]
   invoices: InvoiceSpendAllocation[]
   recentInvoices: InvoiceSpendAllocation[]
 }
@@ -477,12 +487,21 @@ function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
       craneLocation: allocation.craneLocation,
       locationLabel: allocation.locationLabel,
       totalSpend: 0,
+      repairSpend: 0,
+      inspectionSpend: 0,
       invoiceCount: 0,
+      repairInvoiceCount: 0,
+      inspectionInvoiceCount: 0,
       latestInvoiceDate: '',
       allocations: [],
     }
 
     current.totalSpend += allocation.allocatedAmount
+    if (allocation.spendKind === 'inspection') {
+      current.inspectionSpend += allocation.allocatedAmount
+    } else {
+      current.repairSpend += allocation.allocatedAmount
+    }
     current.allocations.push(allocation)
     if (!current.craneDescription && allocation.craneDescription) current.craneDescription = allocation.craneDescription
     if (!current.craneLocation && allocation.craneLocation) current.craneLocation = allocation.craneLocation
@@ -497,10 +516,22 @@ function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
     .map((crane) => ({
       ...crane,
       totalSpend: Math.round(crane.totalSpend),
+      repairSpend: Math.round(crane.repairSpend),
+      inspectionSpend: Math.round(crane.inspectionSpend),
       invoiceCount: new Set(crane.allocations.map(getAllocationInvoiceKey)).size,
+      repairInvoiceCount: new Set(
+        crane.allocations.filter((allocation) => allocation.spendKind === 'repair').map(getAllocationInvoiceKey),
+      ).size,
+      inspectionInvoiceCount: new Set(
+        crane.allocations.filter((allocation) => allocation.spendKind === 'inspection').map(getAllocationInvoiceKey),
+      ).size,
       allocations: [...crane.allocations].sort((left, right) => right.invoiceDate.localeCompare(left.invoiceDate)),
     }))
-    .sort((left, right) => right.totalSpend - left.totalSpend || left.dNumber.localeCompare(right.dNumber))
+    .sort((left, right) =>
+      right.repairSpend - left.repairSpend ||
+      right.totalSpend - left.totalSpend ||
+      left.dNumber.localeCompare(right.dNumber),
+    )
 }
 
 export async function getInvoiceSpendLocationSummaries(customer?: string): Promise<InvoiceSpendLocationSummary[]> {
@@ -550,23 +581,49 @@ export async function getCraneInvoiceSpendAnalytics(
     .sort((left, right) => right.invoiceDate.localeCompare(left.invoiceDate))
   const invoiceKeys = new Set(allocations.map(getAllocationInvoiceKey))
   const totalSpend = allocations.reduce((sum, allocation) => sum + allocation.allocatedAmount, 0)
+  const repairSpend = allocations
+    .filter((allocation) => allocation.spendKind === 'repair')
+    .reduce((sum, allocation) => sum + allocation.allocatedAmount, 0)
+  const inspectionSpend = allocations
+    .filter((allocation) => allocation.spendKind === 'inspection')
+    .reduce((sum, allocation) => sum + allocation.allocatedAmount, 0)
+  const repairInvoiceKeys = new Set(
+    allocations.filter((allocation) => allocation.spendKind === 'repair').map(getAllocationInvoiceKey),
+  )
+  const inspectionInvoiceKeys = new Set(
+    allocations.filter((allocation) => allocation.spendKind === 'inspection').map(getAllocationInvoiceKey),
+  )
   const invoiceTotals = new Map<string, number>()
   const monthTotals = new Map<string, number>()
+  const monthRepairTotals = new Map<string, number>()
+  const monthInspectionTotals = new Map<string, number>()
 
   allocations.forEach((allocation) => {
     invoiceTotals.set(getAllocationInvoiceKey(allocation), allocation.invoiceTotal)
     const key = monthKey(allocation.invoiceDate)
     monthTotals.set(key, (monthTotals.get(key) ?? 0) + allocation.allocatedAmount)
+    const kindMonthTotals = allocation.spendKind === 'inspection' ? monthInspectionTotals : monthRepairTotals
+    kindMonthTotals.set(key, (kindMonthTotals.get(key) ?? 0) + allocation.allocatedAmount)
   })
 
   return {
     dNumber: normalizedDNumber,
     totalSpend: Math.round(totalSpend),
+    repairSpend: Math.round(repairSpend),
+    inspectionSpend: Math.round(inspectionSpend),
     associatedInvoiceSpend: Math.round(Array.from(invoiceTotals.values()).reduce((sum, total) => sum + total, 0)),
     invoiceCount: invoiceKeys.size,
+    repairInvoiceCount: repairInvoiceKeys.size,
+    inspectionInvoiceCount: inspectionInvoiceKeys.size,
     averageInvoiceSpend: invoiceKeys.size > 0 ? Math.round(totalSpend / invoiceKeys.size) : 0,
     latestInvoiceDate: allocations[0]?.invoiceDate ?? '',
     monthlySpend: Array.from(monthTotals.entries())
+      .map(([month, spend]) => ({ month, spend: Math.round(spend) }))
+      .sort((left, right) => left.month.localeCompare(right.month)),
+    monthlyRepairSpend: Array.from(monthRepairTotals.entries())
+      .map(([month, spend]) => ({ month, spend: Math.round(spend) }))
+      .sort((left, right) => left.month.localeCompare(right.month)),
+    monthlyInspectionSpend: Array.from(monthInspectionTotals.entries())
       .map(([month, spend]) => ({ month, spend: Math.round(spend) }))
       .sort((left, right) => left.month.localeCompare(right.month)),
     invoices: allocations,

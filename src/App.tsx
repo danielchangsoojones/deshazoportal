@@ -11,6 +11,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ContactUs = lazy(() => import('./pages/ContactUs'))
 const AddNewUser = lazy(() => import('./pages/AddNewUser'))
 const LocationComparison = lazy(() => import('./pages/LocationComparison'))
+const Calendar = lazy(() => import('./pages/Calendar'))
 const LocationSpend = lazy(() => import('./pages/LocationSpend'))
 const Spend = lazy(() => import('./pages/Spend'))
 const DocumentsReports = lazy(() => import('./pages/DocumentsReports'))
@@ -128,6 +129,8 @@ function App() {
       <Route path="contact-us" element={<ContactUs />} />
       <Route path="add-user" element={<AddNewUser />} />
       <Route path="location-comparison" element={<LocationComparison />} />
+      <Route path="calendar" element={<Calendar />} />
+      <Route path="calender" element={<Calendar />} />
       <Route path="location-spend" element={<LocationSpend />} />
       <Route path="spend" element={<Spend />} />
       <Route path="documents-reports" element={<DocumentsReports />} />
@@ -151,6 +154,8 @@ function App() {
           <Route path="/quote-analytics" element={<QuoteAnalytics />} />
           <Route path="/spend" element={<Spend />} />
           <Route path="/location-comparison" element={<LocationComparison />} />
+          <Route path="/calendar" element={<Calendar />} />
+          <Route path="/calender" element={<Calendar />} />
           <Route path="/location-spend" element={<LocationSpend />} />
           <Route path="/top-cranes" element={<TopCranes />} />
           <Route path="/quality-control" element={<QualityControl />} />

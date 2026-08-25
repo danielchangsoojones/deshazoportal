@@ -670,12 +670,18 @@ export default function AssetInfo() {
 
   const spendDashboard = useMemo(() => {
     const monthly = spendAnalytics?.monthlySpend ?? []
+    const repairMonthly = new Map((spendAnalytics?.monthlyRepairSpend ?? []).map((point) => [point.month, point.spend]))
+    const inspectionMonthly = new Map((spendAnalytics?.monthlyInspectionSpend ?? []).map((point) => [point.month, point.spend]))
     let cumulative = 0
     const trend = monthly.map((point) => {
+      const repairSpend = repairMonthly.get(point.month) ?? 0
+      const inspectionSpend = inspectionMonthly.get(point.month) ?? 0
       cumulative += point.spend
       return {
         ...point,
         monthLabel: formatSpendMonth(point.month),
+        repairSpend,
+        inspectionSpend,
         cumulative,
       }
     })
@@ -722,6 +728,13 @@ export default function AssetInfo() {
       invoiceBreakdown: invoiceMixRows.slice(0, 8),
       grossInvoiceSpend,
       allocationSharePercent: grossInvoiceSpend > 0 ? (allocatedSpend / grossInvoiceSpend) * 100 : 0,
+      repairSharePercent: spendAnalytics && spendAnalytics.totalSpend > 0
+        ? (spendAnalytics.repairSpend / spendAnalytics.totalSpend) * 100
+        : 0,
+      spendKindMix: [
+        { name: 'Repair', value: spendAnalytics?.repairSpend ?? 0 },
+        { name: 'Inspection', value: spendAnalytics?.inspectionSpend ?? 0 },
+      ].filter((item) => item.value > 0),
       allocationShare: [
         { name: 'This crane', value: allocatedSpend },
         { name: 'Other crane allocations', value: Math.max(0, grossInvoiceSpend - allocatedSpend) },
@@ -2407,27 +2420,25 @@ export default function AssetInfo() {
                           <div className="border-l-4 border-[#f2b43f] pl-4 sm:text-right">
                             <p className="text-[11px] font-bold uppercase text-white/60">Total Allocated Cost</p>
                             <p className="mt-1 text-[34px] font-black">{formatCurrency(spendAnalytics.totalSpend)}</p>
+                            <p className="mt-1 text-xs font-bold text-white/70">
+                              {formatCurrency(spendAnalytics.repairSpend)} repair · {formatCurrency(spendAnalytics.inspectionSpend)} inspection
+                            </p>
                           </div>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
                         {[
+                          ['Repair Spend', formatCurrency(spendAnalytics.repairSpend), `${spendAnalytics.repairInvoiceCount} repair invoice${spendAnalytics.repairInvoiceCount === 1 ? '' : 's'}`, '#4a9960'],
+                          ['Inspection Spend', formatCurrency(spendAnalytics.inspectionSpend), `${spendAnalytics.inspectionInvoiceCount} inspection invoice${spendAnalytics.inspectionInvoiceCount === 1 ? '' : 's'}`, '#f2b43f'],
                           ['Invoices', spendAnalytics.invoiceCount.toLocaleString(), 'Allocated to this crane', '#2f56a6'],
-                          ['Full Invoice Cost', formatCurrency(spendDashboard.grossInvoiceSpend), 'Before splitting across cranes', '#e05c3a'],
-                          [
-                            'Crane Cost Share',
-                            `${spendDashboard.allocationSharePercent < 1 && spendDashboard.allocationSharePercent > 0 ? '<1' : spendDashboard.allocationSharePercent.toFixed(1)}%`,
-                            'Of associated invoice costs',
-                            '#4a9960',
-                          ],
                           [
                             'Latest Invoice',
                             formatInvoiceDate(spendAnalytics.latestInvoiceDate),
                             spendDashboard.monthChangePercent == null
                               ? 'First recorded spend period'
                               : `${spendDashboard.monthChangePercent >= 0 ? '+' : ''}${spendDashboard.monthChangePercent.toFixed(1)}% from prior month`,
-                            '#f2b43f',
+                            '#e05c3a',
                           ],
                         ].map(([label, value, detail, accent]) => (
                           <div key={label} className="relative overflow-hidden rounded-[8px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
@@ -2445,9 +2456,9 @@ export default function AssetInfo() {
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className="h-3 w-1 rounded-full bg-[var(--deshazo-blue)]" />
-                                <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Month Over Month Spend</h3>
+                                <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Monthly Repair and Inspection Spend</h3>
                               </div>
-                              <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Monthly allocated invoice cost.</p>
+                              <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Allocated invoice cost split by work type.</p>
                             </div>
                           </div>
                           {spendAnalytics.monthlySpend.length > 0 ? (
@@ -2469,22 +2480,22 @@ export default function AssetInfo() {
                                   width={54}
                                 />
                                 <Tooltip
-                                  formatter={(value) => [formatCurrency(Number(value)), 'Allocated spend']}
+                                  formatter={(value, name) => [
+                                    formatCurrency(Number(value)),
+                                    name === 'repairSpend' ? 'Repair' : name === 'inspectionSpend' ? 'Inspection' : 'Allocated spend',
+                                  ]}
                                   contentStyle={spendTooltipStyle}
                                   cursor={{ stroke: '#9eb3d7', strokeWidth: 1, strokeDasharray: '4 4' }}
                                 />
-                                <Bar
-                                  dataKey="spend"
-                                  name="Monthly spend"
-                                  fill="#2f56a6"
-                                  radius={[8, 8, 2, 2]}
-                                  maxBarSize={72}
-                                  background={{ fill: '#eef2f8', radius: 8 }}
-                                >
-                                  {spendDashboard.trend.map((_, index) => (
-                                    <Cell key={index} fill={index === spendDashboard.trend.length - 1 ? '#2f56a6' : '#9eb3d7'} />
-                                  ))}
-                                </Bar>
+                                <Legend
+                                  verticalAlign="top"
+                                  align="right"
+                                  iconType="circle"
+                                  iconSize={8}
+                                  wrapperStyle={{ fontSize: 11, fontWeight: 700, color: '#687184', paddingBottom: 14 }}
+                                />
+                                <Bar dataKey="repairSpend" name="Repair" stackId="spend" fill="#4a9960" radius={[8, 8, 2, 2]} maxBarSize={72} />
+                                <Bar dataKey="inspectionSpend" name="Inspection" stackId="spend" fill="#f2b43f" radius={[8, 8, 2, 2]} maxBarSize={72} />
                               </BarChart>
                             </ResponsiveContainer>
                           ) : (
@@ -2498,15 +2509,15 @@ export default function AssetInfo() {
                           <div className="mb-2">
                             <div className="flex items-center gap-2">
                               <span className="h-3 w-1 rounded-full bg-[#4a9960]" />
-                              <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Crane Share of Invoice Cost</h3>
+                              <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Repair vs Inspection Cost</h3>
                             </div>
-                            <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Allocated cost compared with the full associated invoices.</p>
+                            <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Cost mix for this crane.</p>
                           </div>
                           <div className="relative">
                             <ResponsiveContainer width="100%" height={260}>
                               <PieChart>
                                 <Pie
-                                  data={spendDashboard.allocationShare}
+                                  data={spendDashboard.spendKindMix}
                                   dataKey="value"
                                   nameKey="name"
                                   cx="50%"
@@ -2520,8 +2531,8 @@ export default function AssetInfo() {
                                   stroke="#ffffff"
                                   strokeWidth={3}
                                 >
-                                  <Cell fill="#2f56a6" />
-                                  <Cell fill="#e3e9f2" />
+                                  <Cell fill="#4a9960" />
+                                  <Cell fill="#f2b43f" />
                                 </Pie>
                                 <Tooltip formatter={(value) => formatCurrency(Number(value))} contentStyle={spendTooltipStyle} />
                                 <Legend
@@ -2533,8 +2544,8 @@ export default function AssetInfo() {
                               </PieChart>
                             </ResponsiveContainer>
                             <div className="pointer-events-none absolute inset-x-0 top-[142px] text-center">
-                              <p className="text-[28px] font-black text-[var(--deshazo-blue)]">{spendDashboard.allocationSharePercent.toFixed(1)}%</p>
-                              <p className="text-[11px] font-bold text-[rgba(21,24,33,0.46)]">CRANE SHARE</p>
+                              <p className="text-[28px] font-black text-[#4a9960]">{spendDashboard.repairSharePercent.toFixed(1)}%</p>
+                              <p className="text-[11px] font-bold text-[rgba(21,24,33,0.46)]">REPAIR SHARE</p>
                             </div>
                           </div>
                         </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import { isConfigured, supabase } from '../lib/supabase'
 import { usePortalMenu } from '../lib/usePortalMenu'
@@ -128,8 +128,10 @@ export default function DeshazoWorkOrders() {
   const [totalCount, setTotalCount] = useState(0)
   const [currentPage, setCurrentPage] = useState(1)
   const [lastSyncAt, setLastSyncAt] = useState('')
-  const [search, setSearch] = useState('')
-  const [submittedSearch, setSubmittedSearch] = useState('')
+  const [searchParams] = useSearchParams()
+  const requestedSearch = searchParams.get('search')?.trim() || searchParams.get('job')?.trim() || ''
+  const [search, setSearch] = useState(requestedSearch)
+  const [submittedSearch, setSubmittedSearch] = useState(requestedSearch)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState('')
@@ -145,6 +147,7 @@ export default function DeshazoWorkOrders() {
   const filterMenusRef = useRef<HTMLDivElement | null>(null)
   const userRef = useRef<User | null>(null)
   const userTagRef = useRef<UserTag | null>(null)
+  const requestedSearchRef = useRef(requestedSearch)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
   const selectedCustomer = useSelectedCustomer()
@@ -301,6 +304,14 @@ export default function DeshazoWorkOrders() {
     if (supabase) await supabase.auth.signOut()
     navigate(customerPath('/login'))
   }
+
+  useEffect(() => {
+    if (requestedSearchRef.current === requestedSearch) return
+    requestedSearchRef.current = requestedSearch
+    setSearch(requestedSearch)
+    setSubmittedSearch(requestedSearch)
+    setCurrentPage(1)
+  }, [requestedSearch])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
