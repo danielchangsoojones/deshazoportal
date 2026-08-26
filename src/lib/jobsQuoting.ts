@@ -167,6 +167,8 @@ export type ExternalInspectionReportQuoteImportResult = {
     createdOrUpdated?: number
     dNumbers?: string[]
     purchaseOrders?: string[]
+    refreshedIncompleteReport?: boolean
+    refreshReason?: string | null
     existingQuoteItems?: Array<{
       id?: string
       dNumber?: string | null
