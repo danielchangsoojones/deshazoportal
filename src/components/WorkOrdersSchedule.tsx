@@ -532,6 +532,7 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
   const suppressEventClickRef = useRef(false)
   const range = useMemo(() => getRange(anchor, mode), [anchor, mode])
   const days = useMemo(() => Array.from({ length: dayDifference(range.start, range.end) + 1 }, (_, index) => addDays(range.start, index)), [range])
+  const selectedStatusId = selectedFilter.statusName ? statusesByName[selectedFilter.statusName] : null
 
   useEffect(() => {
     let cancelled = false
@@ -578,7 +579,7 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
           endDate: toIsoDate(range.end),
           serviceLocationId,
           jobType: selectedFilter.jobType === 'Days Off' ? null : selectedFilter.jobType,
-          statusId: selectedFilter.statusName ? statusesByName[selectedFilter.statusName] : null,
+          statusId: selectedStatusId,
         })
         if (cancelled) return
         const filteredEvents = selectedFilter.jobType === 'Days Off' ? data.events.filter((event) => eventTooltip(event)?.isDayOff) : data.events
@@ -598,7 +599,7 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
       }
     })
     return () => { cancelled = true }
-  }, [localAssistantDemo, range, refreshKey, selectedFilter, serviceLocationId, statusesByName])
+  }, [localAssistantDemo, range, refreshKey, selectedFilter, selectedStatusId, serviceLocationId])
 
   const groupedResources = useMemo(() => {
     const groups = new Map<string, DeshazoScheduleResource[]>()
