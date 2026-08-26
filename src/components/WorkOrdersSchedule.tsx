@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
 import {
   type DeshazoScheduleEvent,
   type DeshazoScheduleResource,
@@ -28,6 +29,32 @@ type LegendFilter = {
 type DemoDropTarget = {
   resourceId: string
   dayIndex: number
+}
+
+type ScheduleEditorState = {
+  eventId: string
+  event: DeshazoScheduleEvent
+}
+
+type TaskEditorFields = {
+  name: string
+  project: string
+  resourceId: string
+  startDate: string
+  startTime: string
+  endDate: string
+  endTime: string
+  allDay: boolean
+  repeat: boolean
+  utilization: string
+  busyDays: string
+  busyHours: string
+  duration: string
+  description: string
+  officeNote: string
+  fieldNote: string
+  jobNumber: string
+  status: string
 }
 
 const legendFilters: LegendFilter[] = [
@@ -89,9 +116,20 @@ function formatDate(value: Date) {
   return new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).format(value)
 }
 
-function formatShortDate(value?: string) {
+function formatInputDate(value?: string) {
   const date = parseDate(value)
-  return date ? formatDate(date) : '-'
+  return date ? toIsoDate(date) : ''
+}
+
+function formatInputTime(value?: string) {
+  if (!value) return ''
+  const match = value.match(/T(\d{2}):(\d{2})/)
+  return match ? `${match[1]}:${match[2]}` : ''
+}
+
+function combineDateAndTime(date: string, time: string) {
+  if (!date) return ''
+  return time ? `${date}T${time}:00` : date
 }
 
 function getRange(anchor: Date, mode: ScheduleMode) {
@@ -102,11 +140,6 @@ function getRange(anchor: Date, mode: ScheduleMode) {
 
 function eventTooltip(event: DeshazoScheduleEvent) {
   return event.extendedProps?.tooltipData || event.tooltipData
-}
-
-function eventWorkOrderId(event: DeshazoScheduleEvent) {
-  const tooltip = eventTooltip(event)
-  return tooltip?.workOrderTrip?.workOrderId || tooltip?.workOrderTrip?.workOrder?.id || null
 }
 
 function eventLabel(event: DeshazoScheduleEvent) {
@@ -143,6 +176,97 @@ function resourceCellStyle(resource: DeshazoScheduleResource): React.CSSProperti
     || resource.extendedProps?.textColor
     || (backgroundColor === '#ffffff' ? '#112920' : resource.color || resource.extendedProps?.color || '#ffffff')
   return { backgroundColor, color: textColor }
+}
+
+function getEditorFields(event: DeshazoScheduleEvent, resources: DeshazoScheduleResource[]): TaskEditorFields {
+  const tooltip = eventTooltip(event)
+  const workOrder = tooltip?.workOrderTrip?.workOrder
+  const resourceId = eventResources(event)[0] || String(resources[0]?.id || '')
+  const start = event.start || tooltip?.startDate || tooltip?.workOrderTrip?.startDate || ''
+  const end = event.end || tooltip?.endDate || tooltip?.workOrderTrip?.endDate || start
+
+  return {
+    name: eventLabel(event),
+    project: workOrder?.jobType || '',
+    resourceId,
+    startDate: formatInputDate(start),
+    startTime: formatInputTime(start),
+    endDate: formatInputDate(end),
+    endTime: formatInputTime(end),
+    allDay: !formatInputTime(start) && !formatInputTime(end),
+    repeat: false,
+    utilization: '100',
+    busyDays: '1',
+    busyHours: '0:0 h:m',
+    duration: '1 d',
+    description: workOrder?.svcCommentText || workOrder?.comment || '',
+    officeNote: '',
+    fieldNote: tooltip?.location || '',
+    jobNumber: workOrder?.jobNo || '',
+    status: workOrder?.status?.name || '',
+  }
+}
+
+function applyEditorFieldsToEvent(
+  event: DeshazoScheduleEvent,
+  fields: TaskEditorFields,
+  resources: DeshazoScheduleResource[],
+): DeshazoScheduleEvent {
+  const tooltip = eventTooltip(event)
+  const targetResource = resources.find((resource) => String(resource.id) === fields.resourceId)
+  const start = combineDateAndTime(fields.startDate, fields.allDay ? '' : fields.startTime)
+  const end = combineDateAndTime(fields.endDate || fields.startDate, fields.allDay ? '' : fields.endTime)
+  const nextWorkOrder = {
+    ...tooltip?.workOrderTrip?.workOrder,
+    jobNo: fields.jobNumber,
+    jobType: fields.project,
+    svcCommentText: fields.description,
+    status: { ...tooltip?.workOrderTrip?.workOrder?.status, name: fields.status },
+  }
+  const nextTooltip: DeshazoScheduleTooltipData | undefined = tooltip
+    ? {
+        ...tooltip,
+        employeeName: targetResource ? resourceLabel(targetResource) : tooltip.employeeName,
+        startDate: start,
+        endDate: end,
+        location: fields.fieldNote,
+        workOrderTrip: tooltip.workOrderTrip
+          ? {
+              ...tooltip.workOrderTrip,
+              startDate: start,
+              endDate: end,
+              workOrder: nextWorkOrder,
+            }
+          : {
+              startDate: start,
+              endDate: end,
+              workOrder: nextWorkOrder,
+            },
+      }
+    : {
+        employeeName: targetResource ? resourceLabel(targetResource) : '',
+        startDate: start,
+        endDate: end,
+        location: fields.fieldNote,
+        workOrderTrip: {
+          startDate: start,
+          endDate: end,
+          workOrder: nextWorkOrder,
+        },
+      }
+
+  return {
+    ...event,
+    title: fields.name,
+    resourceId: fields.resourceId,
+    resourceIds: [fields.resourceId],
+    start,
+    end,
+    tooltipData: event.tooltipData || !event.extendedProps ? nextTooltip : event.tooltipData,
+    extendedProps: event.extendedProps
+      ? { ...event.extendedProps, tooltipData: nextTooltip }
+      : event.extendedProps,
+  }
 }
 
 function demoResourceIsNamedTechnician(resource: DeshazoScheduleResource) {
@@ -226,25 +350,161 @@ function addLocalOneillDemoVisit(
   return [...events, ...demoEvents]
 }
 
-function EventInfo({ data, onClose, onOpenWorkOrder }: { data: DeshazoScheduleTooltipData; onClose: () => void; onOpenWorkOrder: (id: number) => void }) {
-  const workOrder = data.workOrderTrip?.workOrder
-  const workOrderId = data.workOrderTrip?.workOrderId || workOrder?.id
+function TaskEditorPanel({
+  editor,
+  resources,
+  onClose,
+  onSave,
+  onCopy,
+  onDelete,
+  onOpenWorkOrder,
+}: {
+  editor: ScheduleEditorState
+  resources: DeshazoScheduleResource[]
+  onClose: () => void
+  onSave: (eventId: string, fields: TaskEditorFields) => void
+  onCopy: (eventId: string, fields: TaskEditorFields) => void
+  onDelete: (eventId: string) => void
+  onOpenWorkOrder: (id: number) => void
+}) {
+  const data = eventTooltip(editor.event)
+  const workOrder = data?.workOrderTrip?.workOrder
+  const workOrderId = data?.workOrderTrip?.workOrderId || workOrder?.id
+  const fields = getEditorFields(editor.event, resources)
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    const nextFields: TaskEditorFields = {
+      name: String(formData.get('name') || '').trim() || 'Scheduled work',
+      project: String(formData.get('project') || '').trim(),
+      resourceId: String(formData.get('resourceId') || fields.resourceId),
+      startDate: String(formData.get('startDate') || '').trim(),
+      startTime: String(formData.get('startTime') || '').trim(),
+      endDate: String(formData.get('endDate') || '').trim(),
+      endTime: String(formData.get('endTime') || '').trim(),
+      allDay: formData.get('allDay') === 'on',
+      repeat: formData.get('repeat') === 'on',
+      utilization: String(formData.get('utilization') || '').trim(),
+      busyDays: String(formData.get('busyDays') || '').trim(),
+      busyHours: String(formData.get('busyHours') || '').trim(),
+      duration: String(formData.get('duration') || '').trim(),
+      description: String(formData.get('description') || '').trim(),
+      officeNote: String(formData.get('officeNote') || '').trim(),
+      fieldNote: String(formData.get('fieldNote') || '').trim(),
+      jobNumber: String(formData.get('jobNumber') || '').trim(),
+      status: String(formData.get('status') || '').trim(),
+    }
+    const action = String(formData.get('action') || 'save')
+    if (action === 'copy') onCopy(editor.eventId, nextFields)
+    else onSave(editor.eventId, nextFields)
+  }
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#111827]/45 px-4" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="schedule-event-title" className="w-full max-w-md rounded-md border border-[#d3dbea] bg-white shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
-        <div className="flex items-center justify-between border-b border-[#d3dbea] px-5 py-4">
-          <h2 id="schedule-event-title" className="text-[17px] font-black text-[var(--deshazo-text)]">{data.isDayOff ? 'Day Off' : 'Work Order Details'}</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md border border-[#c7d1e2] text-lg font-black text-[var(--deshazo-blue)]">×</button>
+    <div className="fixed inset-x-0 bottom-0 z-[100] border-t-4 border-[#ed1c24] bg-white shadow-[0_-24px_80px_-36px_rgba(15,23,42,0.72)]">
+      <form onSubmit={handleSubmit}>
+        <div className="flex min-h-12 items-center justify-between gap-3 border-b border-[#d3dbea] bg-[#f8fbff] px-4 py-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <button type="button" onClick={onClose} aria-label="Close task editor" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-xl font-black text-[var(--deshazo-blue)]">‹</button>
+            <h2 id="schedule-event-title" className="truncate text-[18px] font-black text-[var(--deshazo-text)]">Task</h2>
+            <button type="submit" name="action" value="save" className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[12px] font-black text-white hover:bg-[var(--deshazo-blue-deep)]">Save</button>
+            <button type="submit" name="action" value="copy" className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] hover:bg-[#eef4ff]">Copy</button>
+            <button type="button" onClick={() => onDelete(editor.eventId)} className="rounded-md border border-[#e3b4ac] bg-white px-3 py-2 text-[12px] font-black text-[#a2472f] hover:bg-[#fff7f5]">Delete</button>
+          </div>
+          <div className="flex items-center gap-2">
+            {workOrderId ? <button type="button" onClick={() => onOpenWorkOrder(workOrderId)} className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] hover:bg-[#eef4ff]">Open Work Order</button> : null}
+            <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-xl font-black text-[var(--deshazo-blue)]">×</button>
+          </div>
         </div>
-        <dl className="grid grid-cols-[120px_1fr] gap-x-4 gap-y-3 px-5 py-5 text-[12px]">
-          {data.isDayOff ? <><dt className="font-black text-[#747b8a]">Employee</dt><dd className="font-bold text-[var(--deshazo-text)]">{data.employeeName || '-'}</dd><dt className="font-black text-[#747b8a]">Reason</dt><dd className="font-bold text-[var(--deshazo-text)]">{data.reason || '-'}</dd></> : <><dt className="font-black text-[#747b8a]">Work Order #</dt><dd className="font-bold text-[var(--deshazo-text)]">{workOrder?.jobNo || '-'}</dd><dt className="font-black text-[#747b8a]">Customer</dt><dd className="font-bold text-[var(--deshazo-text)]">{data.customerName || '-'}</dd><dt className="font-black text-[#747b8a]">Trip</dt><dd className="font-bold text-[var(--deshazo-text)]">{data.workOrderTrip?.tripNumber || '-'}</dd><dt className="font-black text-[#747b8a]">Status</dt><dd className="font-bold text-[var(--deshazo-text)]">{workOrder?.status?.name || '-'}</dd><dt className="font-black text-[#747b8a]">Service Requested</dt><dd className="font-bold text-[var(--deshazo-text)]">{workOrder?.svcCommentText || workOrder?.comment || '-'}</dd><dt className="font-black text-[#747b8a]">Location</dt><dd className="font-bold text-[var(--deshazo-text)]">{data.location || '-'}</dd></>}
-          <dt className="font-black text-[#747b8a]">Dates</dt><dd className="font-bold text-[var(--deshazo-text)]">{formatShortDate(data.startDate || data.workOrderTrip?.startDate)} to {formatShortDate(data.endDate || data.workOrderTrip?.endDate)}</dd>
-        </dl>
-        <div className="flex justify-end gap-2 border-t border-[#d3dbea] bg-[#f8fbff] px-5 py-3">
-          {workOrderId ? <button type="button" onClick={() => onOpenWorkOrder(workOrderId)} className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[12px] font-black text-white hover:bg-[var(--deshazo-blue-deep)]">Open Work Order</button> : null}
-          <button type="button" onClick={onClose} className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[12px] font-black text-[var(--deshazo-blue)]">Close</button>
+
+        <div className="max-h-[42vh] overflow-auto px-4 py-3">
+          <div className="grid gap-3 text-[11px] font-bold text-[#4d596c] lg:grid-cols-[minmax(170px,1.15fr)_minmax(130px,0.8fr)_minmax(130px,0.8fr)_minmax(160px,0.9fr)_minmax(160px,0.9fr)]">
+            <label className="flex flex-col gap-1">
+              Name
+              <input name="name" defaultValue={fields.name} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Technician
+              <select name="resourceId" defaultValue={fields.resourceId} className="h-8 rounded-sm border border-[#c7d1e2] bg-white px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]">
+                {resources.map((resource) => <option key={String(resource.id)} value={String(resource.id)}>{resourceLabel(resource)}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              Project
+              <input name="project" defaultValue={fields.project} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Description
+              <input name="description" defaultValue={fields.description} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Office Note
+              <input name="officeNote" defaultValue={fields.officeNote} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+          </div>
+
+          <div className="mt-3 grid gap-3 text-[11px] font-bold text-[#4d596c] sm:grid-cols-2 lg:grid-cols-[120px_96px_120px_96px_80px_72px_92px_92px_120px_140px]">
+            <label className="flex flex-col gap-1">
+              Start
+              <input type="date" name="startDate" defaultValue={fields.startDate} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Time
+              <input type="time" name="startTime" defaultValue={fields.startTime} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              End
+              <input type="date" name="endDate" defaultValue={fields.endDate} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Time
+              <input type="time" name="endTime" defaultValue={fields.endTime} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Utilization
+              <input name="utilization" defaultValue={fields.utilization} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Busy
+              <input name="busyDays" defaultValue={fields.busyDays} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Busy Time
+              <input name="busyHours" defaultValue={fields.busyHours} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Duration
+              <input name="duration" defaultValue={fields.duration} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Job Number
+              <input name="jobNumber" defaultValue={fields.jobNumber} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+            <label className="flex flex-col gap-1">
+              Status
+              <select name="status" defaultValue={fields.status} className="h-8 rounded-sm border border-[#c7d1e2] bg-white px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]">
+                {['', 'To Be Assigned', 'Pending', 'Scheduled', 'Assigned', 'In Progress', 'Waiting for parts', 'Completed', 'Needs Review', 'Tentative'].map((status) => <option key={status} value={status}>{status || '-'}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-3 grid gap-3 text-[11px] font-bold text-[#4d596c] lg:grid-cols-[120px_120px_1fr]">
+            <label className="flex h-8 items-center gap-2">
+              <input type="checkbox" name="allDay" defaultChecked={fields.allDay} className="h-4 w-4 accent-[var(--deshazo-blue)]" />
+              All day
+            </label>
+            <label className="flex h-8 items-center gap-2">
+              <input type="checkbox" name="repeat" defaultChecked={fields.repeat} className="h-4 w-4 accent-[var(--deshazo-blue)]" />
+              Repeat
+            </label>
+            <label className="flex flex-col gap-1">
+              Field Note
+              <input name="fieldNote" defaultValue={fields.fieldNote} className="h-8 rounded-sm border border-[#c7d1e2] px-2 text-[12px] font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]" />
+            </label>
+          </div>
+          <p className="mt-2 text-[10px] font-semibold text-[#747b8a]">Demo only. Saved edits update this browser view and are not sent to DeShazo.</p>
         </div>
-      </div>
+      </form>
     </div>
   )
 }
@@ -259,7 +519,7 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
   const [pendingWorkOrders, setPendingWorkOrders] = useState<DeshazoWorkOrder[]>([])
   const [suggestions, setSuggestions] = useState<ScheduleSuggestion[]>([])
   const [focusedSuggestionId, setFocusedSuggestionId] = useState('')
-  const [selectedEvent, setSelectedEvent] = useState<DeshazoScheduleTooltipData | null>(null)
+  const [selectedEditor, setSelectedEditor] = useState<ScheduleEditorState | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -457,6 +717,46 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
     window.setTimeout(() => { suppressEventClickRef.current = false }, 250)
   }
 
+  const saveTaskEditor = (eventId: string, fields: TaskEditorFields) => {
+    let savedEvent: DeshazoScheduleEvent | null = null
+    setEvents((current) => current.map((event) => {
+      if (String(event.id) !== eventId) return event
+      savedEvent = applyEditorFieldsToEvent(event, fields, resources)
+      return savedEvent
+    }))
+    setSuggestions([])
+    setDemoChanges((count) => count + 1)
+    setDemoNotice(`${fields.name} updated locally. Demo only—nothing was sent to DeShazo.`)
+    setSelectedEditor(savedEvent ? { eventId, event: savedEvent } : null)
+  }
+
+  const copyTaskEditor = (eventId: string, fields: TaskEditorFields) => {
+    const sourceEvent = events.find((event) => String(event.id) === eventId)
+    if (!sourceEvent) return
+    const copiedEvent = applyEditorFieldsToEvent(
+      {
+        ...sourceEvent,
+        id: `demo-copy-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      },
+      { ...fields, name: `${fields.name} copy` },
+      resources,
+    )
+    setEvents((current) => [...current, copiedEvent])
+    setSuggestions([])
+    setDemoChanges((count) => count + 1)
+    setDemoNotice(`${fields.name} copied locally. Demo only—nothing was sent to DeShazo.`)
+    setSelectedEditor({ eventId: String(copiedEvent.id), event: copiedEvent })
+  }
+
+  const deleteTaskEditor = (eventId: string) => {
+    const sourceEvent = events.find((event) => String(event.id) === eventId)
+    setEvents((current) => current.filter((event) => String(event.id) !== eventId))
+    setSuggestions([])
+    setDemoChanges((count) => count + 1)
+    setDemoNotice(`${sourceEvent ? eventLabel(sourceEvent) : 'Task'} removed locally. Demo only—nothing was sent to DeShazo.`)
+    setSelectedEditor(null)
+  }
+
   return (
     <div className="flex min-h-screen flex-col px-5 py-5 lg:px-7">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -570,10 +870,8 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
                             style={{ left: `${(dropTarget.dayIndex / days.length) * 100}%`, width: `${100 / days.length}%` }}
                           />
                         ) : null}
-                        {resourceEvents.map((event) => {
-                          const tooltip = eventTooltip(event)
-                          const workOrderId = eventWorkOrderId(event)
-                          return <button
+                        {resourceEvents.map((event) => (
+                          <button
                             key={String(event.id)}
                             type="button"
                             draggable={editMode}
@@ -592,13 +890,12 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
                             }}
                             onClick={() => {
                               if (suppressEventClickRef.current) return
-                              if (tooltip) setSelectedEvent(tooltip)
-                              else if (workOrderId) onOpenWorkOrder(workOrderId)
+                              setSelectedEditor({ eventId: String(event.id), event })
                             }}
                             className={`absolute top-1.5 z-[2] h-8 truncate rounded-sm border px-2 text-left text-[10px] font-black text-white shadow-sm transition hover:z-[3] hover:brightness-95 ${editMode ? 'cursor-grab ring-1 ring-white/70 active:cursor-grabbing' : ''} ${draggedEventId === String(event.id) ? 'opacity-45' : ''}`}
                             style={{ ...eventPosition(event), backgroundColor: event.backgroundColor || event.color || '#818181', borderColor: event.borderColor || event.backgroundColor || event.color || '#818181', color: '#ffffff' }}
                           >{eventLabel(event)}</button>
-                        })}
+                        ))}
                         {suggestions.filter((suggestion) => String(suggestion.resourceId) === String(resource.id)).map((suggestion) => (
                           <button
                             key={suggestion.id}
@@ -643,7 +940,17 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
         onFocusSuggestion={focusSuggestion}
       />
 
-      {selectedEvent ? <EventInfo data={selectedEvent} onClose={() => setSelectedEvent(null)} onOpenWorkOrder={onOpenWorkOrder} /> : null}
+      {selectedEditor ? (
+        <TaskEditorPanel
+          editor={selectedEditor}
+          resources={resources}
+          onClose={() => setSelectedEditor(null)}
+          onSave={saveTaskEditor}
+          onCopy={copyTaskEditor}
+          onDelete={deleteTaskEditor}
+          onOpenWorkOrder={onOpenWorkOrder}
+        />
+      ) : null}
     </div>
   )
 }
