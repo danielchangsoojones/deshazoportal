@@ -355,7 +355,6 @@ function TaskEditorPanel({
   resources,
   onClose,
   onSave,
-  onCopy,
   onDelete,
   onOpenWorkOrder,
 }: {
@@ -363,7 +362,6 @@ function TaskEditorPanel({
   resources: DeshazoScheduleResource[]
   onClose: () => void
   onSave: (eventId: string, fields: TaskEditorFields) => void
-  onCopy: (eventId: string, fields: TaskEditorFields) => void
   onDelete: (eventId: string) => void
   onOpenWorkOrder: (id: number) => void
 }) {
@@ -372,10 +370,9 @@ function TaskEditorPanel({
   const workOrderId = data?.workOrderTrip?.workOrderId || workOrder?.id
   const fields = getEditorFields(editor.event, resources)
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
-    const nextFields: TaskEditorFields = {
+  const readFields = (form: HTMLFormElement): TaskEditorFields => {
+    const formData = new FormData(form)
+    return {
       name: String(formData.get('name') || '').trim() || 'Scheduled work',
       project: String(formData.get('project') || '').trim(),
       resourceId: String(formData.get('resourceId') || fields.resourceId),
@@ -395,9 +392,11 @@ function TaskEditorPanel({
       jobNumber: String(formData.get('jobNumber') || '').trim(),
       status: String(formData.get('status') || '').trim(),
     }
-    const action = String(formData.get('action') || 'save')
-    if (action === 'copy') onCopy(editor.eventId, nextFields)
-    else onSave(editor.eventId, nextFields)
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    onSave(editor.eventId, readFields(event.currentTarget))
   }
 
   return (
@@ -408,7 +407,6 @@ function TaskEditorPanel({
             <button type="button" onClick={onClose} aria-label="Close task editor" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#bdc4d3] bg-white text-xl font-black text-[var(--deshazo-blue)]">‹</button>
             <h2 id="schedule-event-title" className="truncate text-[18px] font-black text-[var(--deshazo-text)]">Task</h2>
             <button type="submit" name="action" value="save" className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[12px] font-black text-white hover:bg-[var(--deshazo-blue-deep)]">Save</button>
-            <button type="submit" name="action" value="copy" className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] hover:bg-[#eef4ff]">Copy</button>
             <button type="button" onClick={() => onDelete(editor.eventId)} className="rounded-md border border-[#e3b4ac] bg-white px-3 py-2 text-[12px] font-black text-[#a2472f] hover:bg-[#fff7f5]">Delete</button>
           </div>
           <div className="flex items-center gap-2">
@@ -730,24 +728,6 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
     setSelectedEditor(savedEvent ? { eventId, event: savedEvent } : null)
   }
 
-  const copyTaskEditor = (eventId: string, fields: TaskEditorFields) => {
-    const sourceEvent = events.find((event) => String(event.id) === eventId)
-    if (!sourceEvent) return
-    const copiedEvent = applyEditorFieldsToEvent(
-      {
-        ...sourceEvent,
-        id: `demo-copy-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      },
-      { ...fields, name: `${fields.name} copy` },
-      resources,
-    )
-    setEvents((current) => [...current, copiedEvent])
-    setSuggestions([])
-    setDemoChanges((count) => count + 1)
-    setDemoNotice(`${fields.name} copied locally. Demo only—nothing was sent to DeShazo.`)
-    setSelectedEditor({ eventId: String(copiedEvent.id), event: copiedEvent })
-  }
-
   const deleteTaskEditor = (eventId: string) => {
     const sourceEvent = events.find((event) => String(event.id) === eventId)
     setEvents((current) => current.filter((event) => String(event.id) !== eventId))
@@ -942,11 +922,11 @@ export default function WorkOrdersSchedule({ sampleMode = false, localAssistantD
 
       {selectedEditor ? (
         <TaskEditorPanel
+          key={selectedEditor.eventId}
           editor={selectedEditor}
           resources={resources}
           onClose={() => setSelectedEditor(null)}
           onSave={saveTaskEditor}
-          onCopy={copyTaskEditor}
           onDelete={deleteTaskEditor}
           onOpenWorkOrder={onOpenWorkOrder}
         />
