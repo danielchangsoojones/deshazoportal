@@ -1123,16 +1123,21 @@ export default function JobsQuotingList() {
       const importWarnings = result.results
         .filter((item) => item.warning)
         .map((item) => `${item.jobNumber || item.workOrderId || 'Report'}: ${item.warning}`)
+      const refreshedIncompleteCount = result.results.filter((item) => item.refreshedIncompleteReport).length
+      const refreshedIncompleteNote =
+        refreshedIncompleteCount > 0
+          ? ` Refreshed stale synced inspection data for ${refreshedIncompleteCount} job${refreshedIncompleteCount === 1 ? '' : 's'} before importing.`
+          : ''
       const finalImportMessage =
         importErrors.length > 0
           ? importErrors.join(' ')
           : importWarnings.length > 0
           ? importWarnings.join(' ')
           : createdCount > 0
-          ? `Imported ${createdCount} created quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}${existingCount > 0 ? `; ${existingCount} existing quote item${existingCount === 1 ? '' : 's'} moved to the top.` : '.'}`
+          ? `Imported ${createdCount} created quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}${existingCount > 0 ? `; ${existingCount} existing quote item${existingCount === 1 ? '' : 's'} moved to the top.` : '.'}${refreshedIncompleteNote}`
           : existingCount > 0
-          ? 'If you need a fresh copy of the job reports, please delete the existing copy and import again.'
-          : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have at least one repair or safety issue.`
+          ? `If you need a fresh copy of the job reports, please delete the existing copy and import again.${refreshedIncompleteNote}`
+          : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have at least one repair or safety issue.${refreshedIncompleteNote}`
 
       if (createdCount > 0 || existingCount > 0) {
         setMessage(`Imported ${createdCount + existingCount} quote item${createdCount + existingCount === 1 ? '' : 's'}. Refreshing jobs...`)
