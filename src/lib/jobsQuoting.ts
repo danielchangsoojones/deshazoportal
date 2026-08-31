@@ -165,6 +165,9 @@ export type ExternalInspectionReportQuoteImportResult = {
     jobNumber?: string | null
     hasCreatedJobQuotingItem?: boolean
     createdOrUpdated?: number
+    sourceReportCount?: number
+    quoteableReportCount?: number
+    skippedNoQuoteItemsCount?: number
     dNumbers?: string[]
     purchaseOrders?: string[]
     refreshedIncompleteReport?: boolean
@@ -239,6 +242,14 @@ export type BlankQuoteCreateResult = {
   runId: string
   itemId: string
   documentName: string
+}
+
+export type ExternalWorkOrderSyncResult = {
+  customersProcessed?: number
+  pagesProcessed?: number
+  workOrdersSeen?: number
+  reportsSeen?: number
+  failures?: unknown[]
 }
 
 const supabasePageSize = 1000
@@ -951,7 +962,6 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   jobNumbers: string[],
 ): Promise<ExternalInspectionReportQuoteImportResult> {
   const normalizedJobNumbers = jobNumbers.map((jobNumber) => jobNumber.trim()).filter(Boolean)
-  const lookupJobNumbers = getJobNumberLookupValues(normalizedJobNumbers)
   if (normalizedJobNumbers.length === 0) {
     throw new Error('Enter at least one job number.')
   }
@@ -962,7 +972,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
 
   const accessToken = await getAccessToken()
   const url = new URL('/api/external/jobs-quoting/from-inspection-reports', deshazoExternalApiBaseUrl)
-  url.searchParams.set('jobNumbers', lookupJobNumbers.join(','))
+  url.searchParams.set('jobNumbers', normalizedJobNumbers.join(','))
   const response = await fetch(url.toString(), {
     method: 'POST',
     headers: {
@@ -971,7 +981,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
       'X-API-Key': deshazoExternalApiKey,
       'X-Supabase-Access-Token': accessToken,
     },
-    body: JSON.stringify({ jobNumbers: lookupJobNumbers }),
+    body: JSON.stringify({ jobNumbers: normalizedJobNumbers }),
   })
 
   const responseText = await response.text()
@@ -1073,6 +1083,39 @@ export async function createBlankJobQuotingItem(): Promise<BlankQuoteCreateResul
   }
 
   return body as BlankQuoteCreateResult
+}
+
+export async function syncExternalWorkOrdersForQuoting(): Promise<ExternalWorkOrderSyncResult> {
+  if (!deshazoExternalApiKey) {
+    throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
+  }
+
+  const url = new URL('/api/external/work-orders/sync/incremental', deshazoExternalApiBaseUrl)
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'X-API-Key': deshazoExternalApiKey,
+    },
+  })
+
+  const responseText = await response.text()
+  let body: unknown = responseText
+  try {
+    body = JSON.parse(responseText)
+  } catch {
+    // Keep non-JSON backend errors readable.
+  }
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `External sync failed with status ${response.status}.`
+    throw new Error(message)
+  }
+
+  return body as ExternalWorkOrderSyncResult
 }
 
 function getJobNumberLookupValues(jobNumbers: string[]) {

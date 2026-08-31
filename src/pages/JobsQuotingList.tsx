@@ -13,6 +13,7 @@ import {
   getJobsQuotingItemsForRuns,
   getJobsQuotingRuns,
   saveJobsQuotingItemResult,
+  syncExternalWorkOrdersForQuoting,
   syncJobsQuotingRun,
   uploadExtractOnlyInspectionForQuoting,
   uploadInspectionForQuoting,
@@ -21,7 +22,7 @@ import {
   type JobsQuotingItemResultStatus,
   type JobsQuotingRun,
 } from '../lib/jobsQuoting'
-import { getUserDisplayNames } from '../lib/userTags'
+import { getCurrentUserTag, getUserDisplayNames } from '../lib/userTags'
 
 const activeStatuses = new Set(['uploading', 'pending', 'processing', 'needs_review'])
 const inspectionRunsCollapsedStorageKey = 'deshazo-jobs-quoting-inspection-runs-collapsed'
@@ -192,6 +193,30 @@ function getFriendlyImportErrorMessage(error: unknown) {
   }
 
   return getFriendlyErrorMessage(error)
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return count === 1 ? singular : plural
+}
+
+function getImportResultErrorMessage(item: {
+  jobNumber?: string | null
+  workOrderId?: number | string
+  error?: string
+}) {
+  const label = item.jobNumber || item.workOrderId || 'report'
+  const error = item.error || 'Import could not be completed.'
+  const lowerError = error.toLowerCase()
+
+  if (lowerError.includes('cannot find a matching job number')) {
+    return `Import failed for ${label}. No matching synced inspection reports found.`
+  }
+
+  if (lowerError.includes('previously marked as imported') && lowerError.includes('no quote items')) {
+    return `Import failed for ${label}. It was marked imported, but no quote items are visible.`
+  }
+
+  return `Import failed for ${label}. ${error}`
 }
 
 function chunkFilesForUpload(files: File[]) {
@@ -554,6 +579,7 @@ export default function JobsQuotingList() {
   const [items, setItems] = useState<JobsQuotingItem[]>([])
   const [itemResults, setItemResults] = useState<Record<string, JobsQuotingItemResult>>({})
   const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({})
+  const [currentUserTag, setCurrentUserTag] = useState('')
   const [itemsLoading, setItemsLoading] = useState(false)
   const [selectedJobSectionId, setSelectedJobSectionId] = useState<string>(allJobsSectionId)
   const [quoteJobListScope, setQuoteJobListScope] = useState<QuoteJobListScope>('current')
@@ -567,6 +593,7 @@ export default function JobsQuotingList() {
   const [deletingItemIds, setDeletingItemIds] = useState<Set<string>>(() => new Set())
   const [externalJobNumberInput, setExternalJobNumberInput] = useState('')
   const [externalJobImporting, setExternalJobImporting] = useState(false)
+  const [externalWorkOrdersSyncing, setExternalWorkOrdersSyncing] = useState(false)
   const [createDNumberInput, setCreateDNumberInput] = useState('')
   const [createDNumberSubmitting, setCreateDNumberSubmitting] = useState(false)
   const [createBlankSubmitting, setCreateBlankSubmitting] = useState(false)
@@ -680,6 +707,7 @@ export default function JobsQuotingList() {
     ? getItemDNumber(markResultItem) || getItemFileName(markResultItem)
     : markResultJobLabel
   const markResultQuoteTotal = markResultTargetItems.reduce((total, item) => total + getQuoteTotalAmount(item), 0)
+  const canSyncExternalWorkOrders = ['dev', 'developer'].includes(currentUserTag.trim().toLowerCase())
 
   const showQuoteJobScope = (scope: QuoteJobListScope) => {
     setQuoteJobListScope(scope)
@@ -805,6 +833,26 @@ export default function JobsQuotingList() {
       loadQuotingData()
     }
   }, [loadQuotingData, user])
+
+  useEffect(() => {
+    if (!user) {
+      setCurrentUserTag('')
+      return
+    }
+
+    let cancelled = false
+    getCurrentUserTag(user.id)
+      .then((tag) => {
+        if (!cancelled) setCurrentUserTag(String(tag || ''))
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentUserTag('')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   useEffect(() => {
     const userIds = [
@@ -1113,34 +1161,46 @@ export default function JobsQuotingList() {
       const result = await createJobQuotingItemsFromExternalInspectionReports(jobNumbers)
       const createdCount = result.results.reduce((total, item) => total + (item.createdOrUpdated ?? 0), 0)
       const existingCount = result.results.reduce((total, item) => total + (item.existingQuoteItems?.length ?? 0), 0)
+      const visibleQuoteItemCount = createdCount + existingCount
+      const sourceReportCount = result.results.reduce((total, item) => total + (item.sourceReportCount ?? 0), 0)
+      const quoteableReportCount = result.results.reduce((total, item) => total + (item.quoteableReportCount ?? 0), 0)
+      const skippedNoQuoteItemsCount = result.results.reduce((total, item) => total + (item.skippedNoQuoteItemsCount ?? 0), 0)
       const importedJobNumbers = result.results
         .filter((item) => (item.createdOrUpdated ?? 0) > 0 || (item.existingQuoteItems?.length ?? 0) > 0)
         .map((item) => item.jobNumber || '')
         .filter(Boolean)
       const importErrors = result.results
         .filter((item) => item.error)
-        .map((item) => `${item.jobNumber || item.workOrderId || 'Report'}: ${item.error}`)
+        .map(getImportResultErrorMessage)
       const importWarnings = result.results
         .filter((item) => item.warning)
-        .map((item) => `${item.jobNumber || item.workOrderId || 'Report'}: ${item.warning}`)
+        .map((item) => item.warning || '')
+        .filter(Boolean)
       const refreshedIncompleteCount = result.results.filter((item) => item.refreshedIncompleteReport).length
       const refreshedIncompleteNote =
         refreshedIncompleteCount > 0
           ? ` Refreshed stale synced inspection data for ${refreshedIncompleteCount} job${refreshedIncompleteCount === 1 ? '' : 's'} before importing.`
           : ''
+      const quoteFilterNote =
+        sourceReportCount > 0
+          ? ` ${quoteableReportCount} of ${sourceReportCount} ${pluralize(sourceReportCount, 'report')} had repair/safety findings.${skippedNoQuoteItemsCount > 0 ? ` ${skippedNoQuoteItemsCount} skipped.` : ''}`
+          : ''
+      const warningNote = importWarnings.length > 0 ? ` ${importWarnings.join(' ')}` : ''
+      const noQuoteItemsMessage =
+        sourceReportCount > 0 && quoteableReportCount === 0
+          ? `No quote items for ${jobNumbers.join(', ')}. The synced reports have no repair/safety findings.`
+          : `No quote items for ${jobNumbers.join(', ')}. Only reports with repair/safety findings appear here.`
       const finalImportMessage =
         importErrors.length > 0
           ? importErrors.join(' ')
-          : importWarnings.length > 0
-          ? importWarnings.join(' ')
           : createdCount > 0
-          ? `Imported ${createdCount} created quote item${createdCount === 1 ? '' : 's'} for ${jobNumbers.join(', ')}${existingCount > 0 ? `; ${existingCount} existing quote item${existingCount === 1 ? '' : 's'} moved to the top.` : '.'}${refreshedIncompleteNote}`
+          ? `Imported ${createdCount} quote ${pluralize(createdCount, 'item')} for ${jobNumbers.join(', ')}.`
           : existingCount > 0
-          ? `If you need a fresh copy of the job reports, please delete the existing copy and import again.${refreshedIncompleteNote}`
-          : `No quote items were created for ${jobNumbers.join(', ')}. Check that the synced reports have at least one repair or safety issue.${refreshedIncompleteNote}`
+          ? `${existingCount} existing quote ${pluralize(existingCount, 'item')} for ${jobNumbers.join(', ')} moved to top.`
+          : `${noQuoteItemsMessage}${sourceReportCount > 0 && quoteableReportCount > 0 ? quoteFilterNote : ''}${warningNote}${refreshedIncompleteNote}`
 
       if (createdCount > 0 || existingCount > 0) {
-        setMessage(`Imported ${createdCount + existingCount} quote item${createdCount + existingCount === 1 ? '' : 's'}. Refreshing jobs...`)
+        setMessage(`Imported ${visibleQuoteItemCount} quote ${pluralize(visibleQuoteItemCount, 'item')}. Refreshing jobs...`)
         if (createdCount > 0) {
           await new Promise((resolve) => window.setTimeout(resolve, 3000))
         }
@@ -1165,6 +1225,27 @@ export default function JobsQuotingList() {
     setUploadMenuOpen(false)
     setCreateDNumberModalOpen(true)
     setMessage('')
+  }
+
+  const syncExternalWorkOrders = async () => {
+    setBusy(true)
+    setExternalWorkOrdersSyncing(true)
+    setUploadMenuOpen(false)
+    setMessage('Syncing latest work orders...')
+
+    try {
+      const result = await syncExternalWorkOrdersForQuoting()
+      const workOrdersSeen = result.workOrdersSeen ?? 0
+      const reportsSeen = result.reportsSeen ?? 0
+      const failureCount = result.failures?.length ?? 0
+      const warning = failureCount > 0 ? ` ${failureCount} sync ${pluralize(failureCount, 'issue')} found.` : ''
+      setMessage(`Sync complete. ${workOrdersSeen} work ${pluralize(workOrdersSeen, 'order')} and ${reportsSeen} ${pluralize(reportsSeen, 'report')} checked.${warning}`)
+    } catch (error) {
+      setMessage(getFriendlyImportErrorMessage(error))
+    } finally {
+      setExternalWorkOrdersSyncing(false)
+      setBusy(false)
+    }
   }
 
   const closeCreateDNumberModal = () => {
@@ -1360,6 +1441,32 @@ export default function JobsQuotingList() {
               importExternalInspectionReportsForJob()
             }}
           >
+            {canSyncExternalWorkOrders ? (
+              <button
+                type="button"
+                onClick={syncExternalWorkOrders}
+                disabled={busy}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/30 bg-white/10 text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Sync latest work orders"
+                title="Sync latest work orders"
+              >
+                <svg
+                  className={`h-4 w-4 ${externalWorkOrdersSyncing ? 'animate-spin' : ''}`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 12a9 9 0 0 1-15.1 6.6" />
+                  <path d="M3 12A9 9 0 0 1 18.1 5.4" />
+                  <path d="M18 2v4h4" />
+                  <path d="M6 22v-4H2" />
+                </svg>
+              </button>
+            ) : null}
             <label className="sr-only" htmlFor="external-job-number-import">
               Job number
             </label>
