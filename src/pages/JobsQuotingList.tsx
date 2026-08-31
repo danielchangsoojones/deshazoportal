@@ -195,6 +195,17 @@ function getFriendlyImportErrorMessage(error: unknown) {
   return getFriendlyErrorMessage(error)
 }
 
+function getFriendlySyncErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : 'Work order sync could not be completed.'
+  const lowerMessage = message.toLowerCase()
+
+  if (lowerMessage === 'load failed' || lowerMessage.includes('failed to fetch')) {
+    return 'Sync request could not reach the backend. Confirm the work order sync route is deployed and reachable.'
+  }
+
+  return getFriendlyErrorMessage(error)
+}
+
 function pluralize(count: number, singular: string, plural = `${singular}s`) {
   return count === 1 ? singular : plural
 }
@@ -1241,7 +1252,7 @@ export default function JobsQuotingList() {
       const warning = failureCount > 0 ? ` ${failureCount} sync ${pluralize(failureCount, 'issue')} found.` : ''
       setMessage(`Sync complete. ${workOrdersSeen} work ${pluralize(workOrdersSeen, 'order')} and ${reportsSeen} ${pluralize(reportsSeen, 'report')} checked.${warning}`)
     } catch (error) {
-      setMessage(getFriendlyImportErrorMessage(error))
+      setMessage(getFriendlySyncErrorMessage(error))
     } finally {
       setExternalWorkOrdersSyncing(false)
       setBusy(false)

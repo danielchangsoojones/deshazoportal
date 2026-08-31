@@ -10,6 +10,8 @@ import { usePortalMenu } from '../lib/usePortalMenu'
 
 export default function DeshazoInternalDashboard() {
   const [user, setUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [authMessage, setAuthMessage] = useState('')
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
 
@@ -23,13 +25,34 @@ export default function DeshazoInternalDashboard() {
       navigate('/quotelogin')
       return
     }
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) {
-        navigate('/quotelogin')
-      } else {
+
+    let cancelled = false
+    setAuthLoading(true)
+    setAuthMessage('')
+
+    supabase.auth.getUser()
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error || !data.user) {
+          navigate('/quotelogin')
+          return
+        }
+
         setUser(data.user)
-      }
-    })
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAuthMessage('Unable to verify your session. Redirecting to login...')
+          window.setTimeout(() => navigate('/quotelogin'), 800)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAuthLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [navigate])
 
   const handleSignOut = async () => {
@@ -37,7 +60,15 @@ export default function DeshazoInternalDashboard() {
     navigate('/quotelogin')
   }
 
-  if (!user) return null
+  if (authLoading || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
+        <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
+          {authMessage || 'Loading dashboard...'}
+        </div>
+      </div>
+    )
+  }
 
   const fullName = getUserDisplayName(user)
   const initials = getUserInitials(user)
