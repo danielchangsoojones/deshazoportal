@@ -1497,19 +1497,19 @@ export default function JobsQuotingList() {
                 title="Sync latest work orders"
               >
                 <svg
-                  className={`h-4 w-4 ${externalWorkOrdersSyncing ? 'animate-spin' : ''}`}
+                  className={`h-5 w-5 ${externalWorkOrdersSyncing ? 'animate-spin' : ''}`}
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.25"
+                  strokeWidth="2.2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-hidden="true"
                 >
-                  <path d="M21 12a9 9 0 0 1-15.1 6.6" />
-                  <path d="M3 12A9 9 0 0 1 18.1 5.4" />
-                  <path d="M18 2v4h4" />
-                  <path d="M6 22v-4H2" />
+                  <path d="M20 7.5a8.2 8.2 0 0 0-14.4-1.9A8 8 0 0 0 4 8.1" />
+                  <path d="M4 4v4.1h4.1" />
+                  <path d="M4 16.5a8.2 8.2 0 0 0 14.4 1.9A8 8 0 0 0 20 15.9" />
+                  <path d="M20 20v-4.1h-4.1" />
                 </svg>
               </button>
             ) : null}
