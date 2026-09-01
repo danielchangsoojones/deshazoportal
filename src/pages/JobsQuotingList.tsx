@@ -32,6 +32,8 @@ const extractOnlyUploadMaxBytesPerRequest = 60 * 1024 * 1024
 const runGroupWindowMs = 10 * 60 * 1000
 const allJobsSectionId = 'all-jobs'
 const reportsPerPage = 50
+const syncCustomerBatchSize = 10
+const syncMaxCustomerBatches = 60
 const uploadProcessingNote = 'This can take 5 to 15 minutes to load in the report. Please refresh the page.'
 
 type JobsQuotingRunGroup = {
@@ -1242,15 +1244,39 @@ export default function JobsQuotingList() {
     setBusy(true)
     setExternalWorkOrdersSyncing(true)
     setUploadMenuOpen(false)
-    setMessage('Syncing latest work orders...')
+    setMessage('Syncing current work orders for all customers...')
 
     try {
-      const result = await syncExternalWorkOrdersForQuoting()
-      const workOrdersSeen = result.workOrdersSeen ?? 0
-      const reportsSeen = result.reportsSeen ?? 0
-      const failureCount = result.failures?.length ?? 0
+      let workOrdersSeen = 0
+      let reportsSeen = 0
+      let customersProcessed = 0
+      const failures: unknown[] = []
+
+      for (let batch = 1; batch <= syncMaxCustomerBatches; batch += 1) {
+        const customerOffset = (batch - 1) * syncCustomerBatchSize
+        setMessage(`Syncing current work orders... batch ${batch}, ${customersProcessed} customers checked.`)
+        const result = await syncExternalWorkOrdersForQuoting({
+          incremental: true,
+          pageSize: 25,
+          page: 1,
+          maxCustomers: syncCustomerBatchSize,
+          customerOffset,
+        })
+
+        customersProcessed += result.customersProcessed ?? 0
+        workOrdersSeen += result.workOrdersSeen ?? 0
+        reportsSeen += result.reportsSeen ?? 0
+        failures.push(...(result.failures ?? []))
+
+        if ((result.customersProcessed ?? 0) < syncCustomerBatchSize) {
+          break
+        }
+      }
+
+      await loadQuotingData(allJobsSectionId)
+      const failureCount = failures.length
       const warning = failureCount > 0 ? ` ${failureCount} sync ${pluralize(failureCount, 'issue')} found.` : ''
-      setMessage(`Sync complete. ${workOrdersSeen} work ${pluralize(workOrdersSeen, 'order')} and ${reportsSeen} ${pluralize(reportsSeen, 'report')} checked.${warning}`)
+      setMessage(`Sync complete. ${customersProcessed} customers checked; ${workOrdersSeen} work ${pluralize(workOrdersSeen, 'order')} and ${reportsSeen} ${pluralize(reportsSeen, 'report')} processed.${warning}`)
     } catch (error) {
       setMessage(getFriendlySyncErrorMessage(error))
     } finally {

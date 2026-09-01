@@ -249,11 +249,26 @@ export type BlankQuoteCreateResult = {
 }
 
 export type ExternalWorkOrderSyncResult = {
+  saved?: boolean
   customersProcessed?: number
   pagesProcessed?: number
+  pageSize?: number
+  totalCount?: number | null
+  totalPages?: number | null
   workOrdersSeen?: number
   reportsSeen?: number
   failures?: unknown[]
+}
+
+export type ExternalWorkOrderSyncOptions = {
+  pageSize: number
+  maxPages?: number
+  page?: number
+  latestByDate?: boolean
+  nextMissingByDate?: boolean
+  incremental?: boolean
+  maxCustomers?: number
+  customerOffset?: number
 }
 
 const supabasePageSize = 1000
@@ -1121,18 +1136,32 @@ export async function createBlankJobQuotingItem(): Promise<BlankQuoteCreateResul
   return body as BlankQuoteCreateResult
 }
 
-export async function syncExternalWorkOrdersForQuoting(): Promise<ExternalWorkOrderSyncResult> {
+export async function syncExternalWorkOrdersForQuoting(options: ExternalWorkOrderSyncOptions): Promise<ExternalWorkOrderSyncResult> {
   if (!deshazoExternalApiKey) {
     throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
   }
 
-  const response = await fetchDeshazoExternalApi('/api/external/work-orders/sync/incremental', {
+  const searchParams: Record<string, string> = {
+    page: String(options.page ?? 1),
+    pageSize: String(options.pageSize),
+  }
+  if (options.maxPages) searchParams.maxPages = String(options.maxPages)
+  if (options.latestByDate) searchParams.latestByDate = 'true'
+  if (options.nextMissingByDate) searchParams.nextMissingByDate = 'true'
+  if (options.maxCustomers) searchParams.maxCustomers = String(options.maxCustomers)
+  if (options.customerOffset) searchParams.customerOffset = String(options.customerOffset)
+
+  const response = await fetchDeshazoExternalApi(
+    options.incremental ? '/api/external/work-orders/sync/incremental' : '/api/external/work-orders/sync',
+    {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'X-API-Key': deshazoExternalApiKey,
     },
-  })
+    },
+    searchParams,
+  )
 
   const responseText = await response.text()
   let body: unknown = responseText
