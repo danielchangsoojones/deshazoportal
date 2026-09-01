@@ -252,6 +252,8 @@ export type ExternalWorkOrderSyncResult = {
   saved?: boolean
   customersProcessed?: number
   pagesProcessed?: number
+  partial?: boolean
+  stopReason?: string | null
   pageSize?: number
   totalCount?: number | null
   totalPages?: number | null
@@ -269,6 +271,7 @@ export type ExternalWorkOrderSyncOptions = {
   incremental?: boolean
   maxCustomers?: number
   customerOffset?: number
+  maxRunMillis?: number
 }
 
 const supabasePageSize = 1000
@@ -1150,6 +1153,7 @@ export async function syncExternalWorkOrdersForQuoting(options: ExternalWorkOrde
   if (options.nextMissingByDate) searchParams.nextMissingByDate = 'true'
   if (options.maxCustomers) searchParams.maxCustomers = String(options.maxCustomers)
   if (options.customerOffset) searchParams.customerOffset = String(options.customerOffset)
+  if (options.maxRunMillis) searchParams.maxRunMillis = String(options.maxRunMillis)
 
   const response = await fetchDeshazoExternalApi(
     options.incremental ? '/api/external/work-orders/sync/incremental' : '/api/external/work-orders/sync',

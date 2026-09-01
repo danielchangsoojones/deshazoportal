@@ -1250,6 +1250,7 @@ export default function JobsQuotingList() {
       let workOrdersSeen = 0
       let reportsSeen = 0
       let customersProcessed = 0
+      let partialSync = false
       const failures: unknown[] = []
 
       for (let batch = 1; batch <= syncMaxCustomerBatches; batch += 1) {
@@ -1261,12 +1262,18 @@ export default function JobsQuotingList() {
           page: 1,
           maxCustomers: syncCustomerBatchSize,
           customerOffset,
+          maxRunMillis: 22000,
         })
 
         customersProcessed += result.customersProcessed ?? 0
         workOrdersSeen += result.workOrdersSeen ?? 0
         reportsSeen += result.reportsSeen ?? 0
         failures.push(...(result.failures ?? []))
+
+        if (result.partial) {
+          partialSync = true
+          break
+        }
 
         if ((result.customersProcessed ?? 0) < syncCustomerBatchSize) {
           break
@@ -1276,7 +1283,9 @@ export default function JobsQuotingList() {
       await loadQuotingData(allJobsSectionId)
       const failureCount = failures.length
       const warning = failureCount > 0 ? ` ${failureCount} sync ${pluralize(failureCount, 'issue')} found.` : ''
-      setMessage(`Sync complete. ${customersProcessed} customers checked; ${workOrdersSeen} work ${pluralize(workOrdersSeen, 'order')} and ${reportsSeen} ${pluralize(reportsSeen, 'report')} processed.${warning}`)
+      const status = partialSync ? 'Sync paused before timeout' : 'Sync complete'
+      const nextStep = partialSync ? ' Click sync again to continue.' : ''
+      setMessage(`${status}. ${customersProcessed} customers checked; ${workOrdersSeen} work ${pluralize(workOrdersSeen, 'order')} and ${reportsSeen} ${pluralize(reportsSeen, 'report')} processed.${warning}${nextStep}`)
     } catch (error) {
       setMessage(getFriendlySyncErrorMessage(error))
     } finally {
