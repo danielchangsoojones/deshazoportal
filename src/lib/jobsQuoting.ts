@@ -11,10 +11,14 @@ const inspectionExtractOnlyBackendUrl =
   (import.meta.env.VITE_EXTEND_INSPECTION_EXTRACTONLY_UPLOAD_URL as string | undefined)?.trim() ||
   defaultInspectionExtractOnlyBackendUrl
 const portalParseBaseUrl = (import.meta.env.VITE_PORTAL_PARSE_BASE_URL as string | undefined)?.trim() || ''
+const defaultDeshazoExternalApiBaseUrl = 'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com'
 const deshazoExternalApiBaseUrl =
   (import.meta.env.VITE_DESHAZO_SYNC_API_BASE_URL as string | undefined)?.trim() ||
   (portalParseBaseUrl ? new URL(portalParseBaseUrl).origin : '') ||
-  'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com'
+  defaultDeshazoExternalApiBaseUrl
+const deshazoExternalApiBaseUrlFallbacks = Array.from(
+  new Set([defaultDeshazoExternalApiBaseUrl].filter((url) => url !== deshazoExternalApiBaseUrl)),
+)
 const deshazoExternalApiKey = (import.meta.env.VITE_DESHAZO_EXTERNAL_API_KEY as string | undefined)?.trim() || ''
 export const jobsQuotingPdfBucket = 'jobs-quoting-pdfs'
 
@@ -245,11 +249,29 @@ export type BlankQuoteCreateResult = {
 }
 
 export type ExternalWorkOrderSyncResult = {
+  saved?: boolean
   customersProcessed?: number
   pagesProcessed?: number
+  partial?: boolean
+  stopReason?: string | null
+  pageSize?: number
+  totalCount?: number | null
+  totalPages?: number | null
   workOrdersSeen?: number
   reportsSeen?: number
   failures?: unknown[]
+}
+
+export type ExternalWorkOrderSyncOptions = {
+  pageSize: number
+  maxPages?: number
+  page?: number
+  latestByDate?: boolean
+  nextMissingByDate?: boolean
+  incremental?: boolean
+  maxCustomers?: number
+  customerOffset?: number
+  maxRunMillis?: number
 }
 
 const supabasePageSize = 1000
@@ -685,6 +707,43 @@ async function getAccessToken() {
   return token
 }
 
+function getExternalApiUrl(baseUrl: string, path: string, searchParams?: Record<string, string>) {
+  const url = new URL(path, baseUrl)
+  Object.entries(searchParams || {}).forEach(([key, value]) => {
+    url.searchParams.set(key, value)
+  })
+  return url
+}
+
+async function fetchDeshazoExternalApi(
+  path: string,
+  init: RequestInit,
+  searchParams?: Record<string, string>,
+) {
+  const baseUrls = [deshazoExternalApiBaseUrl, ...deshazoExternalApiBaseUrlFallbacks]
+  let lastError: unknown = null
+
+  for (const [index, baseUrl] of baseUrls.entries()) {
+    try {
+      const response = await fetch(getExternalApiUrl(baseUrl, path, searchParams).toString(), init)
+      if (response.status === 404 && index < baseUrls.length - 1) {
+        const text = await response.clone().text().catch(() => '')
+        if (text.toLowerCase().includes('cannot post /api/external')) {
+          continue
+        }
+      }
+      return response
+    } catch (error) {
+      lastError = error
+      if (index >= baseUrls.length - 1) {
+        throw error
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('External API request failed.')
+}
+
 export async function getJobsQuotingRuns(): Promise<JobsQuotingRun[]> {
   const client = requireSupabase()
   await getCurrentUserId()
@@ -971,9 +1030,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
   }
 
   const accessToken = await getAccessToken()
-  const url = new URL('/api/external/jobs-quoting/from-inspection-reports', deshazoExternalApiBaseUrl)
-  url.searchParams.set('jobNumbers', normalizedJobNumbers.join(','))
-  const response = await fetch(url.toString(), {
+  const response = await fetchDeshazoExternalApi('/api/external/jobs-quoting/from-inspection-reports', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -982,7 +1039,7 @@ export async function createJobQuotingItemsFromExternalInspectionReports(
       'X-Supabase-Access-Token': accessToken,
     },
     body: JSON.stringify({ jobNumbers: normalizedJobNumbers }),
-  })
+  }, { jobNumbers: normalizedJobNumbers.join(',') })
 
   const responseText = await response.text()
   let body: unknown = responseText
@@ -1016,9 +1073,7 @@ export async function createJobQuotingItemFromExternalCraneDNumber(dNumber: stri
   }
 
   const accessToken = await getAccessToken()
-  const url = new URL('/api/external/jobs-quoting/from-d-number', deshazoExternalApiBaseUrl)
-  url.searchParams.set('dNumber', normalizedDNumber)
-  const response = await fetch(url.toString(), {
+  const response = await fetchDeshazoExternalApi('/api/external/jobs-quoting/from-d-number', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1027,7 +1082,7 @@ export async function createJobQuotingItemFromExternalCraneDNumber(dNumber: stri
       'X-Supabase-Access-Token': accessToken,
     },
     body: JSON.stringify({ dNumber: normalizedDNumber }),
-  })
+  }, { dNumber: normalizedDNumber })
 
   const responseText = await response.text()
   let body: unknown = responseText
@@ -1054,8 +1109,7 @@ export async function createBlankJobQuotingItem(): Promise<BlankQuoteCreateResul
   }
 
   const accessToken = await getAccessToken()
-  const url = new URL('/api/external/jobs-quoting/from-blank', deshazoExternalApiBaseUrl)
-  const response = await fetch(url.toString(), {
+  const response = await fetchDeshazoExternalApi('/api/external/jobs-quoting/from-blank', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1085,19 +1139,33 @@ export async function createBlankJobQuotingItem(): Promise<BlankQuoteCreateResul
   return body as BlankQuoteCreateResult
 }
 
-export async function syncExternalWorkOrdersForQuoting(): Promise<ExternalWorkOrderSyncResult> {
+export async function syncExternalWorkOrdersForQuoting(options: ExternalWorkOrderSyncOptions): Promise<ExternalWorkOrderSyncResult> {
   if (!deshazoExternalApiKey) {
     throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
   }
 
-  const url = new URL('/api/external/work-orders/sync/incremental', deshazoExternalApiBaseUrl)
-  const response = await fetch(url.toString(), {
+  const searchParams: Record<string, string> = {
+    page: String(options.page ?? 1),
+    pageSize: String(options.pageSize),
+  }
+  if (options.maxPages) searchParams.maxPages = String(options.maxPages)
+  if (options.latestByDate) searchParams.latestByDate = 'true'
+  if (options.nextMissingByDate) searchParams.nextMissingByDate = 'true'
+  if (options.maxCustomers) searchParams.maxCustomers = String(options.maxCustomers)
+  if (options.customerOffset) searchParams.customerOffset = String(options.customerOffset)
+  if (options.maxRunMillis) searchParams.maxRunMillis = String(options.maxRunMillis)
+
+  const response = await fetchDeshazoExternalApi(
+    options.incremental ? '/api/external/work-orders/sync/incremental' : '/api/external/work-orders/sync',
+    {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'X-API-Key': deshazoExternalApiKey,
     },
-  })
+    },
+    searchParams,
+  )
 
   const responseText = await response.text()
   let body: unknown = responseText

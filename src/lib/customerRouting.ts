@@ -6,12 +6,16 @@ const defaultCustomer = 'wabash'
 const customerSlugToFilterValue: Record<string, string> = {
   'o-neal-steel': "o'neal steel",
   'oneal-steel': "o'neal steel",
+  'sms-group': 'sms group inc',
+  'sms-group-inc': 'sms group inc',
 }
 
 const customerDisplayNames: Record<string, string> = {
   wabash: 'Wabash',
   'o-neal-steel': "O'Neal Steel",
   'oneal-steel': "O'Neal Steel",
+  'sms-group': 'SMS Group Inc.',
+  'sms-group-inc': 'SMS Group Inc.',
 }
 
 export function normalizeCustomer(value?: string | null) {

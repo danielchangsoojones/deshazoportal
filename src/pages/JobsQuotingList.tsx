@@ -32,6 +32,8 @@ const extractOnlyUploadMaxBytesPerRequest = 60 * 1024 * 1024
 const runGroupWindowMs = 10 * 60 * 1000
 const allJobsSectionId = 'all-jobs'
 const reportsPerPage = 50
+const syncCustomerBatchSize = 10
+const syncMaxCustomerBatches = 60
 const uploadProcessingNote = 'This can take 5 to 15 minutes to load in the report. Please refresh the page.'
 
 type JobsQuotingRunGroup = {
@@ -1242,15 +1244,48 @@ export default function JobsQuotingList() {
     setBusy(true)
     setExternalWorkOrdersSyncing(true)
     setUploadMenuOpen(false)
-    setMessage('Syncing latest work orders...')
+    setMessage('Syncing current work orders for all customers...')
 
     try {
-      const result = await syncExternalWorkOrdersForQuoting()
-      const workOrdersSeen = result.workOrdersSeen ?? 0
-      const reportsSeen = result.reportsSeen ?? 0
-      const failureCount = result.failures?.length ?? 0
+      let workOrdersSeen = 0
+      let reportsSeen = 0
+      let customersProcessed = 0
+      let partialSync = false
+      const failures: unknown[] = []
+
+      for (let batch = 1; batch <= syncMaxCustomerBatches; batch += 1) {
+        const customerOffset = (batch - 1) * syncCustomerBatchSize
+        setMessage(`Syncing current work orders... batch ${batch}, ${customersProcessed} customers checked.`)
+        const result = await syncExternalWorkOrdersForQuoting({
+          incremental: true,
+          pageSize: 25,
+          page: 1,
+          maxCustomers: syncCustomerBatchSize,
+          customerOffset,
+          maxRunMillis: 22000,
+        })
+
+        customersProcessed += result.customersProcessed ?? 0
+        workOrdersSeen += result.workOrdersSeen ?? 0
+        reportsSeen += result.reportsSeen ?? 0
+        failures.push(...(result.failures ?? []))
+
+        if (result.partial) {
+          partialSync = true
+          break
+        }
+
+        if ((result.customersProcessed ?? 0) < syncCustomerBatchSize) {
+          break
+        }
+      }
+
+      await loadQuotingData(allJobsSectionId)
+      const failureCount = failures.length
       const warning = failureCount > 0 ? ` ${failureCount} sync ${pluralize(failureCount, 'issue')} found.` : ''
-      setMessage(`Sync complete. ${workOrdersSeen} work ${pluralize(workOrdersSeen, 'order')} and ${reportsSeen} ${pluralize(reportsSeen, 'report')} checked.${warning}`)
+      const status = partialSync ? 'Sync paused before timeout' : 'Sync complete'
+      const nextStep = partialSync ? ' Click sync again to continue.' : ''
+      setMessage(`${status}. ${customersProcessed} customers checked; ${workOrdersSeen} work ${pluralize(workOrdersSeen, 'order')} and ${reportsSeen} ${pluralize(reportsSeen, 'report')} processed.${warning}${nextStep}`)
     } catch (error) {
       setMessage(getFriendlySyncErrorMessage(error))
     } finally {
@@ -1462,19 +1497,19 @@ export default function JobsQuotingList() {
                 title="Sync latest work orders"
               >
                 <svg
-                  className={`h-4 w-4 ${externalWorkOrdersSyncing ? 'animate-spin' : ''}`}
+                  className={`h-5 w-5 ${externalWorkOrdersSyncing ? 'animate-spin' : ''}`}
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.25"
+                  strokeWidth="2.2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-hidden="true"
                 >
-                  <path d="M21 12a9 9 0 0 1-15.1 6.6" />
-                  <path d="M3 12A9 9 0 0 1 18.1 5.4" />
-                  <path d="M18 2v4h4" />
-                  <path d="M6 22v-4H2" />
+                  <path d="M20 7.5a8.2 8.2 0 0 0-14.4-1.9A8 8 0 0 0 4 8.1" />
+                  <path d="M4 4v4.1h4.1" />
+                  <path d="M4 16.5a8.2 8.2 0 0 0 14.4 1.9A8 8 0 0 0 20 15.9" />
+                  <path d="M20 20v-4.1h-4.1" />
                 </svg>
               </button>
             ) : null}
