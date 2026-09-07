@@ -1152,15 +1152,16 @@ export async function createInspectionQuoteItem(selectedSectionIds: string[]): P
   }
 
   const accessToken = await getAccessToken()
-  const response = await fetchDeshazoExternalApi('/api/external/jobs-quoting/from-inspection-quote', {
+  const searchParams = new URLSearchParams()
+  selectedSectionIds.forEach((sectionId) => searchParams.append('selectedSectionId', sectionId))
+  const query = searchParams.toString()
+  const response = await fetchDeshazoExternalApi(`/api/external/jobs-quoting/from-inspection-quote${query ? `?${query}` : ''}`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
-      'Content-Type': 'application/json',
       'X-API-Key': deshazoExternalApiKey,
       'X-Supabase-Access-Token': accessToken,
     },
-    body: JSON.stringify({ selectedSectionIds }),
   })
 
   const responseText = await response.text()
