@@ -5,6 +5,7 @@ import ProfileMenu from '../components/ProfileMenu'
 import { supabase, isConfigured } from '../lib/supabase'
 import {
   createBlankJobQuotingItem,
+  createInspectionQuoteItem,
   createJobQuotingItemFromExternalCraneDNumber,
   createJobQuotingItemsFromExternalInspectionReports,
   deleteJobsQuotingItem,
@@ -35,6 +36,18 @@ const reportsPerPage = 50
 const syncCustomerBatchSize = 10
 const syncMaxCustomerBatches = 60
 const uploadProcessingNote = 'This can take 5 to 15 minutes to load in the report. Please refresh the page.'
+
+const inspectionQuoteTemplateSections = [
+  { id: 'frequent-inspections', title: 'Frequent Inspections' },
+  { id: 'periodic-inspections', title: 'Periodic Inspections' },
+  { id: 'preventative-maintenance', title: 'Preventative Maintenance' },
+  { id: 'below-the-hook', title: 'Below-The-Hook' },
+  { id: 'slings-rigging-hardware', title: 'Slings / Rigging / Hardware' },
+  { id: 'structural-runway', title: 'Structural Runway Inspections / Surveys' },
+  { id: 'load-testing', title: 'Load Testing / Inspection' },
+  { id: 'nondestructive-testing', title: 'Nondestructive Testing' },
+  { id: 'asset-management-dashboard', title: 'DeSHAZO Dashboard / Asset Management' },
+]
 
 type JobsQuotingRunGroup = {
   id: string
@@ -600,6 +613,8 @@ export default function JobsQuotingList() {
   const [currentPage, setCurrentPage] = useState(1)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
   const [createDNumberModalOpen, setCreateDNumberModalOpen] = useState(false)
+  const [inspectionQuoteModalOpen, setInspectionQuoteModalOpen] = useState(false)
+  const [inspectionQuoteSelectedSectionIds, setInspectionQuoteSelectedSectionIds] = useState<string[]>(['periodic-inspections'])
   const [existingImportedJobModal, setExistingImportedJobModal] = useState<ExistingImportedJobModal | null>(null)
   const [openItemSettingsId, setOpenItemSettingsId] = useState<string | null>(null)
   const [openJobSettingsId, setOpenJobSettingsId] = useState<string | null>(null)
@@ -610,6 +625,7 @@ export default function JobsQuotingList() {
   const [createDNumberInput, setCreateDNumberInput] = useState('')
   const [createDNumberSubmitting, setCreateDNumberSubmitting] = useState(false)
   const [createBlankSubmitting, setCreateBlankSubmitting] = useState(false)
+  const [createInspectionQuoteSubmitting, setCreateInspectionQuoteSubmitting] = useState(false)
   const [markResultItemId, setMarkResultItemId] = useState<string | null>(null)
   const [markResultJobItemIds, setMarkResultJobItemIds] = useState<string[]>([])
   const [markResultJobLabel, setMarkResultJobLabel] = useState('')
@@ -1346,6 +1362,42 @@ export default function JobsQuotingList() {
     }
   }
 
+  const openInspectionQuoteModal = () => {
+    setUploadMenuOpen(false)
+    setInspectionQuoteModalOpen(true)
+    setMessage('')
+  }
+
+  const toggleInspectionQuoteSection = (sectionId: string, checked: boolean) => {
+    setInspectionQuoteSelectedSectionIds((currentIds) => {
+      if (checked) return currentIds.includes(sectionId) ? currentIds : [...currentIds, sectionId]
+      return currentIds.filter((currentId) => currentId !== sectionId)
+    })
+  }
+
+  const createInspectionQuote = async () => {
+    if (inspectionQuoteSelectedSectionIds.length === 0) {
+      setMessage('Choose at least one inspection quote section.')
+      return
+    }
+
+    setBusy(true)
+    setCreateInspectionQuoteSubmitting(true)
+    setMessage('Creating inspection quote report.')
+
+    try {
+      const result = await createInspectionQuoteItem(inspectionQuoteSelectedSectionIds)
+      setCurrentQuoteJobsFromItemIds([result.itemId])
+      setInspectionQuoteModalOpen(false)
+      navigate(`/editable-inspection-report?jobsQuotingItemId=${encodeURIComponent(result.itemId)}`)
+    } catch (error) {
+      setMessage(getFriendlyImportErrorMessage(error))
+    } finally {
+      setCreateInspectionQuoteSubmitting(false)
+      setBusy(false)
+    }
+  }
+
   const openMarkResultModal = (item: JobsQuotingItem) => {
     const existingResult = itemResults[item.id]
     const quoteTotalAmount = getQuoteTotalAmount(item)
@@ -1638,6 +1690,17 @@ export default function JobsQuotingList() {
                   <button
                     type="button"
                     disabled={busy}
+                    onClick={openInspectionQuoteModal}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {createInspectionQuoteSubmitting ? (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#c8d5f2] border-t-[var(--deshazo-blue)]" />
+                    ) : null}
+                    <span>Inspection Quote</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
                     onClick={() => extractPdfInputRef.current?.click()}
                     className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -1706,6 +1769,70 @@ export default function JobsQuotingList() {
                 className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)]"
               >
                 Let me see it
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {inspectionQuoteModalOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#111827]/45 px-4">
+          <div className="w-full max-w-[560px] rounded-md border border-[#d3dbea] bg-white p-5 text-[var(--deshazo-text)] shadow-[0_28px_90px_-38px_rgba(15,23,42,0.7)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-[18px] font-black leading-tight text-[var(--deshazo-text)]">Inspection Quote</h2>
+                <p className="mt-1 text-[13px] font-semibold leading-5 text-[#5b606b]">
+                  Choose the inspection sections to include in the scope of work.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={createInspectionQuoteSubmitting}
+                onClick={() => setInspectionQuoteModalOpen(false)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#c7d1e2] bg-white text-[18px] font-black leading-none text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close inspection quote"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              {inspectionQuoteTemplateSections.map((section) => (
+                <label
+                  key={section.id}
+                  className="flex cursor-pointer items-start gap-3 rounded-md border border-[#c7d1e2] bg-white px-3 py-3 text-[13px] font-black text-[var(--deshazo-text)] transition hover:bg-[#eef4ff]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={inspectionQuoteSelectedSectionIds.includes(section.id)}
+                    onChange={(event) => toggleInspectionQuoteSection(section.id, event.currentTarget.checked)}
+                    disabled={createInspectionQuoteSubmitting}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--deshazo-blue)]"
+                  />
+                  <span className="leading-5">{section.title}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={createInspectionQuoteSubmitting}
+                onClick={() => setInspectionQuoteModalOpen(false)}
+                className="rounded-md border border-[#bdc4d3] bg-white px-4 py-2 text-[13px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={createInspectionQuoteSubmitting || inspectionQuoteSelectedSectionIds.length === 0}
+                onClick={createInspectionQuote}
+                className="inline-flex min-w-[132px] items-center justify-center gap-2 rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-[13px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {createInspectionQuoteSubmitting ? (
+                  <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                ) : null}
+                Create Quote
               </button>
             </div>
           </div>

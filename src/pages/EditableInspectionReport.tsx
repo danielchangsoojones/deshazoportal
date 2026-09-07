@@ -213,6 +213,43 @@ const shouldSuppressRuntimePageBreak = (blockId: string) =>
 type EquipmentRentalSettings = {
   applyMarginToAll: boolean
   margin: string
+  inspectionQuote?: InspectionQuoteSettings
+}
+
+type InspectionQuoteTemplateSection = {
+  id: string
+  title: string
+  usesEstimator?: boolean
+  scope: string
+}
+
+type InspectionEstimatorRow = {
+  id: string
+  type: string
+  class: string
+  hours: number
+  units: number
+  visits: number
+}
+
+type InspectionQuoteManualSectionPricing = {
+  assets: string
+  parts: string
+  labor: string
+  rentals: string
+  freight: string
+}
+
+type InspectionQuoteSettings = {
+  selectedSectionIds: string[]
+  selectedSections: InspectionQuoteTemplateSection[]
+  generatedScopeOfWork: string
+  estimatorRows: InspectionEstimatorRow[]
+  laborCostRate: number
+  laborSellRate: number
+  mode: 'periodic' | 'frequent'
+  manualQuoteEdits: boolean
+  manualPricing?: Record<string, InspectionQuoteManualSectionPricing>
 }
 
 type MenuItemsRefreshProgress = {
@@ -2179,6 +2216,140 @@ const normalizeCostSections = (sections: CostSection[]) =>
 const normalizeEstimateCostSections = (sections: CostSection[]) =>
   normalizeCostSections(sections).filter((section) => !isRepairScopedCostSection(section))
 
+const isInspectionQuoteItem = (item: JobsQuotingItem | null) => item?.splitType === 'inspection_quote'
+
+const getInspectionQuoteSettings = (settings: EquipmentRentalSettings): InspectionQuoteSettings | null => {
+  const inspectionQuote = settings.inspectionQuote
+  if (!inspectionQuote || !Array.isArray(inspectionQuote.selectedSections)) return null
+
+  return {
+    selectedSectionIds: Array.isArray(inspectionQuote.selectedSectionIds) ? inspectionQuote.selectedSectionIds : [],
+    selectedSections: inspectionQuote.selectedSections,
+    generatedScopeOfWork: inspectionQuote.generatedScopeOfWork || '',
+    estimatorRows: Array.isArray(inspectionQuote.estimatorRows) ? inspectionQuote.estimatorRows : [],
+    laborCostRate: Number.isFinite(Number(inspectionQuote.laborCostRate)) ? Number(inspectionQuote.laborCostRate) : 55,
+    laborSellRate: Number.isFinite(Number(inspectionQuote.laborSellRate)) ? Number(inspectionQuote.laborSellRate) : 125,
+    mode: inspectionQuote.mode === 'frequent' ? 'frequent' : 'periodic',
+    manualQuoteEdits: Boolean(inspectionQuote.manualQuoteEdits),
+    manualPricing: inspectionQuote.manualPricing ?? {},
+  }
+}
+
+const getInspectionEstimatorHours = (row: InspectionEstimatorRow, mode: InspectionQuoteSettings['mode']) =>
+  row.hours * (mode === 'frequent' ? 0.5 : 1)
+
+const getInspectionEstimatorRowTotalHours = (row: InspectionEstimatorRow, mode: InspectionQuoteSettings['mode']) =>
+  getInspectionEstimatorHours(row, mode) * Number(row.units || 0) * Number(row.visits || 0)
+
+const getInspectionEstimatorTotalHours = (settings: InspectionQuoteSettings) =>
+  settings.estimatorRows.reduce((total, row) => total + getInspectionEstimatorRowTotalHours(row, settings.mode), 0)
+
+const getInspectionEstimatorTotalAssets = (settings: InspectionQuoteSettings) =>
+  settings.estimatorRows.reduce((total, row) => total + Number(row.units || 0), 0)
+
+const getInspectionEstimatorLaborSell = (settings: InspectionQuoteSettings) =>
+  getInspectionEstimatorTotalHours(settings) * settings.laborSellRate
+
+const getInspectionEstimatorLaborCost = (settings: InspectionQuoteSettings) =>
+  getInspectionEstimatorTotalHours(settings) * settings.laborCostRate
+
+const createInspectionQuoteLineItem = (
+  id: string,
+  description: string,
+  customerPrice = '0.00',
+  quantity = '1',
+  internalCost = '0.00',
+): RepairLineItem => ({
+  id,
+  description,
+  internalCost,
+  quantity,
+  customerPrice,
+  rate: internalCost,
+  margin: getUnitMargin(parseMoney(internalCost), parseMoney(customerPrice)).toFixed(2),
+  source: 'manual',
+})
+
+const getInspectionQuotePricingValue = (
+  settings: InspectionQuoteSettings,
+  section: InspectionQuoteTemplateSection,
+  field: keyof InspectionQuoteManualSectionPricing,
+) => settings.manualPricing?.[section.id]?.[field] ?? '0.00'
+
+const buildInspectionQuoteCostSections = (settings: InspectionQuoteSettings): CostSection[] => {
+  const estimatorSection = settings.selectedSections.find((section) => section.usesEstimator)
+  const estimatorLaborSell = getInspectionEstimatorLaborSell(settings)
+  const estimatorLaborCost = getInspectionEstimatorLaborCost(settings)
+  const estimatorAssets = getInspectionEstimatorTotalAssets(settings)
+
+  return settings.selectedSections.flatMap((section) => {
+    const isEstimatorSection = estimatorSection?.id === section.id
+    const assets = isEstimatorSection && estimatorAssets > 0
+      ? String(estimatorAssets)
+      : getInspectionQuotePricingValue(settings, section, 'assets')
+    const labor = isEstimatorSection && estimatorLaborSell > 0
+      ? estimatorLaborSell.toFixed(2)
+      : getInspectionQuotePricingValue(settings, section, 'labor')
+
+    return [
+      {
+        id: `inspection-${section.id}-assets`,
+        title: `${section.title} - Assets # of`,
+        lineItems: [createInspectionQuoteLineItem(`${section.id}-assets`, 'Assets # of', '0.00', assets)],
+      },
+      {
+        id: `inspection-${section.id}-parts`,
+        title: `${section.title} - Parts`,
+        lineItems: [createInspectionQuoteLineItem(`${section.id}-parts`, 'Parts / Consumables', getInspectionQuotePricingValue(settings, section, 'parts'))],
+      },
+      {
+        id: `inspection-${section.id}-labor`,
+        title: `${section.title} - Labor`,
+        lineItems: [createInspectionQuoteLineItem(
+          `${section.id}-labor`,
+          'Labor',
+          labor,
+          '1',
+          isEstimatorSection && estimatorLaborCost > 0 ? estimatorLaborCost.toFixed(2) : '0.00',
+        )],
+      },
+      {
+        id: `inspection-${section.id}-rentals`,
+        title: `${section.title} - Rentals`,
+        lineItems: [createInspectionQuoteLineItem(`${section.id}-rentals`, 'Rentals', getInspectionQuotePricingValue(settings, section, 'rentals'))],
+      },
+      {
+        id: `inspection-${section.id}-freight`,
+        title: `${section.title} - Freight`,
+        lineItems: [createInspectionQuoteLineItem(`${section.id}-freight`, 'Freight', getInspectionQuotePricingValue(settings, section, 'freight'))],
+      },
+    ]
+  })
+}
+
+const getInspectionQuoteManualPricingFromCostSections = (
+  sections: CostSection[],
+  selectedSections: InspectionQuoteTemplateSection[],
+) => selectedSections.reduce<Record<string, InspectionQuoteManualSectionPricing>>((pricing, section) => {
+  const getValue = (field: keyof InspectionQuoteManualSectionPricing) => {
+    const costSection = sections.find((candidate) => candidate.id === `inspection-${section.id}-${field}`)
+    const lineItem = costSection?.lineItems[0]
+    if (!lineItem) return field === 'assets' ? '0' : '0.00'
+    return field === 'assets' ? lineItem.quantity : lineItem.customerPrice ?? '0.00'
+  }
+
+  return {
+    ...pricing,
+    [section.id]: {
+      assets: getValue('assets'),
+      parts: getValue('parts'),
+      labor: getValue('labor'),
+      rentals: getValue('rentals'),
+      freight: getValue('freight'),
+    },
+  }
+}, {})
+
 const shouldPromoteRepairLineItemToDescription = (lineItem: RepairLineItem) =>
   Boolean(lineItem.description?.trim())
   && !shouldClearPlaceholderDescription(lineItem.description)
@@ -2862,6 +3033,7 @@ export default function EditableInspectionReport({
   const [currentReportName, setCurrentReportName] = useState('Untitled quote report')
   const [currentSourceDocumentName, setCurrentSourceDocumentName] = useState('Untitled quote report')
   const [currentJobsQuotingItemId, setCurrentJobsQuotingItemId] = useState<string | null>(validJobsQuotingItemId || null)
+  const [currentJobsQuotingItem, setCurrentJobsQuotingItem] = useState<JobsQuotingItem | null>(null)
   const [runtimePageBreaks, setRuntimePageBreaks] = useState<Record<string, number>>({})
   const [runtimePageCount, setRuntimePageCount] = useState(1)
   const [isReportEditing, setIsReportEditing] = useState(false)
@@ -3031,6 +3203,10 @@ export default function EditableInspectionReport({
   const currentMenuDNumber = useMemo(() => getDNumberFromReport(report), [report])
   const currentJobNumber = useMemo(() => getJobNumberDisplayFromReport(report), [report])
   const isEditableReportLoading = hasSelectedEditableReportSource && reportDatabaseStatus === 'loading'
+  const currentInspectionQuoteSettings = useMemo(
+    () => isInspectionQuoteItem(currentJobsQuotingItem) ? getInspectionQuoteSettings(equipmentRentalSettings) : null,
+    [currentJobsQuotingItem, equipmentRentalSettings],
+  )
 
   useEffect(() => {
     if (embeddedJobPage) {
@@ -3622,6 +3798,7 @@ export default function EditableInspectionReport({
           setCurrentReportName(reportName)
           setCurrentSourceDocumentName(quoteItem.sourceDocumentName || quoteItem.documentName)
           setCurrentJobsQuotingItemId(quoteItem.id)
+          setCurrentJobsQuotingItem(quoteItem)
           setReportDatabaseStatus('saved')
         } else {
           applyEditableReportPayload({
@@ -3645,6 +3822,7 @@ export default function EditableInspectionReport({
           setCurrentReportName('Untitled quote report')
           setCurrentSourceDocumentName('Untitled quote report')
           setCurrentJobsQuotingItemId(null)
+          setCurrentJobsQuotingItem(null)
           setReportDatabaseStatus('saved')
         }
 
@@ -3674,6 +3852,7 @@ export default function EditableInspectionReport({
         setCurrentReportName('Quote report not found')
         setCurrentSourceDocumentName('Quote report not found')
         setCurrentJobsQuotingItemId(null)
+        setCurrentJobsQuotingItem(null)
         skipNextReportDatabaseSave.current = true
         pendingReportChanges.current = false
         reportHydrationReady.current = true
@@ -4145,6 +4324,19 @@ export default function EditableInspectionReport({
   }, [currentCraneIdentifier, jobsQuotingItemId])
 
   const updateField = (id: string, value: string) => {
+    if (id === 'scopeOfWork' && currentInspectionQuoteSettings && value !== currentInspectionQuoteSettings.generatedScopeOfWork) {
+      setEquipmentRentalSettings((currentSettings) => {
+        const inspectionQuote = getInspectionQuoteSettings(currentSettings)
+        if (!inspectionQuote || inspectionQuote.manualQuoteEdits) return currentSettings
+        const nextSettings = {
+          ...currentSettings,
+          inspectionQuote: { ...inspectionQuote, manualQuoteEdits: true },
+        }
+        window.localStorage.setItem(equipmentRentalSettingsStorageKey, JSON.stringify(nextSettings))
+        return nextSettings
+      })
+    }
+
     setReport((currentReport) => {
       const nextReport = syncReportSummaryCraneContext(
         currentReport,
@@ -4164,6 +4356,97 @@ export default function EditableInspectionReport({
   const saveCostSections = (nextSections: CostSection[]) => {
     window.localStorage.setItem(costStorageKey, JSON.stringify(nextSections))
     return nextSections
+  }
+
+  const saveEquipmentRentalSettings = (nextSettings: EquipmentRentalSettings) => {
+    window.localStorage.setItem(equipmentRentalSettingsStorageKey, JSON.stringify(nextSettings))
+    return nextSettings
+  }
+
+  const markInspectionQuoteManualPricingEdit = () => {
+    if (!currentInspectionQuoteSettings) return
+
+    setEquipmentRentalSettings((currentSettings) => {
+      const inspectionQuote = getInspectionQuoteSettings(currentSettings)
+      if (!inspectionQuote || inspectionQuote.manualQuoteEdits) return currentSettings
+      return saveEquipmentRentalSettings({
+        ...currentSettings,
+        inspectionQuote: { ...inspectionQuote, manualQuoteEdits: true },
+      })
+    })
+  }
+
+  const applyInspectionQuoteGeneratedContent = (nextInspectionQuote: InspectionQuoteSettings) => {
+    const nextSettings = {
+      ...nextInspectionQuote,
+      manualPricing: {
+        ...nextInspectionQuote.manualPricing,
+        ...getInspectionQuoteManualPricingFromCostSections(costSections, nextInspectionQuote.selectedSections),
+      },
+    }
+    const nextScopeOfWork = nextSettings.generatedScopeOfWork
+    if (
+      currentInspectionQuoteSettings?.manualQuoteEdits &&
+      !window.confirm('This quote has manual edits. Update generated scope and pricing from the estimator anyway?')
+    ) {
+      return false
+    }
+
+    setReport((currentReport) => {
+      const nextReport = syncReportSummaryCraneContext(
+        currentReport,
+        { ...currentReport, scopeOfWork: nextScopeOfWork },
+        'scopeOfWork',
+      )
+      window.localStorage.setItem(storageKey, JSON.stringify(nextReport))
+      return nextReport
+    })
+    const nextCostSections = buildInspectionQuoteCostSections(nextSettings)
+    setCostSections(saveCostSections(nextCostSections))
+    setEstimateCostSectionVisibility((currentVisibility) => {
+      const nextVisibility = {
+        ...currentVisibility,
+        ...getEstimateCostSectionVisibilityFromSections(nextCostSections),
+      }
+      window.localStorage.setItem(estimateCostSectionVisibilityStorageKey, JSON.stringify(nextVisibility))
+      return nextVisibility
+    })
+    setEquipmentRentalSettings((currentSettings) =>
+      saveEquipmentRentalSettings({
+        ...currentSettings,
+        inspectionQuote: { ...nextSettings, manualQuoteEdits: false },
+      }),
+    )
+    return true
+  }
+
+  const updateInspectionEstimatorRow = (rowId: string, field: 'units' | 'visits', value: string) => {
+    if (!currentInspectionQuoteSettings) return
+
+    const nextEstimatorRows = currentInspectionQuoteSettings.estimatorRows.map((row) =>
+      row.id === rowId ? { ...row, [field]: parseMoney(value) } : row,
+    )
+    applyInspectionQuoteGeneratedContent({
+      ...currentInspectionQuoteSettings,
+      estimatorRows: nextEstimatorRows,
+    })
+  }
+
+  const updateInspectionEstimatorSetting = (field: 'laborSellRate' | 'mode', value: string) => {
+    if (!currentInspectionQuoteSettings) return
+
+    if (field === 'mode') {
+      applyInspectionQuoteGeneratedContent({
+        ...currentInspectionQuoteSettings,
+        mode: value === 'frequent' ? 'frequent' : 'periodic',
+      })
+      return
+    }
+
+    applyInspectionQuoteGeneratedContent({
+      ...currentInspectionQuoteSettings,
+      laborSellRate: parseMoney(value),
+    })
   }
 
   const saveMenuItemSections = (nextSections: MenuItemSection[]) => {
@@ -4797,6 +5080,10 @@ export default function EditableInspectionReport({
     field: 'description' | 'internalCost' | 'quantity' | 'customerPrice' | 'rate' | 'margin',
     value: string,
   ) => {
+    if (currentInspectionQuoteSettings && field !== 'description') {
+      markInspectionQuoteManualPricingEdit()
+    }
+
     setCostSections((currentSections) =>
       saveCostSections(
         currentSections.map((section) =>
@@ -5083,6 +5370,14 @@ export default function EditableInspectionReport({
   }
 
   const printEditableReport = async () => {
+    if (
+      currentInspectionQuoteSettings &&
+      !report.scopeOfWork.trim() &&
+      !window.confirm('This inspection quote does not have a scope of work. Print it anyway?')
+    ) {
+      return
+    }
+
     setJobReportPrintDownloadMessage('Saving latest edits before printing.')
     const pendingPrintWindow = window.open('', '_blank')
 
@@ -6161,6 +6456,91 @@ export default function EditableInspectionReport({
                 ) : null}
             </div>
             </div>
+
+            {currentInspectionQuoteSettings ? (
+              <section className="report-toolbar mb-5 w-[8.5in] max-w-full rounded-md border border-[#cfd6e5] bg-white shadow-[0_18px_48px_-34px_rgba(15,23,42,0.48)]">
+                <div className="flex flex-col justify-between gap-3 border-b border-[#d8deea] bg-[#f8fbff] px-4 py-3 sm:flex-row sm:items-center">
+                  <div>
+                    <h2 className="text-[17px] font-black text-[#1f2430]">Inspection Estimator</h2>
+                    <p className="mt-1 text-[12px] font-bold leading-tight text-[#747b8a]">
+                      Hours are locked. Units, visits, and sell rate update the generated quote pricing.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={currentInspectionQuoteSettings.mode}
+                      onChange={(event) => updateInspectionEstimatorSetting('mode', event.currentTarget.value)}
+                      className="h-9 rounded-md border border-[#cfd6e5] bg-white px-3 text-[12px] font-black text-[#1f2430] outline-none focus:border-[#273f7a]"
+                      aria-label="Inspection estimator type"
+                    >
+                      <option value="periodic">Periodic hours</option>
+                      <option value="frequent">Frequent half-hours</option>
+                    </select>
+                    <label className="flex h-9 items-center overflow-hidden rounded-md border border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430]">
+                      <span className="border-r border-[#d8deea] bg-[#f8fbff] px-2.5">Sell/hr</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={currentInspectionQuoteSettings.laborSellRate}
+                        onChange={(event) => updateInspectionEstimatorSetting('laborSellRate', event.currentTarget.value)}
+                        className="h-full w-20 px-2 text-right outline-none"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <div className="min-w-[760px]">
+                    <div className="grid grid-cols-[1.35fr_1.55fr_70px_70px_70px_92px_100px] border-b border-[#d8deea] bg-[#fbfbfb] text-[10px] font-black uppercase text-[#555b66]">
+                      <div className="px-3 py-2">Type</div>
+                      <div className="border-l border-[#d8deea] px-3 py-2">Class</div>
+                      <div className="border-l border-[#d8deea] px-3 py-2 text-right">Hours</div>
+                      <div className="border-l border-[#d8deea] px-3 py-2 text-right">Units</div>
+                      <div className="border-l border-[#d8deea] px-3 py-2 text-right">Visits</div>
+                      <div className="border-l border-[#d8deea] px-3 py-2 text-right">Total Hours</div>
+                      <div className="border-l border-[#d8deea] px-3 py-2 text-right">Sell Price</div>
+                    </div>
+                    {currentInspectionQuoteSettings.estimatorRows.map((row) => {
+                      const rowHours = getInspectionEstimatorHours(row, currentInspectionQuoteSettings.mode)
+                      const rowTotalHours = getInspectionEstimatorRowTotalHours(row, currentInspectionQuoteSettings.mode)
+
+                      return (
+                        <div key={row.id} className="grid grid-cols-[1.35fr_1.55fr_70px_70px_70px_92px_100px] border-b border-[#eef1f6] text-[12px] font-semibold text-[#1f2430]">
+                          <div className="px-3 py-2 leading-tight">{row.type}</div>
+                          <div className="border-l border-[#eef1f6] px-3 py-2 leading-tight text-[#4d5360]">{row.class}</div>
+                          <div className="border-l border-[#eef1f6] bg-[#f4f6fb] px-3 py-2 text-right font-black">{rowHours}</div>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={row.units}
+                            onChange={(event) => updateInspectionEstimatorRow(row.id, 'units', event.currentTarget.value)}
+                            className="min-w-0 border-l border-[#eef1f6] px-3 py-2 text-right font-black outline-none focus:bg-[#fffdf3]"
+                            aria-label={`${row.type} units`}
+                          />
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={row.visits}
+                            onChange={(event) => updateInspectionEstimatorRow(row.id, 'visits', event.currentTarget.value)}
+                            className="min-w-0 border-l border-[#eef1f6] px-3 py-2 text-right font-black outline-none focus:bg-[#fffdf3]"
+                            aria-label={`${row.type} visits`}
+                          />
+                          <div className="border-l border-[#eef1f6] px-3 py-2 text-right font-black">{rowTotalHours.toFixed(2)}</div>
+                          <div className="border-l border-[#eef1f6] px-3 py-2 text-right font-black">{formatMoney(rowTotalHours * currentInspectionQuoteSettings.laborSellRate)}</div>
+                        </div>
+                      )
+                    })}
+                    <div className="grid grid-cols-[1.35fr_1.55fr_70px_70px_70px_92px_100px] bg-[#f0f4fb] text-[12px] font-black text-[#111]">
+                      <div className="col-span-3 px-3 py-2 text-right uppercase text-[#273f7a]">Totals</div>
+                      <div className="border-l border-[#d8deea] px-3 py-2 text-right">{getInspectionEstimatorTotalAssets(currentInspectionQuoteSettings)}</div>
+                      <div className="border-l border-[#d8deea] px-3 py-2 text-right" />
+                      <div className="border-l border-[#d8deea] px-3 py-2 text-right">{getInspectionEstimatorTotalHours(currentInspectionQuoteSettings).toFixed(2)}</div>
+                      <div className="border-l border-[#d8deea] px-3 py-2 text-right">{formatMoney(getInspectionEstimatorLaborSell(currentInspectionQuoteSettings))}</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : null}
 
             <div className="report-document relative">
               {isEditableReportLoading ? (

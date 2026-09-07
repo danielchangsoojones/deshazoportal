@@ -248,6 +248,13 @@ export type BlankQuoteCreateResult = {
   documentName: string
 }
 
+export type InspectionQuoteCreateResult = {
+  runId: string
+  itemId: string
+  documentName: string
+  selectedSectionIds: string[]
+}
+
 export type ExternalWorkOrderSyncResult = {
   saved?: boolean
   customersProcessed?: number
@@ -1137,6 +1144,42 @@ export async function createBlankJobQuotingItem(): Promise<BlankQuoteCreateResul
   }
 
   return body as BlankQuoteCreateResult
+}
+
+export async function createInspectionQuoteItem(selectedSectionIds: string[]): Promise<InspectionQuoteCreateResult> {
+  if (!deshazoExternalApiKey) {
+    throw new Error('External sync API key is not configured. Add VITE_DESHAZO_EXTERNAL_API_KEY to the frontend environment.')
+  }
+
+  const accessToken = await getAccessToken()
+  const response = await fetchDeshazoExternalApi('/api/external/jobs-quoting/from-inspection-quote', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-API-Key': deshazoExternalApiKey,
+      'X-Supabase-Access-Token': accessToken,
+    },
+    body: JSON.stringify({ selectedSectionIds }),
+  })
+
+  const responseText = await response.text()
+  let body: unknown = responseText
+  try {
+    body = JSON.parse(responseText)
+  } catch {
+    // Keep non-JSON backend errors readable.
+  }
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `Inspection quote creation failed with status ${response.status}.`
+    throw new Error(message)
+  }
+
+  return body as InspectionQuoteCreateResult
 }
 
 export async function syncExternalWorkOrdersForQuoting(options: ExternalWorkOrderSyncOptions): Promise<ExternalWorkOrderSyncResult> {
