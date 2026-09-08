@@ -2274,7 +2274,7 @@ const getInspectionQuotePricingValue = (
   settings: InspectionQuoteSettings,
   section: InspectionQuoteTemplateSection,
   field: keyof InspectionQuoteManualSectionPricing,
-) => settings.manualPricing?.[section.id]?.[field] ?? '0.00'
+) => settings.manualPricing?.[section.id]?.[field] ?? (field === 'assets' ? '0' : '0.00')
 
 const buildInspectionQuoteCostSections = (settings: InspectionQuoteSettings): CostSection[] => {
   const estimatorSection = settings.selectedSections.find((section) => section.usesEstimator)
@@ -2282,7 +2282,7 @@ const buildInspectionQuoteCostSections = (settings: InspectionQuoteSettings): Co
   const estimatorLaborCost = getInspectionEstimatorLaborCost(settings)
   const estimatorAssets = getInspectionEstimatorTotalAssets(settings)
 
-  return settings.selectedSections.flatMap((section) => {
+  return settings.selectedSections.map((section) => {
     const isEstimatorSection = estimatorSection?.id === section.id
     const assets = isEstimatorSection && estimatorAssets > 0
       ? String(estimatorAssets)
@@ -2291,39 +2291,23 @@ const buildInspectionQuoteCostSections = (settings: InspectionQuoteSettings): Co
       ? estimatorLaborSell.toFixed(2)
       : getInspectionQuotePricingValue(settings, section, 'labor')
 
-    return [
-      {
-        id: `inspection-${section.id}-assets`,
-        title: `${section.title} - Assets # of`,
-        lineItems: [createInspectionQuoteLineItem(`${section.id}-assets`, 'Assets # of', '0.00', assets)],
-      },
-      {
-        id: `inspection-${section.id}-parts`,
-        title: `${section.title} - Parts`,
-        lineItems: [createInspectionQuoteLineItem(`${section.id}-parts`, 'Parts / Consumables', getInspectionQuotePricingValue(settings, section, 'parts'))],
-      },
-      {
-        id: `inspection-${section.id}-labor`,
-        title: `${section.title} - Labor`,
-        lineItems: [createInspectionQuoteLineItem(
+    return {
+      id: `inspection-${section.id}`,
+      title: section.title,
+      lineItems: [
+        createInspectionQuoteLineItem(`${section.id}-assets`, 'Assets # of', '0.00', assets),
+        createInspectionQuoteLineItem(`${section.id}-parts`, 'Parts / Consumables', getInspectionQuotePricingValue(settings, section, 'parts')),
+        createInspectionQuoteLineItem(
           `${section.id}-labor`,
           'Labor',
           labor,
           '1',
           isEstimatorSection && estimatorLaborCost > 0 ? estimatorLaborCost.toFixed(2) : '0.00',
-        )],
-      },
-      {
-        id: `inspection-${section.id}-rentals`,
-        title: `${section.title} - Rentals`,
-        lineItems: [createInspectionQuoteLineItem(`${section.id}-rentals`, 'Rentals', getInspectionQuotePricingValue(settings, section, 'rentals'))],
-      },
-      {
-        id: `inspection-${section.id}-freight`,
-        title: `${section.title} - Freight`,
-        lineItems: [createInspectionQuoteLineItem(`${section.id}-freight`, 'Freight', getInspectionQuotePricingValue(settings, section, 'freight'))],
-      },
-    ]
+        ),
+        createInspectionQuoteLineItem(`${section.id}-rentals`, 'Rentals', getInspectionQuotePricingValue(settings, section, 'rentals')),
+        createInspectionQuoteLineItem(`${section.id}-freight`, 'Freight', getInspectionQuotePricingValue(settings, section, 'freight')),
+      ],
+    }
   })
 }
 
@@ -2332,8 +2316,10 @@ const getInspectionQuoteManualPricingFromCostSections = (
   selectedSections: InspectionQuoteTemplateSection[],
 ) => selectedSections.reduce<Record<string, InspectionQuoteManualSectionPricing>>((pricing, section) => {
   const getValue = (field: keyof InspectionQuoteManualSectionPricing) => {
-    const costSection = sections.find((candidate) => candidate.id === `inspection-${section.id}-${field}`)
-    const lineItem = costSection?.lineItems[0]
+    const groupedCostSection = sections.find((candidate) => candidate.id === `inspection-${section.id}`)
+    const groupedLineItem = groupedCostSection?.lineItems.find((candidate) => candidate.id === `${section.id}-${field}`)
+    const legacyCostSection = sections.find((candidate) => candidate.id === `inspection-${section.id}-${field}`)
+    const lineItem = groupedLineItem ?? legacyCostSection?.lineItems[0]
     if (!lineItem) return field === 'assets' ? '0' : '0.00'
     return field === 'assets' ? lineItem.quantity : lineItem.customerPrice ?? '0.00'
   }
@@ -3024,6 +3010,7 @@ export default function EditableInspectionReport({
   const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
   const [currentUser, setCurrentUser] = useState<User | null>(inheritedCurrentUser)
   const isEditableReportAutosaveDisabled = autosaveDisabledEmails.has((currentUser?.email || '').trim().toLowerCase())
+  const canUseDeveloperReportTools = autosaveDisabledEmails.has((currentUser?.email || '').trim().toLowerCase())
   const [userProfile, setUserProfile] = useState<UserProfile | null>(inheritedUserProfile)
   const [reportDatabaseStatus, setReportDatabaseStatus] = useState<'loading' | 'saving' | 'saved' | 'local' | 'error'>(
     isConfigured ? 'loading' : 'local',
@@ -4376,6 +4363,23 @@ export default function EditableInspectionReport({
     })
   }
 
+  const unlockInspectionQuotePricing = () => {
+    if (
+      !currentInspectionQuoteSettings ||
+      currentInspectionQuoteSettings.manualQuoteEdits ||
+      !window.confirm('Unlock generated inspection pricing for manual editing? Future estimator changes will warn before overwriting your quote edits.')
+    ) {
+      return
+    }
+
+    markInspectionQuoteManualPricingEdit()
+  }
+
+  const relinkInspectionQuotePricing = () => {
+    if (!currentInspectionQuoteSettings) return
+    applyInspectionQuoteGeneratedContent(currentInspectionQuoteSettings)
+  }
+
   const applyInspectionQuoteGeneratedContent = (nextInspectionQuote: InspectionQuoteSettings) => {
     const nextSettings = {
       ...nextInspectionQuote,
@@ -4740,7 +4744,7 @@ export default function EditableInspectionReport({
   }
 
   const isExternalFileDrag = (event: DragEvent<HTMLElement>) =>
-    !isMenuItemDrag(event) && Array.from(event.dataTransfer.types).includes('Files')
+    canUseDeveloperReportTools && !isMenuItemDrag(event) && Array.from(event.dataTransfer.types).includes('Files')
 
   const handlePagePdfDragEnter = (event: DragEvent<HTMLElement>) => {
     if (!isExternalFileDrag(event)) return
@@ -4780,6 +4784,8 @@ export default function EditableInspectionReport({
   }
 
   const handlePagePdfPaste = async (event: ClipboardEvent<HTMLElement>) => {
+    if (!canUseDeveloperReportTools) return
+
     const hasClipboardFiles =
       event.clipboardData.files.length > 0 ||
       Array.from(event.clipboardData.items).some((item) => item.kind === 'file')
@@ -5019,7 +5025,18 @@ export default function EditableInspectionReport({
     )
   }
 
+  const confirmInspectionQuotePricingManualEdit = () => {
+    if (!currentInspectionQuoteSettings) return true
+    if (currentInspectionQuoteSettings.manualQuoteEdits) return true
+    if (!window.confirm('This pricing is connected to the inspection estimator. Unlock it for manual editing?')) return false
+
+    markInspectionQuoteManualPricingEdit()
+    return true
+  }
+
   const addCostLineItem = (sectionId: string) => {
+    if (!confirmInspectionQuotePricingManualEdit()) return
+
     setCostSections((currentSections) =>
       saveCostSections(
         currentSections.map((section) =>
@@ -5038,6 +5055,8 @@ export default function EditableInspectionReport({
   }
 
   const updateCostSectionTitle = (sectionId: string, value: string) => {
+    if (!confirmInspectionQuotePricingManualEdit()) return
+
     setCostSections((currentSections) =>
       saveCostSections(
         currentSections.map((section) => (section.id === sectionId ? { ...section, title: value } : section)),
@@ -5080,7 +5099,13 @@ export default function EditableInspectionReport({
     field: 'description' | 'internalCost' | 'quantity' | 'customerPrice' | 'rate' | 'margin',
     value: string,
   ) => {
-    if (currentInspectionQuoteSettings && field !== 'description') {
+    if (currentInspectionQuoteSettings) {
+      if (
+        !currentInspectionQuoteSettings.manualQuoteEdits &&
+        !window.confirm('This pricing is connected to the inspection estimator. Unlock it for manual editing?')
+      ) {
+        return
+      }
       markInspectionQuoteManualPricingEdit()
     }
 
@@ -5127,6 +5152,8 @@ export default function EditableInspectionReport({
   }
 
   const addMenuItemToCostSection = (sectionId: string, item: MenuItem) => {
+    if (!confirmInspectionQuotePricingManualEdit()) return
+
     addMenuItemToRecentlyUsed(item)
     warnIfDecayedMenuItem(item)
     setCostSections((currentSections) =>
@@ -5147,6 +5174,8 @@ export default function EditableInspectionReport({
   }
 
   const removeCostLineItem = (sectionId: string, lineItemId: string) => {
+    if (!confirmInspectionQuotePricingManualEdit()) return
+
     setCostSections((currentSections) =>
       saveCostSections(
         currentSections.map((section) =>
@@ -5772,66 +5801,70 @@ export default function EditableInspectionReport({
             </button>
             {relatedDocumentsOpen ? (
               <div className="absolute left-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-[18px] border border-[var(--deshazo-border)] bg-white p-2 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(47,86,166,0.45)]">
-                <input
-                  ref={relatedFolderInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  {...{ webkitdirectory: '', directory: '' }}
-                  onChange={(event) => {
-                    uploadRelatedFolder(event.currentTarget.files)
-                    event.currentTarget.value = ''
-                  }}
-                />
-                <input
-                  ref={relatedPdfInputRef}
-                  type="file"
-                  accept="application/pdf,.pdf"
-                  multiple
-                  className="hidden"
-                  onChange={(event) => {
-                    uploadRelatedPdfs(event.currentTarget.files)
-                    event.currentTarget.value = ''
-                  }}
-                />
-                <div className="mb-2 rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
-                  <div className="text-[12px] font-black uppercase text-[#273f7a]">Upload Documents</div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => relatedFolderInputRef.current?.click()}
-                      className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
-                    >
-                      Choose Folder
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => relatedPdfInputRef.current?.click()}
-                      className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
-                    >
-                      Upload PDF
-                    </button>
-                  </div>
-                  {relatedDocumentsMessage ? (
-                    <div className={getRelatedDocumentsMessageClassName(relatedDocumentsMessage)}>
-                      {relatedDocumentsMessage}
-                    </div>
-                  ) : null}
-                  {menuItemsRefreshProgress.active ? (
-                    <div className="mt-3">
-                      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-black uppercase text-[#273f7a]">
-                        <span>Loading in vendor items</span>
-                        <span>{Math.round(menuItemsRefreshProgress.percent)}%</span>
+                {canUseDeveloperReportTools ? (
+                  <>
+                    <input
+                      ref={relatedFolderInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      {...{ webkitdirectory: '', directory: '' }}
+                      onChange={(event) => {
+                        uploadRelatedFolder(event.currentTarget.files)
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                    <input
+                      ref={relatedPdfInputRef}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        uploadRelatedPdfs(event.currentTarget.files)
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                    <div className="mb-2 rounded-md border border-[#dfe4ef] bg-[#fbfcff] p-2">
+                      <div className="text-[12px] font-black uppercase text-[#273f7a]">Upload Documents</div>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => relatedFolderInputRef.current?.click()}
+                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
+                        >
+                          Choose Folder
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => relatedPdfInputRef.current?.click()}
+                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
+                        >
+                          Upload PDF
+                        </button>
                       </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-[#dfe4ef]">
-                        <div
-                          className="h-full rounded-full bg-[#273f7a] transition-[width] duration-500"
-                          style={{ width: `${menuItemsRefreshProgress.percent}%` }}
-                        />
-                      </div>
+                      {relatedDocumentsMessage ? (
+                        <div className={getRelatedDocumentsMessageClassName(relatedDocumentsMessage)}>
+                          {relatedDocumentsMessage}
+                        </div>
+                      ) : null}
+                      {menuItemsRefreshProgress.active ? (
+                        <div className="mt-3">
+                          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-black uppercase text-[#273f7a]">
+                            <span>Loading in vendor items</span>
+                            <span>{Math.round(menuItemsRefreshProgress.percent)}%</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-[#dfe4ef]">
+                            <div
+                              className="h-full rounded-full bg-[#273f7a] transition-[width] duration-500"
+                              style={{ width: `${menuItemsRefreshProgress.percent}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
+                  </>
+                ) : null}
                 {originalInspectionDocument ? (
                   <a
                     href={originalInspectionDocument.url}
@@ -6465,8 +6498,29 @@ export default function EditableInspectionReport({
                     <p className="mt-1 text-[12px] font-bold leading-tight text-[#747b8a]">
                       Hours are locked. Units, visits, and sell rate update the generated quote pricing.
                     </p>
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-[#d8deea] bg-white px-2.5 py-1 text-[11px] font-black uppercase text-[#4d5360]">
+                      <span className={`h-2 w-2 rounded-full ${currentInspectionQuoteSettings.manualQuoteEdits ? 'bg-[#d8891e]' : 'bg-[#2f9e44]'}`} />
+                      <span>{currentInspectionQuoteSettings.manualQuoteEdits ? 'Manual pricing unlocked' : 'Connected to quote pricing'}</span>
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {currentInspectionQuoteSettings.manualQuoteEdits ? (
+                      <button
+                        type="button"
+                        onClick={relinkInspectionQuotePricing}
+                        className="h-9 rounded-md border border-[#273f7a] bg-[#273f7a] px-3 text-[12px] font-black text-white transition hover:bg-[#1f3261]"
+                      >
+                        Relink Pricing
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={unlockInspectionQuotePricing}
+                        className="h-9 rounded-md border border-[#cfd6e5] bg-white px-3 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
+                      >
+                        Unlock Pricing
+                      </button>
+                    )}
                     <select
                       value={currentInspectionQuoteSettings.mode}
                       onChange={(event) => updateInspectionEstimatorSetting('mode', event.currentTarget.value)}
