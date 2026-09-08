@@ -647,6 +647,7 @@ export default function JobsQuotingList() {
   const extractPdfInputRef = useRef<HTMLInputElement>(null)
   const splitFolderInputRef = useRef<HTMLInputElement>(null)
   const giantPdfInputRef = useRef<HTMLInputElement>(null)
+  const uploadMenuRef = useRef<HTMLDivElement | null>(null)
   const blankQuoteCreateInFlight = useRef(false)
   const navigate = useNavigate()
 
@@ -812,6 +813,25 @@ export default function JobsQuotingList() {
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, pageCount))
   }, [pageCount])
+
+  useEffect(() => {
+    if (!uploadMenuOpen) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!uploadMenuRef.current?.contains(event.target as Node)) setUploadMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setUploadMenuOpen(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [uploadMenuOpen])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -1636,118 +1656,120 @@ export default function JobsQuotingList() {
               event.currentTarget.value = ''
             }}
           />
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setUploadMenuOpen((currentOpen) => !currentOpen)}
-            className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] transition hover:bg-[#e6efff] disabled:cursor-not-allowed disabled:opacity-60"
-            aria-expanded={uploadMenuOpen}
-          >
-            Create New
-          </button>
-          <ProfileMenu user={user} onSignOut={handleSignOut} tone="light" />
-          {uploadMenuOpen ? (
-            <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#d3dbea] bg-white p-2 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
-              <form
-                className="mb-2 rounded-md border border-[#d3dbea] bg-[#f8fbff] p-2 md:hidden"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  importExternalInspectionReportsForJob()
-                }}
-              >
-                <div className="text-[12px] font-black uppercase text-[var(--deshazo-blue)]">Import Synced Job</div>
-                <div className="mt-2 flex gap-2">
-                  <label className="sr-only" htmlFor="external-job-number-import-mobile">
-                    Job number
-                  </label>
-                  <input
-                    id="external-job-number-import-mobile"
-                    type="text"
-                    value={externalJobNumberInput}
-                    onChange={(event) => setExternalJobNumberInput(event.currentTarget.value)}
-                    disabled={busy}
-                    placeholder="Job number"
-                    className="min-w-0 flex-1 rounded-md border border-[#c7d1e2] bg-white px-3 py-2 text-[12px] font-bold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
-                  />
-                  <button
-                    type="submit"
-                    disabled={busy || !externalJobNumberInput.trim()}
-                    className="inline-flex items-center gap-2 rounded-md bg-[var(--deshazo-blue)] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {externalJobImporting ? (
-                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                    ) : null}
-                    Import
-                  </button>
-                </div>
-              </form>
-              <div className="rounded-md border border-[#d3dbea] bg-[#f8fbff] p-2">
-                <div className="text-[12px] font-black uppercase text-[var(--deshazo-blue)]">Create New</div>
-                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={createBlankQuoteItem}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {createBlankSubmitting ? (
-                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#c8d5f2] border-t-[var(--deshazo-blue)]" />
-                    ) : null}
-                    <span>Create Blank</span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={openCreateDNumberModal}
-                    className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Create with D Number
-                  </button>
-                  {canUseInspectionQuoteFlow ? (
+          <div ref={uploadMenuRef} className="relative">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setUploadMenuOpen((currentOpen) => !currentOpen)}
+              className="rounded-md bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] transition hover:bg-[#e6efff] disabled:cursor-not-allowed disabled:opacity-60"
+              aria-expanded={uploadMenuOpen}
+            >
+              Create New
+            </button>
+            {uploadMenuOpen ? (
+              <div className="absolute right-0 top-[calc(100%+14px)] z-50 w-[340px] rounded-md border border-[#d3dbea] bg-white p-2 text-[var(--deshazo-text)] shadow-[0_24px_70px_-34px_rgba(15,23,42,0.55)]">
+                <form
+                  className="mb-2 rounded-md border border-[#d3dbea] bg-[#f8fbff] p-2 md:hidden"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    importExternalInspectionReportsForJob()
+                  }}
+                >
+                  <div className="text-[12px] font-black uppercase text-[var(--deshazo-blue)]">Import Synced Job</div>
+                  <div className="mt-2 flex gap-2">
+                    <label className="sr-only" htmlFor="external-job-number-import-mobile">
+                      Job number
+                    </label>
+                    <input
+                      id="external-job-number-import-mobile"
+                      type="text"
+                      value={externalJobNumberInput}
+                      onChange={(event) => setExternalJobNumberInput(event.currentTarget.value)}
+                      disabled={busy}
+                      placeholder="Job number"
+                      className="min-w-0 flex-1 rounded-md border border-[#c7d1e2] bg-white px-3 py-2 text-[12px] font-bold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={busy || !externalJobNumberInput.trim()}
+                      className="inline-flex items-center gap-2 rounded-md bg-[var(--deshazo-blue)] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {externalJobImporting ? (
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      ) : null}
+                      Import
+                    </button>
+                  </div>
+                </form>
+                <div className="rounded-md border border-[#d3dbea] bg-[#f8fbff] p-2">
+                  <div className="text-[12px] font-black uppercase text-[var(--deshazo-blue)]">Create New</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={openInspectionQuoteModal}
+                      onClick={createBlankQuoteItem}
                       className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {createInspectionQuoteSubmitting ? (
+                      {createBlankSubmitting ? (
                         <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#c8d5f2] border-t-[var(--deshazo-blue)]" />
                       ) : null}
-                      <span>Inspection Quote</span>
+                      <span>Create Blank</span>
                     </button>
-                  ) : null}
-                  {canUseDeveloperQuoteTools ? (
-                    <>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={openCreateDNumberModal}
+                      className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Create with D Number
+                    </button>
+                    {canUseInspectionQuoteFlow ? (
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => extractPdfInputRef.current?.click()}
-                        className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={openInspectionQuoteModal}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        Upload PDF
+                        {createInspectionQuoteSubmitting ? (
+                          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#c8d5f2] border-t-[var(--deshazo-blue)]" />
+                        ) : null}
+                        <span>Inspection Quote</span>
                       </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => splitFolderInputRef.current?.click()}
-                        className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Choose Folder
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => giantPdfInputRef.current?.click()}
-                        className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Giant PDF
-                      </button>
-                    </>
-                  ) : null}
+                    ) : null}
+                    {canUseDeveloperQuoteTools ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => extractPdfInputRef.current?.click()}
+                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Upload PDF
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => splitFolderInputRef.current?.click()}
+                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Choose Folder
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => giantPdfInputRef.current?.click()}
+                          className="rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Giant PDF
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
+          <ProfileMenu user={user} onSignOut={handleSignOut} tone="light" />
         </div>
       </header>
 
