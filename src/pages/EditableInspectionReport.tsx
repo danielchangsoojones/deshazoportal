@@ -2690,6 +2690,7 @@ type EditableValueProps = {
   value: string
   className?: string
   linkify?: boolean
+  numericFormat?: 'money' | 'decimal'
   multiline?: boolean
   protectedPrefix?: string
   renderReadOnly?: (value: string) => ReactNode
@@ -2700,6 +2701,17 @@ type EditableValueProps = {
 }
 
 const menuItemDataTransferType = 'application/deshazo-menu-item'
+
+const sanitizeDecimalEditableValue = (value: string) => {
+  const cleanedValue = value.replace(/[^0-9.]/g, '')
+  const [wholeValue = '', ...decimalParts] = cleanedValue.split('.')
+  const decimalValue = decimalParts.join('')
+
+  return decimalParts.length > 0 ? `${wholeValue}.${decimalValue}` : wholeValue
+}
+
+const sanitizeMoneyEditableValue = sanitizeDecimalEditableValue
+const isAllowedMoneyInputText = (value: string) => /^[0-9.]*$/.test(value)
 
 function isMenuItemDrag(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes(menuItemDataTransferType)
@@ -2807,6 +2819,7 @@ function EditableValue({
   value,
   className = '',
   linkify = false,
+  numericFormat,
   protectedPrefix,
   renderReadOnly,
   clearOnFocus = false,
@@ -2826,6 +2839,16 @@ function EditableValue({
   const startEditing = () => {
     onEditFocus?.()
     clearValueIfPlaceholder()
+  }
+
+  const normalizeMoneyValue = (text: string) => {
+    const sanitizedValue = sanitizeMoneyEditableValue(text)
+    return sanitizedValue.trim() ? parseMoney(sanitizedValue).toFixed(2) : '0.00'
+  }
+
+  const normalizeDecimalValue = (text: string) => {
+    const sanitizedValue = sanitizeDecimalEditableValue(text)
+    return sanitizedValue.trim() ? String(parseMoney(sanitizedValue)) : '0'
   }
 
   useEffect(() => {
@@ -2865,14 +2888,51 @@ function EditableValue({
         })
       }}
       onBlur={(event) => {
-        onChange(event.currentTarget.innerText)
+        const nextValue =
+          numericFormat === 'money'
+            ? normalizeMoneyValue(event.currentTarget.innerText)
+            : numericFormat === 'decimal'
+              ? normalizeDecimalValue(event.currentTarget.innerText)
+              : event.currentTarget.innerText
+        if (numericFormat === 'money') {
+          event.currentTarget.innerText = formatMoney(parseMoney(nextValue))
+        } else if (numericFormat === 'decimal') {
+          event.currentTarget.innerText = nextValue
+        }
+        onChange(nextValue)
         if (linkify) setIsEditing(false)
       }}
       onKeyDown={(event) => {
+        if (
+          numericFormat &&
+          event.key.length === 1 &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !isAllowedMoneyInputText(event.key)
+        ) {
+          event.preventDefault()
+          return
+        }
+
         if (!protectedPrefix || (event.key !== 'Backspace' && event.key !== 'Delete')) return
         if (selectionTouchesProtectedPrefix(event.currentTarget, protectedPrefix.length, event.key)) {
           event.preventDefault()
         }
+      }}
+      onInput={(event) => {
+        if (!numericFormat) return
+
+        const sanitizedValue = numericFormat === 'money'
+          ? sanitizeMoneyEditableValue(event.currentTarget.innerText)
+          : sanitizeDecimalEditableValue(event.currentTarget.innerText)
+        if (event.currentTarget.innerText === sanitizedValue) return
+        event.currentTarget.innerText = sanitizedValue
+        const range = document.createRange()
+        range.selectNodeContents(event.currentTarget)
+        range.collapse(false)
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
       }}
       onCut={(event) => {
         if (!protectedPrefix) return
@@ -2906,7 +2966,12 @@ function EditableValue({
       }}
       onPaste={(event) => {
         event.preventDefault()
-        const text = event.clipboardData.getData('text/plain')
+        const rawText = event.clipboardData.getData('text/plain')
+        const text = numericFormat === 'money'
+          ? sanitizeMoneyEditableValue(rawText)
+          : numericFormat === 'decimal'
+            ? sanitizeDecimalEditableValue(rawText)
+            : rawText
         document.execCommand('insertText', false, text)
       }}
     >
@@ -6882,6 +6947,7 @@ export default function EditableInspectionReport({
                                 <EditableValue
                                   label={`${section.title} ${costSection.title} internal cost ${lineIndex + 1}`}
                                   value={formatMoney(getInternalUnitCost(lineItem))}
+                                  numericFormat="money"
                                   onChange={(value) => updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
                                   clearOnFocus={getInternalUnitCost(lineItem) === 0}
                                   onEditFocus={() => setActiveDoneLineItem(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)}
@@ -6890,6 +6956,7 @@ export default function EditableInspectionReport({
                                 <EditableValue
                                   label={`${section.title} ${costSection.title} quantity ${lineIndex + 1}`}
                                   value={lineItem.quantity}
+                                  numericFormat="decimal"
                                   onChange={(value) => updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'quantity', value)}
                                   onEditFocus={() => setActiveDoneLineItem(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)}
                                   className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
@@ -6897,6 +6964,7 @@ export default function EditableInspectionReport({
                                 <EditableValue
                                   label={`${section.title} ${costSection.title} customer price ${lineIndex + 1}`}
                                   value={formatMoney(getCustomerUnitPrice(lineItem))}
+                                  numericFormat="money"
                                   onChange={(value) => updateRepairCostLineItem(section.id, costSection.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
                                   clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
                                   onEditFocus={() => setActiveDoneLineItem(`repair-cost-${section.id}-${costSection.id}-${lineItem.id}`)}
@@ -7192,6 +7260,7 @@ export default function EditableInspectionReport({
                         <EditableValue
                           label={`${section.title} internal cost ${lineIndex + 1}`}
                           value={formatMoney(getInternalUnitCost(lineItem))}
+                          numericFormat="money"
                           onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'internalCost', parseMoney(value).toFixed(2))}
                           clearOnFocus={getInternalUnitCost(lineItem) === 0}
                           onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
@@ -7200,6 +7269,7 @@ export default function EditableInspectionReport({
                         <EditableValue
                           label={`${section.title} quantity ${lineIndex + 1}`}
                           value={lineItem.quantity}
+                          numericFormat="decimal"
                           onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'quantity', value)}
                           onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
                           className="min-h-[25px] border-l border-[#e5e5e5] px-2 py-1.5 text-right"
@@ -7207,6 +7277,7 @@ export default function EditableInspectionReport({
                         <EditableValue
                           label={`${section.title} customer price ${lineIndex + 1}`}
                           value={formatMoney(getCustomerUnitPrice(lineItem))}
+                          numericFormat="money"
                           onChange={(value) => updateCostLineItem(section.id, lineItem.id, 'customerPrice', parseMoney(value).toFixed(2))}
                           clearOnFocus={getCustomerUnitPrice(lineItem) === 0}
                           onEditFocus={() => setActiveDoneLineItem(`cost-${section.id}-${lineItem.id}`)}
