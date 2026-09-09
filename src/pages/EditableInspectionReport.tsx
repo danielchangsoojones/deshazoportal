@@ -285,8 +285,13 @@ Assistant Service Manager
 DESHAZO
 CRANES / SERVICE / AUTOMATION`
 
+const additionalNotesSignature = {
+  name: 'Jeff Melton',
+  email: 'jmelton@deshazo.com',
+  title: 'Assistant Service Manager',
+}
+
 const getProfileSignatureName = (profile: UserProfile | null) => profile?.name.trim() || 'Portal User'
-const getProfileSignatureEmail = (profile: UserProfile | null) => profile?.email.trim() || ''
 const getProfileSignaturePhone = (profile: UserProfile | null) => profile?.phone.trim() || ''
 
 const buildAdditionalNotesFooter = (profile: UserProfile | null) =>
@@ -301,6 +306,12 @@ const buildAdditionalNotesFooter = (profile: UserProfile | null) =>
     .join('\n')
 
 const fallbackAdditionalNotesFooter = buildAdditionalNotesFooter(null)
+const jeffAdditionalNotesFooter = [
+  additionalNotesSignature.name,
+  additionalNotesSignature.title,
+  'DESHAZO',
+  'CRANES / SERVICE / AUTOMATION',
+].join('\n')
 
 const defaultAdditionalNotesBody = `1. Quote is subject to DeSHAZO General Terms and Conditions, available at http://www.deshazo.com/terms.
 2. Unless specified in Scope of Work, all work is to be performed during normal working hours, Monday- Friday.
@@ -312,18 +323,16 @@ const defaultAdditionalNotesBody = `1. Quote is subject to DeSHAZO General Terms
 8. Payment Terms: Net 30 days.
 9. Field work schedule subject to availability and delivery of parts, if applicable.
 
-DeSHAZO appreciates the opportunity to provide you with this quotation. If you have any questions, please feel free to email me at jmelton@deshazo.com`
+DeSHAZO appreciates the opportunity to provide you with this quotation. If you have any questions, please feel free to email me at ${additionalNotesSignature.email}`
 
 const buildDefaultAdditionalNotesBody = (profile: UserProfile | null) => {
-  const email = getProfileSignatureEmail(profile)
-  if (!email) return defaultAdditionalNotesBody
-
-  return defaultAdditionalNotesBody.replace('jmelton@deshazo.com', email)
+  void profile
+  return defaultAdditionalNotesBody
 }
 
 const buildDefaultAdditionalNotes = (profile: UserProfile | null = null) => `${buildDefaultAdditionalNotesBody(profile)}
 
-${buildAdditionalNotesFooter(profile)}`
+${jeffAdditionalNotesFooter}`
 
 const replaceAdditionalNotesSignature = (value: string, profile: UserProfile | null) => {
   const { body, hasFooter } = splitAdditionalNotesFooter(value, profile)
@@ -487,8 +496,18 @@ const formatRepairSectionStatus = (status: string) => (status.trim() || 'Repair'
 
 const defaultCostSections: CostSection[] = [
   {
+    id: 'estimate-parts',
+    title: 'Parts',
+    lineItems: [],
+  },
+  {
+    id: 'estimate-labor',
+    title: 'Labor',
+    lineItems: [],
+  },
+  {
     id: 'equipment-rental',
-    title: 'Equipment Rental',
+    title: 'Rental / Equipment',
     lineItems: [],
   },
   {
@@ -807,6 +826,27 @@ const getOriginalInspectionReportJobNumber = (item: JobsQuotingItem) =>
 const getOriginalInspectionReportJobNumberLine = (jobNumber: string) =>
   `Original inspection report job number: ${jobNumber}`
 
+const removeOriginalInspectionReportJobNumberFromScope = (scopeOfWork: string) =>
+  scopeOfWork.replace(/^Original inspection report job number:\s*.*(?:\r?\n){0,2}/im, '').trimStart()
+
+const isBlankQuoteItem = (item: JobsQuotingItem) => item.splitType === 'blank_quote'
+
+const getNormalizedQuoteSplitType = (splitType: string) =>
+  splitType.trim().toLowerCase().replace(/[-\s]+/g, '_')
+
+const isDNumberOnlyQuoteItem = (item: JobsQuotingItem) => {
+  if (isBlankQuoteItem(item)) return true
+
+  const splitType = getNormalizedQuoteSplitType(item.splitType)
+  if (splitType.includes('d_number') && !splitType.includes('inspection_report')) return true
+
+  return Boolean(item.dNumber)
+    && item.repairCount === 0
+    && item.safetyCount === 0
+    && !item.pdfUrl
+    && !item.deshazoExternalInspectionReportWorkOrderId
+}
+
 const upsertOriginalInspectionReportJobNumberInScope = (scopeOfWork: string, item: JobsQuotingItem) => {
   const originalJobNumber = getOriginalInspectionReportJobNumber(item)
   if (!originalJobNumber) return scopeOfWork
@@ -821,13 +861,21 @@ const upsertOriginalInspectionReportJobNumberInScope = (scopeOfWork: string, ite
   return trimmedScopeOfWork ? `${nextLine}\n\n${trimmedScopeOfWork}` : nextLine
 }
 
-const applyQuoteItemColumnIdentifiersToReport = (reportData: ReportData, item: JobsQuotingItem) => ({
-  ...reportData,
-  summary: item.dNumber ? replaceReportSummaryDNumber(reportData.summary, item.dNumber) : reportData.summary,
-  jobNumber: item.jobNumber ? ensureJobNumberPrefix(item.jobNumber) : reportData.jobNumber,
-  type: item.jobType || reportData.type,
-  scopeOfWork: upsertOriginalInspectionReportJobNumberInScope(reportData.scopeOfWork || '', item),
-})
+const applyQuoteItemColumnIdentifiersToReport = (reportData: ReportData, item: JobsQuotingItem) => {
+  const shouldSuppressJobNumber = isDNumberOnlyQuoteItem(item)
+
+  return {
+    ...reportData,
+    summary: item.dNumber ? replaceReportSummaryDNumber(reportData.summary, item.dNumber) : reportData.summary,
+    jobNumber: shouldSuppressJobNumber
+      ? blankReport.jobNumber
+      : item.jobNumber ? ensureJobNumberPrefix(item.jobNumber) : reportData.jobNumber,
+    type: item.jobType || reportData.type,
+    scopeOfWork: shouldSuppressJobNumber
+      ? removeOriginalInspectionReportJobNumberFromScope(reportData.scopeOfWork || '')
+      : upsertOriginalInspectionReportJobNumberInScope(reportData.scopeOfWork || '', item),
+  }
+}
 
 const getEditableReportDisplayName = (
   reportData: ReportData | Record<string, string>,
@@ -898,6 +946,7 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
   const branch = getTopLevelExtractedText(data, ['branch', 'deshazo_branch', 'deshazoBranch'])
   const branchContactPhone = getTopLevelExtractedText(data, ['branch_contact_phone', 'branchContactPhone', 'Branch Contact Phone'])
   const jobNumber = getTopLevelExtractedText(data, ['job_number', 'jobNumber', 'Job Number', 'Job #'])
+  const shouldSuppressJobNumber = isDNumberOnlyQuoteItem(item)
   const performedBy = getTopLevelExtractedText(data, ['performed_by', 'performedBy', 'inspector', 'technician'])
   const inspectionType = item.jobType || getTopLevelExtractedText(data, ['job_type', 'jobType', 'inspection_type', 'inspectionType', 'type'])
   const inspectionDate = getTopLevelExtractedText(data, ['inspection_date', 'inspectionDate', 'date'])
@@ -941,7 +990,7 @@ const buildReportFromJobsQuotingItem = (item: JobsQuotingItem): ReportData => {
     description: formatReportValue('Description', description, '---'),
     customer: formatReportValue('Customer', customer, '---'),
     purchaseOrder: formatReportValue('Purchase Order', purchaseOrder, '---'),
-    jobNumber: formatReportValue('Job #', jobNumber, '---'),
+    jobNumber: formatReportValue('Job #', shouldSuppressJobNumber ? '' : jobNumber, '---'),
     location: formatReportValue('Location', location, '---'),
     customerAddress: formatReportValue('Customer Address', customerAddress, '---'),
     manufacturerCrane: formatReportValue('Crane', manufacturerCrane, '---'),
@@ -1254,7 +1303,7 @@ const escapeHtml = (value: string | number) =>
 const splitAdditionalNotesFooter = (value: string, profile: UserProfile | null = null) => {
   const normalizedValue = value.trimEnd()
   const activeFooter = buildAdditionalNotesFooter(profile)
-  const footer = [activeFooter, fallbackAdditionalNotesFooter, legacyAdditionalNotesFooter].find((candidate) =>
+  const footer = [jeffAdditionalNotesFooter, activeFooter, fallbackAdditionalNotesFooter, legacyAdditionalNotesFooter].find((candidate) =>
     normalizedValue.endsWith(candidate),
   )
   if (!footer) {
@@ -1268,24 +1317,22 @@ const splitAdditionalNotesFooter = (value: string, profile: UserProfile | null =
 }
 
 const normalizeAdditionalNotesSignatureBody = (body: string, profile: UserProfile | null) => {
-  const email = getProfileSignatureEmail(profile)
-  if (!email) return body
-
-  return body.replace('jmelton@deshazo.com', email)
+  void profile
+  return body.replace(
+    /(please feel free to email me at\s+)[^\s]+/i,
+    `$1${additionalNotesSignature.email}`,
+  )
 }
 
 const renderAdditionalNotesHtml = (value: string, profile: UserProfile | null = null) => {
   const { body, hasFooter } = splitAdditionalNotesFooter(value || '---', profile)
-  const signatureName = getProfileSignatureName(profile)
-  const signaturePhone = getProfileSignaturePhone(profile)
 
   return `
     ${body ? `<p>${escapeHtml(normalizeAdditionalNotesSignatureBody(body, profile))}</p>` : ''}
     ${hasFooter ? `
       <div class="notes-footer">
-        <div class="notes-footer-name">${escapeHtml(signatureName)}</div>
-        <div class="notes-footer-title">Assistant Service Manager</div>
-        ${signaturePhone ? `<div class="notes-footer-phone">${escapeHtml(signaturePhone)}</div>` : ''}
+        <div class="notes-footer-name">${escapeHtml(additionalNotesSignature.name)}</div>
+        <div class="notes-footer-title">${escapeHtml(additionalNotesSignature.title)}</div>
         <img class="notes-footer-logo" src="/deshazo-logo.png" alt="DESHAZO" />
         <div class="notes-footer-tagline">
           <span>CRANES</span><strong>/</strong><span>SERVICE</span><strong>/</strong><span>AUTOMATION</span>
@@ -1457,8 +1504,7 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     lines.push('', reportData.notesHeader || 'Additional Notes')
     lines.push(normalizeAdditionalNotesSignatureBody(body || '---', profile))
     if (hasFooter) {
-      lines.push('', getProfileSignatureName(profile), 'Assistant Service Manager')
-      if (getProfileSignaturePhone(profile)) lines.push(getProfileSignaturePhone(profile))
+      lines.push('', additionalNotesSignature.name, additionalNotesSignature.title)
       lines.push('DESHAZO', 'CRANES / SERVICE / AUTOMATION')
     }
   }
@@ -2484,8 +2530,6 @@ const getJobReportPrintOptions = ({
 const hasSavedEditableReportPayload = (item: JobsQuotingItem) =>
   Boolean(item.reportName || Object.keys(item.reportData).length > 0 || item.repairSections.length > 0)
 
-const isBlankQuoteItem = (item: JobsQuotingItem) => item.splitType === 'blank_quote'
-
 const getRepairSectionMergeKey = (section: RepairSection) =>
   [section.title, getRepairSectionKind(section.status)]
     .map((value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' '))
@@ -2532,15 +2576,15 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
     return {
       reportData: blankReport,
       repairSections: [],
-      costSections: [],
+      costSections: defaultCostSections,
       blockVisibility: defaultBlockVisibility,
       estimateNoteVisibility: defaultEstimateNoteVisibility,
-      estimateCostSectionVisibility: {},
+      estimateCostSectionVisibility: defaultEstimateCostSectionVisibility,
       repairSectionVisibility: {},
       pageLayoutVisibility: {
         blockVisibility: defaultBlockVisibility,
         estimateNoteVisibility: defaultEstimateNoteVisibility,
-        estimateCostSectionVisibility: {},
+        estimateCostSectionVisibility: defaultEstimateCostSectionVisibility,
         repairSectionVisibility: {},
       },
       textBoxes: [],
@@ -2558,7 +2602,10 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
     )
     const legacyRepairCostSections = (item.costSections as CostSection[]).filter(isRepairScopedCostSection)
     const remainingCostSections = (item.costSections as CostSection[]).filter((section) => !isRepairScopedCostSection(section))
-    const costSections = normalizeEstimateCostSections(remainingCostSections)
+    const normalizedCostSections = normalizeEstimateCostSections(remainingCostSections)
+    const costSections = normalizedCostSections.length > 0 || !isDNumberOnlyQuoteItem(item)
+      ? normalizedCostSections
+      : defaultCostSections
     const estimateCostSectionVisibility = {
       ...defaultEstimateCostSectionVisibility,
       ...getEstimateCostSectionVisibilityFromSections(costSections),
@@ -2755,17 +2802,14 @@ function renderLinkifiedText(value: string) {
 
 function renderAdditionalNotesContent(value: string, profile: UserProfile | null = null) {
   const { body, hasFooter } = splitAdditionalNotesFooter(value || '---', profile)
-  const signatureName = getProfileSignatureName(profile)
-  const signaturePhone = getProfileSignaturePhone(profile)
 
   return (
     <div>
       {body ? <div className="whitespace-pre-wrap">{renderLinkifiedText(normalizeAdditionalNotesSignatureBody(body, profile))}</div> : null}
       {hasFooter ? (
         <div className="mt-5 text-[#222]">
-          <div className="text-[20px] font-black leading-tight">{signatureName}</div>
-          <div className="mt-1.5 text-[17px] font-medium leading-tight">Assistant Service Manager</div>
-          {signaturePhone ? <div className="mt-2 text-[20px] font-black leading-tight text-black">{signaturePhone}</div> : null}
+          <div className="text-[20px] font-black leading-tight">{additionalNotesSignature.name}</div>
+          <div className="mt-1.5 text-[17px] font-medium leading-tight">{additionalNotesSignature.title}</div>
           <img src="/deshazo-logo.png" alt="DESHAZO" className="mt-5 h-auto w-[126px]" />
           <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-medium leading-tight text-[#777]">
             <span>CRANES</span>
