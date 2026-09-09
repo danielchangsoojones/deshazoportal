@@ -522,6 +522,26 @@ const defaultEstimateCostSectionVisibility: EstimateCostSectionVisibility = defa
   {},
 )
 
+const cloneCostSection = (section: CostSection): CostSection => ({
+  ...section,
+  lineItems: section.lineItems.map((lineItem) => ({ ...lineItem })),
+})
+
+const mergeMissingDefaultCostSections = (sections: CostSection[]) => {
+  const sectionIds = new Set(sections.map((section) => section.id))
+
+  return [
+    ...sections,
+    ...defaultCostSections
+      .filter((section) => !sectionIds.has(section.id))
+      .map(cloneCostSection),
+  ].sort(
+    (firstSection, secondSection) =>
+      defaultCostSections.findIndex((section) => section.id === firstSection.id)
+      - defaultCostSections.findIndex((section) => section.id === secondSection.id),
+  )
+}
+
 const cells = [
   ['purchaseOrder', 'jobNumber', 'location', 'customerAddress'],
   ['manufacturerLabel', 'serialLabel', 'capacityLabel', 'modelLabel'],
@@ -829,10 +849,40 @@ const getOriginalInspectionReportJobNumberLine = (jobNumber: string) =>
 const removeOriginalInspectionReportJobNumberFromScope = (scopeOfWork: string) =>
   scopeOfWork.replace(/^Original inspection report job number:\s*.*(?:\r?\n){0,2}/im, '').trimStart()
 
-const isBlankQuoteItem = (item: JobsQuotingItem) => item.splitType === 'blank_quote'
-
 const getNormalizedQuoteSplitType = (splitType: string) =>
   splitType.trim().toLowerCase().replace(/[-\s]+/g, '_')
+
+const isBlankQuoteItem = (item: JobsQuotingItem) => {
+  const splitType = getNormalizedQuoteSplitType(item.splitType)
+  if (splitType === 'blank_quote') return true
+  if (splitType.includes('blank') && /(quote|form|report)/.test(splitType)) return true
+  if (splitType === 'inspection_quote') return false
+
+  const searchableLabel = [
+    item.documentName,
+    item.reportName ?? '',
+    item.sourceDocumentName ?? '',
+    item.splitIdentifier,
+  ].join(' ').toLowerCase()
+
+  const hasNoSourceIdentifiers =
+    !item.dNumber
+    && !item.jobNumber
+    && item.repairCount === 0
+    && item.safetyCount === 0
+    && !item.pdfUrl
+    && !item.deshazoExternalInspectionReportWorkOrderId
+
+  if (hasNoSourceIdentifiers) return true
+
+  return searchableLabel.includes('blank')
+    && !item.dNumber
+    && !item.jobNumber
+    && item.repairCount === 0
+    && item.safetyCount === 0
+    && !item.pdfUrl
+    && !item.deshazoExternalInspectionReportWorkOrderId
+}
 
 const isDNumberOnlyQuoteItem = (item: JobsQuotingItem) => {
   if (isBlankQuoteItem(item)) return true
@@ -2235,8 +2285,14 @@ const getRepairSectionCustomerTotal = (section: RepairSection) =>
     0,
   )
 
-const isRepairScopedCostSection = (section: CostSection) =>
-  ['parts', 'labor'].includes(section.id) || ['parts', 'labor'].includes(section.title.trim().toLowerCase())
+const isDefaultEstimateCostSection = (section: CostSection) =>
+  defaultCostSections.some((defaultSection) => defaultSection.id === section.id)
+
+const isRepairScopedCostSection = (section: CostSection) => {
+  if (isDefaultEstimateCostSection(section)) return false
+
+  return ['parts', 'labor'].includes(section.id) || ['parts', 'labor'].includes(section.title.trim().toLowerCase())
+}
 
 const normalizeLineItem = (lineItem: RepairLineItem, fallbackDescription: string) => {
   const savedLineItem = lineItem as RepairLineItem & { text?: string }
@@ -2572,7 +2628,7 @@ const hasExtractedRepairSectionItems = (item: JobsQuotingItem) =>
   ].some((key) => getExtractedArray(item.extractionData, [key]).length > 0)
 
 const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableInspectionReportPayload => {
-  if (isBlankQuoteItem(item)) {
+  if (isBlankQuoteItem(item) && !hasSavedEditableReportPayload(item)) {
     return {
       reportData: blankReport,
       repairSections: [],
@@ -2602,10 +2658,11 @@ const getEditableReportPayloadFromQuoteItem = (item: JobsQuotingItem): EditableI
     )
     const legacyRepairCostSections = (item.costSections as CostSection[]).filter(isRepairScopedCostSection)
     const remainingCostSections = (item.costSections as CostSection[]).filter((section) => !isRepairScopedCostSection(section))
+    const shouldUseBlankEstimateTemplate = isBlankQuoteItem(item) || isDNumberOnlyQuoteItem(item)
     const normalizedCostSections = normalizeEstimateCostSections(remainingCostSections)
-    const costSections = normalizedCostSections.length > 0 || !isDNumberOnlyQuoteItem(item)
-      ? normalizedCostSections
-      : defaultCostSections
+    const costSections = shouldUseBlankEstimateTemplate
+      ? mergeMissingDefaultCostSections(normalizedCostSections)
+      : normalizedCostSections
     const estimateCostSectionVisibility = {
       ...defaultEstimateCostSectionVisibility,
       ...getEstimateCostSectionVisibilityFromSections(costSections),
@@ -3218,7 +3275,7 @@ export default function EditableInspectionReport({
     if (!savedSections) return defaultCostSections
 
     try {
-      return normalizeEstimateCostSections(JSON.parse(savedSections) as CostSection[])
+      return mergeMissingDefaultCostSections(normalizeEstimateCostSections(JSON.parse(savedSections) as CostSection[]))
     } catch {
       return defaultCostSections
     }
@@ -3532,6 +3589,9 @@ export default function EditableInspectionReport({
     () => getVisibleEstimateCostSections(costSections, estimateCostSectionVisibility),
     [costSections, estimateCostSectionVisibility],
   )
+  const shouldShowRepairItemsSection =
+    blockVisibility.repairItems
+    && (!currentJobsQuotingItem || !isDNumberOnlyQuoteItem(currentJobsQuotingItem) || visibleRepairSections.length > 0)
   const repairTotal = useMemo(
     () =>
       visibleRepairSections.reduce(
@@ -5180,7 +5240,7 @@ export default function EditableInspectionReport({
       const sectionToAdd = defaultCostSections.find((section) => section.id === sectionId)
       if (!sectionToAdd) return currentSections
 
-      const nextSections = [...currentSections, sectionToAdd].sort(
+      const nextSections = [...currentSections, cloneCostSection(sectionToAdd)].sort(
         (firstSection, secondSection) =>
           defaultCostSections.findIndex((section) => section.id === firstSection.id)
           - defaultCostSections.findIndex((section) => section.id === secondSection.id),
@@ -5189,6 +5249,17 @@ export default function EditableInspectionReport({
     })
     setEstimateCostSectionVisibility((currentVisibility) => {
       const nextVisibility = { ...currentVisibility, [sectionId]: checked }
+      window.localStorage.setItem(estimateCostSectionVisibilityStorageKey, JSON.stringify(nextVisibility))
+      return nextVisibility
+    })
+  }
+
+  const removeCostSection = (sectionId: string) => {
+    setCostSections((currentSections) =>
+      saveCostSections(currentSections.filter((section) => section.id !== sectionId)),
+    )
+    setEstimateCostSectionVisibility((currentVisibility) => {
+      const nextVisibility = { ...currentVisibility, [sectionId]: false }
       window.localStorage.setItem(estimateCostSectionVisibilityStorageKey, JSON.stringify(nextVisibility))
       return nextVisibility
     })
@@ -6839,7 +6910,7 @@ export default function EditableInspectionReport({
             </section>
             ) : null}
 
-            {blockVisibility.repairItems ? (
+            {shouldShowRepairItemsSection ? (
             <section className="relative mt-3 border border-[#d4d4d4]">
               <div className="flex items-center justify-between gap-3 bg-[#f2f2f2]">
                 <EditableText
@@ -7234,6 +7305,13 @@ export default function EditableInspectionReport({
                         onChange={(value) => updateCostSectionTitle(section.id, value)}
                         className="min-w-0 flex-1 text-[14px] font-black uppercase leading-tight text-[#273f7a]"
                       />
+                      <button
+                        type="button"
+                        onClick={() => removeCostSection(section.id)}
+                        className="report-inline-action shrink-0 rounded-sm border border-[#d4a7a7] bg-white px-2 py-1 text-[9px] font-black uppercase leading-tight text-[#7d1515] transition hover:bg-[#fff7f7]"
+                      >
+                        Delete Section
+                      </button>
                     </div>
 
                     <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
