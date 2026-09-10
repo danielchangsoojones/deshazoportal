@@ -37,8 +37,6 @@ const syncCustomerBatchSize = 10
 const syncMaxCustomerBatches = 60
 const uploadProcessingNote = 'This can take 5 to 15 minutes to load in the report. Please refresh the page.'
 const quoteDeveloperEmails = new Set(['aher604@gmail.com', 'danieljones@blockstampsf.com'])
-const enableInspectionQuoteForAll =
-  String(import.meta.env.VITE_ENABLE_INSPECTION_QUOTE ?? '').trim().toLowerCase() === 'true'
 
 const inspectionQuoteTemplateSections = [
   { id: 'frequent-inspections', title: 'Frequent Inspections' },
@@ -743,7 +741,6 @@ export default function JobsQuotingList() {
   const canSyncExternalWorkOrders = ['dev', 'developer'].includes(currentUserTag.trim().toLowerCase())
   const currentUserEmail = (user?.email || '').trim().toLowerCase()
   const canUseDeveloperQuoteTools = quoteDeveloperEmails.has(currentUserEmail)
-  const canUseInspectionQuoteFlow = enableInspectionQuoteForAll || canUseDeveloperQuoteTools
 
   const showQuoteJobScope = (scope: QuoteJobListScope) => {
     setQuoteJobListScope(scope)
@@ -1389,11 +1386,6 @@ export default function JobsQuotingList() {
   }
 
   const openInspectionQuoteModal = () => {
-    if (!canUseInspectionQuoteFlow) {
-      setMessage('Inspection quote is not enabled for this user yet.')
-      return
-    }
-
     setUploadMenuOpen(false)
     setInspectionQuoteModalOpen(true)
     setMessage('')
@@ -1407,11 +1399,6 @@ export default function JobsQuotingList() {
   }
 
   const createInspectionQuote = async () => {
-    if (!canUseInspectionQuoteFlow) {
-      setMessage('Inspection quote is not enabled for this user yet.')
-      return
-    }
-
     if (inspectionQuoteSelectedSectionIds.length === 0) {
       setMessage('Choose at least one inspection quote section.')
       return
@@ -1723,19 +1710,17 @@ export default function JobsQuotingList() {
                     >
                       Create with D Number
                     </button>
-                    {canUseInspectionQuoteFlow ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={openInspectionQuoteModal}
-                        className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {createInspectionQuoteSubmitting ? (
-                          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#c8d5f2] border-t-[var(--deshazo-blue)]" />
-                        ) : null}
-                        <span>Inspection Quote</span>
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={openInspectionQuoteModal}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#bdc4d3] bg-white px-3 py-2 text-[12px] font-black text-[var(--deshazo-blue)] transition hover:bg-[#e8eefb] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {createInspectionQuoteSubmitting ? (
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#c8d5f2] border-t-[var(--deshazo-blue)]" />
+                      ) : null}
+                      <span>Inspection Quote</span>
+                    </button>
                     {canUseDeveloperQuoteTools ? (
                       <>
                         <button
