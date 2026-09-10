@@ -284,6 +284,10 @@ Assistant Service Manager
 513-903-6405-C
 DESHAZO
 CRANES / SERVICE / AUTOMATION`
+const legacyRickyInspectionNotesFooter = `Sincerely,
+
+Ricky Griffis
+rgriffis@deshazo.com`
 
 const additionalNotesSignature = {
   name: 'Jeff Melton',
@@ -292,12 +296,14 @@ const additionalNotesSignature = {
 }
 
 const getProfileSignatureName = (profile: UserProfile | null) => profile?.name.trim() || 'Portal User'
+const getProfileSignatureEmail = (profile: UserProfile | null) => profile?.email.trim() || '---'
 const getProfileSignaturePhone = (profile: UserProfile | null) => profile?.phone.trim() || ''
+const signatureTitle = 'Assistant Service Manager'
 
 const buildAdditionalNotesFooter = (profile: UserProfile | null) =>
   [
     getProfileSignatureName(profile),
-    'Assistant Service Manager',
+    signatureTitle,
     getProfileSignaturePhone(profile),
     'DESHAZO',
     'CRANES / SERVICE / AUTOMATION',
@@ -308,7 +314,7 @@ const buildAdditionalNotesFooter = (profile: UserProfile | null) =>
 const fallbackAdditionalNotesFooter = buildAdditionalNotesFooter(null)
 const jeffAdditionalNotesFooter = [
   additionalNotesSignature.name,
-  additionalNotesSignature.title,
+  signatureTitle,
   'DESHAZO',
   'CRANES / SERVICE / AUTOMATION',
 ].join('\n')
@@ -323,16 +329,18 @@ const defaultAdditionalNotesBody = `1. Quote is subject to DeSHAZO General Terms
 8. Payment Terms: Net 30 days.
 9. Field work schedule subject to availability and delivery of parts, if applicable.
 
-DeSHAZO appreciates the opportunity to provide you with this quotation. If you have any questions, please feel free to email me at ${additionalNotesSignature.email}`
+DeSHAZO appreciates the opportunity to provide you with this quotation. If you have any questions, please feel free to email me at ---`
 
 const buildDefaultAdditionalNotesBody = (profile: UserProfile | null) => {
-  void profile
-  return defaultAdditionalNotesBody
+  return defaultAdditionalNotesBody.replace(
+    /(please feel free to email me at\s+)[^\s]+/i,
+    `$1${getProfileSignatureEmail(profile)}`,
+  )
 }
 
 const buildDefaultAdditionalNotes = (profile: UserProfile | null = null) => `${buildDefaultAdditionalNotesBody(profile)}
 
-${jeffAdditionalNotesFooter}`
+${buildAdditionalNotesFooter(profile)}`
 
 const replaceAdditionalNotesSignature = (value: string, profile: UserProfile | null) => {
   const { body, hasFooter } = splitAdditionalNotesFooter(value, profile)
@@ -1353,7 +1361,7 @@ const escapeHtml = (value: string | number) =>
 const splitAdditionalNotesFooter = (value: string, profile: UserProfile | null = null) => {
   const normalizedValue = value.trimEnd()
   const activeFooter = buildAdditionalNotesFooter(profile)
-  const footer = [jeffAdditionalNotesFooter, activeFooter, fallbackAdditionalNotesFooter, legacyAdditionalNotesFooter].find((candidate) =>
+  const footer = [legacyRickyInspectionNotesFooter, jeffAdditionalNotesFooter, activeFooter, fallbackAdditionalNotesFooter, legacyAdditionalNotesFooter].find((candidate) =>
     normalizedValue.endsWith(candidate),
   )
   if (!footer) {
@@ -1367,11 +1375,17 @@ const splitAdditionalNotesFooter = (value: string, profile: UserProfile | null =
 }
 
 const normalizeAdditionalNotesSignatureBody = (body: string, profile: UserProfile | null) => {
-  void profile
-  return body.replace(
-    /(please feel free to email me at\s+)[^\s]+/i,
-    `$1${additionalNotesSignature.email}`,
-  )
+  const profileEmail = getProfileSignatureEmail(profile)
+
+  return body
+    .replace(
+      /please feel free to give me a call\./i,
+      `please feel free to email me at ${profileEmail}`,
+    )
+    .replace(
+      /(please feel free to email me at\s+)[^\s]+/i,
+      `$1${profileEmail}`,
+    )
 }
 
 const renderAdditionalNotesHtml = (value: string, profile: UserProfile | null = null) => {
@@ -1381,8 +1395,9 @@ const renderAdditionalNotesHtml = (value: string, profile: UserProfile | null = 
     ${body ? `<p>${escapeHtml(normalizeAdditionalNotesSignatureBody(body, profile))}</p>` : ''}
     ${hasFooter ? `
       <div class="notes-footer">
-        <div class="notes-footer-name">${escapeHtml(additionalNotesSignature.name)}</div>
-        <div class="notes-footer-title">${escapeHtml(additionalNotesSignature.title)}</div>
+        <div class="notes-footer-name">${escapeHtml(getProfileSignatureName(profile))}</div>
+        <div class="notes-footer-title">${escapeHtml(signatureTitle)}</div>
+        ${getProfileSignaturePhone(profile) ? `<div class="notes-footer-phone">${escapeHtml(getProfileSignaturePhone(profile))}</div>` : ''}
         <img class="notes-footer-logo" src="/deshazo-logo.png" alt="DESHAZO" />
         <div class="notes-footer-tagline">
           <span>CRANES</span><strong>/</strong><span>SERVICE</span><strong>/</strong><span>AUTOMATION</span>
@@ -1554,7 +1569,9 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     lines.push('', reportData.notesHeader || 'Additional Notes')
     lines.push(normalizeAdditionalNotesSignatureBody(body || '---', profile))
     if (hasFooter) {
-      lines.push('', additionalNotesSignature.name, additionalNotesSignature.title)
+      lines.push('', getProfileSignatureName(profile), signatureTitle)
+      const profilePhone = getProfileSignaturePhone(profile)
+      if (profilePhone) lines.push(profilePhone)
       lines.push('DESHAZO', 'CRANES / SERVICE / AUTOMATION')
     }
   }
@@ -2865,8 +2882,11 @@ function renderAdditionalNotesContent(value: string, profile: UserProfile | null
       {body ? <div className="whitespace-pre-wrap">{renderLinkifiedText(normalizeAdditionalNotesSignatureBody(body, profile))}</div> : null}
       {hasFooter ? (
         <div className="mt-5 text-[#222]">
-          <div className="text-[20px] font-black leading-tight">{additionalNotesSignature.name}</div>
-          <div className="mt-1.5 text-[17px] font-medium leading-tight">{additionalNotesSignature.title}</div>
+          <div className="text-[20px] font-black leading-tight">{getProfileSignatureName(profile)}</div>
+          <div className="mt-1.5 text-[17px] font-medium leading-tight">{signatureTitle}</div>
+          {getProfileSignaturePhone(profile) ? (
+            <div className="mt-2 text-[20px] font-black leading-tight text-black">{getProfileSignaturePhone(profile)}</div>
+          ) : null}
           <img src="/deshazo-logo.png" alt="DESHAZO" className="mt-5 h-auto w-[126px]" />
           <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-medium leading-tight text-[#777]">
             <span>CRANES</span>
@@ -3410,7 +3430,9 @@ export default function EditableInspectionReport({
     setReport((currentReport) => {
       const nextNotes = replaceAdditionalNotesSignature(currentReport.notes || '', userProfile)
       if (nextNotes === currentReport.notes) return currentReport
-      return { ...currentReport, notes: nextNotes }
+      const nextReport = { ...currentReport, notes: nextNotes }
+      window.localStorage.setItem(storageKey, JSON.stringify(nextReport))
+      return nextReport
     })
   }, [userProfile])
   useEffect(() => {
