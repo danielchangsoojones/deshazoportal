@@ -91,7 +91,7 @@ export default function Dashboard() {
           if (!isFinanceReleased || !financeReleasedCards.has(card.title)) return card
           return { ...card, developerOnly: false, oldDb: false }
         })
-        .filter((card) => userTag === 'developer' || !card.developerOnly),
+        .filter((card) => card.title === 'Customer Quotes' || userTag === 'developer' || !card.developerOnly),
     [isFinanceReleased, userTag],
   )
 
