@@ -9,6 +9,7 @@ type PortalMenuItem = {
 }
 
 const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Calendar', 'Document Reports', 'Customer Quotes'])
+const detachedLabels = new Set(['Document Reports', 'Calendar'])
 const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
 const financeReleasedLabels = new Set(['Spend', 'Location Comparison'])
 const calendarMenuItem = { label: 'Calendar', href: '/calendar' }
@@ -58,6 +59,7 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
   return useMemo(
     () =>
       withCalendarMenuItem(menuItems)
+        .filter((item) => !detachedLabels.has(item.label))
         .filter((item) => {
           const developerOnly =
             developerOnlyLabels.has(item.label) && !(isFinanceReleased && financeReleasedLabels.has(item.label))
