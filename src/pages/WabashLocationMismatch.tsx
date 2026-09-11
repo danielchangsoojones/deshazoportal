@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
+import { jsPDF } from 'jspdf'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
 import { useCustomerPath } from '../lib/customerRouting'
@@ -43,59 +44,335 @@ function getMismatchClassName(type: WabashLocationMismatchJob['mismatchType']) {
   return 'border-[#b9e4c6] bg-[#eaf8ef] text-[#17652b]'
 }
 
-function downloadCsv(rows: WabashLocationMismatchJob[]) {
-  const columns = [
-    'work_order_id',
-    'job_no',
-    'sales_order_no',
-    'job_type',
-    'status',
-    'branch',
-    'customer_location',
-    'ship_to_city',
-    'ship_to_state',
-    'bill_to_location',
-    'customer_po',
-    'comment',
-    'start_date',
-    'end_date',
-    'completed_at',
-    'mismatch_type',
-  ]
-  const escapeValue = (value: unknown) => {
-    const text = value == null ? '' : String(value)
-    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+function getFilterLabel(filter: JobFilter) {
+  if (filter === 'phoenix_branch') return '040 Phoenix branch'
+  if (filter === 'phoenix_location') return 'Phoenix, AZ ship-to'
+  if (filter === 'phoenix_jonestown') return 'Phoenix/Jonestown'
+  if (filter === 'mismatches') return 'All differences'
+  return 'All Wabash'
+}
+
+function safePdfText(value: unknown) {
+  return String(value ?? '-').replace(/\s+/g, ' ').trim() || '-'
+}
+
+function addPdfFooter(pdf: jsPDF) {
+  const pageCount = pdf.getNumberOfPages()
+  for (let page = 1; page <= pageCount; page += 1) {
+    pdf.setPage(page)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8)
+    pdf.setTextColor(105, 113, 130)
+    pdf.text(`Page ${page} of ${pageCount}`, 552, 575, { align: 'right' })
   }
-  const csv = [
-    columns.join(','),
-    ...rows.map((row) =>
-      [
-        row.workOrderId,
-        row.jobNo,
-        row.salesOrderNo,
-        row.jobType,
-        row.statusName,
-        row.branchName,
-        row.locationName,
-        row.locationCity,
-        row.locationState,
-        row.billToLocation,
-        row.customerPoNo,
-        row.comment,
-        row.startDate,
-        row.endDate,
-        row.completedAt,
-        row.mismatchType,
-      ].map(escapeValue).join(','),
-    ),
-  ].join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `wabash-location-mismatch-${new Date().toISOString().slice(0, 10)}.csv`
-  link.click()
-  URL.revokeObjectURL(url)
+}
+
+function ensurePdfSpace(pdf: jsPDF, y: number, requiredHeight: number) {
+  if (y + requiredHeight <= 552) return y
+  pdf.addPage()
+  return 42
+}
+
+function addWrappedPdfText(pdf: jsPDF, text: string, x: number, y: number, width: number, lineHeight = 10) {
+  const lines = pdf.splitTextToSize(safePdfText(text), width) as string[]
+  pdf.text(lines, x, y)
+  return y + Math.max(lines.length, 1) * lineHeight
+}
+
+function addPdfSectionTitle(pdf: jsPDF, title: string, y: number) {
+  const nextY = ensurePdfSpace(pdf, y, 24)
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(13)
+  pdf.setTextColor(7, 18, 47)
+  pdf.text(title, 42, nextY)
+  pdf.setDrawColor(207, 216, 234)
+  pdf.line(42, nextY + 6, 552, nextY + 6)
+  return nextY + 22
+}
+
+function addPdfMetricGrid(pdf: jsPDF, metrics: Array<[string, number]>, y: number) {
+  let nextY = y
+  const cardWidth = 164
+  const cardHeight = 50
+  metrics.forEach(([label, value], index) => {
+    const column = index % 3
+    const row = Math.floor(index / 3)
+    const x = 42 + column * (cardWidth + 9)
+    const cardY = y + row * (cardHeight + 9)
+    nextY = Math.max(nextY, cardY + cardHeight)
+
+    pdf.setFillColor(247, 249, 253)
+    pdf.setDrawColor(207, 216, 234)
+    pdf.roundedRect(x, cardY, cardWidth, cardHeight, 5, 5, 'FD')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(8)
+    pdf.setTextColor(111, 120, 145)
+    pdf.text(label.toUpperCase(), x + 10, cardY + 15, { maxWidth: cardWidth - 20 })
+    pdf.setFontSize(21)
+    pdf.setTextColor(7, 18, 47)
+    pdf.text(String(value), x + 10, cardY + 38)
+  })
+  return nextY + 18
+}
+
+function addPdfTable(
+  pdf: jsPDF,
+  y: number,
+  headers: string[],
+  rows: string[][],
+  columnWidths: number[],
+  options: { maxRows?: number; emptyText?: string } = {},
+) {
+  let nextY = ensurePdfSpace(pdf, y, 34)
+  const maxRows = options.maxRows ?? rows.length
+  const visibleRows = rows.slice(0, maxRows)
+  const tableWidth = columnWidths.reduce((sum, width) => sum + width, 0)
+
+  if (visibleRows.length === 0) {
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(10)
+    pdf.setTextColor(105, 113, 130)
+    return addWrappedPdfText(pdf, options.emptyText ?? 'No rows found.', 42, nextY, tableWidth, 11) + 8
+  }
+
+  const drawHeader = () => {
+    pdf.setFillColor(237, 243, 255)
+    pdf.setDrawColor(207, 216, 234)
+    pdf.rect(42, nextY, tableWidth, 22, 'FD')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(8)
+    pdf.setTextColor(86, 96, 112)
+    let x = 42
+    headers.forEach((header, index) => {
+      pdf.text(header.toUpperCase(), x + 5, nextY + 14, { maxWidth: columnWidths[index] - 10 })
+      x += columnWidths[index]
+    })
+    nextY += 22
+  }
+
+  drawHeader()
+
+  visibleRows.forEach((row) => {
+    const cellLines = row.map((cell, index) => pdf.splitTextToSize(safePdfText(cell), columnWidths[index] - 10) as string[])
+    const rowHeight = Math.max(24, Math.max(...cellLines.map((lines) => lines.length)) * 9 + 12)
+    if (nextY + rowHeight > 552) {
+      pdf.addPage()
+      nextY = 42
+      drawHeader()
+    }
+
+    pdf.setDrawColor(226, 232, 242)
+    pdf.setFillColor(255, 255, 255)
+    pdf.rect(42, nextY, tableWidth, rowHeight, 'FD')
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8)
+    pdf.setTextColor(21, 24, 33)
+    let x = 42
+    cellLines.forEach((lines, index) => {
+      pdf.text(lines, x + 5, nextY + 12, { maxWidth: columnWidths[index] - 10 })
+      x += columnWidths[index]
+    })
+    nextY += rowHeight
+  })
+
+  if (rows.length > visibleRows.length) {
+    nextY = ensurePdfSpace(pdf, nextY + 8, 16)
+    pdf.setFont('helvetica', 'italic')
+    pdf.setFontSize(9)
+    pdf.setTextColor(105, 113, 130)
+    pdf.text(`${rows.length - visibleRows.length} additional rows omitted from this section.`, 42, nextY)
+    nextY += 16
+  }
+
+  return nextY + 12
+}
+
+function addPdfField(
+  pdf: jsPDF,
+  label: string,
+  value: string,
+  x: number,
+  y: number,
+  width: number,
+  lineHeight = 9,
+) {
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(7)
+  pdf.setTextColor(111, 120, 145)
+  pdf.text(label.toUpperCase(), x, y)
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(8.5)
+  pdf.setTextColor(21, 24, 33)
+  const lines = pdf.splitTextToSize(safePdfText(value), width) as string[]
+  pdf.text(lines, x, y + 11)
+  return y + 11 + Math.max(lines.length, 1) * lineHeight
+}
+
+function getWorkOrderCardHeight(pdf: jsPDF, job: WabashLocationMismatchJob) {
+  const commentLines = pdf.splitTextToSize(safePdfText(job.comment || '-'), 690) as string[]
+  return Math.max(104, 92 + Math.max(commentLines.length, 1) * 9)
+}
+
+function addWorkOrderDetails(pdf: jsPDF, y: number, rows: WabashLocationMismatchJob[]) {
+  if (rows.length === 0) {
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(10)
+    pdf.setTextColor(105, 113, 130)
+    return addWrappedPdfText(pdf, 'No work orders match the selected filter.', 42, y, 700, 11)
+  }
+
+  let nextY = y
+
+  rows.forEach((job, index) => {
+    const cardHeight = getWorkOrderCardHeight(pdf, job)
+    nextY = ensurePdfSpace(pdf, nextY, cardHeight)
+
+    pdf.setFillColor(255, 255, 255)
+    pdf.setDrawColor(207, 216, 234)
+    pdf.roundedRect(42, nextY, 708, cardHeight - 10, 5, 5, 'FD')
+
+    pdf.setFillColor(6, 24, 73)
+    pdf.roundedRect(42, nextY, 708, 24, 5, 5, 'F')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(10)
+    pdf.setTextColor(255, 255, 255)
+    pdf.text(`${index + 1}. Job ${job.jobNo || job.workOrderId}`, 54, nextY + 16)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8)
+    pdf.text(getMismatchLabel(job.mismatchType), 738, nextY + 16, { align: 'right' })
+
+    const firstRowY = nextY + 42
+    addPdfField(pdf, 'Work order', String(job.workOrderId), 54, firstRowY, 70)
+    addPdfField(pdf, 'Sales order', job.salesOrderNo || '-', 136, firstRowY, 78)
+    addPdfField(pdf, 'Status', job.statusName || '-', 226, firstRowY, 88)
+    addPdfField(pdf, 'Type', job.jobType || '-', 326, firstRowY, 90)
+    addPdfField(pdf, 'Date', formatDate(getJobDate(job)), 428, firstRowY, 86)
+    addPdfField(pdf, 'Customer PO', job.customerPoNo || '-', 526, firstRowY, 94)
+    addPdfField(pdf, 'Bill-to', job.billToLocation || '-', 632, firstRowY, 92)
+
+    const secondRowY = firstRowY + 34
+    addPdfField(pdf, 'DeShazo branch', job.branchName, 54, secondRowY, 190)
+    addPdfField(
+      pdf,
+      'Ship-to location',
+      `${job.locationName} / ${[job.locationCity, job.locationState].filter(Boolean).join(', ') || 'No ship-to city'}`,
+      264,
+      secondRowY,
+      245,
+    )
+    addPdfField(pdf, 'Flag', getMismatchLabel(job.mismatchType), 530, secondRowY, 194)
+
+    const commentY = secondRowY + 34
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(7)
+    pdf.setTextColor(111, 120, 145)
+    pdf.text('COMMENT', 54, commentY)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8.5)
+    pdf.setTextColor(21, 24, 33)
+    addWrappedPdfText(pdf, job.comment || '-', 54, commentY + 11, 678, 9)
+
+    nextY += cardHeight
+  })
+
+  return nextY
+}
+
+function downloadPdf(
+  report: WabashLocationMismatchReport,
+  rows: WabashLocationMismatchJob[],
+  filter: JobFilter,
+  searchQuery: string,
+) {
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter', compress: true })
+  let y = 42
+
+  pdf.setFillColor(6, 24, 73)
+  pdf.rect(0, 0, 792, 88, 'F')
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(22)
+  pdf.setTextColor(255, 255, 255)
+  pdf.text('Wabash Location Audit', 42, 42)
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(10)
+  pdf.text('Branch vs Job City - Phoenix-focused review', 42, 62)
+  pdf.text(`Generated ${new Date(report.generatedAt).toLocaleString()}`, 552, 42, { align: 'right' })
+  pdf.text(`Filter: ${getFilterLabel(filter)}${searchQuery.trim() ? ` | Search: ${searchQuery.trim()}` : ''}`, 552, 62, {
+    align: 'right',
+    maxWidth: 300,
+  })
+
+  y = 116
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(10)
+  pdf.setTextColor(63, 70, 84)
+  y = addWrappedPdfText(
+    pdf,
+    'Focused on Wabash data tied to Phoenix: true Phoenix, AZ ship-to locations first, then jobs assigned to DeShazo branch 040 Phoenix.',
+    42,
+    y,
+    700,
+    12,
+  ) + 8
+
+  y = addPdfMetricGrid(pdf, [
+    ['Wabash jobs', report.totalJobs],
+    ['Phoenix, AZ ship-to', report.phoenixAzLocationJobs],
+    ['040 Phoenix branch jobs', report.phoenixBranchJobs],
+    ['Phoenix + Jonestown', report.phoenixJonestownJobs],
+    ['Phoenix + non-AZ', report.phoenixNonArizonaJobs],
+    ['Branch/city differences', report.mismatchJobs],
+  ], y)
+
+  if (report.phoenixAzLocationJobs === 0) {
+    y = ensurePdfSpace(pdf, y, 40)
+    pdf.setFillColor(255, 247, 230)
+    pdf.setDrawColor(244, 210, 139)
+    pdf.roundedRect(42, y, 708, 36, 5, 5, 'FD')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(9)
+    pdf.setTextColor(122, 82, 8)
+    addWrappedPdfText(
+      pdf,
+      'No Wabash work orders in the synced data have a customer ship-to city of Phoenix, AZ. The Phoenix-related records currently come from service branch 040 Phoenix covering Moreno Valley, Perris, and two Jonestown rows.',
+      54,
+      y + 14,
+      684,
+      10,
+    )
+    y += 52
+  }
+
+  y = addPdfSectionTitle(pdf, '040 Phoenix Branch Pairs', y)
+  y = addPdfTable(
+    pdf,
+    y,
+    ['Branch', 'Location', 'Jobs'],
+    report.phoenixPairSummaries.map((pair) => [pair.branchName, pair.locationLabel, String(pair.count)]),
+    [190, 410, 70],
+    { emptyText: 'No 040 Phoenix branch Wabash jobs found.' },
+  )
+
+  y = addPdfSectionTitle(pdf, 'Largest Difference Groups', y)
+  y = addPdfTable(
+    pdf,
+    y,
+    ['Branch', 'Location', 'Jobs', 'Latest'],
+    report.branchPairSummaries.slice(0, 20).map((pair) => [
+      pair.branchName,
+      pair.locationLabel,
+      String(pair.count),
+      formatDate(pair.latestDate),
+    ]),
+    [170, 330, 60, 110],
+    { emptyText: 'No branch/location differences found.' },
+  )
+
+  y = addPdfSectionTitle(pdf, `Work Order Detail (${rows.length})`, y)
+  addWorkOrderDetails(pdf, y, rows)
+
+  addPdfFooter(pdf)
+  pdf.save(`wabash-location-audit-${new Date().toISOString().slice(0, 10)}.pdf`)
 }
 
 export default function WabashLocationMismatch() {
@@ -226,11 +503,13 @@ export default function WabashLocationMismatch() {
             </button>
             <button
               type="button"
-              onClick={() => downloadCsv(filteredJobs)}
-              disabled={filteredJobs.length === 0}
+              onClick={() => {
+                if (report) downloadPdf(report, filteredJobs, filter, searchQuery)
+              }}
+              disabled={!report || filteredJobs.length === 0}
               className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-sm font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Download CSV
+              Download PDF
             </button>
           </div>
         </div>
