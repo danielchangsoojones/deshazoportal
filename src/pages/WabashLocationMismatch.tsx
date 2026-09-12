@@ -13,6 +13,25 @@ import {
 } from '../lib/wabashLocationMismatch'
 
 type JobFilter = 'phoenix_branch' | 'phoenix_location' | 'phoenix_jonestown' | 'mismatches' | 'all'
+type PdfIncludedTab = Exclude<JobFilter, 'mismatches' | 'all'>
+
+const pdfIncludedTabs: Array<{ filter: PdfIncludedTab; title: string; description: string }> = [
+  {
+    filter: 'phoenix_branch',
+    title: '040 Phoenix Branch',
+    description: 'Wabash work orders assigned to DeShazo service branch 040 Phoenix.',
+  },
+  {
+    filter: 'phoenix_location',
+    title: 'Phoenix, AZ Ship-To',
+    description: 'Wabash work orders whose customer ship-to city is Phoenix, AZ.',
+  },
+  {
+    filter: 'phoenix_jonestown',
+    title: 'Phoenix / Jonestown',
+    description: 'The specific suspicious pattern: 040 Phoenix branch with Jonestown, PA ship-to location.',
+  },
+]
 
 function formatDate(value: string) {
   if (!value) return '-'
@@ -44,12 +63,34 @@ function getMismatchClassName(type: WabashLocationMismatchJob['mismatchType']) {
   return 'border-[#b9e4c6] bg-[#eaf8ef] text-[#17652b]'
 }
 
-function getFilterLabel(filter: JobFilter) {
-  if (filter === 'phoenix_branch') return '040 Phoenix branch'
-  if (filter === 'phoenix_location') return 'Phoenix, AZ ship-to'
-  if (filter === 'phoenix_jonestown') return 'Phoenix/Jonestown'
-  if (filter === 'mismatches') return 'All differences'
-  return 'All Wabash'
+function jobMatchesFilter(job: WabashLocationMismatchJob, filter: JobFilter) {
+  if (filter === 'phoenix_branch') return job.branchKey.includes('phoenix')
+  if (filter === 'phoenix_location') return job.isPhoenixAzLocation
+  if (filter === 'phoenix_jonestown') return job.mismatchType === 'phoenix_jonestown'
+  if (filter === 'mismatches') return job.mismatchType !== 'same_city'
+  return true
+}
+
+function jobMatchesSearch(job: WabashLocationMismatchJob, searchQuery: string) {
+  const normalizedQuery = searchQuery.trim().toLowerCase()
+  if (!normalizedQuery) return true
+
+  const haystack = [
+    job.workOrderId,
+    job.jobNo,
+    job.salesOrderNo,
+    job.jobType,
+    job.statusName,
+    job.branchName,
+    job.locationName,
+    job.locationCity,
+    job.locationState,
+    job.billToLocation,
+    job.customerPoNo,
+    job.comment,
+  ].join(' ').toLowerCase()
+
+  return haystack.includes(normalizedQuery)
 }
 
 function safePdfText(value: unknown) {
@@ -278,13 +319,46 @@ function addWorkOrderDetails(pdf: jsPDF, y: number, rows: WabashLocationMismatch
   return nextY
 }
 
+function summarizePdfPairs(jobs: WabashLocationMismatchJob[]) {
+  const summariesByKey = new Map<string, { key: string; branch: string; location: string; count: number; latestDate: string }>()
+
+  jobs.forEach((job) => {
+    const location = `${job.locationName} / ${[job.locationCity, job.locationState].filter(Boolean).join(', ') || 'No ship-to city'}`
+    const key = `${job.branchName}::${location}`
+    const current = summariesByKey.get(key)
+    const jobDate = getJobDate(job)
+
+    if (current) {
+      current.count += 1
+      if (new Date(jobDate).getTime() > new Date(current.latestDate).getTime()) current.latestDate = jobDate
+      return
+    }
+
+    summariesByKey.set(key, {
+      key,
+      branch: job.branchName,
+      location,
+      count: 1,
+      latestDate: jobDate,
+    })
+  })
+
+  return Array.from(summariesByKey.values()).sort((left, right) =>
+    right.count - left.count ||
+    new Date(right.latestDate).getTime() - new Date(left.latestDate).getTime() ||
+    left.branch.localeCompare(right.branch),
+  )
+}
+
 function downloadPdf(
   report: WabashLocationMismatchReport,
-  rows: WabashLocationMismatchJob[],
-  filter: JobFilter,
   searchQuery: string,
 ) {
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter', compress: true })
+  const tabSections = pdfIncludedTabs.map((tab) => ({
+    ...tab,
+    rows: report.jobs.filter((job) => jobMatchesFilter(job, tab.filter) && jobMatchesSearch(job, searchQuery)),
+  }))
   let y = 42
 
   pdf.setFillColor(6, 24, 73)
@@ -297,7 +371,7 @@ function downloadPdf(
   pdf.setFontSize(10)
   pdf.text('Branch vs Job City - Phoenix-focused review', 42, 62)
   pdf.text(`Generated ${new Date(report.generatedAt).toLocaleString()}`, 552, 42, { align: 'right' })
-  pdf.text(`Filter: ${getFilterLabel(filter)}${searchQuery.trim() ? ` | Search: ${searchQuery.trim()}` : ''}`, 552, 62, {
+  pdf.text(`Included tabs: 040 Phoenix, Phoenix AZ, Phoenix/Jonestown${searchQuery.trim() ? ` | Search: ${searchQuery.trim()}` : ''}`, 552, 62, {
     align: 'right',
     maxWidth: 300,
   })
@@ -308,7 +382,7 @@ function downloadPdf(
   pdf.setTextColor(63, 70, 84)
   y = addWrappedPdfText(
     pdf,
-    'Focused on Wabash data tied to Phoenix: true Phoenix, AZ ship-to locations first, then jobs assigned to DeShazo branch 040 Phoenix.',
+    'Focused on Wabash data tied to Phoenix. This PDF includes the tab data for 040 Phoenix branch, Phoenix, AZ ship-to, and Phoenix/Jonestown. It intentionally excludes the All Differences and All Wabash tabs.',
     42,
     y,
     700,
@@ -343,33 +417,40 @@ function downloadPdf(
     y += 52
   }
 
-  y = addPdfSectionTitle(pdf, '040 Phoenix Branch Pairs', y)
+  y = addPdfSectionTitle(pdf, 'Included Tab Summary', y)
   y = addPdfTable(
     pdf,
     y,
-    ['Branch', 'Location', 'Jobs'],
-    report.phoenixPairSummaries.map((pair) => [pair.branchName, pair.locationLabel, String(pair.count)]),
-    [190, 410, 70],
-    { emptyText: 'No 040 Phoenix branch Wabash jobs found.' },
+    ['Tab', 'What it shows', 'Rows'],
+    tabSections.map((section) => [section.title, section.description, String(section.rows.length)]),
+    [150, 460, 60],
   )
 
-  y = addPdfSectionTitle(pdf, 'Largest Difference Groups', y)
-  y = addPdfTable(
-    pdf,
-    y,
-    ['Branch', 'Location', 'Jobs', 'Latest'],
-    report.branchPairSummaries.slice(0, 20).map((pair) => [
-      pair.branchName,
-      pair.locationLabel,
+  tabSections.forEach((section) => {
+    y = addPdfSectionTitle(pdf, `${section.title} (${section.rows.length})`, y)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(9)
+    pdf.setTextColor(63, 70, 84)
+    y = addWrappedPdfText(pdf, section.description, 42, y, 700, 11) + 6
+
+    const pairRows = summarizePdfPairs(section.rows).map((pair) => [
+      pair.branch,
+      pair.location,
       String(pair.count),
       formatDate(pair.latestDate),
-    ]),
-    [170, 330, 60, 110],
-    { emptyText: 'No branch/location differences found.' },
-  )
+    ])
 
-  y = addPdfSectionTitle(pdf, `Work Order Detail (${rows.length})`, y)
-  addWorkOrderDetails(pdf, y, rows)
+    y = addPdfTable(
+      pdf,
+      y,
+      ['Branch', 'Ship-To', 'Jobs', 'Latest'],
+      pairRows,
+      [160, 360, 60, 90],
+      { emptyText: 'No branch/location pairs found for this tab.' },
+    )
+
+    y = addWorkOrderDetails(pdf, y, section.rows) + 8
+  })
 
   addPdfFooter(pdf)
   pdf.save(`wabash-location-audit-${new Date().toISOString().slice(0, 10)}.pdf`)
@@ -422,30 +503,9 @@ export default function WabashLocationMismatch() {
 
   const filteredJobs = useMemo(() => {
     const rows = report?.jobs ?? []
-    const normalizedQuery = searchQuery.trim().toLowerCase()
 
     return rows.filter((job) => {
-      if (filter === 'phoenix_branch' && !job.branchKey.includes('phoenix')) return false
-      if (filter === 'phoenix_location' && !job.isPhoenixAzLocation) return false
-      if (filter === 'phoenix_jonestown' && job.mismatchType !== 'phoenix_jonestown') return false
-      if (filter === 'mismatches' && job.mismatchType === 'same_city') return false
-      if (normalizedQuery) {
-        const haystack = [
-          job.workOrderId,
-          job.jobNo,
-          job.salesOrderNo,
-          job.jobType,
-          job.statusName,
-          job.branchName,
-          job.locationName,
-          job.locationCity,
-          job.locationState,
-          job.customerPoNo,
-          job.comment,
-        ].join(' ').toLowerCase()
-        if (!haystack.includes(normalizedQuery)) return false
-      }
-      return true
+      return jobMatchesFilter(job, filter) && jobMatchesSearch(job, searchQuery)
     })
   }, [filter, report?.jobs, searchQuery])
 
@@ -504,9 +564,9 @@ export default function WabashLocationMismatch() {
             <button
               type="button"
               onClick={() => {
-                if (report) downloadPdf(report, filteredJobs, filter, searchQuery)
+                if (report) downloadPdf(report, searchQuery)
               }}
-              disabled={!report || filteredJobs.length === 0}
+              disabled={!report}
               className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-sm font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Download PDF
