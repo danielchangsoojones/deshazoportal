@@ -86,7 +86,7 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
         .filter((item) => {
           const developerOnly =
             developerOnlyLabels.has(item.label) && !(isFinanceReleased && financeReleasedLabels.has(item.label))
-          return item.label === 'Customer Quotes' || userTag === 'developer' || !developerOnly
+          return userTag === 'developer' || !developerOnly
         })
         .map((item) => {
           const developerOnly =
