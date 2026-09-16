@@ -581,15 +581,19 @@ async function loadDatasetFromSummaryView(customer: string): Promise<OpenRiskDat
     totalSafetyIssues += safetyIssueCount
     totalMonitorIssues += monitorIssueCount
 
-    const locationOption = getCanonicalLocationOption(row.warehouse_location, locationLookup.aliases)
     const dNumber = normalizeText(row.unit_id).toUpperCase()
+    const reportingLocation = applyWabashReportingLocationLabel(
+      { customer, dNumber },
+      row.warehouse_location,
+    )
+    const locationOption = getCanonicalLocationOption(reportingLocation, locationLookup.aliases)
     const unitName = normalizeText(row.unit_name) || dNumber
 
     return {
       unit: {
         unit_id: dNumber,
         unit_name: unitName,
-        warehouse_location: locationOption?.label ?? normalizeText(row.warehouse_location),
+        warehouse_location: locationOption?.label ?? normalizeText(reportingLocation),
         interior_location: normalizeText(row.interior_location),
         inspection_date: formatDateLabel(row.inspection_date),
         safety_issue_count: safetyIssueCount,

@@ -2,6 +2,7 @@ export type WabashReportingOverrideInput = {
   customer?: string | null
   workOrderId?: number | string | null
   jobNo?: string | null
+  dNumber?: string | null
 }
 
 export type WabashReportingLocationOverride = {
@@ -19,6 +20,7 @@ const WABASH_PHOENIX_WARRANTY_SERVICE_WORK_ORDER_ID = 69702
 const WABASH_PHOENIX_WARRANTY_SERVICE_JOB_NO = '0273329'
 const WABASH_PHOENIX_REPAIR_WORK_ORDER_ID = 71785
 const WABASH_PHOENIX_REPAIR_JOB_NO = '0275240'
+const WABASH_PHOENIX_INSTALLATION_D_NUMBERS = new Set(['D567216', 'D567217', 'D567218', 'D567219'])
 
 export const WABASH_PHOENIX_INSTALLATION_OVERRIDE: WabashReportingLocationOverride = {
   locationName: 'Phoenix, AZ',
@@ -44,6 +46,7 @@ export function getWabashReportingLocationOverride(
   const isWabashContext = !customerKey || customerKey === 'wabash'
   const workOrderId = normalizeWorkOrderId(input.workOrderId)
   const jobNo = String(input.jobNo ?? '').trim()
+  const dNumber = String(input.dNumber ?? '').trim().toUpperCase()
 
   // Business-critical Wabash exception:
   // - WO 61077 / Job 0265909 is the high-dollar Phoenix installation that was created
@@ -65,7 +68,8 @@ export function getWabashReportingLocationOverride(
       workOrderId === String(WABASH_PHOENIX_WARRANTY_SERVICE_WORK_ORDER_ID) ||
       jobNo === WABASH_PHOENIX_WARRANTY_SERVICE_JOB_NO ||
       workOrderId === String(WABASH_PHOENIX_REPAIR_WORK_ORDER_ID) ||
-      jobNo === WABASH_PHOENIX_REPAIR_JOB_NO
+      jobNo === WABASH_PHOENIX_REPAIR_JOB_NO ||
+      WABASH_PHOENIX_INSTALLATION_D_NUMBERS.has(dNumber)
     )
   ) {
     return WABASH_PHOENIX_INSTALLATION_OVERRIDE
