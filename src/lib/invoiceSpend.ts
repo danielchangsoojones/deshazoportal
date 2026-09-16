@@ -20,7 +20,7 @@ export type InvoiceSpendAllocation = {
   jobNumber: string
   workOrderId: number | null
   workOrderType: string
-  spendKind: 'inspection' | 'repair'
+  spendKind: 'inspection' | 'installation' | 'repair'
   craneRowId: string | null
   dNumber: string
   craneDescription: string
@@ -51,9 +51,11 @@ export type InvoiceSpendCraneSummary = {
   locationLabel: string
   totalSpend: number
   repairSpend: number
+  installationSpend: number
   inspectionSpend: number
   invoiceCount: number
   repairInvoiceCount: number
+  installationInvoiceCount: number
   inspectionInvoiceCount: number
   latestInvoiceDate: string
   allocations: InvoiceSpendAllocation[]
@@ -68,10 +70,12 @@ export type CraneInvoiceSpendAnalytics = {
   dNumber: string
   totalSpend: number
   repairSpend: number
+  installationSpend: number
   inspectionSpend: number
   associatedInvoiceSpend: number
   invoiceCount: number
   repairInvoiceCount: number
+  installationInvoiceCount: number
   inspectionInvoiceCount: number
   averageInvoiceSpend: number
   latestInvoiceDate: string
@@ -226,11 +230,12 @@ function getAllocationLineKey(allocation: InvoiceSpendAllocation) {
 
 function getSpendKind(jobType: string): InvoiceSpendAllocation['spendKind'] {
   const normalizedType = jobType.trim().toLowerCase()
+  if (normalizedType.includes('installation')) return 'installation'
+
   const isRepairType =
     normalizedType.includes('repair') ||
     normalizedType.includes('service call') ||
     normalizedType.includes('retail parts') ||
-    normalizedType.includes('installation') ||
     normalizedType.includes('modification') ||
     normalizedType.includes('emergency') ||
     normalizedType.includes('labor') ||
@@ -494,9 +499,11 @@ function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
       locationLabel: allocation.locationLabel,
       totalSpend: 0,
       repairSpend: 0,
+      installationSpend: 0,
       inspectionSpend: 0,
       invoiceCount: 0,
       repairInvoiceCount: 0,
+      installationInvoiceCount: 0,
       inspectionInvoiceCount: 0,
       latestInvoiceDate: '',
       allocations: [],
@@ -505,6 +512,8 @@ function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
     current.totalSpend += allocation.allocatedAmount
     if (allocation.spendKind === 'inspection') {
       current.inspectionSpend += allocation.allocatedAmount
+    } else if (allocation.spendKind === 'installation') {
+      current.installationSpend += allocation.allocatedAmount
     } else {
       current.repairSpend += allocation.allocatedAmount
     }
@@ -523,10 +532,14 @@ function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
       ...crane,
       totalSpend: Math.round(crane.totalSpend),
       repairSpend: Math.round(crane.repairSpend),
+      installationSpend: Math.round(crane.installationSpend),
       inspectionSpend: Math.round(crane.inspectionSpend),
       invoiceCount: new Set(crane.allocations.map(getAllocationInvoiceKey)).size,
       repairInvoiceCount: new Set(
         crane.allocations.filter((allocation) => allocation.spendKind === 'repair').map(getAllocationInvoiceKey),
+      ).size,
+      installationInvoiceCount: new Set(
+        crane.allocations.filter((allocation) => allocation.spendKind === 'installation').map(getAllocationInvoiceKey),
       ).size,
       inspectionInvoiceCount: new Set(
         crane.allocations.filter((allocation) => allocation.spendKind === 'inspection').map(getAllocationInvoiceKey),
@@ -590,11 +603,17 @@ export async function getCraneInvoiceSpendAnalytics(
   const repairSpend = allocations
     .filter((allocation) => allocation.spendKind === 'repair')
     .reduce((sum, allocation) => sum + allocation.allocatedAmount, 0)
+  const installationSpend = allocations
+    .filter((allocation) => allocation.spendKind === 'installation')
+    .reduce((sum, allocation) => sum + allocation.allocatedAmount, 0)
   const inspectionSpend = allocations
     .filter((allocation) => allocation.spendKind === 'inspection')
     .reduce((sum, allocation) => sum + allocation.allocatedAmount, 0)
   const repairInvoiceKeys = new Set(
     allocations.filter((allocation) => allocation.spendKind === 'repair').map(getAllocationInvoiceKey),
+  )
+  const installationInvoiceKeys = new Set(
+    allocations.filter((allocation) => allocation.spendKind === 'installation').map(getAllocationInvoiceKey),
   )
   const inspectionInvoiceKeys = new Set(
     allocations.filter((allocation) => allocation.spendKind === 'inspection').map(getAllocationInvoiceKey),
@@ -616,10 +635,12 @@ export async function getCraneInvoiceSpendAnalytics(
     dNumber: normalizedDNumber,
     totalSpend: Math.round(totalSpend),
     repairSpend: Math.round(repairSpend),
+    installationSpend: Math.round(installationSpend),
     inspectionSpend: Math.round(inspectionSpend),
     associatedInvoiceSpend: Math.round(Array.from(invoiceTotals.values()).reduce((sum, total) => sum + total, 0)),
     invoiceCount: invoiceKeys.size,
     repairInvoiceCount: repairInvoiceKeys.size,
+    installationInvoiceCount: installationInvoiceKeys.size,
     inspectionInvoiceCount: inspectionInvoiceKeys.size,
     averageInvoiceSpend: invoiceKeys.size > 0 ? Math.round(totalSpend / invoiceKeys.size) : 0,
     latestInvoiceDate: allocations[0]?.invoiceDate ?? '',

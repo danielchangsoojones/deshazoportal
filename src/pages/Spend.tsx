@@ -133,6 +133,8 @@ const emptyAnalytics: SpendAnalytics = {
     total_invoices: 0,
     inspection_spend: 0,
     inspection_invoice_count: 0,
+    installation_spend: 0,
+    installation_invoice_count: 0,
     repair_spend: 0,
     repair_invoice_count: 0,
     repair_parts_spend: 0,
@@ -146,6 +148,7 @@ const emptyAnalytics: SpendAnalytics = {
     { label: 'Service', spend: 0 },
   ],
   workTypeSpend: [
+    { label: 'Installations', spend: 0 },
     { label: 'Repairs', spend: 0 },
     { label: 'Inspections', spend: 0 },
   ],

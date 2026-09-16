@@ -2,14 +2,14 @@ import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './
 import { getInvoiceSpendLocationSummaries } from './invoiceSpend'
 import { getCustomerLocationLookup, getLocationOptionFromLabel } from './portalLocations'
 import { supabase } from './supabase'
-import { getWabashReportingLocationOverride } from './wabashReportingOverrides'
+import { getWabashReportingCraneSourceWorkOrderId, getWabashReportingLocationOverride } from './wabashReportingOverrides'
 
 export type SpendChartItem = {
   label: string
   spend: number
 }
 
-export type WorkSpendKind = 'inspection' | 'repair'
+export type WorkSpendKind = 'inspection' | 'installation' | 'repair'
 
 export type MonthlySpend = {
   month: string
@@ -23,6 +23,8 @@ export type ToplineSpend = {
   total_invoices: number
   inspection_spend: number
   inspection_invoice_count: number
+  installation_spend: number
+  installation_invoice_count: number
   repair_spend: number
   repair_invoice_count: number
   repair_parts_spend: number
@@ -60,8 +62,10 @@ export type LocationComparisonItem = {
   total_service_cost: number
   total_parts_cost: number
   inspection_invoice_count: number
+  installation_invoice_count: number
   repair_invoice_count: number
   total_inspection_cost: number
+  total_installation_cost: number
   total_repair_cost: number
   repair_parts_cost: number
   repair_service_cost: number
@@ -84,6 +88,18 @@ export type LocationSpendInvoiceItem = {
   total_revenue: number
 }
 
+export type LocationSpendReportCraneItem = {
+  work_order_id: number
+  job_no: string
+  d_number: string
+  description: string
+  crane_location: string
+  spend_kind: WorkSpendKind
+  import_period: string
+  total_revenue: number
+  allocated_revenue: number
+}
+
 export type SpendAnalyticsDateRange = {
   startMonth?: string
   endMonth?: string
@@ -97,6 +113,7 @@ export type SpendDashboardAnalytics = {
 export type LocationSpendPageAnalytics = {
   locationComparison: LocationComparisonItem[]
   invoices: LocationSpendInvoiceItem[]
+  reportCranes: LocationSpendReportCraneItem[]
 }
 
 type FinanceInvoiceRow = {
@@ -131,6 +148,13 @@ type ReportCraneDNumberRow = {
   contact_code: string | null
 }
 
+type ReportCraneRow = {
+  work_order_id: number | null
+  contact_code: string | null
+  description: string | null
+  location: string | null
+}
+
 type ReportPayloadDNumberRow = {
   work_order_id: number
   raw_payload: Record<string, unknown> | null
@@ -147,6 +171,8 @@ const emptySpendAnalytics: SpendAnalytics = {
     total_invoices: 0,
     inspection_spend: 0,
     inspection_invoice_count: 0,
+    installation_spend: 0,
+    installation_invoice_count: 0,
     repair_spend: 0,
     repair_invoice_count: 0,
     repair_parts_spend: 0,
@@ -160,6 +186,7 @@ const emptySpendAnalytics: SpendAnalytics = {
     { label: 'Service', spend: 0 },
   ],
   workTypeSpend: [
+    { label: 'Installations', spend: 0 },
     { label: 'Repairs', spend: 0 },
     { label: 'Inspections', spend: 0 },
   ],
@@ -318,11 +345,12 @@ function getFinanceWorkOrderType(row: FinanceInvoiceRow, workOrder?: WorkOrderLo
 
 export function getWorkSpendKind(jobType: string): WorkSpendKind {
   const normalizedType = jobType.trim().toLowerCase()
+  if (normalizedType.includes('installation')) return 'installation'
+
   const isRepairType =
     normalizedType.includes('repair') ||
     normalizedType.includes('service call') ||
     normalizedType.includes('retail parts') ||
-    normalizedType.includes('installation') ||
     normalizedType.includes('modification') ||
     normalizedType.includes('emergency') ||
     normalizedType.includes('labor') ||
@@ -333,6 +361,7 @@ export function getWorkSpendKind(jobType: string): WorkSpendKind {
 }
 
 export function getWorkSpendKindLabel(kind: WorkSpendKind) {
+  if (kind === 'installation') return 'Installation'
   return kind === 'inspection' ? 'Inspection' : 'Repair'
 }
 
@@ -425,7 +454,7 @@ function buildSpendAnalytics(
 
   const workOrderById = new Map(workOrderRows.map((row) => [String(row.work_order_id), row]))
   const workOrderByJobNo = new Map(workOrderRows.filter((row) => row.job_no).map((row) => [row.job_no ?? '', row]))
-  const monthTotals = new Map<string, { total: number; inspection: number; repair: number; parts: number; service: number; count: number }>()
+  const monthTotals = new Map<string, { total: number; inspection: number; installation: number; repair: number; parts: number; service: number; count: number }>()
   const locationTotals = new Map<string, number>()
   const branchTotals = new Map<string, number>()
   const invoiceSizeTotals = new Map<string, number>()
@@ -435,6 +464,8 @@ function buildSpendAnalytics(
   let totalSpend = 0
   let inspectionSpend = 0
   let inspectionInvoiceCount = 0
+  let installationSpend = 0
+  let installationInvoiceCount = 0
   let repairSpend = 0
   let repairInvoiceCount = 0
   let repairPartsSpend = 0
@@ -448,7 +479,7 @@ function buildSpendAnalytics(
     const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
     const spendKind = getWorkSpendKind(getFinanceWorkOrderType(row, workOrder))
     const key = monthKey(row.import_period)
-    const month = monthTotals.get(key) ?? { total: 0, inspection: 0, repair: 0, parts: 0, service: 0, count: 0 }
+    const month = monthTotals.get(key) ?? { total: 0, inspection: 0, installation: 0, repair: 0, parts: 0, service: 0, count: 0 }
     month.total += invoiceTotal
     month.parts += partsSpend
     month.service += serviceSpend
@@ -462,6 +493,9 @@ function buildSpendAnalytics(
     if (spendKind === 'inspection') {
       inspectionSpend += invoiceTotal
       inspectionInvoiceCount += 1
+    } else if (spendKind === 'installation') {
+      installationSpend += invoiceTotal
+      installationInvoiceCount += 1
     } else {
       repairSpend += invoiceTotal
       repairInvoiceCount += 1
@@ -530,6 +564,8 @@ function buildSpendAnalytics(
       total_invoices: financeRows.length,
       inspection_spend: Math.round(inspectionSpend),
       inspection_invoice_count: inspectionInvoiceCount,
+      installation_spend: Math.round(installationSpend),
+      installation_invoice_count: installationInvoiceCount,
       repair_spend: Math.round(repairSpend),
       repair_invoice_count: repairInvoiceCount,
       repair_parts_spend: Math.round(repairPartsSpend),
@@ -543,6 +579,7 @@ function buildSpendAnalytics(
       { label: 'Service', spend: Math.round(serviceTotal) },
     ],
     workTypeSpend: [
+      { label: 'Installations', spend: Math.round(installationSpend) },
       { label: 'Repairs', spend: Math.round(repairSpend) },
       { label: 'Inspections', spend: Math.round(inspectionSpend) },
     ],
@@ -588,8 +625,10 @@ function buildLocationComparisonAnalytics(
     totalServiceCost: number
     totalPartsCost: number
     inspectionInvoiceCount: number
+    installationInvoiceCount: number
     repairInvoiceCount: number
     totalInspectionCost: number
+    totalInstallationCost: number
     totalRepairCost: number
     repairPartsCost: number
     repairServiceCost: number
@@ -614,8 +653,10 @@ function buildLocationComparisonAnalytics(
       totalServiceCost: 0,
       totalPartsCost: 0,
       inspectionInvoiceCount: 0,
+      installationInvoiceCount: 0,
       repairInvoiceCount: 0,
       totalInspectionCost: 0,
+      totalInstallationCost: 0,
       totalRepairCost: 0,
       repairPartsCost: 0,
       repairServiceCost: 0,
@@ -632,6 +673,9 @@ function buildLocationComparisonAnalytics(
     if (spendKind === 'inspection') {
       group.inspectionInvoiceCount += 1
       group.totalInspectionCost += invoiceTotal
+    } else if (spendKind === 'installation') {
+      group.installationInvoiceCount += 1
+      group.totalInstallationCost += invoiceTotal
     } else {
       group.repairInvoiceCount += 1
       group.totalRepairCost += invoiceTotal
@@ -654,8 +698,10 @@ function buildLocationComparisonAnalytics(
       total_service_cost: Math.round(group.totalServiceCost),
       total_parts_cost: Math.round(group.totalPartsCost),
       inspection_invoice_count: group.inspectionInvoiceCount,
+      installation_invoice_count: group.installationInvoiceCount,
       repair_invoice_count: group.repairInvoiceCount,
       total_inspection_cost: Math.round(group.totalInspectionCost),
+      total_installation_cost: Math.round(group.totalInstallationCost),
       total_repair_cost: Math.round(group.totalRepairCost),
       repair_parts_cost: Math.round(group.repairPartsCost),
       repair_service_cost: Math.round(group.repairServiceCost),
@@ -727,6 +773,29 @@ async function loadWorkOrderDNumbers(customer: string, workOrderIds: number[]) {
   return dNumbers
 }
 
+async function loadWorkOrderReportCranes(customer: string, workOrderIds: number[]) {
+  if (!supabase || workOrderIds.length === 0) return new Map<number, ReportCraneRow[]>()
+
+  const selectedCustomer = resolveSelectedCustomer(customer)
+  const cranesByWorkOrder = new Map<number, ReportCraneRow[]>()
+
+  const { data } = await supabase
+    .from('deshazo_external_report_cranes')
+    .select('work_order_id, contact_code, description, location')
+    .eq('customer', selectedCustomer)
+    .in('work_order_id', workOrderIds)
+
+  ;((data ?? []) as ReportCraneRow[]).forEach((row) => {
+    const workOrderId = row.work_order_id
+    if (typeof workOrderId !== 'number') return
+    const current = cranesByWorkOrder.get(workOrderId) ?? []
+    current.push(row)
+    cranesByWorkOrder.set(workOrderId, current)
+  })
+
+  return cranesByWorkOrder
+}
+
 async function loadWorkOrderReportIds(customer: string, workOrderIds: number[]) {
   if (!supabase || workOrderIds.length === 0) return new Set<number>()
 
@@ -738,6 +807,44 @@ async function loadWorkOrderReportIds(customer: string, workOrderIds: number[]) 
     .in('work_order_id', workOrderIds)
 
   return new Set(((data ?? []) as Array<{ work_order_id: number }>).map((row) => row.work_order_id))
+}
+
+function buildLocationSpendReportCranes(
+  customer: string,
+  invoices: LocationSpendInvoiceItem[],
+  cranesByWorkOrder: Map<number, ReportCraneRow[]>,
+): LocationSpendReportCraneItem[] {
+  return invoices.flatMap((invoice) => {
+    if (typeof invoice.work_order_id !== 'number') return []
+    const craneSourceWorkOrderId = getWabashReportingCraneSourceWorkOrderId({
+      customer,
+      workOrderId: invoice.work_order_id,
+      jobNo: invoice.job_no,
+    }) ?? invoice.work_order_id
+    const craneRows = cranesByWorkOrder.get(craneSourceWorkOrderId) ?? []
+    const cranesWithDNumbers = craneRows
+      .map((crane) => ({
+        dNumber: extractDNumberFromUnknown(crane.contact_code),
+        description: crane.description?.trim() ?? '',
+        location: crane.location?.trim() ?? '',
+      }))
+      .filter((crane) => crane.dNumber)
+
+    if (cranesWithDNumbers.length === 0) return []
+
+    const splitAmount = invoice.total_revenue / cranesWithDNumbers.length
+    return cranesWithDNumbers.map((crane) => ({
+      work_order_id: invoice.work_order_id as number,
+      job_no: invoice.job_no,
+      d_number: crane.dNumber,
+      description: crane.description,
+      crane_location: crane.location,
+      spend_kind: invoice.spend_kind,
+      import_period: invoice.import_period,
+      total_revenue: invoice.total_revenue,
+      allocated_revenue: Math.round(splitAmount),
+    }))
+  })
 }
 
 function buildLocationSpendInvoices(
@@ -828,7 +935,7 @@ export async function getLocationSpendInvoices(
   const invoices = buildLocationSpendInvoices(location, financeRows, workOrderRows, locationLookup)
   const workOrderIds = Array.from(new Set(
     invoices
-      .filter((invoice) => invoice.spend_kind === 'repair')
+      .filter((invoice) => invoice.spend_kind === 'repair' || invoice.spend_kind === 'installation')
       .map((invoice) => invoice.work_order_id)
       .filter((value): value is number => typeof value === 'number'),
   ))
@@ -851,20 +958,35 @@ export async function getLocationSpendPageAnalytics(
   const invoices = buildLocationSpendInvoices(location, financeRows, workOrderRows, locationLookup)
   const workOrderIds = Array.from(new Set(
     invoices
-      .filter((invoice) => invoice.spend_kind === 'repair')
+      .filter((invoice) => invoice.spend_kind === 'repair' || invoice.spend_kind === 'installation')
       .map((invoice) => invoice.work_order_id)
       .filter((value): value is number => typeof value === 'number'),
   ))
-  const workOrderDNumbers = await loadWorkOrderDNumbers(selectedCustomer, workOrderIds)
-  const reportWorkOrderIds = await loadWorkOrderReportIds(selectedCustomer, workOrderIds)
+  const reportCraneWorkOrderIds = Array.from(new Set([
+    ...workOrderIds,
+    ...invoices
+      .map((invoice) => getWabashReportingCraneSourceWorkOrderId({
+        customer: selectedCustomer,
+        workOrderId: invoice.work_order_id,
+        jobNo: invoice.job_no,
+      }))
+      .filter((value): value is number => typeof value === 'number'),
+  ]))
+  const [workOrderDNumbers, reportWorkOrderIds, reportCranesByWorkOrder] = await Promise.all([
+    loadWorkOrderDNumbers(selectedCustomer, workOrderIds),
+    loadWorkOrderReportIds(selectedCustomer, workOrderIds),
+    loadWorkOrderReportCranes(selectedCustomer, reportCraneWorkOrderIds),
+  ])
+  const enrichedInvoices = invoices.map((invoice) => ({
+    ...invoice,
+    asset_d_number: invoice.work_order_id ? workOrderDNumbers.get(invoice.work_order_id) ?? '' : '',
+    has_report: invoice.work_order_id ? reportWorkOrderIds.has(invoice.work_order_id) : false,
+  }))
 
   return {
     locationComparison: buildLocationComparisonAnalytics(financeRows, workOrderRows, locationLookup, uploadedLocationSummaries),
-    invoices: invoices.map((invoice) => ({
-      ...invoice,
-      asset_d_number: invoice.work_order_id ? workOrderDNumbers.get(invoice.work_order_id) ?? '' : '',
-      has_report: invoice.work_order_id ? reportWorkOrderIds.has(invoice.work_order_id) : false,
-    })),
+    invoices: enrichedInvoices,
+    reportCranes: buildLocationSpendReportCranes(selectedCustomer, enrichedInvoices, reportCranesByWorkOrder),
   }
 }
 
