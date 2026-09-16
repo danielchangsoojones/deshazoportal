@@ -55,6 +55,14 @@ function getMismatchLabel(type: WabashLocationMismatchJob['mismatchType']) {
   return 'Same city'
 }
 
+function getShipToLabel(job: WabashLocationMismatchJob) {
+  return [job.locationCity, job.locationState].filter(Boolean).join(', ') || 'No ship-to city'
+}
+
+function getSourceShipToLabel(job: WabashLocationMismatchJob) {
+  return [job.sourceLocationCity, job.sourceLocationState].filter(Boolean).join(', ') || 'No source ship-to city'
+}
+
 function getMismatchClassName(type: WabashLocationMismatchJob['mismatchType']) {
   if (type === 'phoenix_az_location') return 'border-[#b9e4c6] bg-[#eaf8ef] text-[#17652b]'
   if (type === 'phoenix_jonestown') return 'border-[#f0b9b2] bg-[#fff0ed] text-[#9f2f1f]'
@@ -85,7 +93,11 @@ function jobMatchesSearch(job: WabashLocationMismatchJob, searchQuery: string) {
     job.locationName,
     job.locationCity,
     job.locationState,
+    job.sourceLocationName,
+    job.sourceLocationCity,
+    job.sourceLocationState,
     job.billToLocation,
+    job.locationOverrideReason,
     job.customerPoNo,
     job.comment,
   ].join(' ').toLowerCase()
@@ -251,7 +263,8 @@ function addPdfField(
 
 function getWorkOrderCardHeight(pdf: jsPDF, job: WabashLocationMismatchJob) {
   const commentLines = pdf.splitTextToSize(safePdfText(job.comment || '-'), 690) as string[]
-  return Math.max(104, 92 + Math.max(commentLines.length, 1) * 9)
+  const overrideLines = job.locationOverrideReason ? pdf.splitTextToSize(safePdfText(job.locationOverrideReason), 690) as string[] : []
+  return Math.max(104, 92 + Math.max(commentLines.length, 1) * 9 + overrideLines.length * 9)
 }
 
 function addWorkOrderDetails(pdf: jsPDF, y: number, rows: WabashLocationMismatchJob[]) {
@@ -296,7 +309,7 @@ function addWorkOrderDetails(pdf: jsPDF, y: number, rows: WabashLocationMismatch
     addPdfField(
       pdf,
       'Ship-to location',
-      `${job.locationName} / ${[job.locationCity, job.locationState].filter(Boolean).join(', ') || 'No ship-to city'}`,
+      `${job.locationName} / ${getShipToLabel(job)}${job.locationOverrideReason ? ` (source: ${job.sourceLocationName} / ${getSourceShipToLabel(job)})` : ''}`,
       264,
       secondRowY,
       245,
@@ -311,7 +324,16 @@ function addWorkOrderDetails(pdf: jsPDF, y: number, rows: WabashLocationMismatch
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(8.5)
     pdf.setTextColor(21, 24, 33)
-    addWrappedPdfText(pdf, job.comment || '-', 54, commentY + 11, 678, 9)
+    const afterCommentY = addWrappedPdfText(pdf, job.comment || '-', 54, commentY + 11, 678, 9)
+    if (job.locationOverrideReason) {
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(7)
+      pdf.setTextColor(122, 82, 8)
+      pdf.text('LOCATION OVERRIDE', 54, afterCommentY + 8)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(8.5)
+      addWrappedPdfText(pdf, job.locationOverrideReason, 54, afterCommentY + 19, 678, 9)
+    }
 
     nextY += cardHeight
   })
@@ -398,7 +420,9 @@ function downloadPdf(
     ['Branch/city differences', report.mismatchJobs],
   ], y)
 
-  if (report.phoenixAzLocationJobs === 0) {
+  const locationOverrideJobs = report.jobs.filter((job) => job.locationOverrideReason)
+
+  if (locationOverrideJobs.length > 0) {
     y = ensurePdfSpace(pdf, y, 40)
     pdf.setFillColor(255, 247, 230)
     pdf.setDrawColor(244, 210, 139)
@@ -408,7 +432,7 @@ function downloadPdf(
     pdf.setTextColor(122, 82, 8)
     addWrappedPdfText(
       pdf,
-      'No Wabash work orders in the synced data have a customer ship-to city of Phoenix, AZ. The Phoenix-related records currently come from service branch 040 Phoenix covering Moreno Valley, Perris, and two Jonestown rows.',
+      `${locationOverrideJobs.length} known work order is bucketed to Phoenix, AZ for reporting while preserving its original DeShazo ship-to location for source-data context.`,
       54,
       y + 14,
       684,
@@ -527,6 +551,7 @@ export default function WabashLocationMismatch() {
   if (!user) return null
 
   const generatedAt = report?.generatedAt ? new Date(report.generatedAt).toLocaleString() : ''
+  const locationOverrideCount = report?.jobs.filter((job) => job.locationOverrideReason).length ?? 0
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -599,9 +624,9 @@ export default function WabashLocationMismatch() {
           </div>
         ) : null}
 
-        {!loading && report?.phoenixAzLocationJobs === 0 ? (
+        {!loading && locationOverrideCount > 0 ? (
           <div className="mb-6 rounded-lg border border-[#f4d28b] bg-[#fff7e6] px-4 py-3 text-sm font-semibold leading-6 text-[#7a5208]">
-            No Wabash work orders in the synced data have a customer ship-to city of Phoenix, AZ. The Phoenix-related records currently come from service branch 040 Phoenix covering Moreno Valley, Perris, and two Jonestown rows.
+            {locationOverrideCount} known high-dollar installation job is now bucketed to Phoenix, AZ for reporting. Its raw DeShazo ship-to remains Jonestown, PA for source-data context.
           </div>
         ) : null}
 
@@ -754,8 +779,13 @@ export default function WabashLocationMismatch() {
                         <td className="px-5 py-4">
                           <p className="text-sm font-extrabold text-[var(--deshazo-text)]">{job.locationName}</p>
                           <p className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.58)]">
-                            {[job.locationCity, job.locationState].filter(Boolean).join(', ') || 'No ship-to city'}
+                            {getShipToLabel(job)}
                           </p>
+                          {job.locationOverrideReason ? (
+                            <p className="mt-1 text-xs font-black text-[#8d5b00]">
+                              Source: {job.sourceLocationName} / {getSourceShipToLabel(job)}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-5 py-4 text-sm font-semibold text-[rgba(21,24,33,0.72)]">{formatDate(getJobDate(job))}</td>
                         <td className="px-5 py-4 text-sm font-semibold text-[rgba(21,24,33,0.72)]">{job.jobType || '-'}</td>

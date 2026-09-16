@@ -1,6 +1,7 @@
 import JSZip from 'jszip'
 import { getCustomerDisplayName, getCustomerFilterValue } from './customerRouting'
 import { supabase } from './supabase'
+import { applyWabashReportingLocationLabel } from './wabashReportingOverrides'
 
 const skippedSheets = new Set(['JPA Summary', 'SVC Summary', 'ALL JOBS'])
 const monthNumbersByName = new Map([
@@ -64,6 +65,7 @@ type FinanceImportRow = {
 type WorkOrderMatch = {
   work_order_id: number
   job_no: string | null
+  customer?: string | null
   customer_location_name: string | null
   service_location_name: string | null
 }
@@ -297,7 +299,7 @@ async function attachWorkOrders(rows: FinanceImportRow[], importCustomer: string
     const chunk = jobNos.slice(index, index + 200)
     const { data, error } = await supabase
       .from('deshazo_external_work_orders')
-      .select('work_order_id, job_no, customer_location_name, service_location_name')
+      .select('work_order_id, customer, job_no, customer_location_name, service_location_name')
       .eq('customer', importCustomer)
       .in('job_no', chunk)
 
@@ -308,12 +310,19 @@ async function attachWorkOrders(rows: FinanceImportRow[], importCustomer: string
   const byJob = new Map(matches.filter((row) => row.job_no).map((row) => [row.job_no ?? '', row]))
   return rows.map((row) => {
     const match = byJob.get(row.job_no)
+    const locationLabel = match
+      ? applyWabashReportingLocationLabel(
+        { customer: match.customer ?? importCustomer, workOrderId: match.work_order_id, jobNo: match.job_no },
+        match.customer_location_name || match.service_location_name,
+      )
+      : ''
+
     return match ? {
       ...row,
       work_order_id: match.work_order_id,
       customer_location_name: match.customer_location_name,
       service_location_name: match.service_location_name,
-      location_label: match.customer_location_name || match.service_location_name,
+      location_label: locationLabel,
     } : row
   })
 }

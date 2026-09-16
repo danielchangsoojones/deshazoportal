@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { getWabashReportingLocationOverride } from './wabashReportingOverrides'
 
 type WabashWorkOrderLocationRow = {
   work_order_id: number
@@ -30,6 +31,10 @@ export type WabashLocationMismatchJob = {
   locationCity: string
   locationState: string
   locationKey: string
+  sourceLocationName: string
+  sourceLocationCity: string
+  sourceLocationState: string
+  locationOverrideReason: string
   isPhoenixAzLocation: boolean
   billToLocation: string
   customerPoNo: string
@@ -89,11 +94,19 @@ function parseWorkOrderLocation(row: WabashWorkOrderLocationRow): WabashLocation
   const rawPayload = row.raw_payload ?? null
   const customerLocation = getNestedObject(rawPayload, 'customerLocation')
   const serviceLocation = getNestedObject(rawPayload, 'serviceLocation')
-  const locationCity = getString(customerLocation?.shipToCity)
-  const locationState = getString(customerLocation?.shipToState)
+  const sourceLocationCity = getString(customerLocation?.shipToCity)
+  const sourceLocationState = getString(customerLocation?.shipToState)
   const branchName = row.service_location_name?.trim() || getString(serviceLocation?.name) || 'Unassigned branch'
-  const fallbackLocationName = row.customer_location_name?.trim() || [locationCity, locationState].filter(Boolean).join(', ')
-  const locationName = fallbackLocationName || 'Unassigned location'
+  const fallbackLocationName = row.customer_location_name?.trim() || [sourceLocationCity, sourceLocationState].filter(Boolean).join(', ')
+  const sourceLocationName = fallbackLocationName || 'Unassigned location'
+  const reportingOverride = getWabashReportingLocationOverride({
+    customer: 'wabash',
+    workOrderId: row.work_order_id,
+    jobNo: row.job_no,
+  })
+  const locationName = reportingOverride?.locationName ?? sourceLocationName
+  const locationCity = reportingOverride?.locationCity ?? sourceLocationCity
+  const locationState = reportingOverride?.locationState ?? sourceLocationState
   const branchKey = getBranchKey(branchName)
   const locationKey = getLocationKey(locationCity || locationName, locationState)
   const billToLocation = [row.bill_to_city, row.bill_to_state].filter(Boolean).join(', ')
@@ -128,6 +141,10 @@ function parseWorkOrderLocation(row: WabashWorkOrderLocationRow): WabashLocation
     locationCity,
     locationState,
     locationKey,
+    sourceLocationName,
+    sourceLocationCity,
+    sourceLocationState,
+    locationOverrideReason: reportingOverride?.reason ?? '',
     isPhoenixAzLocation,
     billToLocation,
     customerPoNo: row.customer_po_no ?? '',
@@ -211,7 +228,7 @@ export async function getWabashLocationMismatchReport(): Promise<WabashLocationM
   }
 
   const jobs = rows.map(parseWorkOrderLocation)
-  const mismatchJobs = jobs.filter((job) => job.mismatchType !== 'same_city')
+  const mismatchJobs = jobs.filter((job) => job.mismatchType !== 'same_city' && job.mismatchType !== 'phoenix_az_location')
   const phoenixAzLocationJobs = jobs.filter((job) => job.isPhoenixAzLocation)
   const phoenixBranchJobs = jobs.filter((job) => job.branchKey.includes('phoenix'))
   const phoenixJonestownJobs = phoenixBranchJobs.filter((job) => job.mismatchType === 'phoenix_jonestown')

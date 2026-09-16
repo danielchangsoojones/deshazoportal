@@ -1,5 +1,6 @@
 import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './customerRouting'
 import { supabase } from './supabase'
+import { applyWabashReportingLocationLabel } from './wabashReportingOverrides'
 
 const defaultInvoiceSpendUploadUrl =
   'https://blockstamp-production-2b9f8bfc27a8.herokuapp.com/extend/deshazo-wabash-spend-invoice/pdf'
@@ -241,6 +242,11 @@ function getSpendKind(jobType: string): InvoiceSpendAllocation['spendKind'] {
 
 function mapAllocation(row: InvoiceSpendAllocationRow): InvoiceSpendAllocation {
   const workOrderType = row.job_type ?? ''
+  const locationLabel = applyWabashReportingLocationLabel(
+    { customer: row.customer, workOrderId: row.work_order_id, jobNo: row.job_number },
+    row.location_label ?? 'Unmapped',
+  )
+
   return {
     id: row.id,
     invoiceId: row.invoice_id,
@@ -255,7 +261,7 @@ function mapAllocation(row: InvoiceSpendAllocationRow): InvoiceSpendAllocation {
     dNumber: (row.d_number ?? '').trim().toUpperCase(),
     craneDescription: row.crane_description ?? '',
     craneLocation: row.crane_location ?? '',
-    locationLabel: row.location_label ?? 'Unmapped',
+    locationLabel: locationLabel || 'Unmapped',
     allocationMethod: row.allocation_method ?? '',
     allocationCount: row.allocation_count ?? 1,
     invoiceTotal: toNumber(row.invoice_total),

@@ -9,6 +9,7 @@ import type {
   RecurringIssue,
 } from './portalApi'
 import { getCustomerLocationLookup, getLocationOptionFromLabel, normalizeLocationValue } from './portalLocations'
+import { applyWabashReportingLocationLabel } from './wabashReportingOverrides'
 
 const pageSize = 24
 const cacheTtlMs = 5 * 60 * 1000
@@ -20,6 +21,14 @@ type WorkOrderRow = {
   customer: string | null
   customer_location_name: string | null
   service_location_name: string | null
+}
+
+function getWorkOrderReportingLocation(workOrder?: WorkOrderRow | null) {
+  if (!workOrder) return ''
+  return applyWabashReportingLocationLabel(
+    { customer: workOrder.customer, workOrderId: workOrder.work_order_id },
+    workOrder.customer_location_name || workOrder.service_location_name,
+  )
 }
 
 type CraneRow = {
@@ -429,7 +438,7 @@ async function loadLatestAssetDetailFromTables(dNumber: string, customer: string
   const workOrder = workOrderById.get(latestCrane.work_order_id)
 
   return {
-    unit_location: normalizeText(workOrder?.customer_location_name || workOrder?.service_location_name),
+    unit_location: normalizeText(getWorkOrderReportingLocation(workOrder)),
     unit_internal_location: normalizeText(latestCrane.location),
     unit_name: buildAssetName(dNumber, latestCrane.description),
     issues: buildIssueRows(latestInspection, sections, points),
@@ -524,15 +533,13 @@ async function loadDatasetFromTables(customer: string): Promise<OpenRiskDataset>
 
     totalSafetyIssues += safetyIssueCount
     totalMonitorIssues += monitorIssueCount
-    const locationOption = getCanonicalLocationOption(
-      workOrder?.customer_location_name || workOrder?.service_location_name,
-      locationLookup.aliases,
-    )
+    const workOrderLocation = getWorkOrderReportingLocation(workOrder)
+    const locationOption = getCanonicalLocationOption(workOrderLocation, locationLookup.aliases)
 
     const unit: AssetUnit = {
       unit_id: dNumber,
       unit_name: buildAssetName(dNumber, record.crane.description),
-      warehouse_location: locationOption?.label ?? normalizeText(workOrder?.customer_location_name || workOrder?.service_location_name),
+      warehouse_location: locationOption?.label ?? normalizeText(workOrderLocation),
       interior_location: normalizeText(record.crane.location),
       inspection_date: formatDateLabel(record.inspection.inspection_date ?? record.inspection.completed_at),
       safety_issue_count: safetyIssueCount,

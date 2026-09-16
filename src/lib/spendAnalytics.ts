@@ -2,6 +2,7 @@ import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './
 import { getInvoiceSpendLocationSummaries } from './invoiceSpend'
 import { getCustomerLocationLookup, getLocationOptionFromLabel } from './portalLocations'
 import { supabase } from './supabase'
+import { getWabashReportingLocationOverride } from './wabashReportingOverrides'
 
 export type SpendChartItem = {
   label: string
@@ -115,6 +116,7 @@ type FinanceInvoiceRow = {
 
 type WorkOrderLocationRow = {
   work_order_id: number
+  customer?: string | null
   job_no: string | null
   job_type: string | null
   customer_location_name: string | null
@@ -252,6 +254,13 @@ function normalizeLocationFromRawPayload(rawPayload: Record<string, unknown> | n
 
 function getWorkOrderLocation(row?: WorkOrderLocationRow) {
   if (!row) return ''
+  const override = getWabashReportingLocationOverride({
+    customer: row.customer,
+    workOrderId: row.work_order_id,
+    jobNo: row.job_no,
+  })
+  if (override) return override.locationLabel
+
   return (
     normalizeLocationFromRawPayload(row.raw_payload) ||
     [row.bill_to_city, row.bill_to_state].filter(Boolean).join(', ') ||
@@ -259,6 +268,23 @@ function getWorkOrderLocation(row?: WorkOrderLocationRow) {
     row.service_location_name ||
     ''
   ).trim()
+}
+
+function getMappedFinanceLocation(row: FinanceInvoiceRow, workOrder?: WorkOrderLocationRow) {
+  const override = getWabashReportingLocationOverride({
+    customer: row.customer || workOrder?.customer,
+    workOrderId: row.work_order_id ?? workOrder?.work_order_id,
+    jobNo: row.job_no || workOrder?.job_no,
+  })
+  if (override) return override.locationLabel
+
+  return (
+    row.location_label ||
+    getWorkOrderLocation(workOrder) ||
+    row.customer_location_name ||
+    row.service_location_name ||
+    getFinanceWorkbookLocation(row)
+  )
 }
 
 function normalizeLocationComparable(value?: string | null) {
@@ -367,7 +393,7 @@ async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvo
   if (workOrderIds.length > 0) {
     const { data, error } = await client
       .from('deshazo_external_work_orders')
-      .select('work_order_id, job_no, job_type, customer_location_name, service_location_name, bill_to_city, bill_to_state, raw_payload')
+      .select('work_order_id, customer, job_no, job_type, customer_location_name, service_location_name, bill_to_city, bill_to_state, raw_payload')
       .eq('customer', customer)
       .in('work_order_id', workOrderIds)
 
@@ -379,7 +405,7 @@ async function loadWorkOrderLocations(customer: string, financeRows: FinanceInvo
     const chunk = jobNos.slice(index, index + 200)
     const { data, error } = await client
       .from('deshazo_external_work_orders')
-      .select('work_order_id, job_no, job_type, customer_location_name, service_location_name, bill_to_city, bill_to_state, raw_payload')
+      .select('work_order_id, customer, job_no, job_type, customer_location_name, service_location_name, bill_to_city, bill_to_state, raw_payload')
       .eq('customer', customer)
       .in('job_no', chunk)
 
@@ -448,12 +474,7 @@ function buildSpendAnalytics(
       invoiceTotal < 1000 ? 'Under $1k' : invoiceTotal < 5000 ? '$1k - $5k' : '$5k+'
     invoiceSizeTotals.set(invoiceSizeLabel, (invoiceSizeTotals.get(invoiceSizeLabel) ?? 0) + invoiceTotal)
 
-    const mappedLocation =
-      row.location_label ||
-      getWorkOrderLocation(workOrder) ||
-      row.customer_location_name ||
-      row.service_location_name ||
-      getFinanceWorkbookLocation(row)
+    const mappedLocation = getMappedFinanceLocation(row, workOrder)
     if (mappedLocation) {
       locationMappedInvoiceCount += 1
     }
@@ -493,7 +514,7 @@ function buildSpendAnalytics(
 
   const locationSpend = Array.from(locationTotals.entries())
     .map(([label, spend]) => ({ label, spend: Math.round(spend) }))
-    .sort((left, right) => right.spend - left.spend)
+    .sort((left, right) => right.spend - left.spend || left.label.localeCompare(right.label))
   const branchSpend = Array.from(branchTotals.entries())
     .map(([label, spend]) => ({ label, spend: Math.round(spend) }))
     .sort((left, right) => right.spend - left.spend)
@@ -583,12 +604,7 @@ function buildLocationComparisonAnalytics(
     const invoiceTotal = toNumber(row.total_revenue) || partsSpend + serviceSpend
     const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
     const spendKind = getWorkSpendKind(getFinanceWorkOrderType(row, workOrder))
-    const mappedLocation =
-      row.location_label ||
-      getWorkOrderLocation(workOrder) ||
-      row.customer_location_name ||
-      row.service_location_name ||
-      getFinanceWorkbookLocation(row)
+    const mappedLocation = getMappedFinanceLocation(row, workOrder)
     const rawLocation = mappedLocation || 'Unmapped'
     const location = locationLookup.aliases.get(getLocationOptionFromLabel(rawLocation)?.value ?? '')?.label || rawLocation
     const group = locations.get(location) ?? {
@@ -647,7 +663,7 @@ function buildLocationComparisonAnalytics(
       repair_labor_cost: Math.round(group.repairLaborCost),
       mapped_invoice_count: group.mappedInvoiceCount,
     }))
-    .sort((left, right) => right.total_invoice_cost - left.total_invoice_cost)
+    .sort((left, right) => right.total_invoice_cost - left.total_invoice_cost || left.location.localeCompare(right.location))
 }
 
 function extractDNumberFromUnknown(value: unknown): string {
@@ -742,12 +758,7 @@ function buildLocationSpendInvoices(
       const invoiceTotal = toNumber(row.total_revenue) || partsSpend + serviceSpend
       const workOrder = row.work_order_id ? workOrderById.get(String(row.work_order_id)) : workOrderByJobNo.get(row.job_no)
       const workType = getFinanceWorkOrderType(row, workOrder)
-      const mappedLocation =
-        row.location_label ||
-        getWorkOrderLocation(workOrder) ||
-        row.customer_location_name ||
-        row.service_location_name ||
-        getFinanceWorkbookLocation(row)
+      const mappedLocation = getMappedFinanceLocation(row, workOrder)
       const rawLocation = mappedLocation || 'Unmapped'
       const resolvedLocation = locationLookup.aliases.get(getLocationOptionFromLabel(rawLocation)?.value ?? '')?.label || rawLocation
 

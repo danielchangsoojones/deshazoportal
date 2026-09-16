@@ -1,5 +1,6 @@
 import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './customerRouting'
 import { supabase } from './supabase'
+import { getWabashReportingLocationOverride, WABASH_PHOENIX_INSTALLATION_OVERRIDE } from './wabashReportingOverrides'
 
 export type PortalLocationOption = {
   label: string
@@ -23,11 +24,14 @@ export const fallbackPortalLocationOptions: PortalLocationOption[] = [
   { label: 'Moreno Valley, CA', value: 'moreno_valley_ca' },
   { label: 'New Lisbon, WI', value: 'new_lisbon_wi' },
   { label: 'Perris, CA', value: 'perris_ca' },
+  { label: 'Phoenix, AZ', value: 'phoenix_az' },
 ] as const
 
 export const portalLocationOptions = fallbackPortalLocationOptions
 
 type WorkOrderLocationRow = {
+  work_order_id: number | string | null
+  job_no: string | null
   raw_payload: Record<string, unknown> | null
   customer_location_name: string | null
   service_location_name: string | null
@@ -47,6 +51,10 @@ type CustomerLocationLookup = {
 
 const locationCache = new Map<string, CustomerLocationLookup>()
 
+function sortPortalLocationOptions(options: PortalLocationOption[]) {
+  return [...options].sort((left, right) => left.label.localeCompare(right.label))
+}
+
 export function normalizeLocationValue(value?: string | null) {
   return (value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }
@@ -61,7 +69,14 @@ function getStringValue(record: Record<string, unknown> | null, key: string) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function getWorkOrderCityState(row: WorkOrderLocationRow) {
+function getWorkOrderCityState(row: WorkOrderLocationRow, customer: string) {
+  const override = getWabashReportingLocationOverride({
+    customer,
+    workOrderId: row.work_order_id,
+    jobNo: row.job_no,
+  })
+  if (override) return override.locationLabel
+
   const customerLocation = getNestedRecord(row.raw_payload, 'customerLocation')
   const city = getStringValue(customerLocation, 'shipToCity')
   const state = getStringValue(customerLocation, 'shipToState')
@@ -71,7 +86,14 @@ function getWorkOrderCityState(row: WorkOrderLocationRow) {
   return (row.customer_location_name || row.service_location_name || '').trim()
 }
 
-function getWorkOrderCity(row: WorkOrderLocationRow) {
+function getWorkOrderCity(row: WorkOrderLocationRow, customer: string) {
+  const override = getWabashReportingLocationOverride({
+    customer,
+    workOrderId: row.work_order_id,
+    jobNo: row.job_no,
+  })
+  if (override) return override.locationCity
+
   const customerLocation = getNestedRecord(row.raw_payload, 'customerLocation')
   return getStringValue(customerLocation, 'shipToCity')
 }
@@ -86,6 +108,22 @@ function addLocationAlias(aliases: Map<string, PortalLocationOption>, label: str
   const aliasValue = normalizeLocationValue(label)
   if (!aliasValue || aliases.has(aliasValue)) return
   aliases.set(aliasValue, option)
+}
+
+function addKnownReportingOverrides(
+  selectedCustomer: string,
+  labelsByValue: Map<string, string>,
+  aliases: Map<string, PortalLocationOption>,
+) {
+  if (normalizeCustomer(selectedCustomer) !== 'wabash') return
+  const option = {
+    label: WABASH_PHOENIX_INSTALLATION_OVERRIDE.locationLabel,
+    value: WABASH_PHOENIX_INSTALLATION_OVERRIDE.locationValue,
+  }
+  labelsByValue.set(option.value, option.label)
+  addLocationAlias(aliases, option.label, option)
+  addLocationAlias(aliases, WABASH_PHOENIX_INSTALLATION_OVERRIDE.locationCity, option)
+  addLocationAlias(aliases, WABASH_PHOENIX_INSTALLATION_OVERRIDE.locationName, option)
 }
 
 function buildLocationLookupFromRows(rows: CustomerLocationRpcRow[]) {
@@ -105,9 +143,10 @@ function buildLocationLookupFromRows(rows: CustomerLocationRpcRow[]) {
 
   const locations = Array.from(labelsByValue.entries())
     .map(([value, label]) => ({ label, value }))
-    .sort((left, right) => left.label.localeCompare(right.label))
-
-  return { locations, aliases }
+  return {
+    locations: sortPortalLocationOptions(locations),
+    aliases,
+  }
 }
 
 function isMissingLocationRpcError(error: unknown) {
@@ -134,7 +173,10 @@ export async function getCustomerLocationLookup(customer?: string): Promise<Cust
 
     const { locations, aliases } = buildLocationLookupFromRows((data ?? []) as CustomerLocationRpcRow[])
     if (locations.length > 0) {
-      const lookup = { options: locations, aliases }
+      const labelsByValue = new Map(locations.map((option) => [option.value, option.label]))
+      addKnownReportingOverrides(selectedCustomer, labelsByValue, aliases)
+      const options = sortPortalLocationOptions(Array.from(labelsByValue.entries()).map(([value, label]) => ({ label, value })))
+      const lookup = { options, aliases }
       locationCache.set(selectedCustomer, lookup)
       return lookup
     }
@@ -150,7 +192,7 @@ export async function getCustomerLocationLookup(customer?: string): Promise<Cust
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase
       .from('deshazo_external_work_orders')
-      .select('raw_payload, customer_location_name, service_location_name')
+      .select('work_order_id, job_no, raw_payload, customer_location_name, service_location_name')
       .eq('customer', selectedCustomer)
       .range(offset, offset + pageSize - 1)
 
@@ -167,21 +209,23 @@ export async function getCustomerLocationLookup(customer?: string): Promise<Cust
   const aliases = new Map<string, PortalLocationOption>()
 
   rows.forEach((row) => {
-    const label = getWorkOrderCityState(row)
+    const label = getWorkOrderCityState(row, selectedCustomer)
     const option = getLocationOptionFromLabel(label)
     if (!option) return
     labelsByValue.set(option.value, option.label)
     addLocationAlias(aliases, option.label, option)
-    addLocationAlias(aliases, getWorkOrderCity(row), option)
+    addLocationAlias(aliases, getWorkOrderCity(row, selectedCustomer), option)
     addLocationAlias(aliases, row.customer_location_name, option)
     addLocationAlias(aliases, row.service_location_name, option)
   })
 
+  addKnownReportingOverrides(selectedCustomer, labelsByValue, aliases)
+
   const locations = Array.from(labelsByValue.entries())
     .map(([value, label]) => ({ label, value }))
-    .sort((left, right) => left.label.localeCompare(right.label))
+  const sortedLocations = sortPortalLocationOptions(locations)
 
-  const nextLocations = locations.length > 0 ? locations : fallbackPortalLocationOptions
+  const nextLocations = sortedLocations.length > 0 ? sortedLocations : sortPortalLocationOptions([...fallbackPortalLocationOptions])
   if (locations.length === 0) {
     nextLocations.forEach((option) => addLocationAlias(aliases, option.label, option))
   }
