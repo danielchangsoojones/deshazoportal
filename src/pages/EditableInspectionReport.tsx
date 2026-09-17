@@ -1297,6 +1297,13 @@ const isRepairCostSectionVisible = (
   costSectionId: string,
 ) => repairSectionVisibility[getRepairCostSectionVisibilityKey(repairSectionId, costSectionId)] !== false
 
+const getEstimateCostSectionLineItemsVisibilityKey = (sectionId: string) => `estimate-line-items:${sectionId}`
+
+const isEstimateCostSectionLineItemsVisible = (
+  estimateCostSectionVisibility: EstimateCostSectionVisibility,
+  sectionId: string,
+) => estimateCostSectionVisibility[getEstimateCostSectionLineItemsVisibilityKey(sectionId)] !== false
+
 const getEstimateCostSectionVisibilityFromSections = (costSections: CostSection[]) => {
   const sectionIds = new Set(costSections.map((section) => section.id))
 
@@ -1343,6 +1350,27 @@ const getVisibleEstimateCostSections = (
   costSections: CostSection[],
   estimateCostSectionVisibility: EstimateCostSectionVisibility,
 ) => costSections.filter((section) => estimateCostSectionVisibility[section.id] !== false)
+
+const isInspectionQuoteCostSection = (settings: InspectionQuoteSettings | null, section: CostSection) =>
+  Boolean(settings && section.id.startsWith('inspection-'))
+
+const isRemovedInspectionQuoteLineItem = (lineItem: RepairLineItem) => {
+  const label = lineItem.description.trim().toLowerCase()
+  return label === 'labor' || label === 'freight'
+}
+
+const getInspectionQuoteVisibleCostSections = (
+  costSections: CostSection[],
+  settings: InspectionQuoteSettings | null,
+) => {
+  if (!settings) return costSections
+
+  return costSections.map((section) =>
+    isInspectionQuoteCostSection(settings, section)
+      ? { ...section, lineItems: section.lineItems.filter((lineItem) => !isRemovedInspectionQuoteLineItem(lineItem)) }
+      : section,
+  )
+}
 
 const getPayloadEstimateCostSectionVisibility = (
   payload: EditableInspectionReportPayload,
@@ -1479,15 +1507,18 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     payload.repairSectionVisibility,
   ))
   const normalizedCostSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
-  const costSections = getPrintableCostSections(getVisibleEstimateCostSections(
-    normalizedCostSections,
-    getPayloadEstimateCostSectionVisibility(payload, normalizedCostSections),
-  ))
   const equipmentSettings = {
     ...defaultEquipmentRentalSettings,
     ...payload.equipmentRentalSettings,
   } as EquipmentRentalSettings
   const inspectionQuoteSettings = getInspectionQuoteSettings(equipmentSettings)
+  const costSections = getPrintableCostSections(getInspectionQuoteVisibleCostSections(
+    getVisibleEstimateCostSections(
+      normalizedCostSections,
+      getPayloadEstimateCostSectionVisibility(payload, normalizedCostSections),
+    ),
+    inspectionQuoteSettings,
+  ))
   const contactLines = source.suppressContact
     ? []
     : [
@@ -1524,21 +1555,9 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
   const repairAndMonitorSections = repairSections.filter((section) => getRepairSectionKind(section.status) !== 'safety')
   const safetySections = repairSections.filter((section) => getRepairSectionKind(section.status) === 'safety')
 
-  lines.push('ACTION LIST - REPAIR ITEMS')
-  repairAndMonitorSections.forEach((section) => {
-    const repairLabel = [section.title, section.description].filter((value) => value?.trim()).join(' - ')
-    lines.push('', `${repairLabel} (${formatRepairSectionStatus(section.status)})`)
-    section.costSections.forEach((costSection) => {
-      lines.push(costSection.title)
-      costSection.lineItems.forEach((lineItem) => {
-        lines.push(getPdfLineItemSummary(lineItem))
-      })
-    })
-  })
-
-  if (safetySections.length > 0) {
-    lines.push('', 'SAFETY ITEMS')
-    safetySections.forEach((section) => {
+  if (!inspectionQuoteSettings) {
+    lines.push('ACTION LIST - REPAIR ITEMS')
+    repairAndMonitorSections.forEach((section) => {
       const repairLabel = [section.title, section.description].filter((value) => value?.trim()).join(' - ')
       lines.push('', `${repairLabel} (${formatRepairSectionStatus(section.status)})`)
       section.costSections.forEach((costSection) => {
@@ -1548,9 +1567,24 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
         })
       })
     })
+
+    if (safetySections.length > 0) {
+      lines.push('', 'SAFETY ITEMS')
+      safetySections.forEach((section) => {
+        const repairLabel = [section.title, section.description].filter((value) => value?.trim()).join(' - ')
+        lines.push('', `${repairLabel} (${formatRepairSectionStatus(section.status)})`)
+        section.costSections.forEach((costSection) => {
+          lines.push(costSection.title)
+          costSection.lineItems.forEach((lineItem) => {
+            lines.push(getPdfLineItemSummary(lineItem))
+          })
+        })
+      })
+    }
   }
 
   lines.push('', 'Estimate Summary')
+  const payloadEstimateCostSectionVisibility = getPayloadEstimateCostSectionVisibility(payload, normalizedCostSections)
   costSections.forEach((section) => {
     lines.push('', section.title)
     const scopeItems = getInspectionQuoteSectionScopeItems(inspectionQuoteSettings, section)
@@ -1558,15 +1592,19 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
       lines.push('Scope of Work')
       scopeItems.forEach((scopeItem) => lines.push(`- ${scopeItem}`))
     }
-    section.lineItems.forEach((lineItem) => {
-      lines.push(getPdfLineItemSummary(lineItem, section.id, equipmentSettings))
-    })
+    if (isEstimateCostSectionLineItemsVisible(payloadEstimateCostSectionVisibility, section.id)) {
+      section.lineItems.forEach((lineItem) => {
+        lines.push(getPdfLineItemSummary(lineItem, section.id, equipmentSettings))
+      })
+    }
   })
 
-  const repairTotal = repairSections.reduce(
-    (total, section) => total + getRepairSectionCustomerTotal(section),
-    0,
-  )
+  const repairTotal = inspectionQuoteSettings
+    ? 0
+    : repairSections.reduce(
+        (total, section) => total + getRepairSectionCustomerTotal(section),
+        0,
+      )
   const costTotal = costSections.reduce(
     (total, section) =>
       total + section.lineItems.reduce(
@@ -1790,19 +1828,25 @@ const getCombinedReportTemplateHtml = (
       source.payload.repairSectionVisibility,
     ))
     const normalizedCostSections = normalizeEstimateCostSections(source.payload.costSections as CostSection[])
-    const costSections = getPrintableCostSections(getVisibleEstimateCostSections(
-      normalizedCostSections,
-      getPayloadEstimateCostSectionVisibility(source.payload, normalizedCostSections),
-    ))
     const equipmentSettings = {
       ...defaultEquipmentRentalSettings,
       ...source.payload.equipmentRentalSettings,
     } as EquipmentRentalSettings
     const inspectionQuoteSettings = getInspectionQuoteSettings(equipmentSettings)
-    const repairTotal = repairSections.reduce(
-      (total, section) => total + getRepairSectionCustomerTotal(section),
-      0,
-    )
+    const payloadEstimateCostSectionVisibility = getPayloadEstimateCostSectionVisibility(source.payload, normalizedCostSections)
+    const costSections = getPrintableCostSections(getInspectionQuoteVisibleCostSections(
+      getVisibleEstimateCostSections(
+        normalizedCostSections,
+        payloadEstimateCostSectionVisibility,
+      ),
+      inspectionQuoteSettings,
+    ))
+    const repairTotal = inspectionQuoteSettings
+      ? 0
+      : repairSections.reduce(
+          (total, section) => total + getRepairSectionCustomerTotal(section),
+          0,
+        )
     const costTotal = costSections.reduce(
       (total, section) =>
         total + section.lineItems.reduce(
@@ -1863,11 +1907,13 @@ const getCombinedReportTemplateHtml = (
     const costMarkup = costSections
       .map((section) => {
         const scopeMarkup = renderInspectionQuoteScopeMarkup(getInspectionQuoteSectionScopeItems(inspectionQuoteSettings, section))
+        const showLineItems = isEstimateCostSectionLineItemsVisible(payloadEstimateCostSectionVisibility, section.id)
 
         return `
         <section class="quote-section">
           <div class="section-title estimate-title">${escapeHtml(section.title)}</div>
           ${scopeMarkup}
+          ${showLineItems ? `
           <table>
             <thead>
               <tr>
@@ -1890,6 +1936,7 @@ const getCombinedReportTemplateHtml = (
               </tr>
             </tbody>
           </table>
+          ` : ''}
         </section>
       `
       })
@@ -1947,9 +1994,11 @@ const getCombinedReportTemplateHtml = (
           <p>${escapeHtml(reportData.scopeOfWork || '---')}</p>
         </section>`}
 
+        ${inspectionQuoteSettings ? '' : `
         <h2 class="band">ACTION LIST - REPAIR ITEMS</h2>
         ${repairMarkup}
         ${safetyMarkup ? `<h2 class="band band-safety">SAFETY ITEMS</h2>${safetyMarkup}` : ''}
+        `}
 
         <h2 class="band">Estimate Summary</h2>
         ${costMarkup}
@@ -2488,9 +2537,6 @@ const getInspectionEstimatorTotalAssets = (settings: InspectionQuoteSettings) =>
 const getInspectionEstimatorLaborSell = (settings: InspectionQuoteSettings) =>
   getInspectionEstimatorTotalHours(settings) * settings.laborSellRate
 
-const getInspectionEstimatorLaborCost = (settings: InspectionQuoteSettings) =>
-  getInspectionEstimatorTotalHours(settings) * settings.laborCostRate
-
 const createInspectionQuoteLineItem = (
   id: string,
   description: string,
@@ -2516,8 +2562,6 @@ const getInspectionQuotePricingValue = (
 
 const buildInspectionQuoteCostSections = (settings: InspectionQuoteSettings): CostSection[] => {
   const estimatorSection = settings.selectedSections.find((section) => section.usesEstimator)
-  const estimatorLaborSell = getInspectionEstimatorLaborSell(settings)
-  const estimatorLaborCost = getInspectionEstimatorLaborCost(settings)
   const estimatorAssets = getInspectionEstimatorTotalAssets(settings)
 
   return settings.selectedSections.map((section) => {
@@ -2525,9 +2569,6 @@ const buildInspectionQuoteCostSections = (settings: InspectionQuoteSettings): Co
     const assets = isEstimatorSection && estimatorAssets > 0
       ? String(estimatorAssets)
       : getInspectionQuotePricingValue(settings, section, 'assets')
-    const labor = isEstimatorSection && estimatorLaborSell > 0
-      ? estimatorLaborSell.toFixed(2)
-      : getInspectionQuotePricingValue(settings, section, 'labor')
 
     return {
       id: `inspection-${section.id}`,
@@ -2537,16 +2578,8 @@ const buildInspectionQuoteCostSections = (settings: InspectionQuoteSettings): Co
         createInspectionQuoteLineItem(`${section.id}-parts`, 'Parts / Consumables', getInspectionQuotePricingValue(settings, section, 'parts')),
         createInspectionQuoteLineItem(`${section.id}-travelTime`, 'Travel Time', getInspectionQuotePricingValue(settings, section, 'travelTime')),
         createInspectionQuoteLineItem(`${section.id}-foodLodging`, 'Food / Lodging', getInspectionQuotePricingValue(settings, section, 'foodLodging')),
-        createInspectionQuoteLineItem(
-          `${section.id}-labor`,
-          'Labor',
-          labor,
-          '1',
-          isEstimatorSection && estimatorLaborCost > 0 ? estimatorLaborCost.toFixed(2) : '0.00',
-        ),
         createInspectionQuoteLineItem(`${section.id}-rental`, 'Rental', getInspectionQuotePricingValue(settings, section, 'rental') || getInspectionQuotePricingValue(settings, section, 'rentals')),
         createInspectionQuoteLineItem(`${section.id}-belowHookRigging`, 'Below the Hook Rigging', getInspectionQuotePricingValue(settings, section, 'belowHookRigging')),
-        createInspectionQuoteLineItem(`${section.id}-freight`, 'Freight', getInspectionQuotePricingValue(settings, section, 'freight')),
       ],
     }
   })
@@ -2942,6 +2975,7 @@ type EditableValueProps = {
   protectedPrefix?: string
   renderReadOnly?: (value: string) => ReactNode
   editingIndicator?: ReactNode
+  insertBulletOnEnter?: boolean
   clearOnFocus?: boolean
   onEditFocus?: () => void
   onChange: (value: string) => void
@@ -3062,6 +3096,20 @@ const selectionTouchesProtectedPrefix = (element: HTMLElement, prefixLength: num
   return false
 }
 
+const formatEditableBulletText = (value: string) => {
+  const lines = value.split(/\r?\n/)
+  return lines.map((line) => {
+    const cleanLine = line.replace(/^\s*(?:[•●▪◦*-]|\d+[\.)])\s*/, '')
+    return `• ${cleanLine}`
+  }).join('\n')
+}
+
+const stripEditableBulletText = (value: string) =>
+  value
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[•●▪◦*-]|\d+[\.)])\s*/, '').trim())
+    .join('\n')
+
 function EditableValue({
   label,
   value,
@@ -3071,6 +3119,7 @@ function EditableValue({
   protectedPrefix,
   renderReadOnly,
   editingIndicator,
+  insertBulletOnEnter = false,
   clearOnFocus = false,
   onEditFocus,
   onChange,
@@ -3102,10 +3151,11 @@ function EditableValue({
 
   useEffect(() => {
     if (linkify && !isEditing) return
-    if (elementRef.current && elementRef.current.innerText !== value) {
-      elementRef.current.innerText = value
+    const displayValue = insertBulletOnEnter && isEditing ? formatEditableBulletText(value) : value
+    if (elementRef.current && elementRef.current.innerText !== displayValue) {
+      elementRef.current.innerText = displayValue
     }
-  }, [isEditing, linkify, value])
+  }, [insertBulletOnEnter, isEditing, linkify, value])
 
   const editableElement = (
     <div
@@ -3124,7 +3174,7 @@ function EditableValue({
         setIsEditing(true)
         window.setTimeout(() => {
           if (!elementRef.current) return
-          elementRef.current.innerText = value
+          elementRef.current.innerText = insertBulletOnEnter ? formatEditableBulletText(value) : value
           elementRef.current.focus()
         })
       }}
@@ -3133,25 +3183,36 @@ function EditableValue({
         if (!linkify) return
         setIsEditing(true)
         window.setTimeout(() => {
-          if (elementRef.current) elementRef.current.innerText = value
+          if (elementRef.current) elementRef.current.innerText = insertBulletOnEnter ? formatEditableBulletText(value) : value
         })
       }}
       onBlur={(event) => {
+        const rawText = insertBulletOnEnter
+          ? stripEditableBulletText(event.currentTarget.innerText)
+          : event.currentTarget.innerText
         const nextValue =
           numericFormat === 'money'
-            ? normalizeMoneyValue(event.currentTarget.innerText)
+            ? normalizeMoneyValue(rawText)
             : numericFormat === 'decimal'
-              ? normalizeDecimalValue(event.currentTarget.innerText)
-              : event.currentTarget.innerText
+              ? normalizeDecimalValue(rawText)
+              : rawText
         if (numericFormat === 'money') {
           event.currentTarget.innerText = formatMoney(parseMoney(nextValue))
         } else if (numericFormat === 'decimal') {
+          event.currentTarget.innerText = nextValue
+        } else if (insertBulletOnEnter) {
           event.currentTarget.innerText = nextValue
         }
         onChange(nextValue)
         if (linkify) setIsEditing(false)
       }}
       onKeyDown={(event) => {
+        if (insertBulletOnEnter && event.key === 'Enter') {
+          event.preventDefault()
+          document.execCommand('insertText', false, '\n• ')
+          return
+        }
+
         if (
           numericFormat &&
           event.key.length === 1 &&
@@ -3749,19 +3810,25 @@ export default function EditableInspectionReport({
     [repairSections, repairSectionVisibility],
   )
   const visibleCostSections = useMemo(
-    () => getVisibleEstimateCostSections(costSections, estimateCostSectionVisibility),
-    [costSections, estimateCostSectionVisibility],
+    () => getInspectionQuoteVisibleCostSections(
+      getVisibleEstimateCostSections(costSections, estimateCostSectionVisibility),
+      currentInspectionQuoteSettings,
+    ),
+    [costSections, currentInspectionQuoteSettings, estimateCostSectionVisibility],
   )
   const shouldShowRepairItemsSection =
     blockVisibility.repairItems
+    && !currentInspectionQuoteSettings
     && (!currentJobsQuotingItem || !isDNumberOnlyQuoteItem(currentJobsQuotingItem) || visibleRepairSections.length > 0)
   const repairTotal = useMemo(
     () =>
-      visibleRepairSections.reduce(
-        (total, section) => total + getRepairSectionCustomerTotal(section),
-        0,
-      ),
-    [visibleRepairSections],
+      currentInspectionQuoteSettings
+        ? 0
+        : visibleRepairSections.reduce(
+            (total, section) => total + getRepairSectionCustomerTotal(section),
+            0,
+          ),
+    [currentInspectionQuoteSettings, visibleRepairSections],
   )
   const costTotal = useMemo(
     () =>
@@ -3779,16 +3846,18 @@ export default function EditableInspectionReport({
   const invoiceTotal = repairTotal + costTotal
   const grandTotalInternalCost = useMemo(
     () =>
-      visibleRepairSections.reduce(
-        (total, section) => total + getRepairSectionInternalTotal(section),
-        0,
-      )
+      (currentInspectionQuoteSettings
+        ? 0
+        : visibleRepairSections.reduce(
+            (total, section) => total + getRepairSectionInternalTotal(section),
+            0,
+          ))
       + visibleCostSections.reduce(
         (total, section) =>
           total + section.lineItems.reduce((sectionTotal, lineItem) => sectionTotal + getInternalLineAmount(lineItem), 0),
         0,
       ),
-    [visibleCostSections, visibleRepairSections],
+    [currentInspectionQuoteSettings, visibleCostSections, visibleRepairSections],
   )
   const grandTotalProfit = invoiceTotal - grandTotalInternalCost
   const grandTotalMargin = getUnitMargin(grandTotalInternalCost, invoiceTotal)
@@ -5434,6 +5503,17 @@ export default function EditableInspectionReport({
     })
   }
 
+  const toggleEstimateCostSectionLineItems = (sectionId: string, checked: boolean) => {
+    setEstimateCostSectionVisibility((currentVisibility) => {
+      const nextVisibility = {
+        ...currentVisibility,
+        [getEstimateCostSectionLineItemsVisibilityKey(sectionId)]: checked,
+      }
+      window.localStorage.setItem(estimateCostSectionVisibilityStorageKey, JSON.stringify(nextVisibility))
+      return nextVisibility
+    })
+  }
+
   const removeCostSection = (sectionId: string) => {
     setCostSections((currentSections) =>
       saveCostSections(currentSections.filter((section) => section.id !== sectionId)),
@@ -6747,6 +6827,7 @@ export default function EditableInspectionReport({
                       </section>
                       ) : null}
 
+                      {!currentInspectionQuoteSettings ? (
                       <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
                         <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
                           <span>Repair Items</span>
@@ -6791,6 +6872,7 @@ export default function EditableInspectionReport({
                           ))}
                         </div>
                       </section>
+                      ) : null}
 
                       <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
                         <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
@@ -7486,6 +7568,7 @@ export default function EditableInspectionReport({
                   const inspectionTemplateSection = currentInspectionQuoteSettings?.selectedSections.find((templateSection) =>
                     section.id === `inspection-${templateSection.id}`
                   )
+                  const lineItemsVisible = isEstimateCostSectionLineItemsVisible(estimateCostSectionVisibility, section.id)
 
                   return (
                   <section
@@ -7512,13 +7595,24 @@ export default function EditableInspectionReport({
                         onChange={(value) => updateCostSectionTitle(section.id, value)}
                         className="min-w-0 flex-1 text-[14px] font-black uppercase leading-tight text-[#273f7a]"
                       />
-                      <button
-                        type="button"
-                        onClick={() => removeCostSection(section.id)}
-                        className="report-inline-action shrink-0 rounded-sm border border-[#d4a7a7] bg-white px-2 py-1 text-[9px] font-black uppercase leading-tight text-[#7d1515] transition hover:bg-[#fff7f7]"
-                      >
-                        Delete Section
-                      </button>
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                        {inspectionTemplateSection ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleEstimateCostSectionLineItems(section.id, !lineItemsVisible)}
+                            className="report-inline-action rounded-sm border border-[#bdc4d3] bg-white px-2 py-1 text-[9px] font-black uppercase leading-tight text-[#273f7a] transition hover:bg-[#eef4ff]"
+                          >
+                            {lineItemsVisible ? 'Hide Line Items' : 'Show Line Items'}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => removeCostSection(section.id)}
+                          className="report-inline-action rounded-sm border border-[#d4a7a7] bg-white px-2 py-1 text-[9px] font-black uppercase leading-tight text-[#7d1515] transition hover:bg-[#fff7f7]"
+                        >
+                          Delete Section
+                        </button>
+                      </div>
                     </div>
 
                     {inspectionTemplateSection ? (
@@ -7531,16 +7625,14 @@ export default function EditableInspectionReport({
                           multiline
                           linkify
                           renderReadOnly={renderInspectionQuoteScopeBullets}
-                          editingIndicator={
-                            <span className="pointer-events-none absolute left-2 top-2 text-[13px] font-black leading-none text-[#273f7a]">
-                              •
-                            </span>
-                          }
-                          className="min-h-[34px] cursor-text whitespace-pre-wrap py-1.5 pl-6 pr-2 text-[11px] font-semibold leading-snug text-[#1f2430]"
+                          insertBulletOnEnter
+                          className="min-h-[34px] cursor-text whitespace-pre-wrap px-2 py-1.5 text-[11px] font-semibold leading-snug text-[#1f2430]"
                         />
                       </div>
                     ) : null}
 
+                    {lineItemsVisible ? (
+                    <>
                     <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
                       <div className="px-2 py-1">Description</div>
                       <div className="border-l border-[#d8d8d8] px-2 py-1 text-right">Internal Cost</div>
@@ -7784,6 +7876,8 @@ export default function EditableInspectionReport({
                       </div>
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
                     </div>
+                    </>
+                    ) : null}
                   </section>
                   )
                 })}
