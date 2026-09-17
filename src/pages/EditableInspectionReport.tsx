@@ -235,8 +235,12 @@ type InspectionEstimatorRow = {
 type InspectionQuoteManualSectionPricing = {
   assets: string
   parts: string
+  travelTime?: string
+  foodLodging?: string
   labor: string
+  rental?: string
   rentals: string
+  belowHookRigging?: string
   freight: string
 }
 
@@ -1822,26 +1826,30 @@ const getCombinedReportTemplateHtml = (
           <h1>${escapeHtml(reportData.title || 'QUOTE PROPOSAL')}</h1>
         </header>
 
-        <div class="summary-row">
+        ${getInspectionQuoteSettings(equipmentSettings) ? '' : `<div class="summary-row">
           <div class="crane-mark" aria-hidden="true"></div>
           <div>${escapeHtml(reportData.summary || source.dNumber)}</div>
           <div>${escapeHtml(reportData.type || '')}</div>
           <div>${escapeHtml(reportData.date || '')}</div>
-        </div>
+        </div>`}
 
         <div class="details-grid">
-          ${getTemplateReportCell('Structure', reportData.structure)}
-          ${getTemplateReportCell('Description', reportData.description)}
           ${getTemplateReportCell('Customer', reportData.customer)}
-          ${getTemplateReportCell('Purchase Order', reportData.purchaseOrder)}
-          ${getTemplateReportCell('Job #', reportData.jobNumber)}
-          ${getTemplateReportCell('Location', reportData.location)}
           ${getTemplateReportCell('Customer Address', reportData.customerAddress)}
+          ${getTemplateReportCell('Date', reportData.date)}
+          ${getTemplateReportCell('Quote #', reportData.jobNumber)}
+          ${getInspectionQuoteSettings(equipmentSettings) ? '' : `
+            ${getTemplateReportCell('Structure', reportData.structure)}
+            ${getTemplateReportCell('Description', reportData.description)}
+            ${getTemplateReportCell('Purchase Order', reportData.purchaseOrder)}
+            ${getTemplateReportCell('Location', reportData.location)}
+          `}
         </div>
 
+        ${getInspectionQuoteSettings(equipmentSettings) ? '' : `
         <div class="equipment-grid">
           ${getTemplateEquipmentCells(reportData)}
-        </div>
+        </div>`}
 
         ${source.suppressContact ? '' : `
         <section class="contact-row">
@@ -2416,6 +2424,8 @@ const buildInspectionQuoteCostSections = (settings: InspectionQuoteSettings): Co
       lineItems: [
         createInspectionQuoteLineItem(`${section.id}-assets`, 'Assets # of', '0.00', assets),
         createInspectionQuoteLineItem(`${section.id}-parts`, 'Parts / Consumables', getInspectionQuotePricingValue(settings, section, 'parts')),
+        createInspectionQuoteLineItem(`${section.id}-travelTime`, 'Travel Time', getInspectionQuotePricingValue(settings, section, 'travelTime')),
+        createInspectionQuoteLineItem(`${section.id}-foodLodging`, 'Food / Lodging', getInspectionQuotePricingValue(settings, section, 'foodLodging')),
         createInspectionQuoteLineItem(
           `${section.id}-labor`,
           'Labor',
@@ -2423,7 +2433,8 @@ const buildInspectionQuoteCostSections = (settings: InspectionQuoteSettings): Co
           '1',
           isEstimatorSection && estimatorLaborCost > 0 ? estimatorLaborCost.toFixed(2) : '0.00',
         ),
-        createInspectionQuoteLineItem(`${section.id}-rentals`, 'Rentals', getInspectionQuotePricingValue(settings, section, 'rentals')),
+        createInspectionQuoteLineItem(`${section.id}-rental`, 'Rental', getInspectionQuotePricingValue(settings, section, 'rental') || getInspectionQuotePricingValue(settings, section, 'rentals')),
+        createInspectionQuoteLineItem(`${section.id}-belowHookRigging`, 'Below the Hook Rigging', getInspectionQuotePricingValue(settings, section, 'belowHookRigging')),
         createInspectionQuoteLineItem(`${section.id}-freight`, 'Freight', getInspectionQuotePricingValue(settings, section, 'freight')),
       ],
     }
@@ -2448,8 +2459,12 @@ const getInspectionQuoteManualPricingFromCostSections = (
     [section.id]: {
       assets: getValue('assets'),
       parts: getValue('parts'),
+      travelTime: getValue('travelTime'),
+      foodLodging: getValue('foodLodging'),
       labor: getValue('labor'),
+      rental: getValue('rental') || getValue('rentals'),
       rentals: getValue('rentals'),
+      belowHookRigging: getValue('belowHookRigging'),
       freight: getValue('freight'),
     },
   }
@@ -6845,51 +6860,70 @@ export default function EditableInspectionReport({
           </section>
 
           <section className="px-6 py-3">
-            <div className="grid grid-cols-[34px_1.5fr_0.85fr_0.9fr] items-center border-b border-[#bcbcbc]">
-              <div className="flex h-[34px] items-center justify-center">
-                <div className="relative h-6 w-8 border-t-2 border-[#111]">
-                  <span className="absolute left-0.5 top-[-5px] h-1.5 w-1.5 rounded-full bg-[#111]" />
-                  <span className="absolute right-0.5 top-[-5px] h-1.5 w-1.5 rounded-full bg-[#111]" />
-                  <span className="absolute left-2 top-0 h-5 border-l-2 border-[#111]" />
-                  <span className="absolute right-2 top-0 h-5 border-l-2 border-[#111]" />
-                  <span className="absolute left-1/2 top-1 h-4 -translate-x-1/2 border-l border-[#111]" />
+            {currentInspectionQuoteSettings ? (
+              <div className="border-y border-[#d4d4d4]">
+                <div className="grid grid-cols-4 bg-[#f7f7f7] text-[10px] font-black uppercase text-[#555b66]">
+                  <div className="px-2 py-1">Customer Name</div>
+                  <div className="border-l border-[#d4d4d4] px-2 py-1">Customer Address</div>
+                  <div className="border-l border-[#d4d4d4] px-2 py-1">Date</div>
+                  <div className="border-l border-[#d4d4d4] px-2 py-1">Quote Number</div>
+                </div>
+                <div className="grid grid-cols-4 text-[12px] font-bold leading-tight">
+                  <EditableText id="customer" data={report} onChange={updateField} className="min-h-[26px] px-2 py-1.5" />
+                  <EditableText id="customerAddress" data={report} onChange={updateField} className="min-h-[26px] border-l border-[#d4d4d4] px-2 py-1.5" />
+                  <EditableText id="date" data={report} onChange={updateField} className="min-h-[26px] border-l border-[#d4d4d4] px-2 py-1.5" />
+                  <EditableText id="jobNumber" data={report} onChange={updateField} protectedPrefix="Job #: " className="min-h-[26px] border-l border-[#d4d4d4] px-2 py-1.5" />
                 </div>
               </div>
-              <EditableText
-                id="summary"
-                data={report}
-                onChange={updateField}
-                protectedPrefix="D"
-                className="border-r border-[#cfcfcf] px-2 text-[12px] font-bold leading-tight"
-              />
-              <EditableText id="type" data={report} onChange={updateField} className="border-r border-[#cfcfcf] px-2 text-[12px] font-bold leading-tight" />
-              <EditableText id="date" data={report} onChange={updateField} className="px-2 text-[12px] font-bold leading-tight" />
-            </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-[34px_1.5fr_0.85fr_0.9fr] items-center border-b border-[#bcbcbc]">
+                  <div className="flex h-[34px] items-center justify-center">
+                    <div className="relative h-6 w-8 border-t-2 border-[#111]">
+                      <span className="absolute left-0.5 top-[-5px] h-1.5 w-1.5 rounded-full bg-[#111]" />
+                      <span className="absolute right-0.5 top-[-5px] h-1.5 w-1.5 rounded-full bg-[#111]" />
+                      <span className="absolute left-2 top-0 h-5 border-l-2 border-[#111]" />
+                      <span className="absolute right-2 top-0 h-5 border-l-2 border-[#111]" />
+                      <span className="absolute left-1/2 top-1 h-4 -translate-x-1/2 border-l border-[#111]" />
+                    </div>
+                  </div>
+                  <EditableText
+                    id="summary"
+                    data={report}
+                    onChange={updateField}
+                    protectedPrefix="D"
+                    className="border-r border-[#cfcfcf] px-2 text-[12px] font-bold leading-tight"
+                  />
+                  <EditableText id="type" data={report} onChange={updateField} className="border-r border-[#cfcfcf] px-2 text-[12px] font-bold leading-tight" />
+                  <EditableText id="date" data={report} onChange={updateField} className="px-2 text-[12px] font-bold leading-tight" />
+                </div>
 
-            <div className="grid grid-cols-[1.7fr_0.9fr_0.95fr] border-b border-[#d4d4d4] text-[11px] font-bold leading-tight">
-              <EditableText id="structure" data={report} onChange={updateField} className="px-2 py-0.5" />
-              <EditableText id="description" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-0.5" />
-              <EditableText id="customer" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-0.5" />
-            </div>
+                <div className="grid grid-cols-[1.7fr_0.9fr_0.95fr] border-b border-[#d4d4d4] text-[11px] font-bold leading-tight">
+                  <EditableText id="structure" data={report} onChange={updateField} className="px-2 py-0.5" />
+                  <EditableText id="description" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-0.5" />
+                  <EditableText id="customer" data={report} onChange={updateField} className="border-l border-[#d4d4d4] px-2 py-0.5" />
+                </div>
 
-            <div className="grid grid-cols-4 text-[11px] font-semibold leading-tight">
-              {cells.flatMap((row, rowIndex) =>
-                shouldShowReportTableRow(row, rowIndex, report)
-                  ? row.map((fieldId, columnIndex) => (
-                      <EditableText
-                        key={fieldId}
-                        id={fieldId}
-                        data={report}
-                        onChange={updateField}
-                        protectedPrefix={fieldId === 'jobNumber' ? 'Job #: ' : undefined}
-                        className={`min-h-[21px] border-b border-[#dcdcdc] px-2 py-0.5 ${
-                          columnIndex > 0 ? 'border-l border-[#d4d4d4]' : ''
-                        } ${rowIndex === 1 ? 'font-bold' : ''}`}
-                      />
-                    ))
-                  : [],
-              )}
-            </div>
+                <div className="grid grid-cols-4 text-[11px] font-semibold leading-tight">
+                  {cells.flatMap((row, rowIndex) =>
+                    shouldShowReportTableRow(row, rowIndex, report)
+                      ? row.map((fieldId, columnIndex) => (
+                          <EditableText
+                            key={fieldId}
+                            id={fieldId}
+                            data={report}
+                            onChange={updateField}
+                            protectedPrefix={fieldId === 'jobNumber' ? 'Job #: ' : undefined}
+                            className={`min-h-[21px] border-b border-[#dcdcdc] px-2 py-0.5 ${
+                              columnIndex > 0 ? 'border-l border-[#d4d4d4]' : ''
+                            } ${rowIndex === 1 ? 'font-bold' : ''}`}
+                          />
+                        ))
+                      : [],
+                  )}
+                </div>
+              </>
+            )}
 
             {blockVisibility.contact && !suppressContact ? (
             <section

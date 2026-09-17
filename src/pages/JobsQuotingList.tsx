@@ -42,7 +42,7 @@ const inspectionQuoteTemplateSections = [
   { id: 'frequent-inspections', title: 'Frequent Inspections' },
   { id: 'periodic-inspections', title: 'Periodic Inspections' },
   { id: 'preventative-maintenance', title: 'Preventative Maintenance' },
-  { id: 'below-the-hook', title: 'Below-The-Hook' },
+  { id: 'below-the-hook', title: 'Below the Hook Rigging' },
   { id: 'slings-rigging-hardware', title: 'Slings / Rigging / Hardware' },
   { id: 'structural-runway', title: 'Structural Runway Inspections / Surveys' },
   { id: 'load-testing', title: 'Load Testing / Inspection' },
