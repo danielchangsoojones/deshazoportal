@@ -1487,6 +1487,7 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     ...defaultEquipmentRentalSettings,
     ...payload.equipmentRentalSettings,
   } as EquipmentRentalSettings
+  const inspectionQuoteSettings = getInspectionQuoteSettings(equipmentSettings)
   const contactLines = source.suppressContact
     ? []
     : [
@@ -1511,9 +1512,13 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     reportData.purchaseOrder,
     ...contactLines,
     '',
-    reportData.scopeOfWorkHeader || 'Scope of Work',
-    reportData.scopeOfWork || '---',
-    '',
+    ...(inspectionQuoteSettings
+      ? []
+      : [
+          reportData.scopeOfWorkHeader || 'Scope of Work',
+          reportData.scopeOfWork || '---',
+          '',
+        ]),
   ]
 
   const repairAndMonitorSections = repairSections.filter((section) => getRepairSectionKind(section.status) !== 'safety')
@@ -1548,6 +1553,11 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
   lines.push('', 'Estimate Summary')
   costSections.forEach((section) => {
     lines.push('', section.title)
+    const scopeItems = getInspectionQuoteSectionScopeItems(inspectionQuoteSettings, section)
+    if (scopeItems.length > 0) {
+      lines.push('Scope of Work')
+      scopeItems.forEach((scopeItem) => lines.push(`- ${scopeItem}`))
+    }
     section.lineItems.forEach((lineItem) => {
       lines.push(getPdfLineItemSummary(lineItem, section.id, equipmentSettings))
     })
@@ -1647,6 +1657,73 @@ const getTemplateReportCell = (label: string, value: string | undefined) => `
   </div>
 `
 
+const splitInspectionQuoteScopeItems = (scope: string | undefined) => {
+  const normalizedScope = (scope || '')
+    .replace(/\r/g, '\n')
+    .replace(/[•●▪◦]/g, '\n')
+    .trim()
+
+  if (!normalizedScope) return []
+
+  const cleanItem = (value: string) =>
+    value
+      .replace(/^\s*(?:\d+[\.)]|[-*])\s*/, '')
+      .replace(/\s+/g, ' ')
+      .replace(/[.;,\s]+$/, '')
+      .trim()
+
+  const splitItems = (pattern: RegExp) => normalizedScope.split(pattern).map(cleanItem).filter(Boolean)
+  return splitItems(/\n+/)
+}
+
+const getInspectionQuoteSectionScopeColumnCount = (scopeItems: string[]) => {
+  if (scopeItems.length <= 1) return 1
+  return Math.min(scopeItems.length, 3)
+}
+
+const getInspectionQuoteSectionScopeItems = (
+  settings: InspectionQuoteSettings | null,
+  costSection: CostSection,
+) => {
+  if (!settings || !costSection.id.startsWith('inspection-')) return []
+  const templateSectionId = costSection.id.replace(/^inspection-/, '')
+  const templateSection = settings.selectedSections.find((section) => section.id === templateSectionId)
+  return splitInspectionQuoteScopeItems(templateSection?.scope)
+}
+
+const renderInspectionQuoteScopeMarkup = (scopeItems: string[]) => {
+  if (scopeItems.length === 0) return ''
+
+  return `
+    <div class="inspection-section-scope">
+      <div class="inspection-section-scope-title">Scope of Work</div>
+      <ul class="scope-cols-${getInspectionQuoteSectionScopeColumnCount(scopeItems)}">
+        ${scopeItems.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+      </ul>
+    </div>
+  `
+}
+
+const renderInspectionQuoteScopeBullets = (scope: string) => {
+  const scopeItems = splitInspectionQuoteScopeItems(scope)
+  if (scopeItems.length === 0) {
+    return <span className="text-[#8a92a3]">Add scope of work items here.</span>
+  }
+
+  return (
+    <ul
+      className="grid list-disc gap-x-6 gap-y-1 pl-4"
+      style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeItems)}, minmax(0, 1fr))` }}
+    >
+      {scopeItems.map((scopeItem, scopeIndex) => (
+        <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
+          {scopeItem}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 const templateEquipmentRows = [
   [
     ['Manufacturer', 'manufacturerCrane'],
@@ -1721,6 +1798,7 @@ const getCombinedReportTemplateHtml = (
       ...defaultEquipmentRentalSettings,
       ...source.payload.equipmentRentalSettings,
     } as EquipmentRentalSettings
+    const inspectionQuoteSettings = getInspectionQuoteSettings(equipmentSettings)
     const repairTotal = repairSections.reduce(
       (total, section) => total + getRepairSectionCustomerTotal(section),
       0,
@@ -1783,9 +1861,13 @@ const getCombinedReportTemplateHtml = (
     const safetyMarkup = safetySections.map(renderRepairSectionMarkup).join('')
 
     const costMarkup = costSections
-      .map((section) => `
+      .map((section) => {
+        const scopeMarkup = renderInspectionQuoteScopeMarkup(getInspectionQuoteSectionScopeItems(inspectionQuoteSettings, section))
+
+        return `
         <section class="quote-section">
           <div class="section-title estimate-title">${escapeHtml(section.title)}</div>
+          ${scopeMarkup}
           <table>
             <thead>
               <tr>
@@ -1809,7 +1891,8 @@ const getCombinedReportTemplateHtml = (
             </tbody>
           </table>
         </section>
-      `)
+      `
+      })
       .join('')
 
     return `
@@ -1826,7 +1909,7 @@ const getCombinedReportTemplateHtml = (
           <h1>${escapeHtml(reportData.title || 'QUOTE PROPOSAL')}</h1>
         </header>
 
-        ${getInspectionQuoteSettings(equipmentSettings) ? '' : `<div class="summary-row">
+        ${inspectionQuoteSettings ? '' : `<div class="summary-row">
           <div class="crane-mark" aria-hidden="true"></div>
           <div>${escapeHtml(reportData.summary || source.dNumber)}</div>
           <div>${escapeHtml(reportData.type || '')}</div>
@@ -1838,7 +1921,7 @@ const getCombinedReportTemplateHtml = (
           ${getTemplateReportCell('Customer Address', reportData.customerAddress)}
           ${getTemplateReportCell('Date', reportData.date)}
           ${getTemplateReportCell('Quote #', reportData.jobNumber)}
-          ${getInspectionQuoteSettings(equipmentSettings) ? '' : `
+          ${inspectionQuoteSettings ? '' : `
             ${getTemplateReportCell('Structure', reportData.structure)}
             ${getTemplateReportCell('Description', reportData.description)}
             ${getTemplateReportCell('Purchase Order', reportData.purchaseOrder)}
@@ -1846,7 +1929,7 @@ const getCombinedReportTemplateHtml = (
           `}
         </div>
 
-        ${getInspectionQuoteSettings(equipmentSettings) ? '' : `
+        ${inspectionQuoteSettings ? '' : `
         <div class="equipment-grid">
           ${getTemplateEquipmentCells(reportData)}
         </div>`}
@@ -1859,10 +1942,10 @@ const getCombinedReportTemplateHtml = (
         </section>
         `}
 
-        <section class="scope">
+        ${inspectionQuoteSettings ? '' : `<section class="scope">
           <h2>${escapeHtml(reportData.scopeOfWorkHeader || 'Scope of Work')}</h2>
           <p>${escapeHtml(reportData.scopeOfWork || '---')}</p>
-        </section>
+        </section>`}
 
         <h2 class="band">ACTION LIST - REPAIR ITEMS</h2>
         ${repairMarkup}
@@ -2084,6 +2167,34 @@ const getCombinedReportTemplateHtml = (
             font-weight: 900;
           }
           .estimate-title { color: #273f7a; text-transform: uppercase; }
+          .inspection-section-scope {
+            border-bottom: 1px solid #d8d8d8;
+            background: #fffdf6;
+            padding: 6px 8px;
+          }
+          .inspection-section-scope-title {
+            margin-bottom: 4px;
+            color: #555b66;
+            font-size: 7px;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+          .inspection-section-scope ul {
+            display: grid;
+            gap: 3px 16px;
+            margin: 0;
+            padding-left: 12px;
+          }
+          .inspection-section-scope .scope-cols-1 { grid-template-columns: 1fr; }
+          .inspection-section-scope .scope-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .inspection-section-scope .scope-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+          .inspection-section-scope li {
+            color: #1f2430;
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1.25;
+            break-inside: avoid;
+          }
           .repair-section { background: #f4e3e3; }
           .monitor-section { background: #f6edbf; }
           .safety-section { background: #fff0e3; }
@@ -2830,6 +2941,7 @@ type EditableValueProps = {
   multiline?: boolean
   protectedPrefix?: string
   renderReadOnly?: (value: string) => ReactNode
+  editingIndicator?: ReactNode
   clearOnFocus?: boolean
   onEditFocus?: () => void
   onChange: (value: string) => void
@@ -2958,6 +3070,7 @@ function EditableValue({
   numericFormat,
   protectedPrefix,
   renderReadOnly,
+  editingIndicator,
   clearOnFocus = false,
   onEditFocus,
   onChange,
@@ -2994,7 +3107,7 @@ function EditableValue({
     }
   }, [isEditing, linkify, value])
 
-  return (
+  const editableElement = (
     <div
       ref={elementRef}
       role="textbox"
@@ -3112,6 +3225,15 @@ function EditableValue({
       }}
     >
       {linkify && !isEditing ? (renderReadOnly ? renderReadOnly(value) : renderLinkifiedText(value)) : value}
+    </div>
+  )
+
+  if (!editingIndicator) return editableElement
+
+  return (
+    <div className="relative">
+      {isEditing ? editingIndicator : null}
+      {editableElement}
     </div>
   )
 }
@@ -3394,6 +3516,10 @@ export default function EditableInspectionReport({
   const currentInspectionQuoteSettings = useMemo(
     () => isInspectionQuoteItem(currentJobsQuotingItem) ? getInspectionQuoteSettings(equipmentRentalSettings) : null,
     [currentJobsQuotingItem, equipmentRentalSettings],
+  )
+  const currentInspectionQuoteHasSectionScope = useMemo(
+    () => Boolean(currentInspectionQuoteSettings?.selectedSections.some((section) => splitInspectionQuoteScopeItems(section.scope).length > 0)),
+    [currentInspectionQuoteSettings],
   )
 
   useEffect(() => {
@@ -4556,6 +4682,23 @@ export default function EditableInspectionReport({
     return nextSettings
   }
 
+  const updateInspectionQuoteSectionScope = (sectionId: string, scope: string) => {
+    setEquipmentRentalSettings((currentSettings) => {
+      const inspectionQuote = getInspectionQuoteSettings(currentSettings)
+      if (!inspectionQuote) return currentSettings
+
+      return saveEquipmentRentalSettings({
+        ...currentSettings,
+        inspectionQuote: {
+          ...inspectionQuote,
+          selectedSections: inspectionQuote.selectedSections.map((section) =>
+            section.id === sectionId ? { ...section, scope } : section,
+          ),
+        },
+      })
+    })
+  }
+
   const markInspectionQuoteManualPricingEdit = () => {
     if (!currentInspectionQuoteSettings) return
 
@@ -5618,6 +5761,7 @@ export default function EditableInspectionReport({
   const printEditableReport = async () => {
     if (
       currentInspectionQuoteSettings &&
+      !currentInspectionQuoteHasSectionScope &&
       !report.scopeOfWork.trim() &&
       !window.confirm('This inspection quote does not have a scope of work. Print it anyway?')
     ) {
@@ -6589,6 +6733,7 @@ export default function EditableInspectionReport({
                         </label>
                       </section>
 
+                      {!currentInspectionQuoteSettings ? (
                       <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
                         <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
                           <span>Scope of Work</span>
@@ -6600,6 +6745,7 @@ export default function EditableInspectionReport({
                           />
                         </label>
                       </section>
+                      ) : null}
 
                       <section className="rounded-md border border-[#e3e8f1] bg-[#fbfcff] p-2">
                         <label className="flex cursor-pointer items-center justify-between gap-3 text-[13px] font-black text-[#1f2430]">
@@ -6944,7 +7090,7 @@ export default function EditableInspectionReport({
             </section>
             ) : null}
 
-            {blockVisibility.scopeOfWork ? (
+            {blockVisibility.scopeOfWork && !currentInspectionQuoteSettings ? (
             <section
               data-report-block-id="scope-of-work"
               style={getRuntimePageBreakStyle('scope-of-work')}
@@ -7336,7 +7482,12 @@ export default function EditableInspectionReport({
                     />
                   </div>
                 ) : null}
-                {visibleCostSections.map((section) => (
+                {visibleCostSections.map((section) => {
+                  const inspectionTemplateSection = currentInspectionQuoteSettings?.selectedSections.find((templateSection) =>
+                    section.id === `inspection-${templateSection.id}`
+                  )
+
+                  return (
                   <section
                     key={section.id}
                     data-report-block-id={`cost-section-${section.id}`}
@@ -7369,6 +7520,26 @@ export default function EditableInspectionReport({
                         Delete Section
                       </button>
                     </div>
+
+                    {inspectionTemplateSection ? (
+                      <div className="border-b border-[#d8d8d8] bg-[#fffdf6] px-3 py-2">
+                        <div className="mb-1 text-[10px] font-black uppercase leading-tight text-[#555b66]">Scope of Work</div>
+                        <EditableValue
+                          label={`${section.title} scope of work`}
+                          value={inspectionTemplateSection.scope}
+                          onChange={(value) => updateInspectionQuoteSectionScope(inspectionTemplateSection.id, value)}
+                          multiline
+                          linkify
+                          renderReadOnly={renderInspectionQuoteScopeBullets}
+                          editingIndicator={
+                            <span className="pointer-events-none absolute left-2 top-2 text-[13px] font-black leading-none text-[#273f7a]">
+                              •
+                            </span>
+                          }
+                          className="min-h-[34px] cursor-text whitespace-pre-wrap py-1.5 pl-6 pr-2 text-[11px] font-semibold leading-snug text-[#1f2430]"
+                        />
+                      </div>
+                    ) : null}
 
                     <div className="relative grid grid-cols-[1fr_86px_54px_92px_108px_112px_38px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[9px] font-black uppercase text-[#555b66]">
                       <div className="px-2 py-1">Description</div>
@@ -7614,7 +7785,8 @@ export default function EditableInspectionReport({
                       <div className="report-inline-action border-l border-[#d8d8d8]" />
                     </div>
                   </section>
-                ))}
+                  )
+                })}
                 {estimateNoteVisibility.bottomNote ? (
                   <div
                     data-report-block-id="estimate-bottom-note"
