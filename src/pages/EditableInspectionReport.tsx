@@ -710,6 +710,23 @@ const getExtractedArray = (value: unknown, keys: string[]) => {
 const removeReportValueLabel = (value: string) =>
   value.includes(':') ? value.split(':').slice(1).join(':').trim() : value.trim()
 
+const inspectionQuoteHeaderPlaceholderLabels: Record<string, string> = {
+  customer: 'Customer',
+  customerAddress: 'Customer Address',
+  date: 'Date',
+  jobNumber: 'Job #',
+}
+
+const shouldClearInspectionQuoteHeaderPlaceholder = (fieldId: string, value: string) =>
+  Boolean(inspectionQuoteHeaderPlaceholderLabels[fieldId]) && removeReportValueLabel(value).trim() === '---'
+
+const normalizeInspectionQuoteHeaderValue = (fieldId: string, value: string) => {
+  const label = inspectionQuoteHeaderPlaceholderLabels[fieldId]
+  if (!label || removeReportValueLabel(value).trim()) return value
+
+  return `${label}: ---`
+}
+
 const ensureDNumberPrefix = (value: string) => {
   const trimmedValue = value.trimStart()
   if (!trimmedValue) return 'D'
@@ -3117,6 +3134,7 @@ type EditableTextProps = {
   multiline?: boolean
   protectedPrefix?: string
   renderReadOnly?: (value: string) => ReactNode
+  clearPlaceholderTextOnFocus?: string
   onChange: (id: string, value: string) => void
 }
 
@@ -3128,6 +3146,7 @@ function EditableText({
   multiline = false,
   protectedPrefix,
   renderReadOnly,
+  clearPlaceholderTextOnFocus,
   onChange,
 }: EditableTextProps) {
   const fieldValue = data[id] ?? ''
@@ -3145,6 +3164,7 @@ function EditableText({
       multiline={multiline}
       protectedPrefix={protectedPrefix}
       renderReadOnly={renderReadOnly}
+      clearPlaceholderTextOnFocus={clearPlaceholderTextOnFocus}
       onChange={(value) => onChange(id, value)}
     />
   )
@@ -3162,6 +3182,7 @@ type EditableValueProps = {
   editingIndicator?: ReactNode
   insertBulletOnEnter?: boolean
   clearOnFocus?: boolean
+  clearPlaceholderTextOnFocus?: string
   onEditFocus?: () => void
   onChange: (value: string) => void
   onDropMenuItem?: (item: MenuItem) => void
@@ -3306,6 +3327,7 @@ function EditableValue({
   editingIndicator,
   insertBulletOnEnter = false,
   clearOnFocus = false,
+  clearPlaceholderTextOnFocus,
   onEditFocus,
   onChange,
   onDropMenuItem,
@@ -3313,10 +3335,32 @@ function EditableValue({
   const elementRef = useRef<HTMLDivElement>(null)
   const [isEditing, setIsEditing] = useState(false)
 
+  const moveCursorToEnd = (element: HTMLElement) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    range.collapse(false)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  }
+
   const clearValueIfPlaceholder = () => {
     if (clearOnFocus && elementRef.current?.innerText === value) {
       elementRef.current.innerText = ''
+      return
     }
+
+    if (!clearPlaceholderTextOnFocus || !elementRef.current) {
+      return
+    }
+
+    const currentText = elementRef.current.innerText
+    if (!currentText.includes(clearPlaceholderTextOnFocus)) {
+      return
+    }
+
+    elementRef.current.innerText = currentText.replace(clearPlaceholderTextOnFocus, '')
+    moveCursorToEnd(elementRef.current)
   }
 
   const startEditing = () => {
@@ -4948,6 +4992,10 @@ export default function EditableInspectionReport({
       window.localStorage.setItem(storageKey, JSON.stringify(nextReport))
       return nextReport
     })
+  }
+
+  const updateInspectionQuoteHeaderField = (id: string, value: string) => {
+    updateField(id, normalizeInspectionQuoteHeaderValue(id, value))
   }
 
   const saveRepairSections = (nextSections: RepairSection[]) => {
@@ -7409,10 +7457,35 @@ export default function EditableInspectionReport({
                   <div className="border-l border-[#d4d4d4] px-2 py-1">Quote Number</div>
                 </div>
                 <div className="grid grid-cols-4 text-[12px] font-bold leading-tight">
-                  <EditableText id="customer" data={report} onChange={updateField} className="min-h-[26px] px-2 py-1.5" />
-                  <EditableText id="customerAddress" data={report} onChange={updateField} className="min-h-[26px] border-l border-[#d4d4d4] px-2 py-1.5" />
-                  <EditableText id="date" data={report} onChange={updateField} className="min-h-[26px] border-l border-[#d4d4d4] px-2 py-1.5" />
-                  <EditableText id="jobNumber" data={report} onChange={updateField} protectedPrefix="Job #: " className="min-h-[26px] border-l border-[#d4d4d4] px-2 py-1.5" />
+                  <EditableText
+                    id="customer"
+                    data={report}
+                    onChange={updateInspectionQuoteHeaderField}
+                    clearPlaceholderTextOnFocus={shouldClearInspectionQuoteHeaderPlaceholder('customer', report.customer) ? '---' : undefined}
+                    className="min-h-[26px] px-2 py-1.5"
+                  />
+                  <EditableText
+                    id="customerAddress"
+                    data={report}
+                    onChange={updateInspectionQuoteHeaderField}
+                    clearPlaceholderTextOnFocus={shouldClearInspectionQuoteHeaderPlaceholder('customerAddress', report.customerAddress) ? '---' : undefined}
+                    className="min-h-[26px] border-l border-[#d4d4d4] px-2 py-1.5"
+                  />
+                  <EditableText
+                    id="date"
+                    data={report}
+                    onChange={updateInspectionQuoteHeaderField}
+                    clearPlaceholderTextOnFocus={shouldClearInspectionQuoteHeaderPlaceholder('date', report.date) ? '---' : undefined}
+                    className="min-h-[26px] border-l border-[#d4d4d4] px-2 py-1.5"
+                  />
+                  <EditableText
+                    id="jobNumber"
+                    data={report}
+                    onChange={updateInspectionQuoteHeaderField}
+                    protectedPrefix="Job #: "
+                    clearPlaceholderTextOnFocus={shouldClearInspectionQuoteHeaderPlaceholder('jobNumber', report.jobNumber) ? '---' : undefined}
+                    className="min-h-[26px] border-l border-[#d4d4d4] px-2 py-1.5"
+                  />
                 </div>
               </div>
             ) : (
