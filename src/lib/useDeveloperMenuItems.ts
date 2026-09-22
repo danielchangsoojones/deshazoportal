@@ -9,9 +9,11 @@ type PortalMenuItem = {
 }
 
 const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Calendar', 'Document Reports', 'Customer Quotes'])
+const detachedLabels = new Set(['Document Reports', 'Calendar'])
 const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
 const financeReleasedLabels = new Set(['Spend', 'Location Comparison'])
 const calendarMenuItem = { label: 'Calendar', href: '/calendar' }
+const customerQuotesMenuItem = { label: 'Customer Quotes', href: '/customer-quotes' }
 
 function withCalendarMenuItem<T extends PortalMenuItem>(menuItems: T[]) {
   if (menuItems.some((item) => item.label === calendarMenuItem.label)) return menuItems
@@ -23,6 +25,28 @@ function withCalendarMenuItem<T extends PortalMenuItem>(menuItems: T[]) {
     ...menuItems.slice(0, locationComparisonIndex + 1),
     calendarMenuItem as T,
     ...menuItems.slice(locationComparisonIndex + 1),
+  ]
+}
+
+function withCustomerQuotesMenuItem<T extends PortalMenuItem>(menuItems: T[]) {
+  if (menuItems.some((item) => item.label === customerQuotesMenuItem.label)) return menuItems
+
+  const locationComparisonIndex = menuItems.findIndex((item) => item.label === 'Location Comparison')
+  if (locationComparisonIndex !== -1) {
+    return [
+      ...menuItems.slice(0, locationComparisonIndex + 1),
+      customerQuotesMenuItem as T,
+      ...menuItems.slice(locationComparisonIndex + 1),
+    ]
+  }
+
+  const customReportsIndex = menuItems.findIndex((item) => item.label === 'Custom Reports')
+  if (customReportsIndex === -1) return menuItems
+
+  return [
+    ...menuItems.slice(0, customReportsIndex),
+    customerQuotesMenuItem as T,
+    ...menuItems.slice(customReportsIndex),
   ]
 }
 
@@ -57,7 +81,8 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
 
   return useMemo(
     () =>
-      withCalendarMenuItem(menuItems)
+      withCustomerQuotesMenuItem(withCalendarMenuItem(menuItems))
+        .filter((item) => !detachedLabels.has(item.label))
         .filter((item) => {
           const developerOnly =
             developerOnlyLabels.has(item.label) && !(isFinanceReleased && financeReleasedLabels.has(item.label))

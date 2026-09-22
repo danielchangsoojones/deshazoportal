@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './customerRouting'
+import { applyWabashReportingLocationLabel, getWabashReportingLocationOverride } from './wabashReportingOverrides'
 
 const portalParseBaseUrl = (import.meta.env.VITE_PORTAL_PARSE_BASE_URL as string | undefined)?.trim() || ''
 const deshazoExternalApiBaseUrl =
@@ -216,6 +217,13 @@ function normalizeSavedReport(
 }
 
 function normalizeSavedWorkOrderSummary(row: DeshazoExternalWorkOrderRow): DeshazoSavedWorkOrderSummary {
+  const locationOverride = getWabashReportingLocationOverride({
+    customer: row.customer,
+    workOrderId: row.work_order_id,
+    jobNo: row.job_no,
+  })
+  const customerLocationAddress = locationOverride?.locationLabel || getCustomerLocationAddress(row.raw_payload)
+
   return {
     workOrderId: row.work_order_id,
     jobNo: row.job_no ?? '',
@@ -223,10 +231,13 @@ function normalizeSavedWorkOrderSummary(row: DeshazoExternalWorkOrderRow): Desha
     jobType: row.job_type ?? '',
     statusName: row.status_name ?? '',
     customerName: row.bill_to_name ?? '',
-    customerLocationName: row.customer_location_name ?? '',
+    customerLocationName: applyWabashReportingLocationLabel(
+      { customer: row.customer, workOrderId: row.work_order_id, jobNo: row.job_no },
+      row.customer_location_name,
+    ),
     serviceLocationName: row.service_location_name ?? '',
     customerAddress: [row.bill_to_city, row.bill_to_state, row.bill_to_zip_code].filter(Boolean).join(' '),
-    customerLocationAddress: getCustomerLocationAddress(row.raw_payload),
+    customerLocationAddress,
     customerPoNo: row.customer_po_no ?? '',
     comment: row.comment ?? '',
     startDate: row.start_date ?? '',
@@ -266,7 +277,7 @@ export async function getSavedDeshazoInspectionReports(limit = 20, customer?: st
   const selectedCustomer = resolveSelectedCustomer(customer)
   const { data, error } = await supabase
     .from('deshazo_external_inspection_reports')
-    .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .select('work_order_id, customer, job_no, job_type, raw_payload, synced_at')
     .eq('customer', selectedCustomer)
     .order('synced_at', { ascending: false })
     .limit(limit)
@@ -283,7 +294,7 @@ export async function getSavedDeshazoInspectionReports(limit = 20, customer?: st
     const { data: summaryData, error: summaryError } = await supabase
       .from('deshazo_external_work_orders')
       .select(
-        'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
+        'work_order_id, customer, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
       )
       .eq('customer', selectedCustomer)
       .in('work_order_id', workOrderIds)
@@ -308,7 +319,7 @@ export async function getSavedDeshazoInspectionReport(workOrderId: number, custo
   const selectedCustomer = resolveSelectedCustomer(customer)
   const { data, error } = await supabase
     .from('deshazo_external_inspection_reports')
-    .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .select('work_order_id, customer, job_no, job_type, raw_payload, synced_at')
     .eq('customer', selectedCustomer)
     .eq('work_order_id', workOrderId)
     .maybeSingle()
@@ -322,7 +333,7 @@ export async function getSavedDeshazoInspectionReport(workOrderId: number, custo
   const { data: summaryData, error: summaryError } = await supabase
     .from('deshazo_external_work_orders')
     .select(
-      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
+      'work_order_id, customer, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
     )
     .eq('customer', selectedCustomer)
     .eq('work_order_id', workOrderId)
@@ -384,7 +395,7 @@ export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: 
 
   const { data: reportData, error: reportError } = await supabase
     .from('deshazo_external_inspection_reports')
-    .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .select('work_order_id, customer, job_no, job_type, raw_payload, synced_at')
     .eq('customer', selectedCustomer)
     .in('work_order_id', workOrderIds)
 
@@ -395,7 +406,7 @@ export async function getSavedDeshazoInspectionReportMatchesForDNumber(dNumber: 
   const { data: summaryData, error: summaryError } = await supabase
     .from('deshazo_external_work_orders')
     .select(
-      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
+      'work_order_id, customer, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
     )
     .eq('customer', selectedCustomer)
     .in('work_order_id', workOrderIds)
@@ -442,6 +453,14 @@ function buildLocationSearchTerms(city: string) {
   ].filter((value) => value.length >= 2)))
 }
 
+function getKnownReportingOverrideWorkOrderIds(locationValues: string[], customer: string) {
+  if (normalizeCustomer(customer) !== 'wabash') return []
+  const selectedLocationValues = new Set(locationValues.map((value) => normalizeCustomer(value)))
+  return selectedLocationValues.has('phoenixaz') || selectedLocationValues.has('phoenix')
+    ? [61077]
+    : []
+}
+
 function getLocationTermsFromOptionValues(locationValues: string[]) {
   return locationValues.flatMap((value) => buildLocationSearchTerms(value.replace(/_/g, ' ')))
 }
@@ -458,7 +477,7 @@ function buildWorkOrderLocationFilter(locationValues: string[]) {
   const locationTerms = Array.from(new Set(getLocationTermsFromOptionValues(locationValues)))
   if (locationTerms.length === 0) return ''
 
-  return locationTerms
+  const filters = locationTerms
     .flatMap((term) => {
       return [
         buildIlikeFilter('customer_location_name', term),
@@ -466,7 +485,17 @@ function buildWorkOrderLocationFilter(locationValues: string[]) {
         buildIlikeFilter('bill_to_city', term),
       ]
     })
-    .join(',')
+
+  return filters.join(',')
+}
+
+function buildWorkOrderLocationFilterWithOverrides(locationValues: string[], customer: string) {
+  const filters = [
+    buildWorkOrderLocationFilter(locationValues),
+    ...getKnownReportingOverrideWorkOrderIds(locationValues, customer).map((workOrderId) => `work_order_id.eq.${workOrderId}`),
+  ].filter(Boolean)
+
+  return filters.join(',')
 }
 
 function getNewestTimestamp(values: Array<string | null | undefined>) {
@@ -566,7 +595,7 @@ export async function getSavedDeshazoWorkOrdersCsv(
     'synced_at',
     'raw_payload',
   ]
-  const locationFilter = buildWorkOrderLocationFilter(locationValues)
+  const locationFilter = buildWorkOrderLocationFilterWithOverrides(locationValues, selectedCustomer)
   const rows: Array<Record<string, unknown>> = []
   const batchSize = 1000
 
@@ -620,7 +649,7 @@ export async function getSavedDeshazoRepairReportsByCity(city: string, customer?
   const { data: summaryData, error: summaryError } = await supabase
     .from('deshazo_external_work_orders')
     .select(
-      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
+      'work_order_id, customer, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload',
     )
     .eq('customer', selectedCustomer)
     .ilike('job_type', '%repair%')
@@ -640,7 +669,7 @@ export async function getSavedDeshazoRepairReportsByCity(city: string, customer?
 
   const { data: reportData, error: reportError } = await supabase
     .from('deshazo_external_inspection_reports')
-    .select('work_order_id, job_no, job_type, raw_payload, synced_at')
+    .select('work_order_id, customer, job_no, job_type, raw_payload, synced_at')
     .eq('customer', selectedCustomer)
     .in('work_order_id', workOrderIds)
 
@@ -676,7 +705,7 @@ export async function getSavedDeshazoWorkOrders(
   const escapedSearch = escapeLikeSearchTerm(trimmedSearch)
   const selectedLocations = filters.locations ?? []
   const selectedDocumentTypes = filters.documentTypes ?? []
-  const locationFilter = buildWorkOrderLocationFilter(selectedLocations)
+  const locationFilter = buildWorkOrderLocationFilterWithOverrides(selectedLocations, selectedCustomer)
   const locationMatchedWorkOrderIds =
     locationFilter && trimmedSearch
       ? await getWorkOrderIdsMatchingLocationFilter(locationFilter, selectedCustomer)
@@ -693,7 +722,7 @@ export async function getSavedDeshazoWorkOrders(
   let query = supabase
     .from('deshazo_external_work_orders')
     .select(
-      'work_order_id, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload, synced_at, created_at',
+      'work_order_id, customer, job_no, sales_order_no, job_type, status_name, customer_location_name, service_location_name, bill_to_name, bill_to_city, bill_to_state, bill_to_zip_code, customer_po_no, comment, start_date, end_date, completed_at, raw_payload, synced_at, created_at',
       { count: 'exact' },
     )
     .eq('customer', selectedCustomer)

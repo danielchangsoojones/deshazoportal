@@ -1,0 +1,820 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import type { User } from '@supabase/supabase-js'
+import { jsPDF } from 'jspdf'
+import DNumberSearchBar from '../components/DNumberSearchBar'
+import ProfileMenu from '../components/ProfileMenu'
+import { useCustomerPath } from '../lib/customerRouting'
+import { isConfigured, supabase } from '../lib/supabase'
+import {
+  getWabashLocationMismatchReport,
+  type WabashLocationMismatchJob,
+  type WabashLocationMismatchReport,
+} from '../lib/wabashLocationMismatch'
+
+type JobFilter = 'phoenix_branch' | 'phoenix_location' | 'phoenix_jonestown' | 'mismatches' | 'all'
+type PdfIncludedTab = Exclude<JobFilter, 'mismatches' | 'all'>
+
+const pdfIncludedTabs: Array<{ filter: PdfIncludedTab; title: string; description: string }> = [
+  {
+    filter: 'phoenix_branch',
+    title: '040 Phoenix Branch',
+    description: 'Wabash work orders assigned to DeShazo service branch 040 Phoenix.',
+  },
+  {
+    filter: 'phoenix_location',
+    title: 'Phoenix, AZ Ship-To',
+    description: 'Wabash work orders whose customer ship-to city is Phoenix, AZ.',
+  },
+  {
+    filter: 'phoenix_jonestown',
+    title: 'Phoenix / Jonestown',
+    description: 'The specific suspicious pattern: 040 Phoenix branch with Jonestown, PA ship-to location.',
+  },
+]
+
+function formatDate(value: string) {
+  if (!value) return '-'
+  const dateOnlyMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  const date = dateOnlyMatch
+    ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+    : new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
+}
+
+function getJobDate(job: WabashLocationMismatchJob) {
+  return job.startDate || job.endDate || job.completedAt
+}
+
+function getMismatchLabel(type: WabashLocationMismatchJob['mismatchType']) {
+  if (type === 'phoenix_az_location') return 'Phoenix, AZ ship-to'
+  if (type === 'phoenix_jonestown') return 'Phoenix / Jonestown'
+  if (type === 'phoenix_non_arizona') return 'Phoenix branch, non-AZ site'
+  if (type === 'branch_city_differs') return 'Branch/location differ'
+  return 'Same city'
+}
+
+function getShipToLabel(job: WabashLocationMismatchJob) {
+  return [job.locationCity, job.locationState].filter(Boolean).join(', ') || 'No ship-to city'
+}
+
+function getSourceShipToLabel(job: WabashLocationMismatchJob) {
+  return [job.sourceLocationCity, job.sourceLocationState].filter(Boolean).join(', ') || 'No source ship-to city'
+}
+
+function getMismatchClassName(type: WabashLocationMismatchJob['mismatchType']) {
+  if (type === 'phoenix_az_location') return 'border-[#b9e4c6] bg-[#eaf8ef] text-[#17652b]'
+  if (type === 'phoenix_jonestown') return 'border-[#f0b9b2] bg-[#fff0ed] text-[#9f2f1f]'
+  if (type === 'phoenix_non_arizona') return 'border-[#f4d28b] bg-[#fff7e6] text-[#8d5b00]'
+  if (type === 'branch_city_differs') return 'border-[#ccd6e6] bg-[#f4f7fb] text-[#556070]'
+  return 'border-[#b9e4c6] bg-[#eaf8ef] text-[#17652b]'
+}
+
+function jobMatchesFilter(job: WabashLocationMismatchJob, filter: JobFilter) {
+  if (filter === 'phoenix_branch') return job.branchKey.includes('phoenix')
+  if (filter === 'phoenix_location') return job.isPhoenixAzLocation
+  if (filter === 'phoenix_jonestown') return job.mismatchType === 'phoenix_jonestown'
+  if (filter === 'mismatches') return job.mismatchType !== 'same_city'
+  return true
+}
+
+function jobMatchesSearch(job: WabashLocationMismatchJob, searchQuery: string) {
+  const normalizedQuery = searchQuery.trim().toLowerCase()
+  if (!normalizedQuery) return true
+
+  const haystack = [
+    job.workOrderId,
+    job.jobNo,
+    job.salesOrderNo,
+    job.jobType,
+    job.statusName,
+    job.branchName,
+    job.locationName,
+    job.locationCity,
+    job.locationState,
+    job.sourceLocationName,
+    job.sourceLocationCity,
+    job.sourceLocationState,
+    job.billToLocation,
+    job.locationOverrideReason,
+    job.customerPoNo,
+    job.comment,
+  ].join(' ').toLowerCase()
+
+  return haystack.includes(normalizedQuery)
+}
+
+function safePdfText(value: unknown) {
+  return String(value ?? '-').replace(/\s+/g, ' ').trim() || '-'
+}
+
+function addPdfFooter(pdf: jsPDF) {
+  const pageCount = pdf.getNumberOfPages()
+  for (let page = 1; page <= pageCount; page += 1) {
+    pdf.setPage(page)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8)
+    pdf.setTextColor(105, 113, 130)
+    pdf.text(`Page ${page} of ${pageCount}`, 552, 575, { align: 'right' })
+  }
+}
+
+function ensurePdfSpace(pdf: jsPDF, y: number, requiredHeight: number) {
+  if (y + requiredHeight <= 552) return y
+  pdf.addPage()
+  return 42
+}
+
+function addWrappedPdfText(pdf: jsPDF, text: string, x: number, y: number, width: number, lineHeight = 10) {
+  const lines = pdf.splitTextToSize(safePdfText(text), width) as string[]
+  pdf.text(lines, x, y)
+  return y + Math.max(lines.length, 1) * lineHeight
+}
+
+function addPdfSectionTitle(pdf: jsPDF, title: string, y: number) {
+  const nextY = ensurePdfSpace(pdf, y, 24)
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(13)
+  pdf.setTextColor(7, 18, 47)
+  pdf.text(title, 42, nextY)
+  pdf.setDrawColor(207, 216, 234)
+  pdf.line(42, nextY + 6, 552, nextY + 6)
+  return nextY + 22
+}
+
+function addPdfMetricGrid(pdf: jsPDF, metrics: Array<[string, number]>, y: number) {
+  let nextY = y
+  const cardWidth = 164
+  const cardHeight = 50
+  metrics.forEach(([label, value], index) => {
+    const column = index % 3
+    const row = Math.floor(index / 3)
+    const x = 42 + column * (cardWidth + 9)
+    const cardY = y + row * (cardHeight + 9)
+    nextY = Math.max(nextY, cardY + cardHeight)
+
+    pdf.setFillColor(247, 249, 253)
+    pdf.setDrawColor(207, 216, 234)
+    pdf.roundedRect(x, cardY, cardWidth, cardHeight, 5, 5, 'FD')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(8)
+    pdf.setTextColor(111, 120, 145)
+    pdf.text(label.toUpperCase(), x + 10, cardY + 15, { maxWidth: cardWidth - 20 })
+    pdf.setFontSize(21)
+    pdf.setTextColor(7, 18, 47)
+    pdf.text(String(value), x + 10, cardY + 38)
+  })
+  return nextY + 18
+}
+
+function addPdfTable(
+  pdf: jsPDF,
+  y: number,
+  headers: string[],
+  rows: string[][],
+  columnWidths: number[],
+  options: { maxRows?: number; emptyText?: string } = {},
+) {
+  let nextY = ensurePdfSpace(pdf, y, 34)
+  const maxRows = options.maxRows ?? rows.length
+  const visibleRows = rows.slice(0, maxRows)
+  const tableWidth = columnWidths.reduce((sum, width) => sum + width, 0)
+
+  if (visibleRows.length === 0) {
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(10)
+    pdf.setTextColor(105, 113, 130)
+    return addWrappedPdfText(pdf, options.emptyText ?? 'No rows found.', 42, nextY, tableWidth, 11) + 8
+  }
+
+  const drawHeader = () => {
+    pdf.setFillColor(237, 243, 255)
+    pdf.setDrawColor(207, 216, 234)
+    pdf.rect(42, nextY, tableWidth, 22, 'FD')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(8)
+    pdf.setTextColor(86, 96, 112)
+    let x = 42
+    headers.forEach((header, index) => {
+      pdf.text(header.toUpperCase(), x + 5, nextY + 14, { maxWidth: columnWidths[index] - 10 })
+      x += columnWidths[index]
+    })
+    nextY += 22
+  }
+
+  drawHeader()
+
+  visibleRows.forEach((row) => {
+    const cellLines = row.map((cell, index) => pdf.splitTextToSize(safePdfText(cell), columnWidths[index] - 10) as string[])
+    const rowHeight = Math.max(24, Math.max(...cellLines.map((lines) => lines.length)) * 9 + 12)
+    if (nextY + rowHeight > 552) {
+      pdf.addPage()
+      nextY = 42
+      drawHeader()
+    }
+
+    pdf.setDrawColor(226, 232, 242)
+    pdf.setFillColor(255, 255, 255)
+    pdf.rect(42, nextY, tableWidth, rowHeight, 'FD')
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8)
+    pdf.setTextColor(21, 24, 33)
+    let x = 42
+    cellLines.forEach((lines, index) => {
+      pdf.text(lines, x + 5, nextY + 12, { maxWidth: columnWidths[index] - 10 })
+      x += columnWidths[index]
+    })
+    nextY += rowHeight
+  })
+
+  if (rows.length > visibleRows.length) {
+    nextY = ensurePdfSpace(pdf, nextY + 8, 16)
+    pdf.setFont('helvetica', 'italic')
+    pdf.setFontSize(9)
+    pdf.setTextColor(105, 113, 130)
+    pdf.text(`${rows.length - visibleRows.length} additional rows omitted from this section.`, 42, nextY)
+    nextY += 16
+  }
+
+  return nextY + 12
+}
+
+function addPdfField(
+  pdf: jsPDF,
+  label: string,
+  value: string,
+  x: number,
+  y: number,
+  width: number,
+  lineHeight = 9,
+) {
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(7)
+  pdf.setTextColor(111, 120, 145)
+  pdf.text(label.toUpperCase(), x, y)
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(8.5)
+  pdf.setTextColor(21, 24, 33)
+  const lines = pdf.splitTextToSize(safePdfText(value), width) as string[]
+  pdf.text(lines, x, y + 11)
+  return y + 11 + Math.max(lines.length, 1) * lineHeight
+}
+
+function getWorkOrderCardHeight(pdf: jsPDF, job: WabashLocationMismatchJob) {
+  const commentLines = pdf.splitTextToSize(safePdfText(job.comment || '-'), 690) as string[]
+  const overrideLines = job.locationOverrideReason ? pdf.splitTextToSize(safePdfText(job.locationOverrideReason), 690) as string[] : []
+  return Math.max(104, 92 + Math.max(commentLines.length, 1) * 9 + overrideLines.length * 9)
+}
+
+function addWorkOrderDetails(pdf: jsPDF, y: number, rows: WabashLocationMismatchJob[]) {
+  if (rows.length === 0) {
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(10)
+    pdf.setTextColor(105, 113, 130)
+    return addWrappedPdfText(pdf, 'No work orders match the selected filter.', 42, y, 700, 11)
+  }
+
+  let nextY = y
+
+  rows.forEach((job, index) => {
+    const cardHeight = getWorkOrderCardHeight(pdf, job)
+    nextY = ensurePdfSpace(pdf, nextY, cardHeight)
+
+    pdf.setFillColor(255, 255, 255)
+    pdf.setDrawColor(207, 216, 234)
+    pdf.roundedRect(42, nextY, 708, cardHeight - 10, 5, 5, 'FD')
+
+    pdf.setFillColor(6, 24, 73)
+    pdf.roundedRect(42, nextY, 708, 24, 5, 5, 'F')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(10)
+    pdf.setTextColor(255, 255, 255)
+    pdf.text(`${index + 1}. Job ${job.jobNo || job.workOrderId}`, 54, nextY + 16)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8)
+    pdf.text(getMismatchLabel(job.mismatchType), 738, nextY + 16, { align: 'right' })
+
+    const firstRowY = nextY + 42
+    addPdfField(pdf, 'Work order', String(job.workOrderId), 54, firstRowY, 70)
+    addPdfField(pdf, 'Sales order', job.salesOrderNo || '-', 136, firstRowY, 78)
+    addPdfField(pdf, 'Status', job.statusName || '-', 226, firstRowY, 88)
+    addPdfField(pdf, 'Type', job.jobType || '-', 326, firstRowY, 90)
+    addPdfField(pdf, 'Date', formatDate(getJobDate(job)), 428, firstRowY, 86)
+    addPdfField(pdf, 'Customer PO', job.customerPoNo || '-', 526, firstRowY, 94)
+    addPdfField(pdf, 'Bill-to', job.billToLocation || '-', 632, firstRowY, 92)
+
+    const secondRowY = firstRowY + 34
+    addPdfField(pdf, 'DeShazo branch', job.branchName, 54, secondRowY, 190)
+    addPdfField(
+      pdf,
+      'Ship-to location',
+      `${job.locationName} / ${getShipToLabel(job)}${job.locationOverrideReason ? ` (source: ${job.sourceLocationName} / ${getSourceShipToLabel(job)})` : ''}`,
+      264,
+      secondRowY,
+      245,
+    )
+    addPdfField(pdf, 'Flag', getMismatchLabel(job.mismatchType), 530, secondRowY, 194)
+
+    const commentY = secondRowY + 34
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(7)
+    pdf.setTextColor(111, 120, 145)
+    pdf.text('COMMENT', 54, commentY)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8.5)
+    pdf.setTextColor(21, 24, 33)
+    const afterCommentY = addWrappedPdfText(pdf, job.comment || '-', 54, commentY + 11, 678, 9)
+    if (job.locationOverrideReason) {
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(7)
+      pdf.setTextColor(122, 82, 8)
+      pdf.text('LOCATION OVERRIDE', 54, afterCommentY + 8)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(8.5)
+      addWrappedPdfText(pdf, job.locationOverrideReason, 54, afterCommentY + 19, 678, 9)
+    }
+
+    nextY += cardHeight
+  })
+
+  return nextY
+}
+
+function summarizePdfPairs(jobs: WabashLocationMismatchJob[]) {
+  const summariesByKey = new Map<string, { key: string; branch: string; location: string; count: number; latestDate: string }>()
+
+  jobs.forEach((job) => {
+    const location = `${job.locationName} / ${[job.locationCity, job.locationState].filter(Boolean).join(', ') || 'No ship-to city'}`
+    const key = `${job.branchName}::${location}`
+    const current = summariesByKey.get(key)
+    const jobDate = getJobDate(job)
+
+    if (current) {
+      current.count += 1
+      if (new Date(jobDate).getTime() > new Date(current.latestDate).getTime()) current.latestDate = jobDate
+      return
+    }
+
+    summariesByKey.set(key, {
+      key,
+      branch: job.branchName,
+      location,
+      count: 1,
+      latestDate: jobDate,
+    })
+  })
+
+  return Array.from(summariesByKey.values()).sort((left, right) =>
+    right.count - left.count ||
+    new Date(right.latestDate).getTime() - new Date(left.latestDate).getTime() ||
+    left.branch.localeCompare(right.branch),
+  )
+}
+
+function downloadPdf(
+  report: WabashLocationMismatchReport,
+  searchQuery: string,
+) {
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter', compress: true })
+  const tabSections = pdfIncludedTabs.map((tab) => ({
+    ...tab,
+    rows: report.jobs.filter((job) => jobMatchesFilter(job, tab.filter) && jobMatchesSearch(job, searchQuery)),
+  }))
+  let y = 42
+
+  pdf.setFillColor(6, 24, 73)
+  pdf.rect(0, 0, 792, 88, 'F')
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(22)
+  pdf.setTextColor(255, 255, 255)
+  pdf.text('Wabash Location Audit', 42, 42)
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(10)
+  pdf.text('Branch vs Job City - Phoenix-focused review', 42, 62)
+  pdf.text(`Generated ${new Date(report.generatedAt).toLocaleString()}`, 552, 42, { align: 'right' })
+  pdf.text(`Included tabs: 040 Phoenix, Phoenix AZ, Phoenix/Jonestown${searchQuery.trim() ? ` | Search: ${searchQuery.trim()}` : ''}`, 552, 62, {
+    align: 'right',
+    maxWidth: 300,
+  })
+
+  y = 116
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(10)
+  pdf.setTextColor(63, 70, 84)
+  y = addWrappedPdfText(
+    pdf,
+    'Focused on Wabash data tied to Phoenix. This PDF includes the tab data for 040 Phoenix branch, Phoenix, AZ ship-to, and Phoenix/Jonestown. It intentionally excludes the All Differences and All Wabash tabs.',
+    42,
+    y,
+    700,
+    12,
+  ) + 8
+
+  y = addPdfMetricGrid(pdf, [
+    ['Wabash jobs', report.totalJobs],
+    ['Phoenix, AZ ship-to', report.phoenixAzLocationJobs],
+    ['040 Phoenix branch jobs', report.phoenixBranchJobs],
+    ['Phoenix + Jonestown', report.phoenixJonestownJobs],
+    ['Phoenix + non-AZ', report.phoenixNonArizonaJobs],
+    ['Branch/city differences', report.mismatchJobs],
+  ], y)
+
+  const locationOverrideJobs = report.jobs.filter((job) => job.locationOverrideReason)
+
+  if (locationOverrideJobs.length > 0) {
+    y = ensurePdfSpace(pdf, y, 40)
+    pdf.setFillColor(255, 247, 230)
+    pdf.setDrawColor(244, 210, 139)
+    pdf.roundedRect(42, y, 708, 36, 5, 5, 'FD')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(9)
+    pdf.setTextColor(122, 82, 8)
+    addWrappedPdfText(
+      pdf,
+      `${locationOverrideJobs.length} known work order is bucketed to Phoenix, AZ for reporting while preserving its original DeShazo ship-to location for source-data context.`,
+      54,
+      y + 14,
+      684,
+      10,
+    )
+    y += 52
+  }
+
+  y = addPdfSectionTitle(pdf, 'Included Tab Summary', y)
+  y = addPdfTable(
+    pdf,
+    y,
+    ['Tab', 'What it shows', 'Rows'],
+    tabSections.map((section) => [section.title, section.description, String(section.rows.length)]),
+    [150, 460, 60],
+  )
+
+  tabSections.forEach((section) => {
+    y = addPdfSectionTitle(pdf, `${section.title} (${section.rows.length})`, y)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(9)
+    pdf.setTextColor(63, 70, 84)
+    y = addWrappedPdfText(pdf, section.description, 42, y, 700, 11) + 6
+
+    const pairRows = summarizePdfPairs(section.rows).map((pair) => [
+      pair.branch,
+      pair.location,
+      String(pair.count),
+      formatDate(pair.latestDate),
+    ])
+
+    y = addPdfTable(
+      pdf,
+      y,
+      ['Branch', 'Ship-To', 'Jobs', 'Latest'],
+      pairRows,
+      [160, 360, 60, 90],
+      { emptyText: 'No branch/location pairs found for this tab.' },
+    )
+
+    y = addWorkOrderDetails(pdf, y, section.rows) + 8
+  })
+
+  addPdfFooter(pdf)
+  pdf.save(`wabash-location-audit-${new Date().toISOString().slice(0, 10)}.pdf`)
+}
+
+export default function WabashLocationMismatch() {
+  const [user, setUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+  const [report, setReport] = useState<WabashLocationMismatchReport | null>(null)
+  const [filter, setFilter] = useState<JobFilter>('phoenix_branch')
+  const [searchQuery, setSearchQuery] = useState('')
+  const navigate = useNavigate()
+  const customerPath = useCustomerPath()
+
+  useEffect(() => {
+    if (!isConfigured || !supabase) {
+      navigate('/quotelogin')
+      return
+    }
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) {
+        navigate('/quotelogin')
+      } else {
+        setUser(data.user)
+      }
+      setAuthLoading(false)
+    })
+  }, [navigate])
+
+  const loadReport = useCallback(async () => {
+    setLoading(true)
+    setMessage('')
+
+    try {
+      const nextReport = await getWabashLocationMismatchReport()
+      setReport(nextReport)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Wabash location dashboard could not be loaded.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (user) void loadReport()
+  }, [loadReport, user])
+
+  const filteredJobs = useMemo(() => {
+    const rows = report?.jobs ?? []
+
+    return rows.filter((job) => {
+      return jobMatchesFilter(job, filter) && jobMatchesSearch(job, searchQuery)
+    })
+  }, [filter, report?.jobs, searchQuery])
+
+  const handleSignOut = async () => {
+    if (supabase) await supabase.auth.signOut()
+    navigate('/quotelogin')
+  }
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
+        <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
+          Loading Wabash location dashboard...
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) return null
+
+  const generatedAt = report?.generatedAt ? new Date(report.generatedAt).toLocaleString() : ''
+  const locationOverrideCount = report?.jobs.filter((job) => job.locationOverrideReason).length ?? 0
+
+  return (
+    <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
+      <header className="sticky top-0 z-40 bg-[var(--deshazo-blue)] px-5 py-3 shadow-sm">
+        <div className="flex w-full items-center justify-between gap-4">
+          <div className="rounded-md border border-white/30 bg-white/10 px-3 py-2 text-xs font-black uppercase tracking-normal text-white">
+            Wabash Location Audit
+          </div>
+
+          <DNumberSearchBar />
+
+          <ProfileMenu user={user} onSignOut={handleSignOut} />
+        </div>
+      </header>
+
+      <main className="px-5 py-5 sm:px-8 lg:px-10">
+        <div className="mb-7 flex flex-col items-start justify-between gap-5 lg:flex-row lg:items-end">
+          <div>
+            <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#8b92a4]">Wabash location audit</p>
+            <h1 className="mt-2 text-[clamp(32px,4vw,52px)] font-black leading-[0.96] text-[var(--deshazo-text)]">
+              Branch vs Job City
+            </h1>
+            <p className="mt-3 max-w-[76ch] text-base leading-7 text-[rgba(21,24,33,0.72)]">
+              Focused on Wabash data tied to Phoenix: true Phoenix, AZ ship-to locations first, then jobs assigned to DeShazo branch 040 Phoenix.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={loadReport}
+              className="rounded-md border border-[var(--deshazo-border)] bg-white px-4 py-2 text-sm font-black text-[var(--deshazo-blue)] transition hover:bg-[#edf2fb]"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (report) downloadPdf(report, searchQuery)
+              }}
+              disabled={!report}
+              className="rounded-md bg-[var(--deshazo-blue)] px-4 py-2 text-sm font-black text-white transition hover:bg-[var(--deshazo-blue-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Download PDF
+            </button>
+          </div>
+        </div>
+
+        <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {[
+            ['Wabash jobs', report?.totalJobs ?? 0],
+            ['Phoenix, AZ ship-to', report?.phoenixAzLocationJobs ?? 0],
+            ['040 Phoenix branch jobs', report?.phoenixBranchJobs ?? 0],
+            ['Phoenix + Jonestown', report?.phoenixJonestownJobs ?? 0],
+            ['Phoenix + non-AZ', report?.phoenixNonArizonaJobs ?? 0],
+            ['Branch/city differences', report?.mismatchJobs ?? 0],
+          ].map(([label, value]) => (
+            <article
+              key={label}
+              className="rounded-lg border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)]"
+            >
+              <p className="text-[12px] font-black uppercase tracking-[0.04em] text-[#8b92a4]">{label}</p>
+              <p className="mt-2 text-3xl font-black text-[var(--deshazo-text)]">{value}</p>
+            </article>
+          ))}
+        </section>
+
+        {message ? (
+          <div className="mb-6 rounded-lg border border-[#f0c4bd] bg-[#fff2ef] px-4 py-3 text-sm font-semibold text-[#a2472f]">
+            {message}
+          </div>
+        ) : null}
+
+        {!loading && locationOverrideCount > 0 ? (
+          <div className="mb-6 rounded-lg border border-[#f4d28b] bg-[#fff7e6] px-4 py-3 text-sm font-semibold leading-6 text-[#7a5208]">
+            {locationOverrideCount} known high-dollar installation job is now bucketed to Phoenix, AZ for reporting. Its raw DeShazo ship-to remains Jonestown, PA for source-data context.
+          </div>
+        ) : null}
+
+        <section className="mb-6 grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <article className="overflow-hidden rounded-lg border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)]">
+            <div className="border-b border-[var(--deshazo-border)] px-5 py-4">
+              <h2 className="text-xl font-black">040 Phoenix Branch Pairs</h2>
+              <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.62)]">
+                {generatedAt ? `Updated ${generatedAt}` : 'Grouped by Phoenix branch and ship-to location.'}
+              </p>
+            </div>
+            <div className="max-h-[360px] overflow-auto">
+              {(report?.phoenixPairSummaries ?? []).length === 0 ? (
+                <div className="px-5 py-8 text-sm font-semibold text-[rgba(21,24,33,0.62)]">
+                  {loading ? 'Loading Phoenix pairs...' : 'No 040 Phoenix branch Wabash jobs found.'}
+                </div>
+              ) : (
+                <table className="min-w-full border-collapse text-left">
+                  <thead className="sticky top-0 bg-[var(--deshazo-surface)] text-[11px] font-black uppercase tracking-[0.04em] text-[#6f7788]">
+                    <tr>
+                      <th className="px-4 py-3">Branch</th>
+                      <th className="px-4 py-3">Location</th>
+                      <th className="px-4 py-3 text-right">Jobs</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(report?.phoenixPairSummaries ?? []).map((pair) => (
+                      <tr key={pair.key} className="border-t border-[var(--deshazo-border)]">
+                        <td className="px-4 py-3 text-sm font-extrabold text-[var(--deshazo-text)]">{pair.branchName}</td>
+                        <td className="px-4 py-3 text-sm text-[rgba(21,24,33,0.7)]">{pair.locationLabel}</td>
+                        <td className="px-4 py-3 text-right text-lg font-black text-[var(--deshazo-blue)]">{pair.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </article>
+
+          <article className="overflow-hidden rounded-lg border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)]">
+            <div className="border-b border-[var(--deshazo-border)] px-5 py-4">
+              <h2 className="text-xl font-black">Largest Difference Groups</h2>
+              <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.62)]">
+                Branch/location pairs where the service branch city differs from the customer ship-to city.
+              </p>
+            </div>
+            <div className="max-h-[360px] overflow-auto">
+              {(report?.branchPairSummaries ?? []).length === 0 ? (
+                <div className="px-5 py-8 text-sm font-semibold text-[rgba(21,24,33,0.62)]">
+                  {loading ? 'Loading difference groups...' : 'No branch/location differences found.'}
+                </div>
+              ) : (
+                <table className="min-w-full border-collapse text-left">
+                  <thead className="sticky top-0 bg-[var(--deshazo-surface)] text-[11px] font-black uppercase tracking-[0.04em] text-[#6f7788]">
+                    <tr>
+                      <th className="px-4 py-3">Branch</th>
+                      <th className="px-4 py-3">Location</th>
+                      <th className="px-4 py-3 text-right">Jobs</th>
+                      <th className="px-4 py-3">Latest</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(report?.branchPairSummaries ?? []).slice(0, 20).map((pair) => (
+                      <tr key={pair.key} className="border-t border-[var(--deshazo-border)]">
+                        <td className="px-4 py-3 text-sm font-extrabold text-[var(--deshazo-text)]">{pair.branchName}</td>
+                        <td className="px-4 py-3 text-sm text-[rgba(21,24,33,0.7)]">{pair.locationLabel}</td>
+                        <td className="px-4 py-3 text-right text-lg font-black text-[var(--deshazo-blue)]">{pair.count}</td>
+                        <td className="px-4 py-3 text-sm font-semibold text-[rgba(21,24,33,0.62)]">{formatDate(pair.latestDate)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </article>
+        </section>
+
+        <section className="overflow-hidden rounded-lg border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.22)]">
+          <div className="flex flex-col gap-4 border-b border-[var(--deshazo-border)] px-5 py-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h2 className="text-xl font-black">Work Orders</h2>
+              <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.62)]">
+                Showing {filteredJobs.length} matching rows.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                ['phoenix_branch', '040 Phoenix branch'],
+                ['phoenix_location', 'Phoenix, AZ ship-to'],
+                ['phoenix_jonestown', 'Phoenix/Jonestown'],
+                ['mismatches', 'All differences'],
+                ['all', 'All Wabash'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setFilter(value as JobFilter)}
+                  className={`rounded-md border px-3 py-2 text-xs font-black uppercase tracking-normal transition ${
+                    filter === value
+                      ? 'border-[var(--deshazo-blue)] bg-[var(--deshazo-blue)] text-white'
+                      : 'border-[var(--deshazo-border)] bg-white text-[var(--deshazo-blue)] hover:bg-[#edf2fb]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                placeholder="Search jobs"
+                className="min-h-9 w-full rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--deshazo-text)] outline-none focus:border-[var(--deshazo-blue)] sm:w-[220px]"
+              />
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="px-6 py-10 text-center text-sm font-semibold text-[var(--deshazo-blue)]">
+              Loading Wabash work orders...
+            </div>
+          ) : filteredJobs.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm font-semibold text-[rgba(21,24,33,0.64)]">
+              No work orders match the selected filter.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse text-left">
+                <thead className="bg-[var(--deshazo-surface)] text-[11px] font-black uppercase tracking-[0.04em] text-[#6f7788]">
+                  <tr>
+                    <th className="min-w-[120px] px-5 py-4">Job</th>
+                    <th className="min-w-[150px] px-5 py-4">Branch</th>
+                    <th className="min-w-[180px] px-5 py-4">Ship-To</th>
+                    <th className="min-w-[150px] px-5 py-4">Date</th>
+                    <th className="min-w-[140px] px-5 py-4">Type</th>
+                    <th className="min-w-[160px] px-5 py-4">Flag</th>
+                    <th className="min-w-[260px] px-5 py-4">Comment</th>
+                    <th className="min-w-[150px] px-5 py-4 text-right">Document</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredJobs.map((job) => {
+                    const documentPath = customerPath(`/deshazo-work-orders?search=${encodeURIComponent(job.jobNo || String(job.workOrderId))}`)
+
+                    return (
+                      <tr key={job.workOrderId} className="border-t border-[var(--deshazo-border)]">
+                        <td className="px-5 py-4">
+                          <p className="font-black text-[var(--deshazo-text)]">{job.jobNo || job.workOrderId}</p>
+                          <p className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.58)]">WO {job.workOrderId}</p>
+                        </td>
+                        <td className="px-5 py-4 text-sm font-extrabold text-[var(--deshazo-text)]">{job.branchName}</td>
+                        <td className="px-5 py-4">
+                          <p className="text-sm font-extrabold text-[var(--deshazo-text)]">{job.locationName}</p>
+                          <p className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.58)]">
+                            {getShipToLabel(job)}
+                          </p>
+                          {job.locationOverrideReason ? (
+                            <p className="mt-1 text-xs font-black text-[#8d5b00]">
+                              Source: {job.sourceLocationName} / {getSourceShipToLabel(job)}
+                            </p>
+                          ) : null}
+                        </td>
+                        <td className="px-5 py-4 text-sm font-semibold text-[rgba(21,24,33,0.72)]">{formatDate(getJobDate(job))}</td>
+                        <td className="px-5 py-4 text-sm font-semibold text-[rgba(21,24,33,0.72)]">{job.jobType || '-'}</td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-normal ${getMismatchClassName(job.mismatchType)}`}>
+                            {getMismatchLabel(job.mismatchType)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-[rgba(21,24,33,0.7)]">
+                          <span className="line-clamp-2">{job.comment || '-'}</span>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => navigate(documentPath)}
+                            className="inline-flex items-center rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-[12px] font-black uppercase tracking-normal text-[var(--deshazo-blue)] transition hover:bg-[#edf2fb]"
+                          >
+                            Open
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  )
+}

@@ -12,6 +12,7 @@ import {
   getLocationSpendPageAnalytics,
   type LocationComparisonItem,
   type LocationSpendInvoiceItem,
+  type LocationSpendReportCraneItem,
 } from '../lib/spendAnalytics'
 import { getCurrentSupabaseUser, isConfigured, supabase } from '../lib/supabase'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
@@ -83,8 +84,10 @@ function combineFinanceLocations(locations: LocationComparisonItem[]): LocationC
     total_service_cost: locations.reduce((sum, item) => sum + item.total_service_cost, 0),
     total_parts_cost: locations.reduce((sum, item) => sum + item.total_parts_cost, 0),
     inspection_invoice_count: locations.reduce((sum, item) => sum + item.inspection_invoice_count, 0),
+    installation_invoice_count: locations.reduce((sum, item) => sum + item.installation_invoice_count, 0),
     repair_invoice_count: locations.reduce((sum, item) => sum + item.repair_invoice_count, 0),
     total_inspection_cost: locations.reduce((sum, item) => sum + item.total_inspection_cost, 0),
+    total_installation_cost: locations.reduce((sum, item) => sum + item.total_installation_cost, 0),
     total_repair_cost: locations.reduce((sum, item) => sum + item.total_repair_cost, 0),
     repair_parts_cost: locations.reduce((sum, item) => sum + item.repair_parts_cost, 0),
     repair_service_cost: locations.reduce((sum, item) => sum + item.repair_service_cost, 0),
@@ -117,6 +120,63 @@ function SpendRing({ spend, totalSpend, label = 'Share of invoice spend' }: { sp
       </div>
     </div>
   )
+}
+
+function buildReportCraneFallbackData(reportCranes: LocationSpendReportCraneItem[]): InvoiceSpendCraneSummary[] {
+  const cranes = new Map<string, InvoiceSpendCraneSummary>()
+
+  reportCranes.forEach((reportCrane) => {
+    const current = cranes.get(reportCrane.d_number) ?? {
+      dNumber: reportCrane.d_number,
+      craneDescription: reportCrane.description,
+      craneLocation: reportCrane.crane_location,
+      locationLabel: reportCrane.crane_location,
+      totalSpend: 0,
+      repairSpend: 0,
+      installationSpend: 0,
+      inspectionSpend: 0,
+      invoiceCount: 0,
+      repairInvoiceCount: 0,
+      installationInvoiceCount: 0,
+      inspectionInvoiceCount: 0,
+      latestInvoiceDate: '',
+      allocations: [],
+    }
+
+    current.totalSpend += reportCrane.allocated_revenue
+    if (reportCrane.spend_kind === 'installation') {
+      current.installationSpend += reportCrane.allocated_revenue
+      current.installationInvoiceCount += 1
+    } else if (reportCrane.spend_kind === 'repair') {
+      current.repairSpend += reportCrane.allocated_revenue
+      current.repairInvoiceCount += 1
+    } else {
+      current.inspectionSpend += reportCrane.allocated_revenue
+      current.inspectionInvoiceCount += 1
+    }
+    current.invoiceCount += 1
+    if (!current.craneDescription && reportCrane.description) current.craneDescription = reportCrane.description
+    if (!current.craneLocation && reportCrane.crane_location) current.craneLocation = reportCrane.crane_location
+    if (reportCrane.import_period && reportCrane.import_period > current.latestInvoiceDate) {
+      current.latestInvoiceDate = reportCrane.import_period
+    }
+    cranes.set(reportCrane.d_number, current)
+  })
+
+  return Array.from(cranes.values())
+    .map((crane) => ({
+      ...crane,
+      totalSpend: Math.round(crane.totalSpend),
+      repairSpend: Math.round(crane.repairSpend),
+      installationSpend: Math.round(crane.installationSpend),
+      inspectionSpend: Math.round(crane.inspectionSpend),
+    }))
+    .sort((left, right) =>
+      right.totalSpend - left.totalSpend ||
+      right.installationSpend - left.installationSpend ||
+      right.repairSpend - left.repairSpend ||
+      left.dNumber.localeCompare(right.dNumber),
+    )
 }
 
 export default function LocationSpend() {
@@ -234,10 +294,13 @@ export default function LocationSpend() {
           location === 'all'
             ? combineFinanceLocations(financeLocations)
             : financeLocations.find((item) => normalizeLocationValue(item.location) === normalizeLocationValue(location)) ?? null
+        const reportCraneFallbackData = nextData.length === 0
+          ? buildReportCraneFallbackData(pageAnalytics.reportCranes)
+          : []
         setSpendState({
           customer: selectedCustomer,
           location,
-          data: nextData,
+          data: nextData.length > 0 ? nextData : reportCraneFallbackData,
           invoices: pageAnalytics.invoices,
           financeSummary,
           error: '',
@@ -265,6 +328,7 @@ export default function LocationSpend() {
   const totals = useMemo(() => {
     const allocatedSpend = spendState.data.reduce((sum, crane) => sum + crane.totalSpend, 0)
     const allocatedRepairSpend = spendState.data.reduce((sum, crane) => sum + crane.repairSpend, 0)
+    const allocatedInstallationSpend = spendState.data.reduce((sum, crane) => sum + crane.installationSpend, 0)
     const allocatedInspectionSpend = spendState.data.reduce((sum, crane) => sum + crane.inspectionSpend, 0)
     const invoiceKeys = new Set(
       spendState.data.flatMap((crane) =>
@@ -278,6 +342,10 @@ export default function LocationSpend() {
           .map((allocation) => allocation.invoiceNumber || allocation.jobNumber || allocation.invoiceId),
       ),
     )
+    const allocatedInstallationInvoiceCount = spendState.data.reduce(
+      (sum, crane) => sum + crane.installationInvoiceCount,
+      0,
+    )
     const inspectionInvoiceKeys = new Set(
       spendState.data.flatMap((crane) =>
         crane.allocations
@@ -288,13 +356,16 @@ export default function LocationSpend() {
     return {
       totalSpend: spendState.financeSummary?.total_invoice_cost ?? allocatedSpend,
       repairSpend: spendState.financeSummary?.total_repair_cost ?? allocatedRepairSpend,
+      installationSpend: spendState.financeSummary?.total_installation_cost ?? allocatedInstallationSpend,
       inspectionSpend: spendState.financeSummary?.total_inspection_cost ?? allocatedInspectionSpend,
       invoiceCount: spendState.financeSummary?.finance_invoice_count ?? invoiceKeys.size,
       repairInvoiceCount: spendState.financeSummary?.repair_invoice_count ?? repairInvoiceKeys.size,
+      installationInvoiceCount: spendState.financeSummary?.installation_invoice_count ?? allocatedInstallationInvoiceCount,
       inspectionInvoiceCount: spendState.financeSummary?.inspection_invoice_count ?? inspectionInvoiceKeys.size,
       craneCount: spendState.data.length,
       allocatedSpend,
       allocatedRepairSpend,
+      allocatedInstallationSpend,
       allocatedInspectionSpend,
       allocatedInvoiceCount: invoiceKeys.size,
     }
@@ -587,31 +658,46 @@ export default function LocationSpend() {
             </div>
           </div>
 
-          <article className="mb-6 max-w-[720px] rounded-[10px] border border-[var(--deshazo-border)] bg-white px-6 py-5 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
-            <div className="flex flex-wrap items-center gap-6">
-              <div className="min-w-[170px]">
+          <article className="mb-6 max-w-[900px] rounded-[10px] border border-[var(--deshazo-border)] bg-white px-6 py-5 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+            <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="min-w-0">
                 <p className="text-[14px] font-bold uppercase tracking-[0.03em] text-[rgba(21,24,33,0.58)]">Total Spend</p>
                 <p className="mt-1 text-[28px] font-extrabold text-[var(--deshazo-text)]">{formatCurrency(totals.totalSpend)}</p>
               </div>
-              <div className="min-w-[170px]">
+              <div className="min-w-0">
                 <p className="text-[14px] font-bold uppercase tracking-[0.03em] text-[rgba(21,24,33,0.58)]">Repair Spend</p>
                 <p className="mt-1 text-[28px] font-extrabold text-[#4a9960]">{formatCurrency(totals.repairSpend)}</p>
               </div>
-              <div className="min-w-[170px]">
+              <div className="min-w-0">
+                <p className="text-[14px] font-bold uppercase tracking-[0.03em] text-[rgba(21,24,33,0.58)]">Installation Spend</p>
+                <p className="mt-1 text-[28px] font-extrabold text-[#315caa]">{formatCurrency(totals.installationSpend)}</p>
+              </div>
+              <div className="min-w-0">
                 <p className="text-[14px] font-bold uppercase tracking-[0.03em] text-[rgba(21,24,33,0.58)]">Inspection Spend</p>
                 <p className="mt-1 text-[28px] font-extrabold text-[#9a6a00]">{formatCurrency(totals.inspectionSpend)}</p>
               </div>
-              <div className="flex min-w-[150px] items-center justify-center rounded-[6px] border border-[var(--deshazo-border)] px-6 py-3">
+            </div>
+            <div className="mt-6 grid max-w-[640px] gap-4 sm:grid-cols-3">
+              {totals.installationInvoiceCount > 0 ? (
+                <div className="flex min-h-[92px] items-center justify-center rounded-[6px] border border-[var(--deshazo-border)] px-5 py-3">
+                  <div className="text-center">
+                    <p className="text-[24px] font-extrabold text-[var(--deshazo-text)]">{totals.installationInvoiceCount}</p>
+                    <div className="mx-auto mt-1 h-[2px] w-24 bg-[#315caa]" />
+                    <p className="text-[18px] font-medium text-[#315caa]">Installation Invoices</p>
+                  </div>
+                </div>
+              ) : null}
+              <div className="flex min-h-[92px] items-center justify-center rounded-[6px] border border-[var(--deshazo-border)] px-5 py-3">
                 <div className="text-center">
                   <p className="text-[24px] font-extrabold text-[var(--deshazo-text)]">{totals.repairInvoiceCount}</p>
-                  <div className="mt-1 h-[2px] w-24 bg-[var(--deshazo-blue)]" />
+                  <div className="mx-auto mt-1 h-[2px] w-24 bg-[var(--deshazo-blue)]" />
                   <p className="text-[18px] font-medium text-[var(--deshazo-blue)]">Repair Invoices</p>
                 </div>
               </div>
-              <div className="flex min-w-[150px] items-center justify-center rounded-[6px] border border-[var(--deshazo-border)] px-6 py-3">
+              <div className="flex min-h-[92px] items-center justify-center rounded-[6px] border border-[var(--deshazo-border)] px-5 py-3">
                 <div className="text-center">
                   <p className="text-[24px] font-extrabold text-[var(--deshazo-text)]">{totals.craneCount}</p>
-                  <div className="mt-1 h-[2px] w-24 bg-[#efb634]" />
+                  <div className="mx-auto mt-1 h-[2px] w-24 bg-[#efb634]" />
                   <p className="text-[18px] font-medium text-[#9a6a00]">Mapped Cranes</p>
                 </div>
               </div>
@@ -643,7 +729,7 @@ export default function LocationSpend() {
                       {visibleCranes.length} crane{visibleCranes.length === 1 ? '' : 's'}
                       {showRepairInvoices && visibleRepairInvoices.length > 0
                         ? ` + ${visibleRepairInvoices.length} repair invoice${visibleRepairInvoices.length === 1 ? '' : 's'}`
-                        : ''} shown · highest repair cost first
+                        : ''} shown · highest cost first
                     </p>
                   </div>
                   <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
@@ -765,6 +851,21 @@ export default function LocationSpend() {
                       }
 
                       const { crane } = item
+                      const primarySpend = crane.installationSpend || crane.repairSpend || crane.inspectionSpend || crane.totalSpend
+                      const primaryTotal = crane.installationSpend > 0
+                        ? totals.installationSpend || totals.totalSpend
+                        : crane.repairSpend > 0
+                          ? totals.repairSpend || totals.totalSpend
+                          : crane.inspectionSpend > 0
+                            ? totals.inspectionSpend || totals.totalSpend
+                            : totals.totalSpend
+                      const primaryLabel = crane.installationSpend > 0
+                        ? 'Share of installation spend'
+                        : crane.repairSpend > 0
+                          ? 'Share of repair spend'
+                          : crane.inspectionSpend > 0
+                            ? 'Share of inspection spend'
+                            : 'Share of invoice spend'
                       return (
                         <Link
                           key={crane.dNumber}
@@ -789,13 +890,20 @@ export default function LocationSpend() {
                             </div>
 
                             <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
-                              <SpendRing spend={crane.repairSpend} totalSpend={totals.repairSpend || totals.totalSpend} label="Share of repair spend" />
-                              <div className="mt-4 grid grid-cols-2 gap-2">
+                              <SpendRing spend={primarySpend} totalSpend={primaryTotal} label={primaryLabel} />
+                              <div className="mt-4 grid grid-cols-3 gap-2">
                                 <div className="rounded-[6px] border border-[#d7e8dd] bg-[#f3faf6] px-3 py-2">
                                   <p className="text-[11px] font-black uppercase tracking-[0.02em] text-[#2f6f4f]">Repair</p>
                                   <p className="mt-1 text-[18px] font-black text-[#2f6f4f]">{formatCurrency(crane.repairSpend)}</p>
                                   <p className="mt-0.5 text-[11px] font-semibold text-[rgba(21,24,33,0.48)]">
                                     {crane.repairInvoiceCount} invoice{crane.repairInvoiceCount === 1 ? '' : 's'}
+                                  </p>
+                                </div>
+                                <div className="rounded-[6px] border border-[#c7d6f2] bg-[#eef4ff] px-3 py-2">
+                                  <p className="text-[11px] font-black uppercase tracking-[0.02em] text-[#315caa]">Install</p>
+                                  <p className="mt-1 text-[18px] font-black text-[#315caa]">{formatCurrency(crane.installationSpend)}</p>
+                                  <p className="mt-0.5 text-[11px] font-semibold text-[rgba(21,24,33,0.48)]">
+                                    {crane.installationInvoiceCount} invoice{crane.installationInvoiceCount === 1 ? '' : 's'}
                                   </p>
                                 </div>
                                 <div className="rounded-[6px] border border-[#ead99b] bg-[#fff9e8] px-3 py-2">

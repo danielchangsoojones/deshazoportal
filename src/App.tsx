@@ -22,6 +22,7 @@ const QuoteAnalytics = lazy(() => import('./pages/QuoteAnalytics'))
 const TopCranes = lazy(() => import('./pages/TopCranes'))
 const QualityControl = lazy(() => import('./pages/QualityControl'))
 const CustomReports = lazy(() => import('./pages/CustomReports'))
+const WabashLocationMismatch = lazy(() => import('./pages/WabashLocationMismatch'))
 const DeshazoExternalReports = lazy(() => import('./pages/DeshazoExternalReports'))
 const DeshazoWorkOrders = lazy(() => import('./pages/DeshazoWorkOrders'))
 const EditableInspectionReport = lazy(() => import('./pages/EditableInspectionReport'))
@@ -159,6 +160,7 @@ function App() {
           <Route path="/location-spend" element={<LocationSpend />} />
           <Route path="/top-cranes" element={<TopCranes />} />
           <Route path="/quality-control" element={<QualityControl />} />
+          <Route path="/wabash-location-mismatch" element={<WabashLocationMismatch />} />
           <Route path="/:customer">
             {portalRoutes}
           </Route>
