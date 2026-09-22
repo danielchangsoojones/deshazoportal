@@ -221,6 +221,7 @@ type InspectionQuoteTemplateSection = {
   title: string
   usesEstimator?: boolean
   scope: string
+  summaryNote?: string
 }
 
 type InspectionEstimatorRow = {
@@ -286,6 +287,9 @@ const defaultEstimateNoteVisibility: EstimateNoteVisibility = {
   topNote: false,
   bottomNote: false,
 }
+
+const defaultInspectionQuoteTemplateNote =
+  'Inspections will reduce downtime, increase productivity and help prevent unforeseen safety hazards. Any safety concerns identified during the inspection will be reported to the appropriate site contact. Inspection reports will be provided for each crane inspected and will include specific identification of any unsatisfactory items noted during the inspection, along with remediation recommendations. Inspection Reports will be provided for all inspections within 7-10 days following completion of the work.'
 
 const legacyScopeOfWorkSample =
   'Remove 2 old Budgit 2 ton hoists and install (2) new 2 ton Harrington chain hoist model: NER2M020LD-LD specs are listed below for hoists.'
@@ -1653,8 +1657,12 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
         lines.push(getPdfLineItemSummary(lineItem, section.id, equipmentSettings))
       })
     } else {
-      lines.push(getCondensedInspectionQuoteLineItemSummary(section, equipmentSettings))
+      lines.push(getCondensedInspectionQuoteLineItemSummary(section, equipmentSettings, inspectionQuoteSettings))
+      const summaryNote = getInspectionQuoteSectionSummaryNote(inspectionQuoteSettings, section)
+      if (summaryNote) lines.push(summaryNote)
     }
+    const templateNote = getInspectionQuoteSectionTemplateNote(inspectionQuoteSettings, section)
+    if (templateNote) lines.push(templateNote)
   })
 
   const repairTotal = inspectionQuoteSettings
@@ -1885,22 +1893,70 @@ const getCostSectionCustomerTotal = (
 const getCondensedInspectionQuoteLineItemSummary = (
   section: CostSection,
   settings: EquipmentRentalSettings,
+  inspectionQuoteSettings: InspectionQuoteSettings | null = null,
 ) => [
   section.title,
-  'Qty 1',
+  getCondensedCostSectionQuantityLabel(section, inspectionQuoteSettings),
   `Customer ${formatMoney(getCostSectionCustomerTotal(section, settings))}`,
 ].join(' | ')
+
+const getInspectionQuoteSectionAssetLineItem = (section: CostSection) =>
+  section.lineItems.find((lineItem) => getInspectionQuoteLineItemField(lineItem) === 'assets')
+
+const getCondensedCostSectionQuantityLabel = (
+  section: CostSection,
+  settings: InspectionQuoteSettings | null = null,
+) => {
+  const templateSection = getInspectionQuoteTemplateSectionFromCostSection(settings, section)
+  const estimatorAssets = templateSection ? getInspectionEstimatorTotalAssets(getInspectionQuoteSectionEstimator(settings!, templateSection)) : 0
+  if (estimatorAssets > 0) return `Qty ${estimatorAssets}`
+
+  const assetQuantity = getInspectionQuoteSectionAssetLineItem(section)?.quantity?.trim()
+  return `Qty ${assetQuantity && parseMoney(assetQuantity) > 0 ? assetQuantity : '1'}`
+}
+
+const getInspectionQuoteSectionSummaryNote = (
+  settings: InspectionQuoteSettings | null,
+  costSection: CostSection,
+) => {
+  const templateSection = getInspectionQuoteTemplateSectionFromCostSection(settings, costSection)
+  return templateSection?.summaryNote?.trim() ?? ''
+}
+
+const getInspectionQuoteSectionTemplateNote = (
+  settings: InspectionQuoteSettings | null,
+  costSection: CostSection,
+) => getInspectionQuoteTemplateSectionFromCostSection(settings, costSection) ? defaultInspectionQuoteTemplateNote : ''
+
+const renderInspectionQuoteTemplateNoteMarkup = (templateNote: string) => {
+  if (!templateNote) return ''
+
+  return `<div class="inspection-template-note">${escapeHtml(templateNote)}</div>`
+}
+
+const renderInspectionQuoteSummaryNoteMarkup = (summaryNote: string) => {
+  if (!summaryNote) return ''
+
+  return `
+    <tr class="inspection-summary-note-row">
+      <td colspan="4">${escapeHtml(summaryNote)}</td>
+    </tr>
+  `
+}
 
 const getTemplateCondensedCostSectionRows = (
   section: CostSection,
   settings: EquipmentRentalSettings,
+  inspectionQuoteSettings: InspectionQuoteSettings | null = null,
+  summaryNote = '',
 ) => `
   <tr>
     <td>${escapeHtml(section.title || 'Inspection Section')}</td>
-    <td class="qty">1</td>
+    <td class="qty">${escapeHtml(getCondensedCostSectionQuantityLabel(section, inspectionQuoteSettings).replace(/^Qty\s*/i, '') || '1')}</td>
     <td class="money">${formatMoney(getCostSectionCustomerTotal(section, settings))}</td>
     <td class="money">${formatMoney(getCostSectionCustomerTotal(section, settings))}</td>
   </tr>
+  ${renderInspectionQuoteSummaryNoteMarkup(summaryNote)}
 `
 
 const getCombinedReportTemplateHtml = (
@@ -1995,6 +2051,8 @@ const getCombinedReportTemplateHtml = (
       .map((section) => {
         const scopeMarkup = renderInspectionQuoteScopeMarkup(getInspectionQuoteSectionScopeItems(inspectionQuoteSettings, section))
         const showLineItems = isEstimateCostSectionLineItemsVisible(payloadEstimateCostSectionVisibility, section.id)
+        const summaryNote = getInspectionQuoteSectionSummaryNote(inspectionQuoteSettings, section)
+        const templateNote = getInspectionQuoteSectionTemplateNote(inspectionQuoteSettings, section)
 
         return `
         <section class="quote-section">
@@ -2014,7 +2072,7 @@ const getCombinedReportTemplateHtml = (
                 ? getTemplateLineItemRows(section.lineItems, (lineItem) =>
                     getCostCustomerLineAmount(section.id, lineItem, equipmentSettings)
                   )
-                : getTemplateCondensedCostSectionRows(section, equipmentSettings)
+                : getTemplateCondensedCostSectionRows(section, equipmentSettings, inspectionQuoteSettings, summaryNote)
               }
               <tr class="subtotal">
                 <td colspan="3">Subtotal</td>
@@ -2022,6 +2080,7 @@ const getCombinedReportTemplateHtml = (
               </tr>
             </tbody>
           </table>
+          ${renderInspectionQuoteTemplateNoteMarkup(templateNote)}
         </section>
       `
       })
@@ -2405,6 +2464,23 @@ const getCombinedReportTemplateHtml = (
           }
           th:first-child, td:first-child { width: 56%; }
           .money, .qty { text-align: right; white-space: nowrap; }
+          .inspection-summary-note-row td {
+            background: #fff;
+            color: #4d5360;
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1.3;
+            white-space: pre-wrap;
+          }
+          .inspection-template-note {
+            border-top: 1px solid #d8d8d8;
+            background: #fffdf6;
+            padding: 8px;
+            color: #1f2430;
+            font-size: 9px;
+            font-weight: 700;
+            line-height: 1.25;
+          }
           .subtotal td { background: #fbfbfb; font-weight: 900; text-transform: uppercase; }
           .repair-total td { background: #f0f4fb; color: #111; }
           .grand-total {
@@ -5030,6 +5106,23 @@ export default function EditableInspectionReport({
     })
   }
 
+  const updateInspectionQuoteSectionSummaryNote = (sectionId: string, summaryNote: string) => {
+    setEquipmentRentalSettings((currentSettings) => {
+      const inspectionQuote = getInspectionQuoteSettings(currentSettings)
+      if (!inspectionQuote) return currentSettings
+
+      return saveEquipmentRentalSettings({
+        ...currentSettings,
+        inspectionQuote: {
+          ...inspectionQuote,
+          selectedSections: inspectionQuote.selectedSections.map((section) =>
+            section.id === sectionId ? { ...section, summaryNote } : section,
+          ),
+        },
+      })
+    })
+  }
+
   const markInspectionQuoteManualPricingEdit = () => {
     if (!currentInspectionQuoteSettings) return
 
@@ -5063,10 +5156,12 @@ export default function EditableInspectionReport({
   const applyInspectionQuoteGeneratedContent = (nextInspectionQuote: InspectionQuoteSettings) => {
     const nextSettings = {
       ...nextInspectionQuote,
-      manualPricing: {
-        ...nextInspectionQuote.manualPricing,
-        ...getInspectionQuoteManualPricingFromCostSections(costSections, nextInspectionQuote.selectedSections),
-      },
+      manualPricing: nextInspectionQuote.manualQuoteEdits
+        ? {
+            ...nextInspectionQuote.manualPricing,
+            ...getInspectionQuoteManualPricingFromCostSections(costSections, nextInspectionQuote.selectedSections),
+          }
+        : nextInspectionQuote.manualPricing,
     }
     const nextScopeOfWork = nextSettings.generatedScopeOfWork
     if (
@@ -8263,15 +8358,40 @@ export default function EditableInspectionReport({
                     </div>
                     </>
                     ) : (
-                      <div className="grid grid-cols-[1fr_90px_116px_130px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black text-[#1f2430]">
-                        <div className="px-3 py-2 leading-tight">{section.title}</div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">Qty 1</div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">Customer Price</div>
-                        <div className="border-l border-[#d8d8d8] bg-[#f5b400] px-3 py-2 text-right">
-                          {formatMoney(getCostSectionCustomerTotal(section, equipmentRentalSettings))}
+                      <div className="border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black text-[#1f2430]">
+                        <div className="grid grid-cols-[1fr_90px_116px_130px]">
+                          <div className="px-3 py-2 leading-tight">{section.title}</div>
+                          <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">{getCondensedCostSectionQuantityLabel(section, currentInspectionQuoteSettings)}</div>
+                          <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">Customer Price</div>
+                          <div className="border-l border-[#d8d8d8] bg-[#f5b400] px-3 py-2 text-right">
+                            {formatMoney(getCostSectionCustomerTotal(section, equipmentRentalSettings))}
+                          </div>
                         </div>
+                        {inspectionTemplateSection ? (
+                          <div className={`border-t border-[#e5e5e5] bg-white px-3 py-2 ${inspectionTemplateSection.summaryNote?.trim() ? '' : 'report-inline-action'}`}>
+                            <EditableValue
+                              label={`${section.title} quote summary note`}
+                              value={inspectionTemplateSection.summaryNote ?? ''}
+                              onChange={(value) => updateInspectionQuoteSectionSummaryNote(inspectionTemplateSection.id, value)}
+                              multiline
+                              linkify
+                              clearOnFocus={!inspectionTemplateSection.summaryNote?.trim()}
+                              className="min-h-[24px] cursor-text whitespace-pre-wrap text-[11px] font-semibold leading-snug text-[#4d5360]"
+                              renderReadOnly={(value) =>
+                                value.trim()
+                                  ? <span className="whitespace-pre-wrap">{value}</span>
+                                  : <span className="report-inline-action text-[#8a92a3]">Add quote note, e.g. 11 months worth.</span>
+                              }
+                            />
+                          </div>
+                        ) : null}
                       </div>
                     )}
+                    {inspectionTemplateSection ? (
+                      <div className="border-b border-[#d8d8d8] bg-[#fffdf6] px-3 py-2 text-[12px] font-semibold leading-snug text-[#1f2430]">
+                        {defaultInspectionQuoteTemplateNote}
+                      </div>
+                    ) : null}
                   </section>
                   )
                 })}
