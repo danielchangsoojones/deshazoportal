@@ -1769,15 +1769,30 @@ const splitInspectionQuoteScopeItems = (scope: string | undefined) => {
 
   if (!normalizedScope) return []
 
+  const inspectionListLeadInPattern =
+    /\b(?:Periodic|Frequent)\s+Inspections?\s+will\s+(?:include|consist\s+of)\b.*?(?:inspection\s+items?,\s+plus|critical\s+components\s+of\s+your\s+overhead\s+crane\s+system,\s*)/i
   const cleanItem = (value: string) =>
     value
+      .replace(inspectionListLeadInPattern, '')
+      .replace(/\b(?:Any|Annual)\s+inspections?\s+are\s+required\b.*$/i, '')
       .replace(/^\s*(?:\d+[\.)]|[-*])\s*/, '')
       .replace(/\s+/g, ' ')
       .replace(/[.;,\s]+$/, '')
       .trim()
+  const splitCommaList = (value: string) => {
+    const cleanedValue = cleanItem(value)
+    if (!cleanedValue) return []
+    if (!inspectionListLeadInPattern.test(value) && !/,/.test(cleanedValue)) return [cleanedValue]
 
-  const splitItems = (pattern: RegExp) => normalizedScope.split(pattern).map(cleanItem).filter(Boolean)
-  return splitItems(/\n+/)
+    return cleanedValue
+      .split(/\s*,\s*(?:and\s+)?|\s+plus\s+/i)
+      .map(cleanItem)
+      .filter((item) => item.length > 0)
+  }
+
+  return normalizedScope
+    .split(/\n+/)
+    .flatMap(splitCommaList)
 }
 
 const getInspectionQuoteSectionScopeColumnCount = (scopeItems: string[]) => {
