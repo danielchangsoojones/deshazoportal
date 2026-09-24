@@ -288,8 +288,51 @@ const defaultEstimateNoteVisibility: EstimateNoteVisibility = {
   bottomNote: false,
 }
 
+const defaultInspectionQuoteScopeIntro =
+  'Perform frequent inspections, periodic inspections, and preventative maintenance activities on the overhead cranes at your facility in (City), (State) based on the schedule provided below.'
+
 const defaultInspectionQuoteTemplateNote =
-  'Inspections will reduce downtime, increase productivity and help prevent unforeseen safety hazards. Any safety concerns identified during the inspection will be reported to the appropriate site contact. Inspection reports will be provided for each crane inspected and will include specific identification of any unsatisfactory items noted during the inspection, along with remediation recommendations. Inspection Reports will be provided for all inspections within 7-10 days following completion of the work.'
+  'Annual inspections are required by OSHA, and our inspections cover all elements in OSHA 1910.179 and ANSI B30.2. Inspections will reduce downtime, increase productivity and help prevent unforeseen safety hazards. Any safety concerns identified during the inspection will be reported to the appropriate site contact. Inspection reports will be provided for each crane inspected and will include specific identification of any unsatisfactory items noted during the inspection, along with remediation recommendations. Inspection Reports will be provided for all inspections within 7-10 days following completion of the work.'
+
+const defaultInspectionQuoteScopesBySectionId: Record<string, string> = {
+  'frequent-inspections': [
+    'Frequent Inspections will consist of a visual and operational inspection of the critical components of your overhead crane system, including:',
+    'Control Devices',
+    'Wire Rope and/or Load Chain',
+    'Brakes',
+    'Reeving',
+    'Hook and Hook Latch',
+    'Limit Switches',
+    'Safety Labels',
+    'Warning Devices',
+  ].join('\n'),
+  'periodic-inspections': [
+    'Periodic Inspections will include a more thorough inspection of all items above, and will include additional components:',
+    'Structural Members',
+    'Indicators and Gauges',
+    'Signs and Labels',
+    'Electrical Components',
+    'Connection Points',
+    'Covers and Guards',
+    'Sheaves and Drums',
+    'Bumpers and End Stops',
+    'Shafts, Axles, Wheels and Couplings',
+    'Trolley and Runway Rail',
+    'Brakes (holding and control)',
+    'Runway Structure',
+    'Conductor System',
+    'Below the Hook Devices',
+  ].join('\n'),
+  'preventative-maintenance': [
+    'Preventative Maintenance activities can also be included, which will be suited to the unique needs of each piece of equipment based upon original equipment manufacturer guidance. These activities include, but may not be limited to:',
+    'Top off oil levels of gearboxes',
+    'Lubricate bridge wheel bearings',
+    'Grease lubrication points on crane',
+    'Lubricate trolley wheel bearings',
+    'Tighten loose connections',
+    'Lubricate wire ropes',
+  ].join('\n'),
+}
 
 const legacyScopeOfWorkSample =
   'Remove 2 old Budgit 2 ton hoists and install (2) new 2 ton Harrington chain hoist model: NER2M020LD-LD specs are listed below for hoists.'
@@ -1604,7 +1647,12 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     ...contactLines,
     '',
     ...(inspectionQuoteSettings
-      ? []
+      ? [
+          'Scope of Work: Inspections',
+          defaultInspectionQuoteScopeIntro,
+          defaultInspectionQuoteTemplateNote,
+          '',
+        ]
       : [
           reportData.scopeOfWorkHeader || 'Scope of Work',
           reportData.scopeOfWork || '---',
@@ -1647,10 +1695,11 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
   const payloadEstimateCostSectionVisibility = getPayloadEstimateCostSectionVisibility(payload, normalizedCostSections)
   costSections.forEach((section) => {
     lines.push('', section.title)
-    const scopeItems = getInspectionQuoteSectionScopeItems(inspectionQuoteSettings, section)
-    if (scopeItems.length > 0) {
+    const scopeParts = getInspectionQuoteSectionScopeParts(inspectionQuoteSettings, section)
+    if (scopeParts.intro.length > 0 || scopeParts.items.length > 0) {
       lines.push('Scope of Work')
-      scopeItems.forEach((scopeItem) => lines.push(`- ${scopeItem}`))
+      scopeParts.intro.forEach((scopeLine) => lines.push(scopeLine))
+      scopeParts.items.forEach((scopeItem) => lines.push(`- ${scopeItem}`))
     }
     if (isEstimateCostSectionLineItemsVisible(payloadEstimateCostSectionVisibility, section.id)) {
       section.lineItems.forEach((lineItem) => {
@@ -1661,8 +1710,6 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
       const summaryNote = getInspectionQuoteSectionSummaryNote(inspectionQuoteSettings, section)
       if (summaryNote) lines.push(summaryNote)
     }
-    const templateNote = getInspectionQuoteSectionTemplateNote(inspectionQuoteSettings, section)
-    if (templateNote) lines.push(templateNote)
   })
 
   const repairTotal = inspectionQuoteSettings
@@ -1762,83 +1809,123 @@ const getTemplateReportCell = (label: string, value: string | undefined) => `
 `
 
 const splitInspectionQuoteScopeItems = (scope: string | undefined) => {
+  return getInspectionQuoteScopeParts(scope).items
+}
+
+type InspectionQuoteScopeParts = {
+  intro: string[]
+  items: string[]
+}
+
+const inspectionListLeadInPattern =
+  /\b(?:Periodic|Frequent)\s+Inspections?\s+will\s+(?:include|consist\s+of)\b.*?(?:including:|include\s+additional\s+components:|inspection\s+items?,\s+plus|critical\s+components\s+of\s+your\s+overhead\s+crane\s+system,\s*)/i
+
+const cleanInspectionQuoteScopeItem = (value: string) =>
+  value
+    .replace(inspectionListLeadInPattern, '')
+    .replace(/\b(?:Any|Annual)\s+inspections?\s+are\s+required\b.*$/i, '')
+    .replace(/^\s*(?:\d+[\.)]|[-*])\s*/, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[.;,\s]+$/, '')
+    .trim()
+
+const splitInspectionQuoteScopeItemList = (value: string) => {
+  const cleanedValue = cleanInspectionQuoteScopeItem(value)
+  if (!cleanedValue) return []
+  if (!/,/.test(cleanedValue) && !/\s+plus\s+/i.test(cleanedValue)) return [cleanedValue]
+
+  return cleanedValue
+    .split(/\s*,\s*(?:and\s+)?|\s+plus\s+/i)
+    .map(cleanInspectionQuoteScopeItem)
+    .filter((item) => item.length > 0)
+}
+
+const getInspectionQuoteScopeParts = (scope: string | undefined): InspectionQuoteScopeParts => {
   const normalizedScope = (scope || '')
     .replace(/\r/g, '\n')
     .replace(/[•●▪◦]/g, '\n')
     .trim()
 
-  if (!normalizedScope) return []
+  if (!normalizedScope) return { intro: [], items: [] }
 
-  const inspectionListLeadInPattern =
-    /\b(?:Periodic|Frequent)\s+Inspections?\s+will\s+(?:include|consist\s+of)\b.*?(?:inspection\s+items?,\s+plus|critical\s+components\s+of\s+your\s+overhead\s+crane\s+system,\s*)/i
-  const cleanItem = (value: string) =>
-    value
-      .replace(inspectionListLeadInPattern, '')
-      .replace(/\b(?:Any|Annual)\s+inspections?\s+are\s+required\b.*$/i, '')
-      .replace(/^\s*(?:\d+[\.)]|[-*])\s*/, '')
-      .replace(/\s+/g, ' ')
-      .replace(/[.;,\s]+$/, '')
-      .trim()
-  const splitCommaList = (value: string) => {
-    const cleanedValue = cleanItem(value)
-    if (!cleanedValue) return []
-    if (!inspectionListLeadInPattern.test(value) && !/,/.test(cleanedValue)) return [cleanedValue]
+  return normalizedScope.split(/\n+/).reduce<InspectionQuoteScopeParts>((parts, rawLine) => {
+    const line = rawLine.trim()
+    if (!line || /\b(?:Any|Annual)\s+inspections?\s+are\s+required\b/i.test(line)) return parts
 
-    return cleanedValue
-      .split(/\s*,\s*(?:and\s+)?|\s+plus\s+/i)
-      .map(cleanItem)
-      .filter((item) => item.length > 0)
-  }
+    const leadInMatch = line.match(inspectionListLeadInPattern)
+    if (leadInMatch?.index !== undefined) {
+      const leadInEnd = leadInMatch.index + leadInMatch[0].length
+      const leadIn = line.slice(0, leadInEnd).replace(/,\s*$/, ':').trim()
+      const remainder = line.slice(leadInEnd)
+      return {
+        intro: [...parts.intro, leadIn],
+        items: [...parts.items, ...splitInspectionQuoteScopeItemList(remainder)],
+      }
+    }
 
-  return normalizedScope
-    .split(/\n+/)
-    .flatMap(splitCommaList)
+    return {
+      ...parts,
+      items: [...parts.items, ...splitInspectionQuoteScopeItemList(line)],
+    }
+  }, { intro: [], items: [] })
 }
 
 const getInspectionQuoteSectionScopeColumnCount = (scopeItems: string[]) => {
   return scopeItems.length > 0 ? 2 : 1
 }
 
-const getInspectionQuoteSectionScopeItems = (
+const getInspectionQuoteSectionScopeParts = (
   settings: InspectionQuoteSettings | null,
   costSection: CostSection,
 ) => {
-  if (!settings || !costSection.id.startsWith('inspection-')) return []
+  if (!settings || !costSection.id.startsWith('inspection-')) return { intro: [], items: [] }
   const templateSectionId = costSection.id.replace(/^inspection-/, '')
   const templateSection = settings.selectedSections.find((section) => section.id === templateSectionId)
-  return splitInspectionQuoteScopeItems(templateSection?.scope)
+  return getInspectionQuoteScopeParts(templateSection?.scope)
 }
 
-const renderInspectionQuoteScopeMarkup = (scopeItems: string[]) => {
-  if (scopeItems.length === 0) return ''
+const renderInspectionQuoteScopeMarkup = (scopeParts: InspectionQuoteScopeParts) => {
+  if (scopeParts.intro.length === 0 && scopeParts.items.length === 0) return ''
 
   return `
     <div class="inspection-section-scope">
       <div class="inspection-section-scope-title">Scope of Work</div>
-      <ul class="scope-cols-${getInspectionQuoteSectionScopeColumnCount(scopeItems)}">
-        ${scopeItems.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-      </ul>
+      ${scopeParts.intro.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
+      ${scopeParts.items.length > 0 ? `
+        <ul class="scope-cols-${getInspectionQuoteSectionScopeColumnCount(scopeParts.items)}">
+          ${scopeParts.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+        </ul>
+      ` : ''}
     </div>
   `
 }
 
 const renderInspectionQuoteScopeBullets = (scope: string) => {
-  const scopeItems = splitInspectionQuoteScopeItems(scope)
-  if (scopeItems.length === 0) {
+  const scopeParts = getInspectionQuoteScopeParts(scope)
+  if (scopeParts.intro.length === 0 && scopeParts.items.length === 0) {
     return <span className="text-[#8a92a3]">Add scope of work items here.</span>
   }
 
   return (
-    <ul
-      className="grid list-disc gap-x-6 gap-y-1 pl-4"
-      style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeItems)}, minmax(0, 1fr))` }}
-    >
-      {scopeItems.map((scopeItem, scopeIndex) => (
-        <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
-          {scopeItem}
-        </li>
+    <>
+      {scopeParts.intro.map((line, index) => (
+        <p key={`${line}-${index}`} className="mb-1.5">
+          {line}
+        </p>
       ))}
-    </ul>
+      {scopeParts.items.length > 0 ? (
+        <ul
+          className="grid list-disc gap-x-6 gap-y-1 pl-4"
+          style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeParts.items)}, minmax(0, 1fr))` }}
+        >
+          {scopeParts.items.map((scopeItem, scopeIndex) => (
+            <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
+              {scopeItem}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
   )
 }
 
@@ -1869,6 +1956,7 @@ function EditableInspectionQuoteScope({
 }) {
   const listRef = useRef<HTMLUListElement>(null)
   const [isEditing, setIsEditing] = useState(false)
+  const scopeParts = getInspectionQuoteScopeParts(value)
   const scopeItems = getEditableInspectionQuoteScopeItems(value)
 
   useEffect(() => {
@@ -1883,7 +1971,7 @@ function EditableInspectionQuoteScope({
     const listItems = Array.from(listRef.current?.querySelectorAll('li') ?? [])
       .map((item) => item.textContent?.trim() ?? '')
       .filter((item) => item.length > 0)
-    onChange(listItems.join('\n'))
+    onChange([...scopeParts.intro, ...listItems].join('\n'))
     setIsEditing(false)
   }
 
@@ -1921,33 +2009,40 @@ function EditableInspectionQuoteScope({
   }
 
   return (
-    <ul
-      ref={listRef}
-      role="textbox"
-      aria-label={label}
-      contentEditable
-      suppressContentEditableWarning
-      spellCheck
-      className={`editable-report-field grid list-disc gap-x-6 gap-y-1 pl-4 outline-none ${className}`}
-      style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeItems)}, minmax(0, 1fr))` }}
-      onBlur={finishEditing}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter') return
-        event.preventDefault()
-        insertListItemAfterSelection()
-      }}
-      onPaste={(event) => {
-        event.preventDefault()
-        const text = event.clipboardData.getData('text/plain')
-        document.execCommand('insertText', false, text)
-      }}
-    >
-      {scopeItems.map((scopeItem, scopeIndex) => (
-        <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
-          {scopeItem}
-        </li>
+    <div className={`editable-report-field ${className}`}>
+      {scopeParts.intro.map((line, index) => (
+        <p key={`${line}-${index}`} className="mb-1.5">
+          {line}
+        </p>
       ))}
-    </ul>
+      <ul
+        ref={listRef}
+        role="textbox"
+        aria-label={label}
+        contentEditable
+        suppressContentEditableWarning
+        spellCheck
+        className="grid list-disc gap-x-6 gap-y-1 pl-4 outline-none"
+        style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeItems)}, minmax(0, 1fr))` }}
+        onBlur={finishEditing}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          insertListItemAfterSelection()
+        }}
+        onPaste={(event) => {
+          event.preventDefault()
+          const text = event.clipboardData.getData('text/plain')
+          document.execCommand('insertText', false, text)
+        }}
+      >
+        {scopeItems.map((scopeItem, scopeIndex) => (
+          <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
+            {scopeItem}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -2044,17 +2139,6 @@ const getInspectionQuoteSectionSummaryNote = (
 ) => {
   const templateSection = getInspectionQuoteTemplateSectionFromCostSection(settings, costSection)
   return templateSection?.summaryNote?.trim() ?? ''
-}
-
-const getInspectionQuoteSectionTemplateNote = (
-  settings: InspectionQuoteSettings | null,
-  costSection: CostSection,
-) => getInspectionQuoteTemplateSectionFromCostSection(settings, costSection) ? defaultInspectionQuoteTemplateNote : ''
-
-const renderInspectionQuoteTemplateNoteMarkup = (templateNote: string) => {
-  if (!templateNote) return ''
-
-  return `<div class="inspection-template-note">${escapeHtml(templateNote)}</div>`
 }
 
 const renderInspectionQuoteSummaryNoteMarkup = (summaryNote: string) => {
@@ -2172,10 +2256,9 @@ const getCombinedReportTemplateHtml = (
 
     const costMarkup = costSections
       .map((section) => {
-        const scopeMarkup = renderInspectionQuoteScopeMarkup(getInspectionQuoteSectionScopeItems(inspectionQuoteSettings, section))
+        const scopeMarkup = renderInspectionQuoteScopeMarkup(getInspectionQuoteSectionScopeParts(inspectionQuoteSettings, section))
         const showLineItems = isEstimateCostSectionLineItemsVisible(payloadEstimateCostSectionVisibility, section.id)
         const summaryNote = getInspectionQuoteSectionSummaryNote(inspectionQuoteSettings, section)
-        const templateNote = getInspectionQuoteSectionTemplateNote(inspectionQuoteSettings, section)
 
         return `
         <section class="quote-section">
@@ -2203,7 +2286,6 @@ const getCombinedReportTemplateHtml = (
               </tr>
             </tbody>
           </table>
-          ${renderInspectionQuoteTemplateNoteMarkup(templateNote)}
         </section>
       `
       })
@@ -2256,7 +2338,11 @@ const getCombinedReportTemplateHtml = (
         </section>
         `}
 
-        ${inspectionQuoteSettings ? '' : `<section class="scope">
+        ${inspectionQuoteSettings ? `<section class="scope">
+          <h2>Scope of Work: Inspections</h2>
+          <p>${escapeHtml(defaultInspectionQuoteScopeIntro)}</p>
+          <p>${escapeHtml(defaultInspectionQuoteTemplateNote)}</p>
+        </section>` : `<section class="scope">
           <h2>${escapeHtml(reportData.scopeOfWorkHeader || 'Scope of Work')}</h2>
           <p>${escapeHtml(reportData.scopeOfWork || '---')}</p>
         </section>`}
@@ -2494,6 +2580,13 @@ const getCombinedReportTemplateHtml = (
             font-size: 7px;
             font-weight: 900;
             text-transform: uppercase;
+          }
+          .inspection-section-scope p {
+            margin: 0 0 5px;
+            color: #1f2430;
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1.3;
           }
           .inspection-section-scope ul {
             display: grid;
@@ -2841,7 +2934,11 @@ const getInspectionQuoteEstimatorBySection = (
 const getInspectionQuoteSettings = (settings: EquipmentRentalSettings): InspectionQuoteSettings | null => {
   const inspectionQuote = settings.inspectionQuote
   if (!inspectionQuote || !Array.isArray(inspectionQuote.selectedSections)) return null
-  const selectedSections = inspectionQuote.selectedSections
+  const selectedSections = inspectionQuote.selectedSections.map((section) => {
+    const defaultScope = defaultInspectionQuoteScopesBySectionId[section.id]
+    if (!defaultScope || getInspectionQuoteScopeParts(section.scope).items.length > 0) return section
+    return { ...section, scope: defaultScope }
+  })
   const estimatorRows = normalizeInspectionEstimatorRows(inspectionQuote.estimatorRows)
   const laborSellRate = Number.isFinite(Number(inspectionQuote.laborSellRate)) ? Number(inspectionQuote.laborSellRate) : 125
   const mode = inspectionQuote.mode === 'frequent' ? 'frequent' : 'periodic'
@@ -4008,7 +4105,10 @@ export default function EditableInspectionReport({
   )
   const [activeInspectionEstimatorSectionId, setActiveInspectionEstimatorSectionId] = useState('')
   const currentInspectionQuoteHasSectionScope = useMemo(
-    () => Boolean(currentInspectionQuoteSettings?.selectedSections.some((section) => splitInspectionQuoteScopeItems(section.scope).length > 0)),
+    () => Boolean(currentInspectionQuoteSettings?.selectedSections.some((section) => {
+      const scopeParts = getInspectionQuoteScopeParts(section.scope)
+      return scopeParts.intro.length > 0 || scopeParts.items.length > 0
+    })),
     [currentInspectionQuoteSettings],
   )
   const activeInspectionEstimatorSection = useMemo(
@@ -7715,25 +7815,39 @@ export default function EditableInspectionReport({
             </section>
             ) : null}
 
-            {blockVisibility.scopeOfWork && !currentInspectionQuoteSettings ? (
+            {blockVisibility.scopeOfWork ? (
             <section
               data-report-block-id="scope-of-work"
               style={getRuntimePageBreakStyle('scope-of-work')}
               className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('scope-of-work')}`}
             >
-              <EditableText
-                id="scopeOfWorkHeader"
-                data={report}
-                onChange={updateField}
-                className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black"
-              />
-              <EditableText
-                id="scopeOfWork"
-                data={report}
-                onChange={updateField}
-                multiline
-                className="min-h-[58px] border-t border-[#d4d4d4] px-3 py-3 text-[14px] font-semibold leading-snug"
-              />
+              {currentInspectionQuoteSettings ? (
+                <>
+                  <div className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black">
+                    Scope of Work: Inspections
+                  </div>
+                  <div className="min-h-[58px] border-t border-[#d4d4d4] px-3 py-3 text-[14px] font-semibold leading-snug">
+                    <p>{defaultInspectionQuoteScopeIntro}</p>
+                    <p className="mt-2">{defaultInspectionQuoteTemplateNote}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <EditableText
+                    id="scopeOfWorkHeader"
+                    data={report}
+                    onChange={updateField}
+                    className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black"
+                  />
+                  <EditableText
+                    id="scopeOfWork"
+                    data={report}
+                    onChange={updateField}
+                    multiline
+                    className="min-h-[58px] border-t border-[#d4d4d4] px-3 py-3 text-[14px] font-semibold leading-snug"
+                  />
+                </>
+              )}
             </section>
             ) : null}
 
@@ -8446,11 +8560,6 @@ export default function EditableInspectionReport({
                         ) : null}
                       </div>
                     )}
-                    {inspectionTemplateSection ? (
-                      <div className="border-b border-[#d8d8d8] bg-[#fffdf6] px-3 py-2 text-[12px] font-semibold leading-snug text-[#1f2430]">
-                        {defaultInspectionQuoteTemplateNote}
-                      </div>
-                    ) : null}
                   </section>
                   )
                 })}
