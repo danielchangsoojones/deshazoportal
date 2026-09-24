@@ -324,7 +324,7 @@ const defaultInspectionQuoteScopesBySectionId: Record<string, string> = {
     'Below the Hook Devices',
   ].join('\n'),
   'preventative-maintenance': [
-    'Preventative Maintenance activities can also be included, which will be suited to the unique needs of each piece of equipment based upon original equipment manufacturer guidance. These activities include, but may not be limited to:',
+    'Preventative Maintenance activities can be included and will be suited to the unique needs of each piece of equipment based upon original equipment manufacturer guidance. These activities include:',
     'Top off oil levels of gearboxes',
     'Lubricate bridge wheel bearings',
     'Grease lubrication points on crane',
@@ -332,6 +332,70 @@ const defaultInspectionQuoteScopesBySectionId: Record<string, string> = {
     'Tighten loose connections',
     'Lubricate wire ropes',
   ].join('\n'),
+  'below-the-hook': [
+    'Below-The-Hook (BTH) will consist of a thorough visual inspection of all items below.',
+    'A device attached to the crane/hoist that grabs, supports, holds, or manipulates the load.',
+    'Examples: Spreader Beams, Coil Grabs, Magnets, C-Hooks, Lifting fixtures.',
+    'Standard ASME B30.20 Inspection Provisions. Design ASME BTH-1.',
+    'Structural members for any deformation, cracks, or excessive wear',
+    'Fasteners for loose, missing, or corroded bolts, nuts, pins, or keepers',
+    'Latching mechanisms for proper operation, cracks, or wear',
+    'Slings or lifting points for wear, deformation, or damage',
+    'Limit devices for proper operation',
+    'Load-bearing components for cracks, excessive wear, or deformation',
+    'Signs of corrosion, pitting, or other damage',
+    'Decals and markings for legibility',
+    'Magnets have special requirements',
+  ].join('\n'),
+  'slings-rigging-hardware': [
+    'Slings / Rigging / Hardware will consist of a thorough visual inspection of all items below.',
+    'Flexible assemblies connecting the load to the lifting device.',
+    'Examples: Wire Rope, Chain, Nylon, Metal Mesh Slings, Shackles, Eye Bolts, and Hardware.',
+    'Standard ASME B30.9 for Slings, ASME B30.26 for Hardware and OSHA 1910.184.',
+    'Identification tag/markings legible and correct',
+    'Rated capacity/WLL visible',
+    'Cuts, tears, holes, snags, or abrasion',
+    'Broken wires, birdcaging, kinks, crushing, or corrosion',
+    'Stretched, bent, twisted, or worn links',
+    'Heat, weld, or chemical damage',
+    'Distortion, cracks, excessive wear, or corrosion',
+    'Bent, opened, or damaged hooks, shackles, eye bolts, or fittings',
+    'Missing or damaged latches, pins, or retainers',
+  ].join('\n'),
+  'structural-runway': [
+    'Structural Runway Inspections and/or Runway Evaluation/Surveys',
+    'Detailed inspection of runway beams, columns, bracing, rail, fasteners, and related support components.',
+    'Runway Structural Inspection Note: This inspection is limited to visual observations of readily accessible components and does not include engineering analysis unless specifically quoted.',
+  ].join('\n'),
+  'load-testing': [
+    'Load Testing / Inspection will be performed per OSHA 1910.179 (k) - Testing.',
+    'Must have records of the rated load test available for review.',
+    'Perform load test using certified test weights or an approved load test method.',
+    'Operational Tests',
+    'Required: Prior to initial use, all new and altered cranes shall be tested to ensure compliance with OSHA requirements.',
+    'Hoisting and lowering',
+    'Trolley travel',
+    'Bridge travel',
+    'Limit switches, locking, and safety devices',
+  ].join('\n'),
+  'nondestructive-testing': [
+    'Nondestructive Testing can be performed on hooks, welds, shafts, pins, and other critical components when required.',
+    'Perform nondestructive testing using the appropriate method for the component and suspected condition.',
+    'Testing shall be documented with findings and recommendations for any unsatisfactory items identified.',
+  ].join('\n'),
+  'asset-management-dashboard': [
+    'DeSHAZO Dashboard / Asset Management provides online access to equipment, inspection, and service information.',
+    'Asset management tools can help track inspection history, repair recommendations, and related equipment documentation.',
+  ].join('\n'),
+}
+
+const inspectionQuoteSectionIntroLineCounts: Record<string, number> = {
+  'below-the-hook': 1,
+  'slings-rigging-hardware': 1,
+  'structural-runway': 1,
+  'load-testing': 1,
+  'nondestructive-testing': 1,
+  'asset-management-dashboard': 1,
 }
 
 const legacyScopeOfWorkSample =
@@ -1824,17 +1888,16 @@ const getTemplateReportCell = (label: string, value: string | undefined) => `
   </div>
 `
 
-const splitInspectionQuoteScopeItems = (scope: string | undefined) => {
-  return getInspectionQuoteScopeParts(scope).items
-}
-
 type InspectionQuoteScopeParts = {
   intro: string[]
   items: string[]
 }
 
 const inspectionListLeadInPattern =
-  /\b(?:Periodic|Frequent)\s+Inspections?\s+will\s+(?:include|consist\s+of)\b.*?(?:including:|include\s+additional\s+components:|inspection\s+items?,\s+plus|critical\s+components\s+of\s+your\s+overhead\s+crane\s+system,\s*)/i
+  /\b(?:(?:Periodic|Frequent)\s+Inspections?\s+will\s+(?:include|consist\s+of)|Preventative\s+Maintenance\s+activities\s+can\s+(?:also\s+)?be\s+included)\b.*?(?:including:?|include\s+additional\s+components:?|these\s+activities\s+include:?|inspection\s+items?,\s+plus|critical\s+components\s+of\s+your\s+overhead\s+crane\s+system,?\s*)/i
+
+const inspectionInlineItemListStartPattern =
+  /\b(?:Inspection\s+items?\s+include|Additional\s+components\s+include|Components\s+include|Items\s+include)\b:?/i
 
 const cleanInspectionQuoteScopeItem = (value: string) =>
   value
@@ -1845,7 +1908,20 @@ const cleanInspectionQuoteScopeItem = (value: string) =>
     .replace(/[.;,\s]+$/, '')
     .trim()
 
-const splitInspectionQuoteScopeItemList = (value: string) => {
+const cleanInspectionQuoteScopeIntro = (value: string) => {
+  const cleanedValue = value
+    .replace(/^\s*(?:\d+[\.)]|[-*])\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (/these\s+activities\s+include$/i.test(cleanedValue)) {
+    return `${cleanedValue}:`
+  }
+
+  return cleanedValue.replace(/,\s*$/, ':')
+}
+
+const splitInspectionQuoteScopeInlineItemList = (value: string) => {
   const cleanedValue = cleanInspectionQuoteScopeItem(value)
   if (!cleanedValue) return []
   if (!/,/.test(cleanedValue) && !/\s+plus\s+/i.test(cleanedValue)) return [cleanedValue]
@@ -1856,34 +1932,75 @@ const splitInspectionQuoteScopeItemList = (value: string) => {
     .filter((item) => item.length > 0)
 }
 
-const getInspectionQuoteScopeParts = (scope: string | undefined): InspectionQuoteScopeParts => {
+const getInspectionQuoteScopeLines = (scope: string | undefined) => {
   const normalizedScope = (scope || '')
     .replace(/\r/g, '\n')
     .replace(/[•●▪◦]/g, '\n')
     .trim()
 
-  if (!normalizedScope) return { intro: [], items: [] }
+  if (!normalizedScope) return []
 
-  return normalizedScope.split(/\n+/).reduce<InspectionQuoteScopeParts>((parts, rawLine) => {
+  return normalizedScope
+    .split(/\n+/)
+    .map((rawLine) => rawLine.trim())
+    .filter((line) => line.length > 0 && !/\b(?:Any|Annual)\s+inspections?\s+are\s+required\b/i.test(line))
+}
+
+const getInspectionQuoteScopeParts = (
+  scope: string | undefined,
+  sectionId?: string,
+): InspectionQuoteScopeParts => {
+  const lines = getInspectionQuoteScopeLines(scope)
+  if (lines.length === 0) return { intro: [], items: [] }
+
+  const inlineListParts = lines.reduce<InspectionQuoteScopeParts>((currentParts, line) => {
+    const inlineListMatch = line.match(inspectionInlineItemListStartPattern)
+    if (inlineListMatch?.index === undefined || inlineListMatch.index <= 0) {
+      return currentParts
+    }
+
+    const intro = cleanInspectionQuoteScopeIntro(line.slice(0, inlineListMatch.index))
+    const listStart = inlineListMatch.index + inlineListMatch[0].length
+    return {
+      intro: [...currentParts.intro, intro],
+      items: [
+        ...currentParts.items,
+        ...splitInspectionQuoteScopeInlineItemList(line.slice(listStart)),
+      ],
+    }
+  }, { intro: [], items: [] })
+  if (inlineListParts.intro.length > 0 || inlineListParts.items.length > 0) return inlineListParts
+
+  const introLineCount = sectionId ? inspectionQuoteSectionIntroLineCounts[sectionId] ?? 0 : 0
+  const hasLeadInLine = lines.some((line) => inspectionListLeadInPattern.test(line))
+  if (introLineCount > 0 && !hasLeadInLine) {
+    return {
+      intro: lines.slice(0, introLineCount).map(cleanInspectionQuoteScopeIntro),
+      items: lines.slice(introLineCount).map(cleanInspectionQuoteScopeItem).filter((item) => item.length > 0),
+    }
+  }
+
+  const parts = lines.reduce<InspectionQuoteScopeParts>((currentParts, rawLine) => {
     const line = rawLine.trim()
-    if (!line || /\b(?:Any|Annual)\s+inspections?\s+are\s+required\b/i.test(line)) return parts
 
     const leadInMatch = line.match(inspectionListLeadInPattern)
     if (leadInMatch?.index !== undefined) {
       const leadInEnd = leadInMatch.index + leadInMatch[0].length
-      const leadIn = line.slice(0, leadInEnd).replace(/,\s*$/, ':').trim()
+      const leadIn = cleanInspectionQuoteScopeIntro(line.slice(0, leadInEnd))
       const remainder = line.slice(leadInEnd)
       return {
-        intro: [...parts.intro, leadIn],
-        items: [...parts.items, ...splitInspectionQuoteScopeItemList(remainder)],
+        intro: [...currentParts.intro, leadIn],
+        items: [...currentParts.items, ...splitInspectionQuoteScopeInlineItemList(remainder)],
       }
     }
 
     return {
-      ...parts,
-      items: [...parts.items, ...splitInspectionQuoteScopeItemList(line)],
+      ...currentParts,
+      items: [...currentParts.items, cleanInspectionQuoteScopeItem(line)].filter((item) => item.length > 0),
     }
   }, { intro: [], items: [] })
+
+  return parts
 }
 
 const getInspectionQuoteSectionScopeColumnCount = (scopeItems: string[]) => {
@@ -1897,7 +2014,7 @@ const getInspectionQuoteSectionScopeParts = (
   if (!settings || !costSection.id.startsWith('inspection-')) return { intro: [], items: [] }
   const templateSectionId = costSection.id.replace(/^inspection-/, '')
   const templateSection = settings.selectedSections.find((section) => section.id === templateSectionId)
-  return getInspectionQuoteScopeParts(templateSection?.scope)
+  return getInspectionQuoteScopeParts(templateSection?.scope, templateSectionId)
 }
 
 const renderInspectionQuoteScopeMarkup = (scopeParts: InspectionQuoteScopeParts) => {
@@ -1916,8 +2033,8 @@ const renderInspectionQuoteScopeMarkup = (scopeParts: InspectionQuoteScopeParts)
   `
 }
 
-const renderInspectionQuoteScopeBullets = (scope: string) => {
-  const scopeParts = getInspectionQuoteScopeParts(scope)
+const renderInspectionQuoteScopeBullets = (scope: string, sectionId?: string) => {
+  const scopeParts = getInspectionQuoteScopeParts(scope, sectionId)
   if (scopeParts.intro.length === 0 && scopeParts.items.length === 0) {
     return <span className="text-[#8a92a3]">Add scope of work items here.</span>
   }
@@ -1945,8 +2062,8 @@ const renderInspectionQuoteScopeBullets = (scope: string) => {
   )
 }
 
-const getEditableInspectionQuoteScopeItems = (scope: string) => {
-  const scopeItems = splitInspectionQuoteScopeItems(scope)
+const getEditableInspectionQuoteScopeItems = (scope: string, sectionId?: string) => {
+  const scopeItems = getInspectionQuoteScopeParts(scope, sectionId).items
   return scopeItems.length > 0 ? scopeItems : ['']
 }
 
@@ -1962,18 +2079,20 @@ const focusEditableListItemEnd = (item: HTMLLIElement) => {
 function EditableInspectionQuoteScope({
   label,
   value,
+  sectionId,
   className = '',
   onChange,
 }: {
   label: string
   value: string
+  sectionId?: string
   className?: string
   onChange: (value: string) => void
 }) {
   const listRef = useRef<HTMLUListElement>(null)
   const [isEditing, setIsEditing] = useState(false)
-  const scopeParts = getInspectionQuoteScopeParts(value)
-  const scopeItems = getEditableInspectionQuoteScopeItems(value)
+  const scopeParts = getInspectionQuoteScopeParts(value, sectionId)
+  const scopeItems = getEditableInspectionQuoteScopeItems(value, sectionId)
 
   useEffect(() => {
     if (!isEditing) return
@@ -2019,7 +2138,7 @@ function EditableInspectionQuoteScope({
         onMouseDown={() => setIsEditing(true)}
         onFocus={() => setIsEditing(true)}
       >
-        {renderInspectionQuoteScopeBullets(value)}
+        {renderInspectionQuoteScopeBullets(value, sectionId)}
       </div>
     )
   }
@@ -2952,7 +3071,8 @@ const getInspectionQuoteSettings = (settings: EquipmentRentalSettings): Inspecti
   if (!inspectionQuote || !Array.isArray(inspectionQuote.selectedSections)) return null
   const selectedSections = inspectionQuote.selectedSections.map((section) => {
     const defaultScope = defaultInspectionQuoteScopesBySectionId[section.id]
-    if (!defaultScope || getInspectionQuoteScopeParts(section.scope).items.length > 0) return section
+    const scopeParts = getInspectionQuoteScopeParts(section.scope, section.id)
+    if (!defaultScope || scopeParts.intro.length > 0 || scopeParts.items.length > 0) return section
     return { ...section, scope: defaultScope }
   })
   const estimatorRows = normalizeInspectionEstimatorRows(inspectionQuote.estimatorRows)
@@ -4122,7 +4242,7 @@ export default function EditableInspectionReport({
   const [activeInspectionEstimatorSectionId, setActiveInspectionEstimatorSectionId] = useState('')
   const currentInspectionQuoteHasSectionScope = useMemo(
     () => Boolean(currentInspectionQuoteSettings?.selectedSections.some((section) => {
-      const scopeParts = getInspectionQuoteScopeParts(section.scope)
+      const scopeParts = getInspectionQuoteScopeParts(section.scope, section.id)
       return scopeParts.intro.length > 0 || scopeParts.items.length > 0
     })),
     [currentInspectionQuoteSettings],
@@ -8294,6 +8414,7 @@ export default function EditableInspectionReport({
                         <EditableInspectionQuoteScope
                           label={`${section.title} scope of work`}
                           value={inspectionTemplateSection.scope}
+                          sectionId={inspectionTemplateSection.id}
                           onChange={(value) => updateInspectionQuoteSectionScope(inspectionTemplateSection.id, value)}
                           className="min-h-[34px] cursor-text px-2 py-1.5 text-[11px] font-semibold leading-snug text-[#1f2430]"
                         />
