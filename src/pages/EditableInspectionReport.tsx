@@ -1796,8 +1796,7 @@ const splitInspectionQuoteScopeItems = (scope: string | undefined) => {
 }
 
 const getInspectionQuoteSectionScopeColumnCount = (scopeItems: string[]) => {
-  if (scopeItems.length <= 1) return 1
-  return Math.min(scopeItems.length, 3)
+  return scopeItems.length > 0 ? 2 : 1
 }
 
 const getInspectionQuoteSectionScopeItems = (
@@ -1833,6 +1832,115 @@ const renderInspectionQuoteScopeBullets = (scope: string) => {
     <ul
       className="grid list-disc gap-x-6 gap-y-1 pl-4"
       style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeItems)}, minmax(0, 1fr))` }}
+    >
+      {scopeItems.map((scopeItem, scopeIndex) => (
+        <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
+          {scopeItem}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+const getEditableInspectionQuoteScopeItems = (scope: string) => {
+  const scopeItems = splitInspectionQuoteScopeItems(scope)
+  return scopeItems.length > 0 ? scopeItems : ['']
+}
+
+const focusEditableListItemEnd = (item: HTMLLIElement) => {
+  const range = document.createRange()
+  range.selectNodeContents(item)
+  range.collapse(false)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
+function EditableInspectionQuoteScope({
+  label,
+  value,
+  className = '',
+  onChange,
+}: {
+  label: string
+  value: string
+  className?: string
+  onChange: (value: string) => void
+}) {
+  const listRef = useRef<HTMLUListElement>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const scopeItems = getEditableInspectionQuoteScopeItems(value)
+
+  useEffect(() => {
+    if (!isEditing) return
+    const lastItem = listRef.current?.querySelector('li:last-child')
+    if (lastItem instanceof HTMLLIElement) {
+      window.setTimeout(() => focusEditableListItemEnd(lastItem))
+    }
+  }, [isEditing])
+
+  const finishEditing = () => {
+    const listItems = Array.from(listRef.current?.querySelectorAll('li') ?? [])
+      .map((item) => item.textContent?.trim() ?? '')
+      .filter((item) => item.length > 0)
+    onChange(listItems.join('\n'))
+    setIsEditing(false)
+  }
+
+  const insertListItemAfterSelection = () => {
+    const selection = window.getSelection()
+    const selectedNode = selection?.anchorNode
+    const currentItem =
+      selectedNode instanceof HTMLElement
+        ? selectedNode.closest('li')
+        : selectedNode?.parentElement?.closest('li')
+    const nextItem = document.createElement('li')
+    nextItem.appendChild(document.createElement('br'))
+
+    if (currentItem?.parentElement === listRef.current) {
+      currentItem.insertAdjacentElement('afterend', nextItem)
+    } else {
+      listRef.current?.appendChild(nextItem)
+    }
+    focusEditableListItemEnd(nextItem)
+  }
+
+  if (!isEditing) {
+    return (
+      <div
+        role="textbox"
+        aria-label={label}
+        tabIndex={0}
+        className={`editable-report-field ${className}`}
+        onMouseDown={() => setIsEditing(true)}
+        onFocus={() => setIsEditing(true)}
+      >
+        {renderInspectionQuoteScopeBullets(value)}
+      </div>
+    )
+  }
+
+  return (
+    <ul
+      ref={listRef}
+      role="textbox"
+      aria-label={label}
+      contentEditable
+      suppressContentEditableWarning
+      spellCheck
+      className={`editable-report-field grid list-disc gap-x-6 gap-y-1 pl-4 outline-none ${className}`}
+      style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeItems)}, minmax(0, 1fr))` }}
+      onBlur={finishEditing}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter') return
+        event.preventDefault()
+        insertListItemAfterSelection()
+      }}
+      onPaste={(event) => {
+        event.preventDefault()
+        const text = event.clipboardData.getData('text/plain')
+        document.execCommand('insertText', false, text)
+      }}
     >
       {scopeItems.map((scopeItem, scopeIndex) => (
         <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
@@ -8053,15 +8161,11 @@ export default function EditableInspectionReport({
                     {inspectionTemplateSection ? (
                       <div className="border-b border-[#d8d8d8] bg-[#fffdf6] px-3 py-2">
                         <div className="mb-1 text-[10px] font-black uppercase leading-tight text-[#555b66]">Scope of Work</div>
-                        <EditableValue
+                        <EditableInspectionQuoteScope
                           label={`${section.title} scope of work`}
                           value={inspectionTemplateSection.scope}
                           onChange={(value) => updateInspectionQuoteSectionScope(inspectionTemplateSection.id, value)}
-                          multiline
-                          linkify
-                          renderReadOnly={renderInspectionQuoteScopeBullets}
-                          insertBulletOnEnter
-                          className="min-h-[34px] cursor-text whitespace-pre-wrap px-2 py-1.5 text-[11px] font-semibold leading-snug text-[#1f2430]"
+                          className="min-h-[34px] cursor-text px-2 py-1.5 text-[11px] font-semibold leading-snug text-[#1f2430]"
                         />
                       </div>
                     ) : null}
