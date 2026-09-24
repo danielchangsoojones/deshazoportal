@@ -5151,23 +5151,6 @@ export default function EditableInspectionReport({
     })
   }
 
-  const unlockInspectionQuotePricing = () => {
-    if (
-      !currentInspectionQuoteSettings ||
-      currentInspectionQuoteSettings.manualQuoteEdits ||
-      !window.confirm('Unlock generated inspection pricing for manual editing? Future estimator changes will warn before overwriting your quote edits.')
-    ) {
-      return
-    }
-
-    markInspectionQuoteManualPricingEdit()
-  }
-
-  const relinkInspectionQuotePricing = () => {
-    if (!currentInspectionQuoteSettings) return
-    applyInspectionQuoteGeneratedContent(currentInspectionQuoteSettings)
-  }
-
   const applyInspectionQuoteGeneratedContent = (nextInspectionQuote: InspectionQuoteSettings) => {
     const nextSettings = {
       ...nextInspectionQuote,
@@ -5236,25 +5219,12 @@ export default function EditableInspectionReport({
     })
   }
 
-  const updateInspectionEstimatorSetting = (field: 'laborSellRate' | 'mode', value: string) => {
+  const updateInspectionEstimatorSellRate = (value: string) => {
     if (!currentInspectionQuoteSettings || !activeInspectionEstimatorSection || !activeInspectionEstimatorSettings) return
 
     const nextSectionEstimator = {
       ...activeInspectionEstimatorSettings,
-      [field]: field === 'mode' ? (value === 'frequent' ? 'frequent' : 'periodic') : parseMoney(value),
-    } as InspectionEstimatorSettings
-    if (field === 'mode') {
-      applyInspectionQuoteGeneratedContent({
-        ...currentInspectionQuoteSettings,
-        mode: activeInspectionEstimatorSection.id === currentInspectionQuoteSettings.selectedSections[0]?.id
-          ? nextSectionEstimator.mode
-          : currentInspectionQuoteSettings.mode,
-        estimatorBySection: {
-          ...currentInspectionQuoteSettings.estimatorBySection,
-          [activeInspectionEstimatorSection.id]: nextSectionEstimator,
-        },
-      })
-      return
+      laborSellRate: parseMoney(value),
     }
 
     applyInspectionQuoteGeneratedContent({
@@ -5844,7 +5814,7 @@ export default function EditableInspectionReport({
   const confirmInspectionQuotePricingManualEdit = () => {
     if (!currentInspectionQuoteSettings) return true
     if (currentInspectionQuoteSettings.manualQuoteEdits) return true
-    if (!window.confirm('This pricing is connected to the inspection estimator. Unlock it for manual editing?')) return false
+    if (!window.confirm('This pricing is generated from the inspection estimator. Edit this price manually?')) return false
 
     markInspectionQuoteManualPricingEdit()
     return true
@@ -5940,7 +5910,7 @@ export default function EditableInspectionReport({
     if (currentInspectionQuoteSettings) {
       if (
         !currentInspectionQuoteSettings.manualQuoteEdits &&
-        !window.confirm('This pricing is connected to the inspection estimator. Unlock it for manual editing?')
+        !window.confirm('This pricing is generated from the inspection estimator. Edit this price manually?')
       ) {
         return
       }
@@ -7395,45 +7365,15 @@ export default function EditableInspectionReport({
                     <p className="mt-1 text-[12px] font-bold leading-tight text-[#747b8a]">
                       Use the tabs like sheets. Units, visits, and sell rate update that section's Assets # of row.
                     </p>
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-[#d8deea] bg-white px-2.5 py-1 text-[11px] font-black uppercase text-[#4d5360]">
-                      <span className={`h-2 w-2 rounded-full ${currentInspectionQuoteSettings.manualQuoteEdits ? 'bg-[#d8891e]' : 'bg-[#2f9e44]'}`} />
-                      <span>{currentInspectionQuoteSettings.manualQuoteEdits ? 'Manual pricing unlocked' : 'Connected to quote pricing'}</span>
-                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {currentInspectionQuoteSettings.manualQuoteEdits ? (
-                      <button
-                        type="button"
-                        onClick={relinkInspectionQuotePricing}
-                        className="h-9 rounded-md border border-[#273f7a] bg-[#273f7a] px-3 text-[12px] font-black text-white transition hover:bg-[#1f3261]"
-                      >
-                        Relink Pricing
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={unlockInspectionQuotePricing}
-                        className="h-9 rounded-md border border-[#cfd6e5] bg-white px-3 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
-                      >
-                        Unlock Pricing
-                      </button>
-                    )}
-                    <select
-                      value={activeInspectionEstimatorSettings?.mode ?? currentInspectionQuoteSettings.mode}
-                      onChange={(event) => updateInspectionEstimatorSetting('mode', event.currentTarget.value)}
-                      className="h-9 rounded-md border border-[#cfd6e5] bg-white px-3 text-[12px] font-black text-[#1f2430] outline-none focus:border-[#273f7a]"
-                      aria-label="Inspection estimator type"
-                    >
-                      <option value="periodic">Periodic hours</option>
-                      <option value="frequent">Frequent half-hours</option>
-                    </select>
                     <label className="flex h-9 items-center overflow-hidden rounded-md border border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430]">
                       <span className="border-r border-[#d8deea] bg-[#f8fbff] px-2.5">Sell/hr</span>
                       <input
                         type="text"
                         inputMode="decimal"
                         value={activeInspectionEstimatorSettings?.laborSellRate ?? currentInspectionQuoteSettings.laborSellRate}
-                        onChange={(event) => updateInspectionEstimatorSetting('laborSellRate', event.currentTarget.value)}
+                        onChange={(event) => updateInspectionEstimatorSellRate(event.currentTarget.value)}
                         className="h-full w-20 px-2 text-right outline-none"
                       />
                     </label>
