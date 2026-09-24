@@ -292,7 +292,7 @@ const defaultInspectionQuoteScopeIntro =
   'Perform frequent inspections, periodic inspections, and preventative maintenance activities on the overhead cranes at your facility in (City), (State) based on the schedule provided below.'
 
 const defaultInspectionQuoteTemplateNote =
-  'Annual inspections are required by OSHA, and our inspections cover all elements in OSHA 1910.179 and ANSI B30.2. Inspections will reduce downtime, increase productivity and help prevent unforeseen safety hazards. Any safety concerns identified during the inspection will be reported to the appropriate site contact. Inspection reports will be provided for each crane inspected and will include specific identification of any unsatisfactory items noted during the inspection, along with remediation recommendations. Inspection Reports will be provided for all inspections within 7-10 days following completion of the work.'
+  'Inspections will reduce downtime, increase productivity and help prevent unforeseen safety hazards. Any safety concerns identified during the inspection will be reported to the appropriate site contact. Inspection reports will be provided for each crane inspected and will include specific identification of any unsatisfactory items noted during the inspection, along with remediation recommendations. Inspection Reports will be provided for all inspections within 7-10 days following completion of the work.'
 
 const defaultInspectionQuoteScopesBySectionId: Record<string, string> = {
   'frequent-inspections': [
