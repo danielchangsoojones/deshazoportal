@@ -1442,6 +1442,7 @@ const getInspectionQuoteTemplateSectionFromCostSection = (
 const normalizeInspectionQuoteSectionLineItems = (
   section: CostSection,
   templateSection: InspectionQuoteTemplateSection | null,
+  settings: InspectionQuoteSettings,
 ) => {
   if (!templateSection) return section.lineItems
 
@@ -1456,10 +1457,25 @@ const normalizeInspectionQuoteSectionLineItems = (
   return allowedDefinitions
     .map((definition) => {
       const lineItem = lineItemsByField.get(definition.field)
-      if (!lineItem) return null
+      if (!lineItem) {
+        if (definition.field === 'assets') {
+          const sectionEstimator = getInspectionQuoteSectionEstimator(settings, templateSection)
+          const estimatorAssets = getInspectionEstimatorTotalAssets(sectionEstimator)
+          const estimatorSellTotal = getInspectionEstimatorLaborSell(sectionEstimator)
+          const assets = estimatorAssets > 0 ? String(estimatorAssets) : getInspectionQuotePricingValue(settings, templateSection, 'assets')
+          const assetUnitPrice = estimatorSellTotal > 0
+            ? (estimatorAssets > 0 ? estimatorSellTotal / estimatorAssets : estimatorSellTotal).toFixed(2)
+            : '0.00'
+          return createInspectionQuoteLineItem(`${templateSection.id}-assets`, definition.label, assetUnitPrice, assets)
+        }
+
+        const value = definition.field === 'rental'
+          ? getInspectionQuotePricingValue(settings, templateSection, 'rental') || getInspectionQuotePricingValue(settings, templateSection, 'rentals')
+          : getInspectionQuotePricingValue(settings, templateSection, definition.field)
+        return createInspectionQuoteLineItem(`${templateSection.id}-${definition.field}`, definition.label, value, definition.quantity ?? '1')
+      }
       return { ...lineItem, description: definition.label }
     })
-    .filter((lineItem): lineItem is RepairLineItem => Boolean(lineItem))
 }
 
 const getInspectionQuoteVisibleCostSections = (
@@ -1471,7 +1487,7 @@ const getInspectionQuoteVisibleCostSections = (
   return costSections.map((section) => {
     if (!isInspectionQuoteCostSection(settings, section)) return section
     const templateSection = getInspectionQuoteTemplateSectionFromCostSection(settings, section)
-    return { ...section, lineItems: normalizeInspectionQuoteSectionLineItems(section, templateSection) }
+    return { ...section, lineItems: normalizeInspectionQuoteSectionLineItems(section, templateSection, settings) }
   })
 }
 
