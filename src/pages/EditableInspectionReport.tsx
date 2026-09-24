@@ -7380,7 +7380,7 @@ export default function EditableInspectionReport({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-end gap-x-1.5 gap-y-2 border-b border-[#c7d1e2] bg-[#f4f7fc] px-3 pt-2">
+                <div className="flex flex-wrap items-end gap-x-1.5 gap-y-2 border-b border-[#aab8d2] bg-[#edf3ff] px-3 pt-2">
                   {currentInspectionQuoteSettings.selectedSections.map((section) => (
                     <button
                       key={section.id}
@@ -7388,8 +7388,8 @@ export default function EditableInspectionReport({
                       onClick={() => setActiveInspectionEstimatorSectionId(section.id)}
                       className={`mb-[-1px] flex min-h-10 flex-[1_1_150px] items-center justify-center rounded-t-md border px-3 py-2 text-center text-[11px] font-black uppercase leading-tight tracking-[0.02em] transition ${
                         activeInspectionEstimatorSection?.id === section.id
-                          ? 'border-[#c7d1e2] border-t-[3px] border-t-[var(--deshazo-blue)] bg-white pb-[9px] text-[var(--deshazo-blue)] shadow-[0_-10px_20px_-20px_rgba(6,24,73,0.75)]'
-                          : 'border-[#c7d1e2] bg-[#e2e9f5] text-[#3f4d68] hover:bg-[#edf3ff] hover:text-[var(--deshazo-blue)]'
+                          ? 'border-[#8fa3cb] border-t-[3px] border-t-[var(--deshazo-blue)] bg-white pb-[9px] text-[var(--deshazo-blue)] shadow-[0_-10px_20px_-18px_rgba(6,24,73,0.95)]'
+                          : 'border-[#9fb0cf] bg-[#cfdcf2] text-[#233354] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] hover:bg-[#dbe7fb] hover:text-[var(--deshazo-blue)]'
                       }`}
                     >
                       {section.title}
