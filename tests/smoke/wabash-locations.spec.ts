@@ -17,8 +17,8 @@ async function signInIfNeeded(page: import('@playwright/test').Page, returnPath:
     throw new Error('Set SMOKE_TEST_EMAIL and SMOKE_TEST_PASSWORD to run the Wabash location smoke test.')
   }
 
-  await page.getByLabel('Email').fill(smokeEmail)
-  await page.getByLabel('Password').fill(smokePassword)
+  await page.locator('input[type="email"]').fill(smokeEmail)
+  await page.locator('input[type="password"]').fill(smokePassword)
   await signInButton.click()
   await expect(signInButton).toBeHidden()
   await page.goto(returnPath)
