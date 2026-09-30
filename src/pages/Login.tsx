@@ -67,7 +67,7 @@ export default function Login({
         <p className="mb-6 text-sm text-[rgba(7,18,47,0.58)]">Sign in to your account</p>
 
         {error && (
-          <div role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
+          <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
             {error}
           </div>
         )}

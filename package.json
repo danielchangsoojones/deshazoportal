@@ -7,10 +7,6 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "node --test tests/*.test.mjs",
-    "test:ui": "playwright test",
-    "smoke:locations:test": "playwright test tests/smoke/wabash-locations.spec.ts",
-    "smoke:locations": "node scripts/run-location-smoke.mjs",
-    "playwright:install": "playwright install chromium",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "serve -s dist -l $PORT"
@@ -19,7 +15,6 @@
     "node": "24.x"
   },
   "dependencies": {
-    "@playwright/test": "^1.63.0",
     "@supabase/supabase-js": "^2.99.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
