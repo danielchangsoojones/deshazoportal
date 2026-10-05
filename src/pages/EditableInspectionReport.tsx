@@ -221,6 +221,7 @@ type InspectionQuoteTemplateSection = {
   title: string
   usesEstimator?: boolean
   scope: string
+  summaryNote?: string
 }
 
 type InspectionEstimatorRow = {
@@ -285,6 +286,116 @@ const defaultBlockVisibility: QuoteBlockVisibility = {
 const defaultEstimateNoteVisibility: EstimateNoteVisibility = {
   topNote: false,
   bottomNote: false,
+}
+
+const defaultInspectionQuoteScopeIntro =
+  'Perform frequent inspections, periodic inspections, and preventative maintenance activities on the overhead cranes at your facility in (City), (State) based on the schedule provided below.'
+
+const defaultInspectionQuoteTemplateNote =
+  'Inspections will reduce downtime, increase productivity and help prevent unforeseen safety hazards. Any safety concerns identified during the inspection will be reported to the appropriate site contact. Inspection reports will be provided for each crane inspected and will include specific identification of any unsatisfactory items noted during the inspection, along with remediation recommendations. Inspection Reports will be provided for all inspections within 7-10 days following completion of the work.'
+
+const defaultInspectionQuoteScopesBySectionId: Record<string, string> = {
+  'frequent-inspections': [
+    'Frequent Inspections will consist of a visual and operational inspection of the critical components of your overhead crane system, including:',
+    'Control Devices',
+    'Wire Rope and/or Load Chain',
+    'Brakes',
+    'Reeving',
+    'Hook and Hook Latch',
+    'Limit Switches',
+    'Safety Labels',
+    'Warning Devices',
+  ].join('\n'),
+  'periodic-inspections': [
+    'Periodic Inspections will include a more thorough inspection of all items above, and will include additional components:',
+    'Structural Members',
+    'Indicators and Gauges',
+    'Signs and Labels',
+    'Electrical Components',
+    'Connection Points',
+    'Covers and Guards',
+    'Sheaves and Drums',
+    'Bumpers and End Stops',
+    'Shafts, Axles, Wheels and Couplings',
+    'Trolley and Runway Rail',
+    'Brakes (holding and control)',
+    'Runway Structure',
+    'Conductor System',
+    'Below the Hook Devices',
+  ].join('\n'),
+  'preventative-maintenance': [
+    'Preventative Maintenance activities can be included and will be suited to the unique needs of each piece of equipment based upon original equipment manufacturer guidance. These activities include:',
+    'Top off oil levels of gearboxes',
+    'Lubricate bridge wheel bearings',
+    'Grease lubrication points on crane',
+    'Lubricate trolley wheel bearings',
+    'Tighten loose connections',
+    'Lubricate wire ropes',
+  ].join('\n'),
+  'below-the-hook': [
+    'Below-The-Hook (BTH) will consist of a thorough visual inspection of all items below.',
+    'A device attached to the crane/hoist that grabs, supports, holds, or manipulates the load.',
+    'Examples: Spreader Beams, Coil Grabs, Magnets, C-Hooks, Lifting fixtures.',
+    'Standard ASME B30.20 Inspection Provisions. Design ASME BTH-1.',
+    'Structural members for any deformation, cracks, or excessive wear',
+    'Fasteners for loose, missing, or corroded bolts, nuts, pins, or keepers',
+    'Latching mechanisms for proper operation, cracks, or wear',
+    'Slings or lifting points for wear, deformation, or damage',
+    'Limit devices for proper operation',
+    'Load-bearing components for cracks, excessive wear, or deformation',
+    'Signs of corrosion, pitting, or other damage',
+    'Decals and markings for legibility',
+    'Magnets have special requirements',
+  ].join('\n'),
+  'slings-rigging-hardware': [
+    'Slings / Rigging / Hardware will consist of a thorough visual inspection of all items below.',
+    'Flexible assemblies connecting the load to the lifting device.',
+    'Examples: Wire Rope, Chain, Nylon, Metal Mesh Slings, Shackles, Eye Bolts, and Hardware.',
+    'Standard ASME B30.9 for Slings, ASME B30.26 for Hardware and OSHA 1910.184.',
+    'Identification tag/markings legible and correct',
+    'Rated capacity/WLL visible',
+    'Cuts, tears, holes, snags, or abrasion',
+    'Broken wires, birdcaging, kinks, crushing, or corrosion',
+    'Stretched, bent, twisted, or worn links',
+    'Heat, weld, or chemical damage',
+    'Distortion, cracks, excessive wear, or corrosion',
+    'Bent, opened, or damaged hooks, shackles, eye bolts, or fittings',
+    'Missing or damaged latches, pins, or retainers',
+  ].join('\n'),
+  'structural-runway': [
+    'Structural Runway Inspections and/or Runway Evaluation/Surveys',
+    'Detailed inspection of runway beams, columns, bracing, rail, fasteners, and related support components.',
+    'Runway Structural Inspection Note: This inspection is limited to visual observations of readily accessible components and does not include engineering analysis unless specifically quoted.',
+  ].join('\n'),
+  'load-testing': [
+    'Load Testing / Inspection will be performed per OSHA 1910.179 (k) - Testing.',
+    'Must have records of the rated load test available for review.',
+    'Perform load test using certified test weights or an approved load test method.',
+    'Operational Tests',
+    'Required: Prior to initial use, all new and altered cranes shall be tested to ensure compliance with OSHA requirements.',
+    'Hoisting and lowering',
+    'Trolley travel',
+    'Bridge travel',
+    'Limit switches, locking, and safety devices',
+  ].join('\n'),
+  'nondestructive-testing': [
+    'Nondestructive Testing can be performed on hooks, welds, shafts, pins, and other critical components when required.',
+    'Perform nondestructive testing using the appropriate method for the component and suspected condition.',
+    'Testing shall be documented with findings and recommendations for any unsatisfactory items identified.',
+  ].join('\n'),
+  'asset-management-dashboard': [
+    'DeSHAZO Dashboard / Asset Management provides online access to equipment, inspection, and service information.',
+    'Asset management tools can help track inspection history, repair recommendations, and related equipment documentation.',
+  ].join('\n'),
+}
+
+const inspectionQuoteSectionIntroLineCounts: Record<string, number> = {
+  'below-the-hook': 1,
+  'slings-rigging-hardware': 1,
+  'structural-runway': 1,
+  'load-testing': 1,
+  'nondestructive-testing': 1,
+  'asset-management-dashboard': 1,
 }
 
 const legacyScopeOfWorkSample =
@@ -1395,6 +1506,7 @@ const getInspectionQuoteTemplateSectionFromCostSection = (
 const normalizeInspectionQuoteSectionLineItems = (
   section: CostSection,
   templateSection: InspectionQuoteTemplateSection | null,
+  settings: InspectionQuoteSettings,
 ) => {
   if (!templateSection) return section.lineItems
 
@@ -1409,10 +1521,25 @@ const normalizeInspectionQuoteSectionLineItems = (
   return allowedDefinitions
     .map((definition) => {
       const lineItem = lineItemsByField.get(definition.field)
-      if (!lineItem) return null
+      if (!lineItem) {
+        if (definition.field === 'assets') {
+          const sectionEstimator = getInspectionQuoteSectionEstimator(settings, templateSection)
+          const estimatorAssets = getInspectionEstimatorTotalAssets(sectionEstimator)
+          const estimatorSellTotal = getInspectionEstimatorLaborSell(sectionEstimator)
+          const assets = estimatorAssets > 0 ? String(estimatorAssets) : getInspectionQuotePricingValue(settings, templateSection, 'assets')
+          const assetUnitPrice = estimatorSellTotal > 0
+            ? (estimatorAssets > 0 ? estimatorSellTotal / estimatorAssets : estimatorSellTotal).toFixed(2)
+            : '0.00'
+          return createInspectionQuoteLineItem(`${templateSection.id}-assets`, definition.label, assetUnitPrice, assets)
+        }
+
+        const value = definition.field === 'rental'
+          ? getInspectionQuotePricingValue(settings, templateSection, 'rental') || getInspectionQuotePricingValue(settings, templateSection, 'rentals')
+          : getInspectionQuotePricingValue(settings, templateSection, definition.field)
+        return createInspectionQuoteLineItem(`${templateSection.id}-${definition.field}`, definition.label, value, definition.quantity ?? '1')
+      }
       return { ...lineItem, description: definition.label }
     })
-    .filter((lineItem): lineItem is RepairLineItem => Boolean(lineItem))
 }
 
 const getInspectionQuoteVisibleCostSections = (
@@ -1424,7 +1551,7 @@ const getInspectionQuoteVisibleCostSections = (
   return costSections.map((section) => {
     if (!isInspectionQuoteCostSection(settings, section)) return section
     const templateSection = getInspectionQuoteTemplateSectionFromCostSection(settings, section)
-    return { ...section, lineItems: normalizeInspectionQuoteSectionLineItems(section, templateSection) }
+    return { ...section, lineItems: normalizeInspectionQuoteSectionLineItems(section, templateSection, settings) }
   })
 }
 
@@ -1600,7 +1727,12 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
     ...contactLines,
     '',
     ...(inspectionQuoteSettings
-      ? []
+      ? [
+          'Scope of Work: Inspections',
+          defaultInspectionQuoteScopeIntro,
+          defaultInspectionQuoteTemplateNote,
+          '',
+        ]
       : [
           reportData.scopeOfWorkHeader || 'Scope of Work',
           reportData.scopeOfWork || '---',
@@ -1643,17 +1775,20 @@ const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile
   const payloadEstimateCostSectionVisibility = getPayloadEstimateCostSectionVisibility(payload, normalizedCostSections)
   costSections.forEach((section) => {
     lines.push('', section.title)
-    const scopeItems = getInspectionQuoteSectionScopeItems(inspectionQuoteSettings, section)
-    if (scopeItems.length > 0) {
+    const scopeParts = getInspectionQuoteSectionScopeParts(inspectionQuoteSettings, section)
+    if (scopeParts.intro.length > 0 || scopeParts.items.length > 0) {
       lines.push('Scope of Work')
-      scopeItems.forEach((scopeItem) => lines.push(`- ${scopeItem}`))
+      scopeParts.intro.forEach((scopeLine) => lines.push(scopeLine))
+      scopeParts.items.forEach((scopeItem) => lines.push(`- ${scopeItem}`))
     }
     if (isEstimateCostSectionLineItemsVisible(payloadEstimateCostSectionVisibility, section.id)) {
       section.lineItems.forEach((lineItem) => {
         lines.push(getPdfLineItemSummary(lineItem, section.id, equipmentSettings))
       })
     } else {
-      lines.push(getCondensedInspectionQuoteLineItemSummary(section, equipmentSettings))
+      lines.push(getCondensedInspectionQuoteLineItemSummary(section, equipmentSettings, inspectionQuoteSettings))
+      const summaryNote = getInspectionQuoteSectionSummaryNote(inspectionQuoteSettings, section)
+      if (summaryNote) lines.push(summaryNote)
     }
   })
 
@@ -1753,7 +1888,51 @@ const getTemplateReportCell = (label: string, value: string | undefined) => `
   </div>
 `
 
-const splitInspectionQuoteScopeItems = (scope: string | undefined) => {
+type InspectionQuoteScopeParts = {
+  intro: string[]
+  items: string[]
+}
+
+const inspectionListLeadInPattern =
+  /\b(?:(?:Periodic|Frequent)\s+Inspections?\s+will\s+(?:include|consist\s+of)|Preventative\s+Maintenance\s+activities\s+can\s+(?:also\s+)?be\s+included)\b.*?(?:including:?|include\s+additional\s+components:?|these\s+activities\s+include:?|inspection\s+items?,\s+plus|critical\s+components\s+of\s+your\s+overhead\s+crane\s+system,?\s*)/i
+
+const inspectionInlineItemListStartPattern =
+  /\b(?:Inspection\s+items?\s+include|Additional\s+components\s+include|Components\s+include|Items\s+include)\b:?/i
+
+const cleanInspectionQuoteScopeItem = (value: string) =>
+  value
+    .replace(inspectionListLeadInPattern, '')
+    .replace(/\b(?:Any|Annual)\s+inspections?\s+are\s+required\b.*$/i, '')
+    .replace(/^\s*(?:\d+[\.)]|[-*])\s*/, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[.;,\s]+$/, '')
+    .trim()
+
+const cleanInspectionQuoteScopeIntro = (value: string) => {
+  const cleanedValue = value
+    .replace(/^\s*(?:\d+[\.)]|[-*])\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (/these\s+activities\s+include$/i.test(cleanedValue)) {
+    return `${cleanedValue}:`
+  }
+
+  return cleanedValue.replace(/,\s*$/, ':')
+}
+
+const splitInspectionQuoteScopeInlineItemList = (value: string) => {
+  const cleanedValue = cleanInspectionQuoteScopeItem(value)
+  if (!cleanedValue) return []
+  if (!/,/.test(cleanedValue) && !/\s+plus\s+/i.test(cleanedValue)) return [cleanedValue]
+
+  return cleanedValue
+    .split(/\s*,\s*(?:and\s+)?|\s+plus\s+/i)
+    .map(cleanInspectionQuoteScopeItem)
+    .filter((item) => item.length > 0)
+}
+
+const getInspectionQuoteScopeLines = (scope: string | undefined) => {
   const normalizedScope = (scope || '')
     .replace(/\r/g, '\n')
     .replace(/[•●▪◦]/g, '\n')
@@ -1761,62 +1940,244 @@ const splitInspectionQuoteScopeItems = (scope: string | undefined) => {
 
   if (!normalizedScope) return []
 
-  const cleanItem = (value: string) =>
-    value
-      .replace(/^\s*(?:\d+[\.)]|[-*])\s*/, '')
-      .replace(/\s+/g, ' ')
-      .replace(/[.;,\s]+$/, '')
-      .trim()
+  return normalizedScope
+    .split(/\n+/)
+    .map((rawLine) => rawLine.trim())
+    .filter((line) => line.length > 0 && !/\b(?:Any|Annual)\s+inspections?\s+are\s+required\b/i.test(line))
+}
 
-  const splitItems = (pattern: RegExp) => normalizedScope.split(pattern).map(cleanItem).filter(Boolean)
-  return splitItems(/\n+/)
+const getInspectionQuoteScopeParts = (
+  scope: string | undefined,
+  sectionId?: string,
+): InspectionQuoteScopeParts => {
+  const lines = getInspectionQuoteScopeLines(scope)
+  if (lines.length === 0) return { intro: [], items: [] }
+
+  const inlineListParts = lines.reduce<InspectionQuoteScopeParts>((currentParts, line) => {
+    const inlineListMatch = line.match(inspectionInlineItemListStartPattern)
+    if (inlineListMatch?.index === undefined || inlineListMatch.index <= 0) {
+      return currentParts
+    }
+
+    const intro = cleanInspectionQuoteScopeIntro(line.slice(0, inlineListMatch.index))
+    const listStart = inlineListMatch.index + inlineListMatch[0].length
+    return {
+      intro: [...currentParts.intro, intro],
+      items: [
+        ...currentParts.items,
+        ...splitInspectionQuoteScopeInlineItemList(line.slice(listStart)),
+      ],
+    }
+  }, { intro: [], items: [] })
+  if (inlineListParts.intro.length > 0 || inlineListParts.items.length > 0) return inlineListParts
+
+  const introLineCount = sectionId ? inspectionQuoteSectionIntroLineCounts[sectionId] ?? 0 : 0
+  const hasLeadInLine = lines.some((line) => inspectionListLeadInPattern.test(line))
+  if (introLineCount > 0 && !hasLeadInLine) {
+    return {
+      intro: lines.slice(0, introLineCount).map(cleanInspectionQuoteScopeIntro),
+      items: lines.slice(introLineCount).map(cleanInspectionQuoteScopeItem).filter((item) => item.length > 0),
+    }
+  }
+
+  const parts = lines.reduce<InspectionQuoteScopeParts>((currentParts, rawLine) => {
+    const line = rawLine.trim()
+
+    const leadInMatch = line.match(inspectionListLeadInPattern)
+    if (leadInMatch?.index !== undefined) {
+      const leadInEnd = leadInMatch.index + leadInMatch[0].length
+      const leadIn = cleanInspectionQuoteScopeIntro(line.slice(0, leadInEnd))
+      const remainder = line.slice(leadInEnd)
+      return {
+        intro: [...currentParts.intro, leadIn],
+        items: [...currentParts.items, ...splitInspectionQuoteScopeInlineItemList(remainder)],
+      }
+    }
+
+    return {
+      ...currentParts,
+      items: [...currentParts.items, cleanInspectionQuoteScopeItem(line)].filter((item) => item.length > 0),
+    }
+  }, { intro: [], items: [] })
+
+  return parts
 }
 
 const getInspectionQuoteSectionScopeColumnCount = (scopeItems: string[]) => {
-  if (scopeItems.length <= 1) return 1
-  return Math.min(scopeItems.length, 3)
+  return scopeItems.length > 0 ? 2 : 1
 }
 
-const getInspectionQuoteSectionScopeItems = (
+const getInspectionQuoteSectionScopeParts = (
   settings: InspectionQuoteSettings | null,
   costSection: CostSection,
 ) => {
-  if (!settings || !costSection.id.startsWith('inspection-')) return []
+  if (!settings || !costSection.id.startsWith('inspection-')) return { intro: [], items: [] }
   const templateSectionId = costSection.id.replace(/^inspection-/, '')
   const templateSection = settings.selectedSections.find((section) => section.id === templateSectionId)
-  return splitInspectionQuoteScopeItems(templateSection?.scope)
+  return getInspectionQuoteScopeParts(templateSection?.scope, templateSectionId)
 }
 
-const renderInspectionQuoteScopeMarkup = (scopeItems: string[]) => {
-  if (scopeItems.length === 0) return ''
+const renderInspectionQuoteScopeMarkup = (scopeParts: InspectionQuoteScopeParts) => {
+  if (scopeParts.intro.length === 0 && scopeParts.items.length === 0) return ''
 
   return `
     <div class="inspection-section-scope">
       <div class="inspection-section-scope-title">Scope of Work</div>
-      <ul class="scope-cols-${getInspectionQuoteSectionScopeColumnCount(scopeItems)}">
-        ${scopeItems.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-      </ul>
+      ${scopeParts.intro.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
+      ${scopeParts.items.length > 0 ? `
+        <ul class="scope-cols-${getInspectionQuoteSectionScopeColumnCount(scopeParts.items)}">
+          ${scopeParts.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+        </ul>
+      ` : ''}
     </div>
   `
 }
 
-const renderInspectionQuoteScopeBullets = (scope: string) => {
-  const scopeItems = splitInspectionQuoteScopeItems(scope)
-  if (scopeItems.length === 0) {
+const renderInspectionQuoteScopeBullets = (scope: string, sectionId?: string) => {
+  const scopeParts = getInspectionQuoteScopeParts(scope, sectionId)
+  if (scopeParts.intro.length === 0 && scopeParts.items.length === 0) {
     return <span className="text-[#8a92a3]">Add scope of work items here.</span>
   }
 
   return (
-    <ul
-      className="grid list-disc gap-x-6 gap-y-1 pl-4"
-      style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeItems)}, minmax(0, 1fr))` }}
-    >
-      {scopeItems.map((scopeItem, scopeIndex) => (
-        <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
-          {scopeItem}
-        </li>
+    <>
+      {scopeParts.intro.map((line, index) => (
+        <p key={`${line}-${index}`} className="mb-1.5">
+          {line}
+        </p>
       ))}
-    </ul>
+      {scopeParts.items.length > 0 ? (
+        <ul
+          className="grid list-disc gap-x-6 gap-y-1 pl-4"
+          style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeParts.items)}, minmax(0, 1fr))` }}
+        >
+          {scopeParts.items.map((scopeItem, scopeIndex) => (
+            <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
+              {scopeItem}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  )
+}
+
+const getEditableInspectionQuoteScopeItems = (scope: string, sectionId?: string) => {
+  const scopeItems = getInspectionQuoteScopeParts(scope, sectionId).items
+  return scopeItems.length > 0 ? scopeItems : ['']
+}
+
+const focusEditableListItemEnd = (item: HTMLLIElement) => {
+  const range = document.createRange()
+  range.selectNodeContents(item)
+  range.collapse(false)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
+function EditableInspectionQuoteScope({
+  label,
+  value,
+  sectionId,
+  className = '',
+  onChange,
+}: {
+  label: string
+  value: string
+  sectionId?: string
+  className?: string
+  onChange: (value: string) => void
+}) {
+  const listRef = useRef<HTMLUListElement>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const scopeParts = getInspectionQuoteScopeParts(value, sectionId)
+  const scopeItems = getEditableInspectionQuoteScopeItems(value, sectionId)
+
+  useEffect(() => {
+    if (!isEditing) return
+    const lastItem = listRef.current?.querySelector('li:last-child')
+    if (lastItem instanceof HTMLLIElement) {
+      window.setTimeout(() => focusEditableListItemEnd(lastItem))
+    }
+  }, [isEditing])
+
+  const finishEditing = () => {
+    const listItems = Array.from(listRef.current?.querySelectorAll('li') ?? [])
+      .map((item) => item.textContent?.trim() ?? '')
+      .filter((item) => item.length > 0)
+    onChange([...scopeParts.intro, ...listItems].join('\n'))
+    setIsEditing(false)
+  }
+
+  const insertListItemAfterSelection = () => {
+    const selection = window.getSelection()
+    const selectedNode = selection?.anchorNode
+    const currentItem =
+      selectedNode instanceof HTMLElement
+        ? selectedNode.closest('li')
+        : selectedNode?.parentElement?.closest('li')
+    const nextItem = document.createElement('li')
+    nextItem.appendChild(document.createElement('br'))
+
+    if (currentItem?.parentElement === listRef.current) {
+      currentItem.insertAdjacentElement('afterend', nextItem)
+    } else {
+      listRef.current?.appendChild(nextItem)
+    }
+    focusEditableListItemEnd(nextItem)
+  }
+
+  if (!isEditing) {
+    return (
+      <div
+        role="textbox"
+        aria-label={label}
+        tabIndex={0}
+        className={`editable-report-field ${className}`}
+        onMouseDown={() => setIsEditing(true)}
+        onFocus={() => setIsEditing(true)}
+      >
+        {renderInspectionQuoteScopeBullets(value, sectionId)}
+      </div>
+    )
+  }
+
+  return (
+    <div className={`editable-report-field ${className}`}>
+      {scopeParts.intro.map((line, index) => (
+        <p key={`${line}-${index}`} className="mb-1.5">
+          {line}
+        </p>
+      ))}
+      <ul
+        ref={listRef}
+        role="textbox"
+        aria-label={label}
+        contentEditable
+        suppressContentEditableWarning
+        spellCheck
+        className="grid list-disc gap-x-6 gap-y-1 pl-4 outline-none"
+        style={{ gridTemplateColumns: `repeat(${getInspectionQuoteSectionScopeColumnCount(scopeItems)}, minmax(0, 1fr))` }}
+        onBlur={finishEditing}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          insertListItemAfterSelection()
+        }}
+        onPaste={(event) => {
+          event.preventDefault()
+          const text = event.clipboardData.getData('text/plain')
+          document.execCommand('insertText', false, text)
+        }}
+      >
+        {scopeItems.map((scopeItem, scopeIndex) => (
+          <li key={`${scopeItem}-${scopeIndex}`} className="break-inside-avoid">
+            {scopeItem}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -1885,22 +2246,59 @@ const getCostSectionCustomerTotal = (
 const getCondensedInspectionQuoteLineItemSummary = (
   section: CostSection,
   settings: EquipmentRentalSettings,
+  inspectionQuoteSettings: InspectionQuoteSettings | null = null,
 ) => [
   section.title,
-  'Qty 1',
+  getCondensedCostSectionQuantityLabel(section, inspectionQuoteSettings),
   `Customer ${formatMoney(getCostSectionCustomerTotal(section, settings))}`,
 ].join(' | ')
+
+const getInspectionQuoteSectionAssetLineItem = (section: CostSection) =>
+  section.lineItems.find((lineItem) => getInspectionQuoteLineItemField(lineItem) === 'assets')
+
+const getCondensedCostSectionQuantityLabel = (
+  section: CostSection,
+  settings: InspectionQuoteSettings | null = null,
+) => {
+  const templateSection = getInspectionQuoteTemplateSectionFromCostSection(settings, section)
+  const estimatorAssets = templateSection ? getInspectionEstimatorTotalAssets(getInspectionQuoteSectionEstimator(settings!, templateSection)) : 0
+  if (estimatorAssets > 0) return `Qty ${estimatorAssets}`
+
+  const assetQuantity = getInspectionQuoteSectionAssetLineItem(section)?.quantity?.trim()
+  return `Qty ${assetQuantity && parseMoney(assetQuantity) > 0 ? assetQuantity : '1'}`
+}
+
+const getInspectionQuoteSectionSummaryNote = (
+  settings: InspectionQuoteSettings | null,
+  costSection: CostSection,
+) => {
+  const templateSection = getInspectionQuoteTemplateSectionFromCostSection(settings, costSection)
+  return templateSection?.summaryNote?.trim() ?? ''
+}
+
+const renderInspectionQuoteSummaryNoteMarkup = (summaryNote: string) => {
+  if (!summaryNote) return ''
+
+  return `
+    <tr class="inspection-summary-note-row">
+      <td colspan="4">${escapeHtml(summaryNote)}</td>
+    </tr>
+  `
+}
 
 const getTemplateCondensedCostSectionRows = (
   section: CostSection,
   settings: EquipmentRentalSettings,
+  inspectionQuoteSettings: InspectionQuoteSettings | null = null,
+  summaryNote = '',
 ) => `
   <tr>
     <td>${escapeHtml(section.title || 'Inspection Section')}</td>
-    <td class="qty">1</td>
+    <td class="qty">${escapeHtml(getCondensedCostSectionQuantityLabel(section, inspectionQuoteSettings).replace(/^Qty\s*/i, '') || '1')}</td>
     <td class="money">${formatMoney(getCostSectionCustomerTotal(section, settings))}</td>
     <td class="money">${formatMoney(getCostSectionCustomerTotal(section, settings))}</td>
   </tr>
+  ${renderInspectionQuoteSummaryNoteMarkup(summaryNote)}
 `
 
 const getCombinedReportTemplateHtml = (
@@ -1993,8 +2391,9 @@ const getCombinedReportTemplateHtml = (
 
     const costMarkup = costSections
       .map((section) => {
-        const scopeMarkup = renderInspectionQuoteScopeMarkup(getInspectionQuoteSectionScopeItems(inspectionQuoteSettings, section))
+        const scopeMarkup = renderInspectionQuoteScopeMarkup(getInspectionQuoteSectionScopeParts(inspectionQuoteSettings, section))
         const showLineItems = isEstimateCostSectionLineItemsVisible(payloadEstimateCostSectionVisibility, section.id)
+        const summaryNote = getInspectionQuoteSectionSummaryNote(inspectionQuoteSettings, section)
 
         return `
         <section class="quote-section">
@@ -2014,7 +2413,7 @@ const getCombinedReportTemplateHtml = (
                 ? getTemplateLineItemRows(section.lineItems, (lineItem) =>
                     getCostCustomerLineAmount(section.id, lineItem, equipmentSettings)
                   )
-                : getTemplateCondensedCostSectionRows(section, equipmentSettings)
+                : getTemplateCondensedCostSectionRows(section, equipmentSettings, inspectionQuoteSettings, summaryNote)
               }
               <tr class="subtotal">
                 <td colspan="3">Subtotal</td>
@@ -2074,7 +2473,11 @@ const getCombinedReportTemplateHtml = (
         </section>
         `}
 
-        ${inspectionQuoteSettings ? '' : `<section class="scope">
+        ${inspectionQuoteSettings ? `<section class="scope">
+          <h2>Scope of Work: Inspections</h2>
+          <p>${escapeHtml(defaultInspectionQuoteScopeIntro)}</p>
+          <p>${escapeHtml(defaultInspectionQuoteTemplateNote)}</p>
+        </section>` : `<section class="scope">
           <h2>${escapeHtml(reportData.scopeOfWorkHeader || 'Scope of Work')}</h2>
           <p>${escapeHtml(reportData.scopeOfWork || '---')}</p>
         </section>`}
@@ -2313,6 +2716,13 @@ const getCombinedReportTemplateHtml = (
             font-weight: 900;
             text-transform: uppercase;
           }
+          .inspection-section-scope p {
+            margin: 0 0 5px;
+            color: #1f2430;
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1.3;
+          }
           .inspection-section-scope ul {
             display: grid;
             gap: 3px 16px;
@@ -2405,6 +2815,23 @@ const getCombinedReportTemplateHtml = (
           }
           th:first-child, td:first-child { width: 56%; }
           .money, .qty { text-align: right; white-space: nowrap; }
+          .inspection-summary-note-row td {
+            background: #fff;
+            color: #4d5360;
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1.3;
+            white-space: pre-wrap;
+          }
+          .inspection-template-note {
+            border-top: 1px solid #d8d8d8;
+            background: #fffdf6;
+            padding: 8px;
+            color: #1f2430;
+            font-size: 9px;
+            font-weight: 700;
+            line-height: 1.25;
+          }
           .subtotal td { background: #fbfbfb; font-weight: 900; text-transform: uppercase; }
           .repair-total td { background: #f0f4fb; color: #111; }
           .grand-total {
@@ -2642,7 +3069,12 @@ const getInspectionQuoteEstimatorBySection = (
 const getInspectionQuoteSettings = (settings: EquipmentRentalSettings): InspectionQuoteSettings | null => {
   const inspectionQuote = settings.inspectionQuote
   if (!inspectionQuote || !Array.isArray(inspectionQuote.selectedSections)) return null
-  const selectedSections = inspectionQuote.selectedSections
+  const selectedSections = inspectionQuote.selectedSections.map((section) => {
+    const defaultScope = defaultInspectionQuoteScopesBySectionId[section.id]
+    const scopeParts = getInspectionQuoteScopeParts(section.scope, section.id)
+    if (!defaultScope || scopeParts.intro.length > 0 || scopeParts.items.length > 0) return section
+    return { ...section, scope: defaultScope }
+  })
   const estimatorRows = normalizeInspectionEstimatorRows(inspectionQuote.estimatorRows)
   const laborSellRate = Number.isFinite(Number(inspectionQuote.laborSellRate)) ? Number(inspectionQuote.laborSellRate) : 125
   const mode = inspectionQuote.mode === 'frequent' ? 'frequent' : 'periodic'
@@ -3809,7 +4241,10 @@ export default function EditableInspectionReport({
   )
   const [activeInspectionEstimatorSectionId, setActiveInspectionEstimatorSectionId] = useState('')
   const currentInspectionQuoteHasSectionScope = useMemo(
-    () => Boolean(currentInspectionQuoteSettings?.selectedSections.some((section) => splitInspectionQuoteScopeItems(section.scope).length > 0)),
+    () => Boolean(currentInspectionQuoteSettings?.selectedSections.some((section) => {
+      const scopeParts = getInspectionQuoteScopeParts(section.scope, section.id)
+      return scopeParts.intro.length > 0 || scopeParts.items.length > 0
+    })),
     [currentInspectionQuoteSettings],
   )
   const activeInspectionEstimatorSection = useMemo(
@@ -5030,6 +5465,23 @@ export default function EditableInspectionReport({
     })
   }
 
+  const updateInspectionQuoteSectionSummaryNote = (sectionId: string, summaryNote: string) => {
+    setEquipmentRentalSettings((currentSettings) => {
+      const inspectionQuote = getInspectionQuoteSettings(currentSettings)
+      if (!inspectionQuote) return currentSettings
+
+      return saveEquipmentRentalSettings({
+        ...currentSettings,
+        inspectionQuote: {
+          ...inspectionQuote,
+          selectedSections: inspectionQuote.selectedSections.map((section) =>
+            section.id === sectionId ? { ...section, summaryNote } : section,
+          ),
+        },
+      })
+    })
+  }
+
   const markInspectionQuoteManualPricingEdit = () => {
     if (!currentInspectionQuoteSettings) return
 
@@ -5043,30 +5495,15 @@ export default function EditableInspectionReport({
     })
   }
 
-  const unlockInspectionQuotePricing = () => {
-    if (
-      !currentInspectionQuoteSettings ||
-      currentInspectionQuoteSettings.manualQuoteEdits ||
-      !window.confirm('Unlock generated inspection pricing for manual editing? Future estimator changes will warn before overwriting your quote edits.')
-    ) {
-      return
-    }
-
-    markInspectionQuoteManualPricingEdit()
-  }
-
-  const relinkInspectionQuotePricing = () => {
-    if (!currentInspectionQuoteSettings) return
-    applyInspectionQuoteGeneratedContent(currentInspectionQuoteSettings)
-  }
-
   const applyInspectionQuoteGeneratedContent = (nextInspectionQuote: InspectionQuoteSettings) => {
     const nextSettings = {
       ...nextInspectionQuote,
-      manualPricing: {
-        ...nextInspectionQuote.manualPricing,
-        ...getInspectionQuoteManualPricingFromCostSections(costSections, nextInspectionQuote.selectedSections),
-      },
+      manualPricing: nextInspectionQuote.manualQuoteEdits
+        ? {
+            ...nextInspectionQuote.manualPricing,
+            ...getInspectionQuoteManualPricingFromCostSections(costSections, nextInspectionQuote.selectedSections),
+          }
+        : nextInspectionQuote.manualPricing,
     }
     const nextScopeOfWork = nextSettings.generatedScopeOfWork
     if (
@@ -5126,25 +5563,12 @@ export default function EditableInspectionReport({
     })
   }
 
-  const updateInspectionEstimatorSetting = (field: 'laborSellRate' | 'mode', value: string) => {
+  const updateInspectionEstimatorSellRate = (value: string) => {
     if (!currentInspectionQuoteSettings || !activeInspectionEstimatorSection || !activeInspectionEstimatorSettings) return
 
     const nextSectionEstimator = {
       ...activeInspectionEstimatorSettings,
-      [field]: field === 'mode' ? (value === 'frequent' ? 'frequent' : 'periodic') : parseMoney(value),
-    } as InspectionEstimatorSettings
-    if (field === 'mode') {
-      applyInspectionQuoteGeneratedContent({
-        ...currentInspectionQuoteSettings,
-        mode: activeInspectionEstimatorSection.id === currentInspectionQuoteSettings.selectedSections[0]?.id
-          ? nextSectionEstimator.mode
-          : currentInspectionQuoteSettings.mode,
-        estimatorBySection: {
-          ...currentInspectionQuoteSettings.estimatorBySection,
-          [activeInspectionEstimatorSection.id]: nextSectionEstimator,
-        },
-      })
-      return
+      laborSellRate: parseMoney(value),
     }
 
     applyInspectionQuoteGeneratedContent({
@@ -5734,7 +6158,7 @@ export default function EditableInspectionReport({
   const confirmInspectionQuotePricingManualEdit = () => {
     if (!currentInspectionQuoteSettings) return true
     if (currentInspectionQuoteSettings.manualQuoteEdits) return true
-    if (!window.confirm('This pricing is connected to the inspection estimator. Unlock it for manual editing?')) return false
+    if (!window.confirm('This pricing is generated from the inspection estimator. Edit this price manually?')) return false
 
     markInspectionQuoteManualPricingEdit()
     return true
@@ -5830,7 +6254,7 @@ export default function EditableInspectionReport({
     if (currentInspectionQuoteSettings) {
       if (
         !currentInspectionQuoteSettings.manualQuoteEdits &&
-        !window.confirm('This pricing is connected to the inspection estimator. Unlock it for manual editing?')
+        !window.confirm('This pricing is generated from the inspection estimator. Edit this price manually?')
       ) {
         return
       }
@@ -7285,61 +7709,31 @@ export default function EditableInspectionReport({
                     <p className="mt-1 text-[12px] font-bold leading-tight text-[#747b8a]">
                       Use the tabs like sheets. Units, visits, and sell rate update that section's Assets # of row.
                     </p>
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-[#d8deea] bg-white px-2.5 py-1 text-[11px] font-black uppercase text-[#4d5360]">
-                      <span className={`h-2 w-2 rounded-full ${currentInspectionQuoteSettings.manualQuoteEdits ? 'bg-[#d8891e]' : 'bg-[#2f9e44]'}`} />
-                      <span>{currentInspectionQuoteSettings.manualQuoteEdits ? 'Manual pricing unlocked' : 'Connected to quote pricing'}</span>
-                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {currentInspectionQuoteSettings.manualQuoteEdits ? (
-                      <button
-                        type="button"
-                        onClick={relinkInspectionQuotePricing}
-                        className="h-9 rounded-md border border-[#273f7a] bg-[#273f7a] px-3 text-[12px] font-black text-white transition hover:bg-[#1f3261]"
-                      >
-                        Relink Pricing
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={unlockInspectionQuotePricing}
-                        className="h-9 rounded-md border border-[#cfd6e5] bg-white px-3 text-[12px] font-black text-[#273f7a] transition hover:bg-[#edf2fb]"
-                      >
-                        Unlock Pricing
-                      </button>
-                    )}
-                    <select
-                      value={activeInspectionEstimatorSettings?.mode ?? currentInspectionQuoteSettings.mode}
-                      onChange={(event) => updateInspectionEstimatorSetting('mode', event.currentTarget.value)}
-                      className="h-9 rounded-md border border-[#cfd6e5] bg-white px-3 text-[12px] font-black text-[#1f2430] outline-none focus:border-[#273f7a]"
-                      aria-label="Inspection estimator type"
-                    >
-                      <option value="periodic">Periodic hours</option>
-                      <option value="frequent">Frequent half-hours</option>
-                    </select>
                     <label className="flex h-9 items-center overflow-hidden rounded-md border border-[#cfd6e5] bg-white text-[12px] font-black text-[#1f2430]">
                       <span className="border-r border-[#d8deea] bg-[#f8fbff] px-2.5">Sell/hr</span>
                       <input
                         type="text"
                         inputMode="decimal"
                         value={activeInspectionEstimatorSettings?.laborSellRate ?? currentInspectionQuoteSettings.laborSellRate}
-                        onChange={(event) => updateInspectionEstimatorSetting('laborSellRate', event.currentTarget.value)}
+                        onChange={(event) => updateInspectionEstimatorSellRate(event.currentTarget.value)}
                         className="h-full w-20 px-2 text-right outline-none"
                       />
                     </label>
                   </div>
                 </div>
 
-                <div className="flex gap-1 overflow-x-auto border-b border-[#d8deea] bg-[#f4f6fb] px-3 pt-2">
+                <div className="flex flex-wrap items-end gap-x-1.5 gap-y-2 border-b border-[#aab8d2] bg-[#edf3ff] px-3 pt-2">
                   {currentInspectionQuoteSettings.selectedSections.map((section) => (
                     <button
                       key={section.id}
                       type="button"
                       onClick={() => setActiveInspectionEstimatorSectionId(section.id)}
-                      className={`shrink-0 rounded-t-md border px-3 py-2 text-[12px] font-black transition ${
+                      className={`mb-[-1px] flex min-h-10 flex-[1_1_150px] items-center justify-center rounded-t-md border px-3 py-2 text-center text-[11px] font-black uppercase leading-tight tracking-[0.02em] transition ${
                         activeInspectionEstimatorSection?.id === section.id
-                          ? 'border-[#cfd6e5] border-b-white bg-white text-[#273f7a]'
-                          : 'border-transparent bg-[#e9edf5] text-[#555b66] hover:bg-white'
+                          ? 'border-[#8fa3cb] border-t-[3px] border-t-[var(--deshazo-blue)] bg-white pb-[9px] text-[var(--deshazo-blue)] shadow-[0_-10px_20px_-18px_rgba(6,24,73,0.95)]'
+                          : 'border-[#9fb0cf] bg-[#cfdcf2] text-[#233354] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] hover:bg-[#dbe7fb] hover:text-[var(--deshazo-blue)]'
                       }`}
                     >
                       {section.title}
@@ -7557,25 +7951,39 @@ export default function EditableInspectionReport({
             </section>
             ) : null}
 
-            {blockVisibility.scopeOfWork && !currentInspectionQuoteSettings ? (
+            {blockVisibility.scopeOfWork ? (
             <section
               data-report-block-id="scope-of-work"
               style={getRuntimePageBreakStyle('scope-of-work')}
               className={`relative mt-3 border border-[#d4d4d4] ${getRuntimePageBreakClassName('scope-of-work')}`}
             >
-              <EditableText
-                id="scopeOfWorkHeader"
-                data={report}
-                onChange={updateField}
-                className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black"
-              />
-              <EditableText
-                id="scopeOfWork"
-                data={report}
-                onChange={updateField}
-                multiline
-                className="min-h-[58px] border-t border-[#d4d4d4] px-3 py-3 text-[14px] font-semibold leading-snug"
-              />
+              {currentInspectionQuoteSettings ? (
+                <>
+                  <div className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black">
+                    Scope of Work: Inspections
+                  </div>
+                  <div className="min-h-[58px] border-t border-[#d4d4d4] px-3 py-3 text-[14px] font-semibold leading-snug">
+                    <p>{defaultInspectionQuoteScopeIntro}</p>
+                    <p className="mt-2">{defaultInspectionQuoteTemplateNote}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <EditableText
+                    id="scopeOfWorkHeader"
+                    data={report}
+                    onChange={updateField}
+                    className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black"
+                  />
+                  <EditableText
+                    id="scopeOfWork"
+                    data={report}
+                    onChange={updateField}
+                    multiline
+                    className="min-h-[58px] border-t border-[#d4d4d4] px-3 py-3 text-[14px] font-semibold leading-snug"
+                  />
+                </>
+              )}
             </section>
             ) : null}
 
@@ -8003,15 +8411,12 @@ export default function EditableInspectionReport({
                     {inspectionTemplateSection ? (
                       <div className="border-b border-[#d8d8d8] bg-[#fffdf6] px-3 py-2">
                         <div className="mb-1 text-[10px] font-black uppercase leading-tight text-[#555b66]">Scope of Work</div>
-                        <EditableValue
+                        <EditableInspectionQuoteScope
                           label={`${section.title} scope of work`}
                           value={inspectionTemplateSection.scope}
+                          sectionId={inspectionTemplateSection.id}
                           onChange={(value) => updateInspectionQuoteSectionScope(inspectionTemplateSection.id, value)}
-                          multiline
-                          linkify
-                          renderReadOnly={renderInspectionQuoteScopeBullets}
-                          insertBulletOnEnter
-                          className="min-h-[34px] cursor-text whitespace-pre-wrap px-2 py-1.5 text-[11px] font-semibold leading-snug text-[#1f2430]"
+                          className="min-h-[34px] cursor-text px-2 py-1.5 text-[11px] font-semibold leading-snug text-[#1f2430]"
                         />
                       </div>
                     ) : null}
@@ -8263,13 +8668,33 @@ export default function EditableInspectionReport({
                     </div>
                     </>
                     ) : (
-                      <div className="grid grid-cols-[1fr_90px_116px_130px] border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black text-[#1f2430]">
-                        <div className="px-3 py-2 leading-tight">{section.title}</div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">Qty 1</div>
-                        <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">Customer Price</div>
-                        <div className="border-l border-[#d8d8d8] bg-[#f5b400] px-3 py-2 text-right">
-                          {formatMoney(getCostSectionCustomerTotal(section, equipmentRentalSettings))}
+                      <div className="border-b border-[#d8d8d8] bg-[#fbfbfb] text-[12px] font-black text-[#1f2430]">
+                        <div className="grid grid-cols-[1fr_90px_116px_130px]">
+                          <div className="px-3 py-2 leading-tight">{section.title}</div>
+                          <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">{getCondensedCostSectionQuantityLabel(section, currentInspectionQuoteSettings)}</div>
+                          <div className="border-l border-[#d8d8d8] px-3 py-2 text-right">Customer Price</div>
+                          <div className="border-l border-[#d8d8d8] bg-[#f5b400] px-3 py-2 text-right">
+                            {formatMoney(getCostSectionCustomerTotal(section, equipmentRentalSettings))}
+                          </div>
                         </div>
+                        {inspectionTemplateSection ? (
+                          <div className={`border-t border-[#e5e5e5] bg-white px-3 py-2 ${inspectionTemplateSection.summaryNote?.trim() ? '' : 'report-inline-action'}`}>
+                            <EditableValue
+                              label={`${section.title} quote summary note`}
+                              value={inspectionTemplateSection.summaryNote ?? ''}
+                              onChange={(value) => updateInspectionQuoteSectionSummaryNote(inspectionTemplateSection.id, value)}
+                              multiline
+                              linkify
+                              clearOnFocus={!inspectionTemplateSection.summaryNote?.trim()}
+                              className="min-h-[24px] cursor-text whitespace-pre-wrap text-[11px] font-semibold leading-snug text-[#4d5360]"
+                              renderReadOnly={(value) =>
+                                value.trim()
+                                  ? <span className="whitespace-pre-wrap">{value}</span>
+                                  : <span className="report-inline-action text-[#8a92a3]">Add quote note, e.g. 11 months worth.</span>
+                              }
+                            />
+                          </div>
+                        ) : null}
                       </div>
                     )}
                   </section>

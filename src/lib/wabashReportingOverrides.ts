@@ -23,6 +23,8 @@ const WABASH_PHOENIX_REPAIR_JOB_NO = '0275240'
 const WABASH_PHOENIX_INSTALLATION_D_NUMBERS = new Set(['D567216', 'D567217', 'D567218', 'D567219'])
 
 export const WABASH_PHOENIX_INSTALLATION_OVERRIDE: WabashReportingLocationOverride = {
+  // Corrects the known source-data location mismatch where Phoenix work was imported
+  // under another Wabash ship-to location in the database.
   locationName: 'Phoenix, AZ',
   locationCity: 'Phoenix',
   locationState: 'AZ',
