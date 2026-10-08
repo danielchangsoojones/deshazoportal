@@ -1160,7 +1160,9 @@ function renderStatusLabel(status: string) {
       : isKnownStatus(normalizedStatus)
         ? toTitleCase(status)
         : status.trim() || '-'
-  if (!isRepairStatus(normalizedStatus) && !isMonitorStatus(normalizedStatus) && !isSafetyStatus(normalizedStatus)) return escapeHtml(label)
+  if (!isRepairStatus(normalizedStatus) && !isMonitorStatus(normalizedStatus) && !isSafetyStatus(normalizedStatus)) {
+    return `<span class="status-label">${escapeHtml(label)}</span>`
+  }
 
   const iconClass = isSafetyStatus(normalizedStatus)
     ? 'status-icon-safety'
@@ -1169,7 +1171,7 @@ function renderStatusLabel(status: string) {
       : 'status-icon-repair'
   return `
     <span class="status-icon ${iconClass}"></span>
-    <span>${escapeHtml(label)}</span>
+    <span class="status-label">${escapeHtml(label)}</span>
     <span class="status-camera"></span>
   `
 }
@@ -1786,6 +1788,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
       ? 'position: static; left: auto; top: auto;'
       : 'position: fixed; left: -10000px; top: 0;'
   const pageSpacing = mode === 'preview' ? '.pdf-page + .pdf-page { margin-top: 24px; }' : ''
+  const statusLabelPosition = mode === 'pdf' ? '.status-label { position: relative; top: -2px; }' : ''
 
   return `
     .deshazo-pdf-root {
@@ -1807,6 +1810,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
       page-break-after: always;
     }
     ${pageSpacing}
+    ${statusLabelPosition}
     .hero { display: grid; grid-template-columns: 1.25fr 1fr .9fr; gap: 14px; height: 82px; padding: 14px 24px 10px; background: #f6b23b; color: #000; }
     .zero-hero { height: 86px; align-items: start; }
     .brand { font-size: 38px; font-weight: 900; letter-spacing: -1.5px; line-height: .9; }
