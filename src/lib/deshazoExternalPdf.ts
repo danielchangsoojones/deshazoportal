@@ -1788,7 +1788,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
       ? 'position: static; left: auto; top: auto;'
       : 'position: fixed; left: -10000px; top: 0;'
   const pageSpacing = mode === 'preview' ? '.pdf-page + .pdf-page { margin-top: 24px; }' : ''
-  const statusLabelPosition = mode === 'pdf' ? '.status-label { position: relative; top: -2px; }' : ''
+  const statusLabelPosition = mode === 'pdf' ? '.status-label { position: relative; top: -5px; }' : ''
 
   return `
     .deshazo-pdf-root {
