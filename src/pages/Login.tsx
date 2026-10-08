@@ -19,7 +19,10 @@ export default function Login({
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [emailConfirmationRequired, setEmailConfirmationRequired] = useState(false)
+  const [confirmationMessage, setConfirmationMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [resendingConfirmation, setResendingConfirmation] = useState(false)
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
   const resolvedRedirectTo =
@@ -42,6 +45,8 @@ export default function Login({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setConfirmationMessage('')
+    setEmailConfirmationRequired(false)
     setLoading(true)
 
     if (!isConfigured || !supabase) {
@@ -49,15 +54,52 @@ export default function Login({
       setLoading(false)
       return
     }
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
 
-    if (error) {
-      setError(error.message)
-    } else {
-      navigate(resolvedRedirectTo, { replace: redirectTo !== '/dashboard' })
+      if (error) {
+        const isEmailNotConfirmed =
+          error.code === 'email_not_confirmed' || error.message.trim().toLowerCase() === 'email not confirmed'
+
+        if (isEmailNotConfirmed) {
+          setEmailConfirmationRequired(true)
+          setError('Your email address hasn’t been confirmed yet. Please open the confirmation link sent to your registered email address, then try signing in again. Check your spam folder if you can’t find it.')
+        } else if (error.message.toLowerCase() === 'invalid login credentials') {
+          setError('We couldn’t sign you in with those details. Check your email and password, or use “Forgot password?” to reset your password. If you recently signed up, confirm your email first.')
+        } else {
+          setError(error.message)
+        }
+      } else {
+        navigate(resolvedRedirectTo, { replace: redirectTo !== '/dashboard' })
+      }
+    } catch {
+      setError('Unable to sign in right now. Please try again.')
+    } finally {
+      setLoading(false)
     }
+  }
 
-    setLoading(false)
+  const resendConfirmation = async () => {
+    if (!supabase || !emailConfirmationRequired || resendingConfirmation) return
+
+    setError('')
+    setConfirmationMessage('')
+    setResendingConfirmation(true)
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+        options: { emailRedirectTo: `${window.location.origin}${customerPath('/login')}` },
+      })
+
+      if (error) setError(error.message)
+      else setConfirmationMessage('If this account still needs confirmation, a new link has been sent. Check your inbox and spam folder.')
+    } catch {
+      setError('Unable to resend the confirmation email right now. Please try again.')
+    } finally {
+      setResendingConfirmation(false)
+    }
   }
 
   return (
@@ -67,9 +109,24 @@ export default function Login({
         <p className="mb-6 text-sm text-[rgba(7,18,47,0.58)]">Sign in to your account</p>
 
         {error && (
-          <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
+          <div role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
             {error}
           </div>
+        )}
+        {confirmationMessage && (
+          <div role="status" className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-700">
+            {confirmationMessage}
+          </div>
+        )}
+        {emailConfirmationRequired && (
+          <button
+            type="button"
+            onClick={() => void resendConfirmation()}
+            disabled={resendingConfirmation}
+            className="mb-4 w-full rounded-lg border border-[var(--deshazo-border)] px-4 py-2.5 text-sm font-medium text-[var(--deshazo-blue)] transition-colors hover:bg-[var(--deshazo-surface)] disabled:opacity-50"
+          >
+            {resendingConfirmation ? 'Sending…' : 'Resend confirmation email'}
+          </button>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
