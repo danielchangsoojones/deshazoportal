@@ -1880,10 +1880,10 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .detail-grid-long .detail-row:last-child { border-bottom: 0; }
     .detail-grid-long .detail-label { line-height: 1.14; }
     .detail-grid-long .status { width: 112px; min-height: 21px; }
-    .status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; width: 92px; min-height: 22px; padding: 3px 6px 2px; text-align: center; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; overflow: visible; }
+    .status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 92px; min-height: 22px; padding: 3px 6px 2px; text-align: center; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; overflow: visible; }
     .status-long-label { min-height: 28px; padding: 4px 6px; line-height: 1.08; white-space: normal; overflow-wrap: anywhere; }
     .status-with-icons { justify-content: space-between; gap: 4px; }
-    .status-with-icons { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
+    .status-with-icons { display: inline-grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
     .status-with-icons > span:nth-child(2) { min-width: 0; text-align: center; align-self: center; }
     .status-icon { position: relative; display: inline-block; flex: 0 0 auto; width: 11px; height: 11px; }
     .status-icon-repair { background: currentColor; clip-path: polygon(50% 0, 90% 15%, 86% 62%, 50% 100%, 14% 62%, 10% 15%); }
@@ -1925,7 +1925,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-point { margin: 0; font-size: 12px; }
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
-    .page2-point-status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; min-height: 22px; margin: 7px 0 0 18px; padding: 3px 8px 2px; font-size: 10px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; white-space: nowrap; overflow: visible; }
+    .page2-point-status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; min-height: 22px; margin: 7px 0 0 18px; padding: 3px 8px 2px; font-size: 10px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; white-space: nowrap; overflow: visible; }
     .page2-point-status.status-long-label { min-height: 30px; padding: 4px 7px; line-height: 1.08; white-space: normal; overflow-wrap: anywhere; }
     .page2-points-box-long { padding: 0; }
     .page2-points-box-long .page2-point { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 14px; align-items: start; padding: 9px 11px; break-inside: avoid; page-break-inside: avoid; }
