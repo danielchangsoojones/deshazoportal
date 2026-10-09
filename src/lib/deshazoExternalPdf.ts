@@ -530,7 +530,7 @@ function renderSectionedItemGroup(
                     <div class="page2-point-name">${escapeHtml(item.label)}</div>
                     ${
                       item.status
-                        ? `<div class="${page2StatusClass(item.status)}">${renderStatusLabel(item.status)}</div>`
+                        ? `<div class="${page2StatusClass(item.status)}">${renderStatusLabel(item.status, itemLabel.toLowerCase().startsWith('repair') ? 'Repair' : undefined)}</div>`
                         : ''
                     }
                     ${
@@ -1151,16 +1151,17 @@ function actionPillClass(status: string) {
   return 'action-pill action-pill-repair status-with-icons'
 }
 
-function renderStatusLabel(status: string) {
+function renderStatusLabel(status: string, forcedLabel?: 'Repair') {
   const normalizedStatus = normalizeStatus(status)
-  const label = isSafetyStatus(normalizedStatus)
+  const isRepair = forcedLabel === 'Repair' || isRepairStatus(normalizedStatus)
+  const label = forcedLabel || (isSafetyStatus(normalizedStatus)
     ? 'Safety'
     : isNaStatus(normalizedStatus)
       ? 'N/A'
       : isKnownStatus(normalizedStatus)
         ? toTitleCase(status)
-        : status.trim() || '-'
-  if (!isRepairStatus(normalizedStatus) && !isMonitorStatus(normalizedStatus) && !isSafetyStatus(normalizedStatus)) {
+        : status.trim() || '-')
+  if (!isRepair && !isMonitorStatus(normalizedStatus) && !isSafetyStatus(normalizedStatus)) {
     return `<span class="status-label">${escapeHtml(label)}</span>`
   }
 
@@ -1889,9 +1890,11 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .status-with-icons { justify-content: space-between; gap: 4px; }
     .status-with-icons { display: inline-grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
     .status-with-icons > span:nth-child(2) { min-width: 0; text-align: center; align-self: center; }
+    .status-with-icons > .status-icon, .status-with-icons > .status-camera { align-self: center; }
+    .status-with-icons > .status-camera { justify-self: end; }
     .status-icon { display: inline-block; flex: 0 0 auto; width: 11px; height: 11px; overflow: visible; }
     .status-icon-monitor { width: 12px; height: 12px; }
-    .status-camera { display: inline-block; flex: 0 0 auto; width: 11px; height: 9px; overflow: visible; }
+    .status-camera { display: block; flex: 0 0 auto; width: 12px; height: 10px; overflow: visible; }
     .status-success { background: #bff2be; color: #1f6a2e; }
     .status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .status-danger { background: #f7c7c7; color: #a61616; }
@@ -1923,7 +1926,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
     .page2-point-status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; min-height: 22px; margin: 7px 0 0 18px; padding: 3px 8px 2px; font-size: 10px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; white-space: nowrap; overflow: visible; }
-    .page2-point-status.status-with-icons { display: inline-grid; grid-template-columns: 11px minmax(0, 1fr) 11px; align-items: center; justify-content: stretch; column-gap: 4px; }
+    .page2-point-status.status-with-icons { display: inline-grid; grid-template-columns: 11px minmax(0, 1fr) 13px; align-items: center; justify-content: stretch; column-gap: 4px; }
     .page2-point-status.status-with-icons .status-label { min-width: 0; text-align: center; }
     .page2-point-status.status-long-label { min-height: 30px; padding: 4px 7px; line-height: 1.08; white-space: normal; overflow-wrap: anywhere; }
     .page2-points-box-long { padding: 0; }
