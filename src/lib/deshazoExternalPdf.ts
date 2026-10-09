@@ -1923,6 +1923,8 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
     .page2-point-status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; min-height: 22px; margin: 7px 0 0 18px; padding: 3px 8px 2px; font-size: 10px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; white-space: nowrap; overflow: visible; }
+    .page2-point-status.status-with-icons { display: inline-grid; grid-template-columns: 11px minmax(0, 1fr) 11px; align-items: center; justify-content: stretch; column-gap: 4px; }
+    .page2-point-status.status-with-icons .status-label { min-width: 0; text-align: center; }
     .page2-point-status.status-long-label { min-height: 30px; padding: 4px 7px; line-height: 1.08; white-space: normal; overflow-wrap: anywhere; }
     .page2-points-box-long { padding: 0; }
     .page2-points-box-long .page2-point { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 14px; align-items: start; padding: 9px 11px; break-inside: avoid; page-break-inside: avoid; }
