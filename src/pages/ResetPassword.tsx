@@ -21,15 +21,16 @@ export default function ResetPassword() {
       return
     }
 
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (error) {
-        setError(error.message)
-      } else if (data.session) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
         setSessionReady(true)
-      } else {
-        setError('Open this page from the password reset link in your email.')
+        setError('')
+      } else if (event === 'INITIAL_SESSION') {
+        setError('We couldn’t validate this password reset link. It may have expired or already been used. Request a new link and open the newest email.')
       }
     })
+
+    return () => subscription.unsubscribe()
   }, [configError])
 
   const handleSubmit = async (e: React.FormEvent) => {
