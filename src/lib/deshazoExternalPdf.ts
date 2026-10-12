@@ -530,7 +530,7 @@ function renderSectionedItemGroup(
                     <div class="page2-point-name">${escapeHtml(item.label)}</div>
                     ${
                       item.status
-                        ? `<div class="${page2StatusClass(item.status)}">${renderStatusLabel(item.status)}</div>`
+                        ? `<div class="${page2StatusClass(item.status)}">${renderStatusLabel(item.status, itemLabel.toLowerCase().startsWith('repair') ? 'Repair' : undefined)}</div>`
                         : ''
                     }
                     ${
@@ -1151,26 +1151,29 @@ function actionPillClass(status: string) {
   return 'action-pill action-pill-repair status-with-icons'
 }
 
-function renderStatusLabel(status: string) {
+function renderStatusLabel(status: string, forcedLabel?: 'Repair') {
   const normalizedStatus = normalizeStatus(status)
-  const label = isSafetyStatus(normalizedStatus)
+  const isRepair = forcedLabel === 'Repair' || isRepairStatus(normalizedStatus)
+  const label = forcedLabel || (isSafetyStatus(normalizedStatus)
     ? 'Safety'
     : isNaStatus(normalizedStatus)
       ? 'N/A'
       : isKnownStatus(normalizedStatus)
         ? toTitleCase(status)
-        : status.trim() || '-'
-  if (!isRepairStatus(normalizedStatus) && !isMonitorStatus(normalizedStatus) && !isSafetyStatus(normalizedStatus)) return escapeHtml(label)
+        : status.trim() || '-')
+  if (!isRepair && !isMonitorStatus(normalizedStatus) && !isSafetyStatus(normalizedStatus)) {
+    return `<span class="status-label">${escapeHtml(label)}</span>`
+  }
 
-  const iconClass = isSafetyStatus(normalizedStatus)
-    ? 'status-icon-safety'
+  const icon = isSafetyStatus(normalizedStatus)
+    ? '<svg class="status-icon status-icon-safety" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0.5 11 2v3.4c0 2.8-2 4.9-5 6.1-3-1.2-5-3.3-5-6.1V2L6 .5Z" fill="currentColor"/></svg>'
     : isMonitorStatus(normalizedStatus)
-      ? 'status-icon-monitor'
-      : 'status-icon-repair'
+      ? '<svg class="status-icon status-icon-monitor" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0.7 11.3 10H.7L6 .7Z" fill="currentColor"/><path d="M4.2 6.1h3.6M4.2 7.7h3.6" stroke="#fbf4bf" stroke-width=".8"/></svg>'
+      : '<svg class="status-icon status-icon-repair" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 .5 11 2v3.4c0 2.8-2 4.9-5 6.1-3-1.2-5-3.3-5-6.1V2L6 .5Z" fill="currentColor"/><text x="6" y="8.4" text-anchor="middle" fill="#fff" font-family="Georgia,serif" font-size="7.5" font-weight="bold" font-style="italic">i</text></svg>'
   return `
-    <span class="status-icon ${iconClass}"></span>
-    <span>${escapeHtml(label)}</span>
-    <span class="status-camera"></span>
+    ${icon}
+    <span class="status-label">${escapeHtml(label)}</span>
+    <svg class="status-camera" viewBox="0 0 12 10" aria-hidden="true"><path d="M1 2.5h2l1-1.5h3l1 1.5h3v6H1z" fill="currentColor"/><circle cx="6" cy="5.5" r="1.7" fill="#fff"/></svg>
   `
 }
 
@@ -1786,6 +1789,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
       ? 'position: static; left: auto; top: auto;'
       : 'position: fixed; left: -10000px; top: 0;'
   const pageSpacing = mode === 'preview' ? '.pdf-page + .pdf-page { margin-top: 24px; }' : ''
+  const statusLabelPosition = mode === 'pdf' ? '.status-label { position: relative; top: -9px; }' : ''
 
   return `
     .deshazo-pdf-root {
@@ -1807,6 +1811,7 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
       page-break-after: always;
     }
     ${pageSpacing}
+    ${statusLabelPosition}
     .hero { display: grid; grid-template-columns: 1.25fr 1fr .9fr; gap: 14px; height: 82px; padding: 14px 24px 10px; background: #f6b23b; color: #000; }
     .zero-hero { height: 86px; align-items: start; }
     .brand { font-size: 38px; font-weight: 900; letter-spacing: -1.5px; line-height: .9; }
@@ -1880,21 +1885,16 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .detail-grid-long .detail-row:last-child { border-bottom: 0; }
     .detail-grid-long .detail-label { line-height: 1.14; }
     .detail-grid-long .status { width: 112px; min-height: 21px; }
-    .status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; width: 92px; min-height: 22px; padding: 3px 6px 2px; text-align: center; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; overflow: visible; }
+    .status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 92px; min-height: 22px; padding: 3px 6px 2px; text-align: center; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; overflow: visible; }
     .status-long-label { min-height: 28px; padding: 4px 6px; line-height: 1.08; white-space: normal; overflow-wrap: anywhere; }
     .status-with-icons { justify-content: space-between; gap: 4px; }
-    .status-with-icons { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
+    .status-with-icons { display: inline-grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
     .status-with-icons > span:nth-child(2) { min-width: 0; text-align: center; align-self: center; }
-    .status-icon { position: relative; display: inline-block; flex: 0 0 auto; width: 11px; height: 11px; }
-    .status-icon-repair { background: currentColor; clip-path: polygon(50% 0, 90% 15%, 86% 62%, 50% 100%, 14% 62%, 10% 15%); }
-    .status-icon-repair::after { content: "i"; position: absolute; inset: 0; color: #fff; font-family: Georgia, serif; font-size: 8px; font-weight: 900; font-style: italic; line-height: 11px; text-align: center; }
+    .status-with-icons > .status-icon, .status-with-icons > .status-camera { align-self: center; }
+    .status-with-icons > .status-camera { justify-self: end; }
+    .status-icon { display: inline-block; flex: 0 0 auto; width: 11px; height: 11px; overflow: visible; }
     .status-icon-monitor { width: 12px; height: 12px; }
-    .status-icon-monitor::before { content: ""; position: absolute; left: 2px; top: 0; width: 8px; height: 11px; background: currentColor; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
-    .status-icon-monitor::after { content: ""; position: absolute; left: 3px; top: 5px; width: 6px; height: 1px; background: #fbf4bf; box-shadow: 0 3px 0 #fbf4bf; }
-    .status-icon-safety { background: currentColor; clip-path: polygon(50% 0, 88% 14%, 82% 62%, 50% 100%, 18% 62%, 12% 14%); }
-    .status-camera { position: relative; display: inline-block; flex: 0 0 auto; width: 11px; height: 8px; border-radius: 2px; background: currentColor; }
-    .status-camera::before { content: ""; position: absolute; left: 2px; top: -2px; width: 4px; height: 2px; border-radius: 1px 1px 0 0; background: currentColor; }
-    .status-camera::after { content: ""; position: absolute; left: 4px; top: 2px; width: 3px; height: 3px; border-radius: 50%; background: #fff; opacity: .9; }
+    .status-camera { display: block; flex: 0 0 auto; width: 12px; height: 10px; overflow: visible; }
     .status-success { background: #bff2be; color: #1f6a2e; }
     .status-neutral { background: #d9d9d9; color: #4d4d4d; }
     .status-danger { background: #f7c7c7; color: #a61616; }
@@ -1925,7 +1925,9 @@ export function getDeshazoInspectionReportStyles(mode: 'pdf' | 'preview' = 'pdf'
     .page2-point { margin: 0; font-size: 12px; }
     .page2-point + .page2-point { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e2e2; }
     .page2-point-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
-    .page2-point-status { display: inline-grid; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; min-height: 22px; margin: 7px 0 0 18px; padding: 3px 8px 2px; font-size: 10px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; white-space: nowrap; overflow: visible; }
+    .page2-point-status { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 104px; min-height: 22px; margin: 7px 0 0 18px; padding: 3px 8px 2px; font-size: 10px; font-weight: 700; line-height: 1; text-align: center; vertical-align: middle; white-space: nowrap; overflow: visible; }
+    .page2-point-status.status-with-icons { display: inline-grid; grid-template-columns: 11px minmax(0, 1fr) 13px; align-items: center; justify-content: stretch; column-gap: 4px; }
+    .page2-point-status.status-with-icons .status-label { min-width: 0; text-align: center; }
     .page2-point-status.status-long-label { min-height: 30px; padding: 4px 7px; line-height: 1.08; white-space: normal; overflow-wrap: anywhere; }
     .page2-points-box-long { padding: 0; }
     .page2-points-box-long .page2-point { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 14px; align-items: start; padding: 9px 11px; break-inside: avoid; page-break-inside: avoid; }
