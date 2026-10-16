@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { useCustomerPath } from '../lib/customerRouting'
 
-export default function Signup() {
+type SignupProps = { embedded?: boolean }
+
+export default function Signup({ embedded = false }: SignupProps) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -32,13 +34,19 @@ export default function Signup() {
     setLoading(true)
 
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: email.trim(),
       password,
       options: { data: { full_name: name } },
     })
 
     if (error) {
-      setError(error.message)
+      if (error.message.toLowerCase().includes('already registered')) {
+        setError('An account with this email already exists. Please use the Sign in form.')
+      } else {
+        setError(error.message)
+      }
+    } else if (data.user?.identities?.length === 0) {
+      setError('An account with this email already exists. Please use the Sign in form.')
     } else if (data.session) {
       navigate(customerPath('/dashboard'))
     } else {
@@ -48,11 +56,11 @@ export default function Signup() {
     setLoading(false)
   }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--bg)] px-4">
-      <div className="w-full max-w-md rounded-2xl border border-[var(--deshazo-border)] bg-white p-8 shadow-[0_24px_70px_-44px_rgba(6,24,73,0.45)]">
-        <h1 className="mb-1 text-2xl font-semibold text-[var(--deshazo-text)]">Create an account</h1>
-        <p className="mb-6 text-sm text-[rgba(7,18,47,0.58)]">Get started for free</p>
+  const content = (
+      <div className={`w-full rounded-2xl border border-[var(--deshazo-border)] border-t-[8px] border-t-[var(--deshazo-text)] bg-white p-8 shadow-[0_24px_70px_-44px_rgba(6,24,73,0.45)] ${embedded ? '' : 'max-w-md'}`}>
+        <p className="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-[var(--deshazo-blue-soft)]">First visit</p>
+        <h1 style={{ fontSize: '2.5rem', lineHeight: 1.1, margin: 0 }} className="mb-1 font-semibold text-[var(--deshazo-text)]">Create an account</h1>
+        <p className="mb-6 text-base text-[rgba(7,18,47,0.58)]">Use your work email so your activity is recorded correctly.</p>
 
         {error && (
           <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
@@ -131,13 +139,9 @@ export default function Signup() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-[rgba(7,18,47,0.68)]">
-          Already have an account?{' '}
-          <Link to={customerPath('/login')} className="font-medium text-[var(--deshazo-blue)] hover:underline">
-            Sign in
-          </Link>
-        </p>
       </div>
-    </div>
   )
+
+  if (embedded) return content
+  return <div className="min-h-screen flex items-center justify-center bg-[var(--bg)] px-4">{content}</div>
 }

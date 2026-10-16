@@ -7,6 +7,7 @@ export default function QuoteLogin() {
       forgotPasswordFrom="quote"
       redirectIfAuthenticated
       useCustomerRedirect={false}
+      showSignup={false}
     />
   )
 }
