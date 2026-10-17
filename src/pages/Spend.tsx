@@ -314,6 +314,13 @@ type SpendState = {
   status: 'loading' | 'ready'
 }
 
+type AnnualSpendState = {
+  customer: string
+  year: number
+  locations: LocationComparisonItem[]
+  status: 'loading' | 'ready'
+}
+
 export default function Spend() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -331,6 +338,14 @@ export default function Spend() {
   const [jpaUploadError, setJpaUploadError] = useState('')
   const [jpaUploading, setJpaUploading] = useState(false)
   const [analyticsReloadKey, setAnalyticsReloadKey] = useState(0)
+  const currentYear = new Date().getFullYear()
+  const [annualSpendYear, setAnnualSpendYear] = useState(currentYear)
+  const [annualSpendState, setAnnualSpendState] = useState<AnnualSpendState>({
+    customer: selectedCustomer,
+    year: currentYear,
+    locations: [],
+    status: 'loading',
+  })
   const [reportDateRange, setReportDateRange] = useState(() => getInitialReportDateRange(searchParams))
   const [dateRangeDraft, setDateRangeDraft] = useState(() => getDateRangeDraftFromRange(getInitialReportDateRange(searchParams)))
   const [spendState, setSpendState] = useState<SpendState>({
@@ -406,6 +421,25 @@ export default function Spend() {
       isMounted = false
     }
   }, [analyticsReloadKey, reportDateRange, selectedCustomer])
+
+  useEffect(() => {
+    let isMounted = true
+    const now = new Date()
+    const endMonth = annualSpendYear === now.getFullYear() ? now.getMonth() + 1 : 12
+    const yearRange = {
+      startMonth: `${annualSpendYear}-01`,
+      endMonth: `${annualSpendYear}-${String(endMonth).padStart(2, '0')}`,
+    }
+    setAnnualSpendState({ customer: selectedCustomer, year: annualSpendYear, locations: [], status: 'loading' })
+    getSpendDashboardAnalytics(selectedCustomer, yearRange)
+      .then(({ locationComparison }) => {
+        if (isMounted) setAnnualSpendState({ customer: selectedCustomer, year: annualSpendYear, locations: locationComparison, status: 'ready' })
+      })
+      .catch(() => {
+        if (isMounted) setAnnualSpendState({ customer: selectedCustomer, year: annualSpendYear, locations: [], status: 'ready' })
+      })
+    return () => { isMounted = false }
+  }, [annualSpendYear, analyticsReloadKey, selectedCustomer])
 
   useEffect(() => {
     if (!customAnalyticsMessage) return
@@ -489,6 +523,9 @@ export default function Spend() {
     spendState.endMonth === reportDateRange.endMonth
   const analytics = isCurrentReportRange ? spendState.analytics : emptyAnalytics
   const locationComparison = isCurrentReportRange ? spendState.locationComparison : []
+  const yearToDateComparison = annualSpendState.customer === selectedCustomer && annualSpendState.year === annualSpendYear
+    ? annualSpendState.locations
+    : []
   const isLoading = !isCurrentReportRange || spendState.status === 'loading'
   const error = isCurrentReportRange ? spendState.error : ''
   const locationSpendTotal = analytics.locationSpend.reduce((sum, item) => sum + item.spend, 0)
@@ -1124,6 +1161,49 @@ export default function Spend() {
                 </div>
                 <SpendPrintBarList items={invoiceSizeData} color="#efb43f" />
               </article>
+            </section>
+
+            <section className="spend-print-break rounded-[16px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.08em] text-[var(--deshazo-blue)]">Annual Spend</p>
+                  <h2 className="mt-1 text-[24px] font-black tracking-[-0.04em] text-[var(--deshazo-text)]">Spend by Factory</h2>
+                  <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
+                    January–{new Intl.DateTimeFormat(undefined, { month: 'long' }).format(new Date(annualSpendYear, annualSpendYear === currentYear ? new Date().getMonth() : 11, 1))} {annualSpendYear}
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 text-sm font-bold text-[var(--deshazo-text)]">
+                  <span>Year</span>
+                  <select
+                    value={annualSpendYear}
+                    onChange={(event) => setAnnualSpendYear(Number(event.target.value))}
+                    className="h-10 rounded-md border border-[var(--deshazo-border)] bg-white px-3 text-sm font-semibold"
+                  >
+                    {Array.from({ length: 11 }, (_, index) => currentYear - index).map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {annualSpendState.status === 'loading' ? (
+                <div className="mt-4 rounded-xl border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-4 py-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.5)]">
+                  Loading {annualSpendYear} spend...
+                </div>
+              ) : yearToDateComparison.length > 0 ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {yearToDateComparison.map((item) => (
+                    <article key={item.location} className="rounded-xl border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.06em] text-[rgba(21,24,33,0.52)]">{item.location}</p>
+                      <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-[var(--deshazo-text)]">{formatCurrency(item.total_invoice_cost)}</p>
+                      <p className="mt-1 text-xs font-semibold text-[rgba(21,24,33,0.55)]">{item.finance_invoice_count.toLocaleString()} finance invoices</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-4 py-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.5)]">
+                  No finance spend is available for {annualSpendYear}.
+                </div>
+              )}
             </section>
 
             <section className="spend-print-break rounded-[16px] border border-[var(--deshazo-border)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.18)]">
