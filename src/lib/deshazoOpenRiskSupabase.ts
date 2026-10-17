@@ -334,6 +334,12 @@ function matchesLocations(unit: AssetUnit, locations: string[]) {
   return locations.some((location) => value.includes(location.replace(/_([a-z]{2})$/, '')) || value === location)
 }
 
+function matchesAreas(unit: AssetUnit, areas: string[]) {
+  if (areas.length === 0) return true
+  const value = normalizeText(unit.interior_location).toLowerCase()
+  return areas.some((area) => value === normalizeText(area).toLowerCase())
+}
+
 function buildAssetName(dNumber: string, description?: string | null) {
   const cleanDescription = normalizeText(description)
   return cleanDescription ? `${dNumber} ${cleanDescription}` : dNumber
@@ -657,9 +663,10 @@ export async function getSupabaseOpenRiskAssets(
   locations: string[] = [],
   currentPage = 0,
   customer?: string,
+  areas: string[] = [],
 ): Promise<AssetsPageAnalytics> {
   const dataset = await loadDataset(customer)
-  const filteredAssets = dataset.assets.filter((asset) => matchesLocations(asset.unit, locations))
+  const filteredAssets = dataset.assets.filter((asset) => matchesLocations(asset.unit, locations) && matchesAreas(asset.unit, areas))
   const pageStart = Math.max(0, currentPage) * pageSize
   const pageAssets = filteredAssets.slice(pageStart, pageStart + pageSize)
 
@@ -733,8 +740,18 @@ export async function getSupabaseAssetFleetAssets(
   locations: string[] = [],
   currentPage = 0,
   customer?: string,
+  areas: string[] = [],
 ): Promise<AssetsPageAnalytics> {
-  return getSupabaseOpenRiskAssets(locations, currentPage, customer)
+  return getSupabaseOpenRiskAssets(locations, currentPage, customer, areas)
+}
+
+export async function getSupabaseAssetAreaOptions(locations: string[] = [], customer?: string): Promise<string[]> {
+  const dataset = await loadDataset(customer)
+  return [...new Set(dataset.assets
+    .filter((asset) => matchesLocations(asset.unit, locations))
+    .map((asset) => normalizeText(asset.unit.interior_location))
+    .filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }))
 }
 
 export async function getSupabaseOpenRiskAssetInfo(unitId: string, customer?: string): Promise<AssetInfoAnalytics> {
