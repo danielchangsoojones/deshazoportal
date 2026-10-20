@@ -114,7 +114,7 @@ export default function Login({
             Sign in to continue, or create your account if this is your first visit.
           </p>
         )}
-        <div className="grid items-start gap-5 lg:grid-cols-2 lg:gap-7">
+        <div className={`grid items-start gap-5 ${showSignup ? 'lg:grid-cols-2 lg:gap-7' : ''}`}>
         <section className="w-full rounded-2xl border border-[var(--deshazo-border)] border-t-[8px] border-t-[var(--deshazo-blue-soft)] bg-white p-8 shadow-[0_24px_70px_-44px_rgba(6,24,73,0.45)]">
         {showSignup && <p className="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-[var(--deshazo-blue-soft)]">Returning user</p>}
         <h1 style={{ fontSize: '2.5rem', lineHeight: 1.1, margin: 0 }} className="mb-1 font-semibold text-[var(--deshazo-text)]">Sign in</h1>
