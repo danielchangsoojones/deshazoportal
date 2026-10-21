@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
 import { useCustomerPath } from '../lib/customerRouting'
+import Signup from './Signup'
 
 type LoginProps = {
   redirectTo?: string
   forgotPasswordFrom?: string
   redirectIfAuthenticated?: boolean
   useCustomerRedirect?: boolean
+  showSignup?: boolean
 }
 
 export default function Login({
@@ -15,6 +17,7 @@ export default function Login({
   forgotPasswordFrom = 'login',
   redirectIfAuthenticated = false,
   useCustomerRedirect = true,
+  showSignup = true,
 }: LoginProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -103,10 +106,19 @@ export default function Login({
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--bg)] px-4">
-      <div className="w-full max-w-md rounded-2xl border border-[var(--deshazo-border)] bg-white p-8 shadow-[0_24px_70px_-44px_rgba(6,24,73,0.45)]">
-        <h1 className="mb-1 text-2xl font-semibold text-[var(--deshazo-text)]">Welcome back</h1>
-        <p className="mb-6 text-sm text-[rgba(7,18,47,0.58)]">Sign in to your account</p>
+    <main className="flex min-h-screen flex-col justify-center bg-[var(--bg)] px-4 py-8 sm:px-6 lg:py-12">
+      <div className={`mx-auto w-full ${showSignup ? 'max-w-6xl' : 'max-w-md'}`}>
+        <div className={showSignup ? 'flex flex-col gap-10 sm:gap-12' : ''}>
+        {showSignup && (
+          <p className="text-base leading-7 text-[rgba(7,18,47,0.58)] sm:text-lg">
+            Sign in to continue, or create your account if this is your first visit.
+          </p>
+        )}
+        <div className={`grid items-start gap-5 ${showSignup ? 'lg:grid-cols-2 lg:gap-7' : ''}`}>
+        <section className="w-full rounded-2xl border border-[var(--deshazo-border)] border-t-[8px] border-t-[var(--deshazo-blue-soft)] bg-white p-8 shadow-[0_24px_70px_-44px_rgba(6,24,73,0.45)]">
+        {showSignup && <p className="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-[var(--deshazo-blue-soft)]">Returning user</p>}
+        <h1 style={{ fontSize: '2.5rem', lineHeight: 1.1, margin: 0 }} className="mb-1 font-semibold text-[var(--deshazo-text)]">Sign in</h1>
+        <p className="mb-6 text-base text-[rgba(7,18,47,0.58)]">Welcome back. Pick up where you left off.</p>
 
         {error && (
           <div role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
@@ -177,13 +189,11 @@ export default function Login({
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-[rgba(7,18,47,0.68)]">
-          Don't have an account?{' '}
-          <Link to={customerPath('/signup')} className="font-medium text-[var(--deshazo-blue)] hover:underline">
-            Sign up
-          </Link>
-        </p>
+        </section>
+        {showSignup && <Signup embedded />}
+        </div>
+        </div>
       </div>
-    </div>
+    </main>
   )
 }

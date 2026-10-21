@@ -10,7 +10,7 @@ import {
   type AssetUnit,
   type AssetsPageAnalytics,
 } from '../lib/portalApi'
-import { getSupabaseAssetFleetAssets, getSupabaseOpenRiskAssets } from '../lib/deshazoOpenRiskSupabase'
+import { getSupabaseAssetAreaOptions, getSupabaseAssetFleetAssets, getSupabaseOpenRiskAssets } from '../lib/deshazoOpenRiskSupabase'
 import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
@@ -145,6 +145,9 @@ export default function AssetFleetAssets() {
   const [locationsLoading, setLocationsLoading] = useState(true)
   const [selectedLocations, setSelectedLocations] = useState<string[]>([])
   const [locationMenuOpen, setLocationMenuOpen] = useState(false)
+  const [areaOptions, setAreaOptions] = useState<string[]>([])
+  const [selectedAreas, setSelectedAreas] = useState<string[]>([])
+  const [areaMenuOpen, setAreaMenuOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [assetsPage, setAssetsPage] = useState<AssetsPageAnalytics>(defaultAssetsPage)
   const [loading, setLoading] = useState(true)
@@ -167,8 +170,32 @@ export default function AssetFleetAssets() {
     const initialPage = Number(searchParams.get('page') || '1')
 
     setSelectedLocations(parsedLocations)
+    const initialAreas = searchParams.get('areas')
+    setSelectedAreas(initialAreas ? initialAreas.split(',').map((value) => value.trim()).filter(Boolean) : [])
     setCurrentPage(Number.isFinite(initialPage) && initialPage > 0 ? initialPage : 1)
   }, [searchParams])
+
+  useEffect(() => {
+    let cancelled = false
+    getSupabaseAssetAreaOptions(selectedLocations, selectedCustomer).then((options) => {
+      if (cancelled) return
+      setAreaOptions(options)
+      setSelectedAreas((current) => {
+        const nextAreas = current.filter((area) => options.includes(area))
+        if (nextAreas.length !== current.length) {
+          const nextParams = new URLSearchParams(searchParams)
+          if (nextAreas.length > 0) nextParams.set('areas', nextAreas.join(','))
+          else nextParams.delete('areas')
+          nextParams.delete('page')
+          setSearchParams(nextParams, { replace: true })
+        }
+        return nextAreas
+      })
+    }).catch((err: unknown) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load areas.')
+    })
+    return () => { cancelled = true }
+  }, [selectedLocations, selectedCustomer, searchParams, setSearchParams])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -229,8 +256,8 @@ export default function AssetFleetAssets() {
         setLoading(true)
         setError('')
         const data = currentView === 'open-risk'
-          ? await getSupabaseOpenRiskAssets(selectedLocations, currentPage - 1, selectedCustomer)
-          : await getSupabaseAssetFleetAssets(selectedLocations, currentPage - 1, selectedCustomer)
+          ? await getSupabaseOpenRiskAssets(selectedLocations, currentPage - 1, selectedCustomer, selectedAreas)
+          : await getSupabaseAssetFleetAssets(selectedLocations, currentPage - 1, selectedCustomer, selectedAreas)
         setAssetsPage(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -246,7 +273,7 @@ export default function AssetFleetAssets() {
     loadAssets()
 
     return () => controller.abort()
-  }, [selectedLocations, currentPage, currentView, authLoading, user, selectedCustomer])
+  }, [selectedLocations, selectedAreas, currentPage, currentView, authLoading, user, selectedCustomer])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -290,7 +317,7 @@ export default function AssetFleetAssets() {
   const visiblePages = buildVisiblePages(currentPage, totalPages)
   const selectedLocationLabels = locationOptions.filter((option) => selectedLocations.includes(option.value))
 
-  const syncFilters = (locations: string[], page: number) => {
+  const syncFilters = (locations: string[], areas: string[], page: number) => {
     const next = new URLSearchParams()
     if (currentView === 'open-risk') {
       next.set('view', 'open-risk')
@@ -298,6 +325,7 @@ export default function AssetFleetAssets() {
     if (locations.length > 0) {
       next.set('locations', locations.join(','))
     }
+    if (areas.length > 0) next.set('areas', areas.join(','))
     if (page > 1) {
       next.set('page', String(page))
     }
@@ -308,7 +336,14 @@ export default function AssetFleetAssets() {
     const nextLocations = selectedLocations.includes(locationValue)
       ? selectedLocations.filter((value) => value !== locationValue)
       : [...selectedLocations, locationValue]
-    syncFilters(nextLocations, 1)
+    syncFilters(nextLocations, selectedAreas, 1)
+  }
+
+  const toggleArea = (area: string) => {
+    const nextAreas = selectedAreas.includes(area)
+      ? selectedAreas.filter((value) => value !== area)
+      : [...selectedAreas, area]
+    syncFilters(selectedLocations, nextAreas, 1)
   }
 
   return (
@@ -484,6 +519,30 @@ export default function AssetFleetAssets() {
                     </div>
                   ) : null}
                 </div>
+                <div className="relative flex items-start gap-3 text-sm font-semibold text-[var(--deshazo-text)]">
+                  <span>Area</span>
+                  <div className="relative w-[240px] shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setAreaMenuOpen((open) => !open)}
+                      className="flex min-h-10 w-full flex-wrap items-center gap-2 rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-left text-sm text-[var(--deshazo-text)]"
+                    >
+                      {selectedAreas.length ? selectedAreas.map((area) => (
+                        <span key={area} className="rounded-full bg-[var(--deshazo-surface)] px-2.5 py-1 text-xs font-semibold text-[var(--deshazo-blue)]">{area}</span>
+                      )) : <span className="text-[rgba(21,24,33,0.45)]">Select Area</span>}
+                    </button>
+                    {areaMenuOpen ? (
+                      <div className="absolute right-0 top-[calc(100%+8px)] z-20 max-h-72 w-full overflow-y-auto rounded-[14px] border border-[var(--deshazo-border)] bg-white p-2 shadow-[0_18px_40px_-30px_rgba(47,86,166,0.35)]">
+                        {areaOptions.length === 0 ? <div className="px-3 py-2 text-sm font-semibold text-[rgba(21,24,33,0.55)]">No areas found.</div> : areaOptions.map((area) => {
+                          const isSelected = selectedAreas.includes(area)
+                          return <button key={area} type="button" onClick={() => toggleArea(area)} className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${isSelected ? 'bg-[#dbe5ff] font-semibold text-[var(--deshazo-text)]' : 'text-[rgba(21,24,33,0.78)] hover:bg-[var(--deshazo-surface)]'}`}>
+                            <span>{area}</span><span className="text-[var(--deshazo-blue)]">{isSelected ? '✓' : ''}</span>
+                          </button>
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -542,7 +601,7 @@ export default function AssetFleetAssets() {
                   <button
                     type="button"
                     disabled={currentPage <= 1}
-                    onClick={() => syncFilters(selectedLocations, Math.max(1, currentPage - 1))}
+                    onClick={() => syncFilters(selectedLocations, selectedAreas, Math.max(1, currentPage - 1))}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[var(--deshazo-blue)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     ‹
@@ -551,7 +610,7 @@ export default function AssetFleetAssets() {
                     <button
                       key={page}
                       type="button"
-                      onClick={() => syncFilters(selectedLocations, page)}
+                      onClick={() => syncFilters(selectedLocations, selectedAreas, page)}
                       className={`inline-flex h-8 min-w-8 items-center justify-center rounded-md px-2 ${
                         page === currentPage
                           ? 'bg-[var(--deshazo-blue)] text-white'
@@ -565,7 +624,7 @@ export default function AssetFleetAssets() {
                   <button
                     type="button"
                     disabled={currentPage >= totalPages}
-                    onClick={() => syncFilters(selectedLocations, Math.min(totalPages, currentPage + 1))}
+                    onClick={() => syncFilters(selectedLocations, selectedAreas, Math.min(totalPages, currentPage + 1))}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--deshazo-border)] bg-white text-[var(--deshazo-blue)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     ›

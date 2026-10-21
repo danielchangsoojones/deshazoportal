@@ -372,6 +372,40 @@ export function mapJobsQuotingItem(row: JobsQuotingItemRow): JobsQuotingItem {
   }
 }
 
+async function fillMissingExternalJobNumbers(items: JobsQuotingItem[]): Promise<JobsQuotingItem[]> {
+  const missingWorkOrderIds = Array.from(new Set(
+    items
+      .filter((item) => !item.jobNumber.trim() && item.deshazoExternalInspectionReportWorkOrderId)
+      .map((item) => item.deshazoExternalInspectionReportWorkOrderId as number),
+  ))
+  if (missingWorkOrderIds.length === 0) return items
+
+  const client = requireSupabase()
+  const jobNumbersByWorkOrderId = new Map<number, string>()
+  for (const workOrderIdChunk of chunkValues(missingWorkOrderIds, runIdFilterChunkSize)) {
+    const { data, error } = await client
+      .from('deshazo_external_inspection_reports')
+      .select('work_order_id, job_no')
+      .in('work_order_id', workOrderIdChunk)
+    if (error) throw new Error(error.message)
+
+    ;(data ?? []).forEach((row) => {
+      const workOrderId = Number(row.work_order_id)
+      const jobNumber = typeof row.job_no === 'string' ? row.job_no.trim() : ''
+      if (jobNumber) jobNumbersByWorkOrderId.set(workOrderId, jobNumber)
+    })
+  }
+
+  if (jobNumbersByWorkOrderId.size === 0) return items
+  return items.map((item) => {
+    if (item.jobNumber.trim()) return item
+    const jobNumber = item.deshazoExternalInspectionReportWorkOrderId
+      ? jobNumbersByWorkOrderId.get(item.deshazoExternalInspectionReportWorkOrderId)
+      : undefined
+    return jobNumber ? { ...item, jobNumber } : item
+  })
+}
+
 function mapJobsQuotingItemResult(row: JobsQuotingItemResultRow): JobsQuotingItemResult {
   const quoteTotalAmount = Number(row.quote_total_amount ?? 0)
   const amountWon = row.amount_won == null ? null : Number(row.amount_won)
@@ -787,7 +821,7 @@ export async function getJobsQuotingItems(runId?: string): Promise<JobsQuotingIt
     return query
   })
 
-  return rows.map(mapJobsQuotingItem)
+  return fillMissingExternalJobNumbers(rows.map(mapJobsQuotingItem))
 }
 
 export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<JobsQuotingItem[]> {
@@ -815,7 +849,7 @@ export async function getJobsQuotingItemsForRuns(runIds: string[]): Promise<Jobs
     rows.push(...chunkRows)
   }
 
-  return rows.map(mapJobsQuotingItem)
+  return fillMissingExternalJobNumbers(rows.map(mapJobsQuotingItem))
 }
 
 export async function getJobsQuotingItemsForJobNumbers(jobNumbers: string[]): Promise<JobsQuotingItem[]> {

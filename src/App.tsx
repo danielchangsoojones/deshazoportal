@@ -2,7 +2,6 @@ import { Suspense, lazy, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Login from './pages/Login'
 import QuoteLogin from './pages/QuoteLogin'
-import Signup from './pages/Signup'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import OldWabash from './pages/OldWabash'
@@ -123,7 +122,7 @@ function App() {
   const portalRoutes = (
     <>
       <Route path="login" element={<Login />} />
-      <Route path="signup" element={<Signup />} />
+      <Route path="signup" element={<Navigate to="../login" replace />} />
       <Route path="forgot-password" element={<ForgotPassword />} />
       <Route path="reset-password" element={<ResetPassword />} />
       <Route path="dashboard" element={<Dashboard />} />
