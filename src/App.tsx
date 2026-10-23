@@ -17,6 +17,7 @@ const DocumentsReports = lazy(() => import('./pages/DocumentsReports'))
 const EquipmentNotebookLLM = lazy(() => import('./pages/EquipmentNotebookLLM'))
 const DeshazoInternalDashboard = lazy(() => import('./pages/DeshazoInternalDashboard'))
 const CustomerPortals = lazy(() => import('./pages/CustomerPortals'))
+const SpareHoistManagement = lazy(() => import('./pages/SpareHoistManagement'))
 const QuoteAnalytics = lazy(() => import('./pages/QuoteAnalytics'))
 const TopCranes = lazy(() => import('./pages/TopCranes'))
 const QualityControl = lazy(() => import('./pages/QualityControl'))
@@ -140,6 +141,7 @@ function App() {
       <Route path="asset-fleet" element={<AssetFleet />} />
       <Route path="asset-fleet-assets" element={<AssetFleetAssets />} />
       <Route path="asset-info" element={<AssetInfo />} />
+      <Route path="spare-hoist-management" element={<SpareHoistManagement />} />
       <Route path="customer-quotes" element={<CustomerQuotes />} />
     </>
   )
