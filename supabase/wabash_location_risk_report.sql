@@ -24,6 +24,10 @@ create index if not exists deshazo_external_report_points_section_condition_idx
 create index if not exists deshazo_external_report_points_section_condition_expr_idx
   on public.deshazo_external_report_points (section_row_id, upper(trim(condition)));
 
+create index if not exists deshazo_external_report_points_open_risk_section_idx
+  on public.deshazo_external_report_points (section_row_id)
+  where upper(trim(condition)) in ('REPAIR', 'MONITOR', 'DO NOT OPERATE / SAFETY');
+
 drop function if exists public.get_wabash_location_risk_report(integer);
 
 create function public.get_wabash_location_risk_report(

@@ -72,7 +72,7 @@ values
   ('wabash', 'harrison_ar', 'Harrison, AR', true, null),
   ('wabash', 'jonestown_pa', 'Jonestown, PA', true, null),
   ('wabash', 'ligonier_in', 'Ligonier, IN', false, 'No longer part of Wabash'),
-  ('wabash', 'little_falls_mn', 'Little Falls, MN', true, null),
+  ('wabash', 'little_falls_mn', 'Little Falls, MN', false, 'No longer part of Wabash'),
   ('wabash', 'maustin_wi', 'Maustin, WI', true, null),
   ('wabash', 'mauston_wi', 'Mauston, WI', true, null),
   ('wabash', 'moreno_valley_ca', 'Moreno Valley, CA', true, null),

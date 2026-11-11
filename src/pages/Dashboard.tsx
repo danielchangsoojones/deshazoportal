@@ -27,6 +27,13 @@ const portalCards = [
     href: '/asset-fleet',
   },
   {
+    eyebrow: 'Inventory',
+    title: 'Spare Hoist Management',
+    description: 'Track spare hoists, repair progress, service records, and storage locations.',
+    href: '/spare-hoist-management',
+    wabashOnly: true,
+  },
+  {
     eyebrow: 'Analytics',
     title: 'Spend',
     description: 'See an analytical breakdown of your spend regarding parts, labor, and maintenance trends.',
@@ -87,12 +94,13 @@ export default function Dashboard() {
   const visiblePortalCards = useMemo(
     () =>
       portalCards
+        .filter((card) => !('wabashOnly' in card && card.wabashOnly && selectedCustomer !== 'wabash'))
         .map((card) => {
           if (!isFinanceReleased || !financeReleasedCards.has(card.title)) return card
           return { ...card, developerOnly: false, oldDb: false }
         })
         .filter((card) => userTag === 'developer' || !card.developerOnly),
-    [isFinanceReleased, userTag],
+    [isFinanceReleased, selectedCustomer, userTag],
   )
 
   const menuItems = useMemo(

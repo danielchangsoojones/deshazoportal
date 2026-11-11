@@ -389,6 +389,8 @@ export default function Spend() {
   }, [customerPath, navigate])
 
   useEffect(() => {
+    if (authLoading || !user) return
+
     let isMounted = true
 
     getSpendDashboardAnalytics(selectedCustomer, reportDateRange)
@@ -420,9 +422,11 @@ export default function Spend() {
     return () => {
       isMounted = false
     }
-  }, [analyticsReloadKey, reportDateRange, selectedCustomer])
+  }, [analyticsReloadKey, authLoading, reportDateRange, selectedCustomer, user])
 
   useEffect(() => {
+    if (authLoading || !user) return
+
     let isMounted = true
     const now = new Date()
     const endMonth = annualSpendYear === now.getFullYear() ? now.getMonth() + 1 : 12
@@ -439,7 +443,7 @@ export default function Spend() {
         if (isMounted) setAnnualSpendState({ customer: selectedCustomer, year: annualSpendYear, locations: [], status: 'ready' })
       })
     return () => { isMounted = false }
-  }, [annualSpendYear, analyticsReloadKey, selectedCustomer])
+  }, [annualSpendYear, analyticsReloadKey, authLoading, selectedCustomer, user])
 
   useEffect(() => {
     if (!customAnalyticsMessage) return

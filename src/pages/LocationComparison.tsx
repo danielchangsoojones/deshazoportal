@@ -95,6 +95,8 @@ export default function LocationComparison() {
   }, [customerPath, navigate])
 
   useEffect(() => {
+    if (authLoading || !user) return
+
     let isMounted = true
     setComparisonState((current) => ({
       customer: selectedCustomer,
@@ -126,7 +128,7 @@ export default function LocationComparison() {
     return () => {
       isMounted = false
     }
-  }, [comparisonReloadKey, selectedCustomer])
+  }, [authLoading, comparisonReloadKey, selectedCustomer, user])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()

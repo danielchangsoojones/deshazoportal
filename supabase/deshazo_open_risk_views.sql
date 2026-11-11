@@ -142,12 +142,20 @@ from actionable_points;
 create or replace view public.deshazo_open_risk_asset_summaries as
 with issue_counts as (
   select
-    customer,
-    unit_id,
-    count(*) filter (where safety_category = 'safety') as safety_issue_count,
-    count(*) filter (where safety_category = 'monitor') as monitor_issue_count
-  from public.deshazo_open_risk_latest_issue_rows
-  group by customer, unit_id
+    a.customer,
+    a.unit_id,
+    a.inspection_row_id,
+    count(*) filter (
+      where upper(trim(p.condition)) in ('REPAIR', 'DO NOT OPERATE / SAFETY')
+    ) as safety_issue_count,
+    count(*) filter (where upper(trim(p.condition)) = 'MONITOR') as monitor_issue_count
+  from public.deshazo_open_risk_latest_assets a
+  join public.deshazo_external_report_sections s
+    on s.inspection_row_id = a.inspection_row_id
+  join public.deshazo_external_report_points p
+    on p.section_row_id = s.id
+   and upper(trim(p.condition)) in ('REPAIR', 'MONITOR', 'DO NOT OPERATE / SAFETY')
+  group by a.customer, a.unit_id, a.inspection_row_id
 )
 select
   a.customer,
@@ -162,7 +170,8 @@ select
 from public.deshazo_open_risk_latest_assets a
 left join issue_counts ic
   on ic.customer = a.customer
-  and ic.unit_id = a.unit_id;
+ and ic.unit_id = a.unit_id
+ and ic.inspection_row_id = a.inspection_row_id;
 
 create or replace view public.deshazo_open_risk_issue_rows as
 with customer_inspections as (
