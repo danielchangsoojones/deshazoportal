@@ -29,6 +29,7 @@ const DeshazoWorkOrders = lazy(() => import('./pages/DeshazoWorkOrders'))
 const EditableInspectionReport = lazy(() => import('./pages/EditableInspectionReport'))
 const JobsQuotingList = lazy(() => import('./pages/JobsQuotingList'))
 const AssetFleet = lazy(() => import('./pages/AssetFleet'))
+const ScrapingRules = lazy(() => import('./pages/ScrapingRules'))
 const AssetFleetAssets = lazy(() => import('./pages/AssetFleetAssets'))
 const AssetInfo = lazy(() => import('./pages/AssetInfo'))
 const CustomerQuotes = lazy(() => import('./pages/CustomerQuotes'))
@@ -142,6 +143,7 @@ function App() {
       <Route path="deshazo-work-orders" element={<DeshazoWorkOrders />} />
       <Route path="deshazo-external-reports" element={<DeshazoExternalReports />} />
       <Route path="asset-fleet" element={<AssetFleet />} />
+      <Route path="scraping-rules" element={<ScrapingRules />} />
       <Route path="asset-fleet-assets" element={<AssetFleetAssets />} />
       <Route path="asset-info" element={<AssetInfo />} />
       <Route path="spare-hoist-management" element={<SpareHoistManagement />} />

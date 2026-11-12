@@ -21,6 +21,13 @@ const portalCards = [
     href: '/asset-fleet-assets?view=open-risk',
   },
   {
+    eyebrow: 'Monitoring',
+    title: 'Scraping Rules',
+    description: 'Set up rules to flag property incidents, acquisitions, and lender news from selected sources.',
+    href: '/scraping-rules',
+    brancoOnly: true,
+  },
+  {
     eyebrow: 'Assets',
     title: 'Asset Fleet',
     description: 'See what percentage of your industrial assets have been inspected and which items need attention.',
@@ -94,6 +101,7 @@ export default function Dashboard() {
   const visiblePortalCards = useMemo(
     () =>
       portalCards
+        .filter((card) => !card.brancoOnly || selectedCustomer === phillipsCustomer)
         .filter((card) => !card.requiresSpareHoistManagement || hasSpareHoistManagement(selectedCustomer))
         .map((card) => {
           if (!isFinanceReleased || !financeReleasedCards.has(card.title)) return card

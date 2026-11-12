@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import { phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { sampleProperties } from '../lib/samplePropertyRisks'
 
 const quoteStages = [
   { id: 'pending', label: 'Pending', description: 'New quotes awaiting review' },
@@ -27,8 +28,8 @@ type Quote = {
 
 type QuoteDocument = {
   label: string
-  fileName: string
-  url: string
+  fileName?: string
+  url?: string
 }
 
 type QuoteLineItem = {
@@ -119,16 +120,77 @@ const sampleQuotes: Quote[] = [
 const formatMoney = (amount: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
 
-export default function CustomerQuotes() {
-  const customer = useSelectedCustomer()
-  return <CustomerQuoteBoard key={customer} initialQuotes={customer === phillipsCustomer ? [] : sampleQuotes} />
+function propertyQuote(id: number, propertyId: string, title: string, stage: QuoteStage, updated: string, items: [string, string, number][]): Quote {
+  const property = sampleProperties.find(({ id }) => id === propertyId)
+  const lineItems = items.map(([description, category, amount], index) => ({ id: `item-${index + 1}`, description, category, amount }))
+  return {
+    id: `BR-${id}`, customer: 'Branco Company', title,
+    location: property ? `${property.name}, ${property.location}` : propertyId,
+    stage, updated, lineItems,
+    amount: formatMoney(lineItems.reduce((total, item) => total + item.amount, 0)),
+    acceptedLineItemIds: stage === 'pending' ? undefined : lineItems.map(({ id }) => id),
+  }
 }
 
-function CustomerQuoteBoard({ initialQuotes }: { initialQuotes: Quote[] }) {
+const samplePropertyQuotes = [
+  propertyQuote(26115, 'mercer-square', 'Third-floor fire alarm repairs', 'pending', 'Nov 12', [
+    ['Replace failed notification devices', 'Parts', 1320], ['Trace and repair the alarm circuit', 'Labor', 1850], ['Perform a system verification test', 'Testing', 640],
+  ]),
+  propertyQuote(26114, 'harbor-point', 'Elevator emergency phone replacement', 'pending', 'Nov 11', [
+    ['Emergency phone and mounting kit', 'Parts', 980], ['Install and program emergency phone', 'Labor', 1475], ['Verify calls to the monitoring center', 'Testing', 320],
+  ]),
+  propertyQuote(26113, 'union-market', 'Storefront entrance paver repairs', 'pending', 'Nov 10', [
+    ['Lift and reset uneven pavers', 'Labor', 2350], ['Replacement pavers and bedding', 'Materials', 1160], ['Remove and haul away damaged materials', 'Service', 430],
+  ]),
+  propertyQuote(26112, 'northline', 'Loading dock seal replacement', 'waiting-for-parts', 'Nov 9', [
+    ['Custom dock seal for bay 4', 'Parts', 2940], ['Remove and install dock seal', 'Labor', 1560], ['Freight for oversized components', 'Freight', 375],
+  ]),
+  propertyQuote(26111, 'canal-works', 'Sprinkler valve supervision repair', 'waiting-for-parts', 'Nov 8', [
+    ['Supervisory switch and hardware', 'Parts', 680], ['Replace and align the switch', 'Labor', 1070], ['Test alarm panel signals', 'Testing', 420],
+  ]),
+  propertyQuote(26110, 'eastbank-terrace', 'Courtyard door threshold replacement', 'waiting-for-parts', 'Nov 7', [
+    ['Low-profile threshold and seals', 'Parts', 485], ['Fit threshold and adjust door sweep', 'Labor', 720],
+  ]),
+  propertyQuote(26109, 'atlas-court', 'West stair emergency lighting upgrade', 'scheduled', 'Nov 6', [
+    ['Battery-backed lighting fixtures', 'Parts', 1960], ['Install and reconnect fixtures', 'Labor', 2840], ['Test emergency operation', 'Testing', 570],
+  ]),
+  propertyQuote(26108, 'willow-court', 'East stair handrail reinforcement', 'scheduled', 'Nov 5', [
+    ['Replacement brackets and anchors', 'Parts', 430], ['Secure handrail and inspect mounting points', 'Labor', 1360],
+  ]),
+  propertyQuote(26107, 'ridgemont-offices', 'Air handler fan and mount service', 'scheduled', 'Nov 4', [
+    ['Vibration isolators and fan belts', 'Parts', 875], ['Service fan assembly and verify alignment', 'Labor', 2180], ['Measure operating vibration', 'Testing', 385],
+  ]),
+  propertyQuote(26106, 'mercer-square', 'Rear exit door latch repair', 'completed', 'Nov 3', [
+    ['Commercial latch and strike kit', 'Parts', 760], ['Replace latch and verify door closure', 'Labor', 945],
+  ]),
+  propertyQuote(26105, 'delancey-lofts', 'Entrance glazing replacement', 'completed', 'Nov 2', [
+    ['Tempered glass panel and gaskets', 'Materials', 2180], ['Remove damaged glazing and install panel', 'Labor', 1620], ['Dispose of damaged glass', 'Service', 295],
+  ]),
+  propertyQuote(26104, 'harbor-point', 'Parking garage drain service', 'completed', 'Oct 30', [
+    ['Clear trench drain and outlet', 'Service', 1380], ['Inspect drainage with a camera', 'Inspection', 675],
+  ]),
+  propertyQuote(26103, 'cedar-row', 'Courtyard bench refinishing', 'invoice', 'Oct 29', [
+    ['Exterior coating and preparation supplies', 'Materials', 560], ['Strip, sand, and refinish benches', 'Labor', 1490],
+  ]),
+  propertyQuote(26102, 'briar-commons', 'Rear passage and delivery area markings', 'invoice', 'Oct 28', [
+    ['Pavement paint and safety signs', 'Materials', 525], ['Stripe the delivery staging area', 'Labor', 1280],
+  ]),
+  propertyQuote(26101, 'northline', 'Visitor parking signage replacement', 'invoice', 'Oct 27', [
+    ['Reflective signs and post hardware', 'Parts', 830], ['Remove and install parking signs', 'Labor', 740],
+  ]),
+]
+
+export default function CustomerQuotes() {
+  const customer = useSelectedCustomer()
+  const propertyDemo = customer === phillipsCustomer
+  return <CustomerQuoteBoard key={customer} initialQuotes={propertyDemo ? samplePropertyQuotes : sampleQuotes} propertyDemo={propertyDemo} />
+}
+
+function CustomerQuoteBoard({ initialQuotes, propertyDemo }: { initialQuotes: Quote[]; propertyDemo: boolean }) {
   const customerPath = useCustomerPath()
   const [quotes, setQuotes] = useState(initialQuotes)
   const [activeStage, setActiveStage] = useState<QuoteStage>('pending')
-  const [selectedDocument, setSelectedDocument] = useState<(QuoteDocument & { quoteId: string; quoteTitle: string }) | null>(null)
+  const [selectedDocument, setSelectedDocument] = useState<(QuoteDocument & { quote: Quote }) | null>(null)
   const [partialAcceptQuote, setPartialAcceptQuote] = useState<PartialAcceptQuote | null>(null)
 
   const counts = useMemo(
@@ -241,7 +303,12 @@ function CustomerQuoteBoard({ initialQuotes }: { initialQuotes: Quote[] }) {
   const activeIndex = quoteStages.findIndex((stage) => stage.id === activeStage)
 
   const documentsForQuote = (quote: Quote) =>
-    quote.stage === 'invoice' ? [originalQuoteDocument, invoiceDocument] : [originalQuoteDocument]
+    quote.stage === 'invoice' ? [quoteDocument, billingDocument] : [quoteDocument]
+  const quoteDocument = propertyDemo ? { label: 'Original Quote' } : originalQuoteDocument
+  const billingDocument = propertyDemo ? { label: 'Invoice' } : invoiceDocument
+  const documentItems = selectedDocument
+    ? selectedDocument.label === 'Invoice' ? getAcceptedLineItems(selectedDocument.quote) : selectedDocument.quote.lineItems
+    : []
 
   return (
     <main className="min-h-screen bg-[var(--bg)] px-5 py-6 text-[var(--deshazo-text)] sm:px-8 lg:px-10 lg:py-8">
@@ -258,7 +325,7 @@ function CustomerQuoteBoard({ initialQuotes }: { initialQuotes: Quote[] }) {
               <DeveloperBadge />
             </div>
             <h1 className="mt-4 text-[clamp(32px,4vw,48px)] font-black tracking-[-0.05em] text-[var(--deshazo-text)]">Customer Quotes</h1>
-            <p className="mt-2 text-base text-[rgba(21,24,33,0.66)]">Track quotes as they move from review through completed work.</p>
+            <p className="mt-2 text-base text-[rgba(21,24,33,0.66)]">{propertyDemo ? 'Branco Company · Sample property quotes' : 'Track quotes as they move from review through completed work.'}</p>
           </div>
           <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
             <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-[rgba(21,24,33,0.5)]">All quotes</p>
@@ -351,7 +418,7 @@ function CustomerQuoteBoard({ initialQuotes }: { initialQuotes: Quote[] }) {
                         <button
                           key={document.label}
                           type="button"
-                          onClick={() => setSelectedDocument({ ...document, quoteId: quote.id, quoteTitle: quote.title })}
+                          onClick={() => setSelectedDocument({ ...document, quote })}
                           className="group/document flex min-w-[172px] snap-start items-center gap-3 rounded-xl border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)] px-3 py-2.5 text-left transition hover:border-[rgba(47,86,166,0.42)] hover:bg-white"
                         >
                           <span className="flex h-10 w-8 shrink-0 items-end rounded-sm border border-[#e7b7b2] bg-white p-1 shadow-sm">
@@ -359,7 +426,7 @@ function CustomerQuoteBoard({ initialQuotes }: { initialQuotes: Quote[] }) {
                           </span>
                           <span className="min-w-0">
                             <span className="block truncate text-[12px] font-extrabold text-[var(--deshazo-text)]">{document.label}</span>
-                            <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[0.08em] text-[rgba(21,24,33,0.48)]">PDF · View</span>
+                            <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[0.08em] text-[rgba(21,24,33,0.48)]">{propertyDemo ? 'Sample · View' : 'PDF · View'}</span>
                           </span>
                         </button>
                       ))}
@@ -390,12 +457,30 @@ function CustomerQuoteBoard({ initialQuotes }: { initialQuotes: Quote[] }) {
           <div className="flex h-[min(860px,calc(100vh-2rem))] w-full max-w-5xl flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_28px_80px_-24px_rgba(0,0,0,0.5)]">
             <div className="flex items-center justify-between gap-4 border-b border-[var(--deshazo-border)] px-5 py-4 sm:px-6">
               <div className="min-w-0">
-                <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-[var(--deshazo-blue)]">Job Number {selectedDocument.quoteId}</p>
-                <h2 className="truncate text-lg font-extrabold tracking-[-0.03em]">{selectedDocument.label}: {selectedDocument.quoteTitle}</h2>
+                <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-[var(--deshazo-blue)]">Job Number {selectedDocument.quote.id}</p>
+                <h2 className="truncate text-lg font-extrabold tracking-[-0.03em]">{selectedDocument.label}: {selectedDocument.quote.title}</h2>
               </div>
               <button type="button" onClick={() => setSelectedDocument(null)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--deshazo-border)] text-xl font-black text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]" aria-label="Close document preview">×</button>
             </div>
-            <iframe className="min-h-0 flex-1 bg-[#525659]" src={selectedDocument.url} title={`${selectedDocument.fileName} preview`} />
+            {selectedDocument.url ? (
+              <iframe className="min-h-0 flex-1 bg-[#525659]" src={selectedDocument.url} title={`${selectedDocument.fileName} preview`} />
+            ) : (
+              <div className="min-h-0 flex-1 overflow-auto bg-[var(--deshazo-surface)] p-5 sm:p-8">
+                <div className="mx-auto max-w-3xl rounded-2xl border border-[var(--deshazo-border)] bg-white p-5 sm:p-8">
+                  <p className="text-xs font-black uppercase tracking-wide text-[var(--deshazo-blue)]">Sample {selectedDocument.label}</p>
+                  <p className="mt-2 text-sm font-semibold">{selectedDocument.quote.customer} · {selectedDocument.quote.location}</p>
+                  <table className="mt-6 w-full text-left text-sm">
+                    <thead className="border-b border-[var(--deshazo-border)]"><tr><th className="pb-2">Line item</th><th className="pb-2 text-right">Amount</th></tr></thead>
+                    <tbody>
+                      {documentItems.map((item) => (
+                        <tr key={item.id} className="border-b border-[var(--deshazo-border)]"><td className="py-3 pr-3">{item.description}</td><td className="text-right font-semibold">{formatMoney(item.amount)}</td></tr>
+                      ))}
+                    </tbody>
+                    <tfoot><tr><th className="pt-3">Total</th><td className="pt-3 text-right font-black">{formatMoney(documentItems.reduce((sum, item) => sum + item.amount, 0))}</td></tr></tfoot>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : null}
