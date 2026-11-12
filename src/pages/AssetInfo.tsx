@@ -52,6 +52,7 @@ import {
 } from '../lib/invoiceSpend'
 import { getCustomerDisplayName, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { priorities, propertyRiskFilters, sampleProperties, type Property } from '../lib/samplePropertyRisks'
+import { samplePropertyMaintenanceReports, samplePropertyRepairReports } from '../lib/samplePropertyReports'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -1027,9 +1028,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
   }, [unitId, user, selectedCustomer, isSampleProperty])
 
   useEffect(() => {
-    if (isSampleProperty) return
-
-    if (activeTab !== 'documents') {
+    if (activeTab !== 'documents' || (isSampleProperty && !property)) {
       return
     }
     if (!unitId) {
@@ -1047,7 +1046,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
         setDocumentsLoading(true)
         setDocumentsError('')
         const docNumber = extractDocumentNumber(assetInfo.unit_name, unitId)
-        if (!docNumber) {
+        if (!property && !docNumber) {
           setDocumentsError('No D number was found for this asset, so preventative maintenance reports could not be loaded.')
           setAssetDocuments(defaultAssetDocuments)
           setInspectionDocuments([])
@@ -1055,7 +1054,10 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
           return
         }
 
-        const matchedReports = await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber, selectedCustomer)
+        const matchedReports = property
+          ? samplePropertyMaintenanceReports(property)
+          : await getSavedDeshazoInspectionReportMatchesForDNumber(docNumber, selectedCustomer)
+        if (controller.signal.aborted) return
         const mappedDocuments: GeneratedInspectionPdfDocument[] = matchedReports.map((match) => ({
           documentKey: `inspection:${match.report.workOrderId}:${match.craneIndex}`,
           report: match.report,
@@ -1095,7 +1097,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
     return () => {
       controller.abort()
     }
-  }, [activeTab, unitId, assetInfo.unit_name, selectedCustomer, isSampleProperty])
+  }, [activeTab, unitId, assetInfo.unit_name, selectedCustomer, isSampleProperty, property])
 
   useEffect(() => {
     if (activeTab !== 'documents' && activeTab !== 'repair') return
@@ -1116,15 +1118,13 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
   }, [activeTab, documentsPage, inspectionDocuments, repairDocuments, selectedDocumentUrl])
 
   useEffect(() => {
-    if (isSampleProperty) return
-
-    if (activeTab !== 'repair') {
+    if (activeTab !== 'repair' || (isSampleProperty && !property)) {
       return
     }
 
     const city = assetInfo.unit_location || assetInfo.unit_internal_location
 
-    if (!city) {
+    if (!property && !city) {
       setDocumentsLoading(false)
       setDocumentsError('A city/location is required to load repair reports.')
       setRepairDocuments([])
@@ -1143,20 +1143,24 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
 
         if (!cancelled) {
           const dNumber = extractDocumentNumber(assetInfo.unit_name, unitId) || unitId
-          const [reports, invoiceAnalytics] = await Promise.all([
-            getSavedDeshazoRepairReportsByCity(city, selectedCustomer),
-            getCraneInvoiceSpendAnalytics(dNumber, selectedCustomer),
-          ])
+          const [reports, invoiceAnalytics] = property
+            ? [samplePropertyRepairReports(property), null] as const
+            : await Promise.all([
+              getSavedDeshazoRepairReportsByCity(city, selectedCustomer),
+              getCraneInvoiceSpendAnalytics(dNumber, selectedCustomer),
+            ])
           const mappedDocuments: RepairPdfDocument[] = reports.map((report) => ({
             documentKey: `repair:${report.workOrderId}`,
             report,
             inspection_date: report.summary?.startDate || report.summary?.endDate || report.syncedAt,
             pdf: '',
             type: report.jobType || 'Repair',
-            display_name: getDeshazoInspectionPdfFileName(report).replace(/\.pdf$/i, ''),
+            display_name: property
+              ? `${report.jobNo} · ${report.summary?.comment}`
+              : getDeshazoInspectionPdfFileName(report).replace(/\.pdf$/i, ''),
           }))
           const uniqueInvoices = new Map<string, InvoiceSpendAllocation>()
-          invoiceAnalytics.invoices.forEach((invoice) => {
+          invoiceAnalytics?.invoices.forEach((invoice) => {
             const invoiceKey = invoice.invoiceNumber || invoice.invoiceId
             const current = uniqueInvoices.get(invoiceKey)
             if (!current || (!current.sourceDocumentFilePath && invoice.sourceDocumentFilePath)) {
@@ -1208,7 +1212,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
       repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
       repairDocumentUrlsRef.current = []
     }
-  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location, assetInfo.unit_name, selectedCustomer, unitId, isSampleProperty])
+  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location, assetInfo.unit_name, selectedCustomer, unitId, isSampleProperty, property])
 
   useEffect(() => {
     return () => {
@@ -2144,7 +2148,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                                 <p className="w-[92px] shrink-0 text-right text-sm font-semibold text-[rgba(21,24,33,0.72)]">
                                   {activeTab === 'repair'
                                     ? formatRepairReportDate(document.inspection_date)
-                                    : formatDisplayDate(document.inspection_date)}
+                                    : (isSampleProperty ? formatInvoiceDate : formatDisplayDate)(document.inspection_date)}
                                 </p>
                               </div>
                             </button>
@@ -2182,16 +2186,18 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                                 >
                                   +
                                 </button>
-                                <a
-                                  href={`/deshazo-external-reports?workOrderId=${encodeURIComponent(selectedInspectionDocument.report.workOrderId)}&dNumber=${encodeURIComponent(
-                                    extractDocumentNumber(assetInfo.unit_name, unitId) || unitId,
-                                  )}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex h-8 items-center rounded-lg border border-[var(--deshazo-border)] bg-white px-3 text-xs font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
-                                >
-                                  Open report page
-                                </a>
+                                {!isSampleProperty && (
+                                  <a
+                                    href={`/deshazo-external-reports?workOrderId=${encodeURIComponent(selectedInspectionDocument.report.workOrderId)}&dNumber=${encodeURIComponent(
+                                      extractDocumentNumber(assetInfo.unit_name, unitId) || unitId,
+                                    )}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex h-8 items-center rounded-lg border border-[var(--deshazo-border)] bg-white px-3 text-xs font-bold text-[var(--deshazo-blue)] transition hover:bg-[var(--deshazo-surface)]"
+                                  >
+                                    Open report page
+                                  </a>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => { void handleDownloadSelectedInspectionReport() }}
@@ -2218,6 +2224,15 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                                 report={selectedInspectionDocument.report}
                                 selectedCraneIndex={selectedInspectionDocument.craneIndex}
                                 zoom={inspectionPreviewZoom}
+                              />
+                            </div>
+                          ) : isSampleProperty && selectedRepairDocument ? (
+                            <div className="flex min-h-[980px] flex-col overflow-hidden">
+                              <GeneratedInspectionReportPreview
+                                key={selectedRepairDocument.documentKey}
+                                report={selectedRepairDocument.report}
+                                selectedCraneIndex={0}
+                                zoom={1}
                               />
                             </div>
                           ) : selectedInvoiceDocument && !selectedInvoiceDocument.pdf ? (
