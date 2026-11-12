@@ -3,6 +3,9 @@ import { useParams } from 'react-router-dom'
 
 const storageKey = 'deshazo-selected-customer'
 const defaultCustomer = 'wabash'
+export const phillipsCustomer = 'phillips-international'
+export const phillipsPortalSlug = 'phillips-international.real-estate'
+
 const customerSlugToFilterValue: Record<string, string> = {
   'o-neal-steel': "o'neal steel",
   'oneal-steel': "o'neal steel",
@@ -16,10 +19,17 @@ const customerDisplayNames: Record<string, string> = {
   'oneal-steel': "O'Neal Steel",
   'sms-group': 'SMS Group Inc.',
   'sms-group-inc': 'SMS Group Inc.',
+  [phillipsCustomer]: 'Phillips International',
 }
 
 export function normalizeCustomer(value?: string | null) {
-  return (value ?? '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '')
+  const customer = (value ?? '').trim().toLowerCase()
+  if (customer === phillipsPortalSlug) return phillipsCustomer
+  return customer.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '')
+}
+
+export function hasSpareHoistManagement(customer: string) {
+  return customer === 'wabash' || customer === phillipsCustomer
 }
 
 export function getStoredCustomer() {
@@ -46,8 +56,9 @@ export function getCustomerDisplayName(customer?: string | null) {
 
 export function buildCustomerPath(customer: string, path: string) {
   const selectedCustomer = normalizeCustomer(customer) || defaultCustomer
+  const slug = selectedCustomer === phillipsCustomer ? phillipsPortalSlug : selectedCustomer
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  return `/${selectedCustomer}${normalizedPath}`
+  return `/${slug}${normalizedPath}`
 }
 
 export function useSelectedCustomer() {

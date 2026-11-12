@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabase'
 import { getCurrentUserTag, type UserTag } from './userTags'
-import { useCustomerPath, useSelectedCustomer } from './customerRouting'
+import { phillipsCustomer, useCustomerPath, useSelectedCustomer } from './customerRouting'
 
 type PortalMenuItem = {
   label: string
@@ -10,7 +10,7 @@ type PortalMenuItem = {
 
 const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Calendar', 'Document Reports', 'Customer Quotes'])
 const detachedLabels = new Set(['Document Reports', 'Calendar'])
-const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
+const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel', phillipsCustomer])
 const financeReleasedLabels = new Set(['Spend', 'Location Comparison'])
 const calendarMenuItem = { label: 'Calendar', href: '/calendar' }
 const customerQuotesMenuItem = { label: 'Customer Quotes', href: '/customer-quotes' }

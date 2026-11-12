@@ -7,10 +7,10 @@ import ProfileMenu from '../components/ProfileMenu'
 import { DeveloperBadge, OldDbBadge } from '../components/DeveloperBadge'
 import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
-import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getCustomerDisplayName, hasSpareHoistManagement, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
-const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel'])
+const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel', phillipsCustomer])
 const financeReleasedCards = new Set(['Spend', 'Location Comparison'])
 
 const portalCards = [
@@ -31,7 +31,7 @@ const portalCards = [
     title: 'Spare Hoist Management',
     description: 'Track spare hoists, repair progress, service records, and storage locations.',
     href: '/spare-hoist-management',
-    wabashOnly: true,
+    requiresSpareHoistManagement: true,
   },
   {
     eyebrow: 'Analytics',
@@ -94,7 +94,7 @@ export default function Dashboard() {
   const visiblePortalCards = useMemo(
     () =>
       portalCards
-        .filter((card) => !('wabashOnly' in card && card.wabashOnly && selectedCustomer !== 'wabash'))
+        .filter((card) => !card.requiresSpareHoistManagement || hasSpareHoistManagement(selectedCustomer))
         .map((card) => {
           if (!isFinanceReleased || !financeReleasedCards.has(card.title)) return card
           return { ...card, developerOnly: false, oldDb: false }
@@ -105,7 +105,7 @@ export default function Dashboard() {
 
   const menuItems = useMemo(
     () => [
-      { label: 'Home', active: true, href: '/dashboard', developerOnly: false, oldDb: false },
+      { label: 'Home', active: true, href: customerPath('/dashboard'), developerOnly: false, oldDb: false },
       ...visiblePortalCards.map((card) => ({
         label: card.title,
         active: false,
@@ -231,7 +231,7 @@ export default function Dashboard() {
                   DESHA<span className="text-[#f2b43f]">Z</span>O
                 </div>
                 <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                  Cranes / Service / Automation
+                  {selectedCustomer === phillipsCustomer ? getCustomerDisplayName(selectedCustomer) : 'Cranes / Service / Automation'}
                 </p>
                 <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>

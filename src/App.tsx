@@ -5,6 +5,7 @@ import QuoteLogin from './pages/QuoteLogin'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import OldWabash from './pages/OldWabash'
+import { buildCustomerPath, phillipsCustomer, phillipsPortalSlug } from './lib/customerRouting'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ContactUs = lazy(() => import('./pages/ContactUs'))
@@ -162,6 +163,10 @@ function App() {
           <Route path="/top-cranes" element={<TopCranes />} />
           <Route path="/quality-control" element={<QualityControl />} />
           <Route path="/wabash-location-mismatch" element={<WabashLocationMismatch />} />
+          <Route
+            path={`/${phillipsPortalSlug}`}
+            element={<Navigate to={buildCustomerPath(phillipsCustomer, '/dashboard')} replace />}
+          />
           <Route path="/:customer">
             {portalRoutes}
           </Route>

@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getCustomerDisplayName, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { getCurrentSupabaseUser, isConfigured, supabase } from '../lib/supabase'
 import { getCurrentUserTag } from '../lib/userTags'
 
@@ -680,14 +680,13 @@ function getResourceGroupLabel(resourceIndex: number) {
   return resource.group !== previousResource?.group ? resource.group : ''
 }
 
-function buildBlankJob(resourceId = resources[0].id, dayIndex = todayDayIndex, branchId = branchTabs[0].id): CalendarJob {
-  const branch = branchTabs.find((item) => item.id === branchId) ?? branchTabs[0]
+function buildBlankJob(resourceId: string, dayIndex: number, branch: (typeof branchTabs)[number], customer: string): CalendarJob {
   const dayNumber = String(dayIndex + 11).padStart(2, '0')
 
   return {
     id: `new-job-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     title: '',
-    customer: 'Wabash',
+    customer,
     customerLocation: '',
     serviceLocation: branch.name,
     branchId: branch.id,
@@ -714,18 +713,26 @@ function buildBlankJob(resourceId = resources[0].id, dayIndex = todayDayIndex, b
 }
 
 export default function Calendar() {
+  const customer = useSelectedCustomer()
+  return <CustomerCalendar key={customer} customer={customer} />
+}
+
+function CustomerCalendar({ customer }: { customer: string }) {
+  const customerName = getCustomerDisplayName(customer)
+  const isPhillips = customer === phillipsCustomer
+  const branches = isPhillips
+    ? [{ id: phillipsCustomer, label: customerName, name: customerName, dbCount: 0 }]
+    : branchTabs
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const [jobs, setJobs] = useState(initialJobs)
+  const [jobs, setJobs] = useState<CalendarJob[]>(isPhillips ? [] : initialJobs)
   const [editingJob, setEditingJob] = useState<EditingJobState | null>(null)
   const [draggedJobId, setDraggedJobId] = useState<string | null>(null)
   const [calendarView, setCalendarView] = useState<CalendarView>('week')
-  const [activeBranchId, setActiveBranchId] = useState(branchTabs[0].id)
+  const [activeBranchId, setActiveBranchId] = useState(branches[0].id)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const navigate = useNavigate()
-  const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
-  const customerName = getCustomerDisplayName(selectedCustomer)
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Calendar')
 
   useEffect(() => {
@@ -763,7 +770,7 @@ export default function Calendar() {
     () => jobs.filter((job) => job.branchId === activeBranchId),
     [activeBranchId, jobs],
   )
-  const activeBranch = branchTabs.find((branch) => branch.id === activeBranchId) ?? branchTabs[0]
+  const activeBranch = branches.find((branch) => branch.id === activeBranchId) ?? branches[0]
 
   const jobsByCell = useMemo(() => {
     const next = new Map<string, CalendarJob[]>()
@@ -839,7 +846,7 @@ export default function Calendar() {
   const addJob = (resourceId = resources[0].id, dayIndex = todayDayIndex) => {
     setEditingJob({
       mode: 'add',
-      job: buildBlankJob(resourceId, dayIndex, activeBranchId),
+      job: buildBlankJob(resourceId, dayIndex, activeBranch, isPhillips ? customerName : 'Wabash'),
     })
   }
 
@@ -872,7 +879,7 @@ export default function Calendar() {
 
     const formData = new FormData(event.currentTarget)
     const submittedBranchId = String(formData.get('branchId') ?? editingJob.job.branchId)
-    const submittedBranch = branchTabs.find((branch) => branch.id === submittedBranchId)
+    const submittedBranch = branches.find((branch) => branch.id === submittedBranchId)
     const savedJob: CalendarJob = {
       ...editingJob.job,
       title: String(formData.get('title') ?? '').trim() || 'Untitled task',
@@ -1027,9 +1034,9 @@ export default function Calendar() {
           <section className="overflow-hidden rounded-[14px] border border-[var(--deshazo-border)] bg-white shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
             <div className="flex min-h-10 items-center gap-1 overflow-x-auto border-b border-[#3f3f3f] bg-[#303030] px-2 text-white">
               <div className="flex h-10 shrink-0 items-center gap-2 bg-[#454545] px-3 text-xs font-black">
-                <span>New View (8)</span>
+                <span>New View ({branches.length + 1})</span>
               </div>
-              {branchTabs.map((tab) => {
+              {branches.map((tab) => {
                 const visibleCount = jobs.filter((job) => job.branchId === tab.id).length
                 return (
                 <button
@@ -1398,28 +1405,32 @@ export default function Calendar() {
               <label className="text-xs font-black uppercase text-[var(--deshazo-muted)]">
                 DeShazo Branch
                 <select name="branchId" defaultValue={editingJob.job.branchId} className="mt-1 w-full rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--deshazo-text)]">
-                  {branchTabs.map((branch) => (
+                  {branches.map((branch) => (
                     <option key={branch.id} value={branch.id}>{branch.name}</option>
                   ))}
                 </select>
               </label>
               <label className="text-xs font-black uppercase text-[var(--deshazo-muted)]">
                 Customer Location
-                <select name="customerLocation" defaultValue={editingJob.job.customerLocation} className="mt-1 w-full rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--deshazo-text)]">
-                  {[
-                    '',
-                    'Wabash Cadiz KY',
-                    'Groveport',
-                    'Wabash - Fond du Lac',
-                    'Wabash Elroy',
-                    'Wabash - New Lisbon',
-                    'Jonestown',
-                    'Harrison',
-                    'Wabash Demo Site',
-                  ].map((location) => (
-                    <option key={location}>{location}</option>
-                  ))}
-                </select>
+                {isPhillips ? (
+                  <input name="customerLocation" defaultValue={editingJob.job.customerLocation} className="mt-1 w-full rounded-md border border-[var(--deshazo-border)] px-3 py-2 text-sm font-semibold text-[var(--deshazo-text)]" />
+                ) : (
+                  <select name="customerLocation" defaultValue={editingJob.job.customerLocation} className="mt-1 w-full rounded-md border border-[var(--deshazo-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--deshazo-text)]">
+                    {[
+                      '',
+                      'Wabash Cadiz KY',
+                      'Groveport',
+                      'Wabash - Fond du Lac',
+                      'Wabash Elroy',
+                      'Wabash - New Lisbon',
+                      'Jonestown',
+                      'Harrison',
+                      'Wabash Demo Site',
+                    ].map((location) => (
+                      <option key={location}>{location}</option>
+                    ))}
+                  </select>
+                )}
               </label>
               <label className="text-xs font-black uppercase text-[var(--deshazo-muted)]">
                 Service Location

@@ -6,7 +6,7 @@ import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import ProfileMenu from '../components/ProfileMenu'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getCustomerDisplayName, hasSpareHoistManagement, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 type HoistStatus = 'Available Spare' | 'Awaiting Inspection' | 'Awaiting Approval' | 'Repair in Progress' | 'Awaiting Parts' | 'Installed'
@@ -59,6 +59,8 @@ const sampleHoists: Hoist[] = [
   { assetId: 'D528130', manufacturer: 'Yale', model: 'CPV', capacity: '1 Ton', voltage: '460V', serial: 'YCP-114689', location: 'Customer Spare Rack D1', status: 'Available Spare', ticket: 'SR-24398', repair: 'Chain and hook inspected; service complete.', updated: 'Sep 30, 2026', lastService: 'Sep 30, 2026', test: 'Load test passed · release verified', custody: 'Wabash maintenance' },
   { assetId: 'D528405', manufacturer: 'Harrington', model: 'NTH', capacity: '½ Ton', voltage: '230V', serial: 'HN-771304', location: 'Receiving · DeSHAZO Cincinnati', status: 'Awaiting Inspection', ticket: 'SR-24889', repair: 'Received from Wabash; intake inspection not started.', updated: 'Oct 22, 2026', lastService: 'Oct 22, 2026', test: 'Inspection pending', custody: 'DeSHAZO receiving' },
 ]
+
+const emptyHoists: Hoist[] = []
 
 const statusTone: Record<HoistStatus, string> = {
   'Available Spare': 'bg-[#e8f7f2] text-[#087e78]',
@@ -115,10 +117,12 @@ export default function SpareHoistManagement() {
   const navigate = useNavigate()
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
+  const customerName = getCustomerDisplayName(selectedCustomer)
+  const hoists = selectedCustomer === 'wabash' ? sampleHoists : emptyHoists
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Spare Hoist Management')
 
   useEffect(() => {
-    if (selectedCustomer !== 'wabash') {
+    if (!hasSpareHoistManagement(selectedCustomer)) {
       navigate(customerPath('/dashboard'), { replace: true })
       return
     }
@@ -141,14 +145,14 @@ export default function SpareHoistManagement() {
 
   const filteredHoists = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return sampleHoists.filter((hoist) => {
+    return hoists.filter((hoist) => {
       const matchesSearch = !query || [hoist.assetId, hoist.manufacturer, hoist.model, hoist.capacity, hoist.serial, hoist.location, hoist.status].some((value) => value.toLowerCase().includes(query))
       const matchesFilter = quickFilter === 'All hoists'
         || (quickFilter === 'Ready to issue' && hoist.status === 'Available Spare')
         || (quickFilter === 'In process' && ['Awaiting Inspection', 'Awaiting Approval', 'Repair in Progress', 'Awaiting Parts'].includes(hoist.status))
       return matchesSearch && matchesFilter
     })
-  }, [quickFilter, search])
+  }, [hoists, quickFilter, search])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -158,10 +162,10 @@ export default function SpareHoistManagement() {
   if (authLoading) return <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] text-sm font-semibold text-[var(--deshazo-blue)]">Loading spare hoist management...</div>
   if (!user) return null
   const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Portal User'
-  const availableCount = sampleHoists.filter((hoist) => hoist.status === 'Available Spare').length
-  const repairCount = sampleHoists.filter((hoist) => ['Repair in Progress', 'Awaiting Parts', 'Awaiting Inspection'].includes(hoist.status)).length
-  const approvalCount = sampleHoists.filter((hoist) => hoist.status === 'Awaiting Approval').length
-  const installedCount = sampleHoists.filter((hoist) => hoist.status === 'Installed').length
+  const availableCount = hoists.filter((hoist) => hoist.status === 'Available Spare').length
+  const repairCount = hoists.filter((hoist) => ['Repair in Progress', 'Awaiting Parts', 'Awaiting Inspection'].includes(hoist.status)).length
+  const approvalCount = hoists.filter((hoist) => hoist.status === 'Awaiting Approval').length
+  const installedCount = hoists.filter((hoist) => hoist.status === 'Installed').length
   const boardColumns = statuses.map((status) => ({
     status,
     items: filteredHoists.filter((hoist) => hoist.status === status),
@@ -217,18 +221,18 @@ export default function SpareHoistManagement() {
           <div className="mx-auto max-w-[1680px]">
             <div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end">
               <div>
-                <Link to={customerPath('/dashboard')} className="inline-flex items-center gap-2 text-xs font-bold text-[#778398] hover:text-[var(--deshazo-blue)]"><span>Wabash Portal</span><span aria-hidden="true">›</span><span className="text-[var(--deshazo-blue)]">Spare Hoists</span></Link>
+                <Link to={customerPath('/dashboard')} className="inline-flex items-center gap-2 text-xs font-bold text-[#778398] hover:text-[var(--deshazo-blue)]"><span>{customerName} Portal</span><span aria-hidden="true">›</span><span className="text-[var(--deshazo-blue)]">Spare Hoists</span></Link>
                 <h1 className="mt-3 text-[clamp(30px,4vw,44px)] font-black tracking-[-0.05em]">Spare Hoists</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-[rgba(21,24,33,0.65)]">Inventory, repair progress, and service history in one place.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-[#dce2eb] bg-white px-3 py-2 text-xs font-bold text-[#637087]">Wabash · Illustrative data</span>
+                <span className="rounded-full border border-[#dce2eb] bg-white px-3 py-2 text-xs font-bold text-[#637087]">{selectedCustomer === 'wabash' ? 'Wabash · Illustrative data' : customerName}</span>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-5">
               {[
-                { label: 'Total hoists', value: sampleHoists.length, note: 'Across all locations', color: 'text-[#202b3c]' },
+                { label: 'Total hoists', value: hoists.length, note: 'Across all locations', color: 'text-[#202b3c]' },
                 { label: 'Available spares', value: availableCount, note: 'Ready to issue', color: 'text-[#16744d]' },
                 { label: 'Under repair', value: repairCount, note: 'Inspection, repair, or parts', color: 'text-[#315baa]' },
                 { label: 'Awaiting approval', value: approvalCount, note: 'Quote or work approval needed', color: 'text-[#946300]' },
@@ -250,7 +254,7 @@ export default function SpareHoistManagement() {
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#edf0f4] pt-4">
                 <span className="mr-1 text-xs font-bold text-[#788397]">Show</span>
                 {quickFilters.map((filter) => {
-                  const count = filter === 'All hoists' ? sampleHoists.length : filter === 'Ready to issue' ? availableCount : repairCount + approvalCount
+                  const count = filter === 'All hoists' ? hoists.length : filter === 'Ready to issue' ? availableCount : repairCount + approvalCount
                   const buttonTone = quickFilter === filter
                     ? 'bg-[var(--deshazo-blue)] text-white shadow-sm'
                     : 'bg-[#f2f4f7] text-[#627087] hover:bg-[#e8edf4]'
@@ -260,7 +264,7 @@ export default function SpareHoistManagement() {
                     </button>
                   )
                 })}
-                <span className="ml-auto text-xs font-semibold text-[#8993a3]">Showing {filteredHoists.length} of {sampleHoists.length} hoists</span>
+                <span className="ml-auto text-xs font-semibold text-[#8993a3]">Showing {filteredHoists.length} of {hoists.length} hoists</span>
               </div>
             </div>
 
@@ -285,12 +289,12 @@ export default function SpareHoistManagement() {
             <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-[#f0dcae] bg-[#fff9eb] px-4 py-4 sm:flex-row sm:items-start">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#ffedc2] font-black text-[#946300]">!</span><div><p className="text-sm font-extrabold text-[#77520b]">Release and availability control</p><p className="mt-1 text-xs leading-5 text-[#806a3d]">Service completion alone does not make a hoist available. Confirm documented testing, release authorization, and its spare inventory location first. Ticket scan details should be reviewed by an authorized employee.</p></div>
             </div>
-            <p className="mt-4 text-center text-[11px] font-medium text-[#929baa]">Illustrative inventory for review · Changes are not saved</p>
+            <p className="mt-4 text-center text-[11px] font-medium text-[#929baa]">{hoists.length ? 'Illustrative inventory for review · Changes are not saved' : 'No spare hoists have been added.'}</p>
           </div>
         </section>
       </main>
 
-      {selected && <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#101828]/45 p-0 sm:items-center sm:p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null) }}>
+      {selected && hoists.includes(selected) && <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#101828]/45 p-0 sm:items-center sm:p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null) }}>
         <section role="dialog" aria-modal="true" aria-labelledby="hoist-dialog-title" className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-7">
           <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-extrabold uppercase tracking-[0.1em] text-[var(--deshazo-blue)]">Asset record · {selected.ticket}</p><h2 id="hoist-dialog-title" className="mt-2 text-2xl font-black tracking-tight">{selected.assetId}</h2><p className="mt-1 text-sm text-[#687386]">{selected.manufacturer} {selected.model} · {selected.capacity}</p></div><button type="button" onClick={() => setSelected(null)} aria-label="Close asset details" className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f1f3f6] text-xl text-[#536074]">×</button></div>
           <span className={'mt-4 inline-flex rounded-full px-3 py-1.5 text-xs font-extrabold ' + statusTone[selected.status]}>{selected.status}</span>

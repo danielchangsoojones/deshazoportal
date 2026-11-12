@@ -1,4 +1,4 @@
-import { buildCustomerPath, getCustomerDisplayName, normalizeCustomer } from './customerRouting'
+import { buildCustomerPath, getCustomerDisplayName, normalizeCustomer, phillipsCustomer } from './customerRouting'
 import { supabase } from './supabase'
 
 export type CustomerPortal = {
@@ -68,6 +68,9 @@ export async function getCustomerPortals(): Promise<CustomerPortal[]> {
   for (const source of customerPortalSources) {
     await addCustomerSourceRows(customersBySlug, source)
   }
+
+  const phillipsPortal = toCustomerPortal(phillipsCustomer)
+  if (phillipsPortal) customersBySlug.set(phillipsPortal.customer, phillipsPortal)
 
   return Array.from(customersBySlug.values()).sort((left, right) => left.label.localeCompare(right.label))
 }

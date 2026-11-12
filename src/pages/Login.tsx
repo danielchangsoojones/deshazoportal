@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, isConfigured } from '../lib/supabase'
-import { useCustomerPath } from '../lib/customerRouting'
+import { getCustomerDisplayName, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import Signup from './Signup'
 
 type LoginProps = {
@@ -28,6 +28,7 @@ export default function Login({
   const [resendingConfirmation, setResendingConfirmation] = useState(false)
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
+  const selectedCustomer = useSelectedCustomer()
   const resolvedRedirectTo =
     useCustomerRedirect && redirectTo.startsWith('/') ? customerPath(redirectTo) : redirectTo
 
@@ -111,6 +112,7 @@ export default function Login({
         <div className={showSignup ? 'flex flex-col gap-10 sm:gap-12' : ''}>
         {showSignup && (
           <p className="text-base leading-7 text-[rgba(7,18,47,0.58)] sm:text-lg">
+            {selectedCustomer === phillipsCustomer && <strong>{getCustomerDisplayName(selectedCustomer)} · </strong>}
             Sign in to continue, or create your account if this is your first visit.
           </p>
         )}

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { useCustomerPath } from '../lib/customerRouting'
+import { phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 
 const quoteStages = [
   { id: 'pending', label: 'Pending', description: 'New quotes awaiting review' },
@@ -120,8 +120,13 @@ const formatMoney = (amount: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
 
 export default function CustomerQuotes() {
+  const customer = useSelectedCustomer()
+  return <CustomerQuoteBoard key={customer} initialQuotes={customer === phillipsCustomer ? [] : sampleQuotes} />
+}
+
+function CustomerQuoteBoard({ initialQuotes }: { initialQuotes: Quote[] }) {
   const customerPath = useCustomerPath()
-  const [quotes, setQuotes] = useState(sampleQuotes)
+  const [quotes, setQuotes] = useState(initialQuotes)
   const [activeStage, setActiveStage] = useState<QuoteStage>('pending')
   const [selectedDocument, setSelectedDocument] = useState<(QuoteDocument & { quoteId: string; quoteTitle: string }) | null>(null)
   const [partialAcceptQuote, setPartialAcceptQuote] = useState<PartialAcceptQuote | null>(null)
