@@ -2,18 +2,21 @@ import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getCustomerDisplayName, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import {
   getInvoiceSpendCranesForLocation,
+  summarizeByCrane,
   type InvoiceSpendCraneSummary,
 } from '../lib/invoiceSpend'
 import { getCustomerLocationOptions, normalizeLocationValue, type PortalLocationOption } from '../lib/portalLocations'
 import {
   getLocationSpendPageAnalytics,
+  getSampleLocationSpend,
   type LocationComparisonItem,
   type LocationSpendInvoiceItem,
   type LocationSpendReportCraneItem,
 } from '../lib/spendAnalytics'
+import { sampleSpendLocations } from '../lib/samplePropertySpend'
 import { getCurrentSupabaseUser, isConfigured, supabase } from '../lib/supabase'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { usePortalMenu } from '../lib/usePortalMenu'
@@ -122,7 +125,7 @@ function SpendRing({ spend, totalSpend, label = 'Share of invoice spend' }: { sp
   )
 }
 
-function buildReportCraneFallbackData(reportCranes: LocationSpendReportCraneItem[]): InvoiceSpendCraneSummary[] {
+function buildReportCraneFallbackData(reportCranes: readonly LocationSpendReportCraneItem[]): InvoiceSpendCraneSummary[] {
   const cranes = new Map<string, InvoiceSpendCraneSummary>()
 
   reportCranes.forEach((reportCrane) => {
@@ -187,7 +190,8 @@ export default function LocationSpend() {
   const navigate = useNavigate()
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
-  const customerName = getCustomerDisplayName(selectedCustomer)
+  const sample = selectedCustomer === phillipsCustomer
+  const customerName = sample ? 'Branco Company' : getCustomerDisplayName(selectedCustomer)
   const location = searchParams.get('location')?.trim() || ''
   const [spendState, setSpendState] = useState<LocationSpendState>({
     customer: selectedCustomer,
@@ -207,13 +211,17 @@ export default function LocationSpend() {
       return false
     }
   })
-  const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
-  const [locationsLoading, setLocationsLoading] = useState(true)
+  const [liveLocationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
+  const [liveLocationsLoading, setLocationsLoading] = useState(true)
   const [locationMenuOpen, setLocationMenuOpen] = useState(false)
+  const locationOptions = sample ? sampleSpendLocations : liveLocationOptions
+  const locationsLoading = !sample && liveLocationsLoading
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Location Comparison')
 
   useEffect(() => {
+    if (sample) return
+
     let cancelled = false
 
     getCustomerLocationOptions(selectedCustomer)
@@ -230,7 +238,7 @@ export default function LocationSpend() {
     return () => {
       cancelled = true
     }
-  }, [selectedCustomer])
+  }, [sample, selectedCustomer])
 
   useEffect(() => {
     let isMounted = true
@@ -267,7 +275,7 @@ export default function LocationSpend() {
         data: [],
         invoices: [],
         financeSummary: null,
-        error: 'Choose a location from Location Comparison to view crane spend.',
+        error: sample ? 'Choose a property from Location Comparison to view its spend.' : 'Choose a location from Location Comparison to view crane spend.',
         status: 'ready',
       })
       return () => {
@@ -283,10 +291,19 @@ export default function LocationSpend() {
       error: '',
     }))
 
-    Promise.all([
-      getInvoiceSpendCranesForLocation(location, selectedCustomer),
-      getLocationSpendPageAnalytics(location, selectedCustomer),
-    ])
+    const loadSpend = async () => {
+      if (sample) {
+        const { allocations, locationComparison, invoices } = getSampleLocationSpend(location)
+        return [summarizeByCrane(allocations), { locationComparison, invoices, reportCranes: [] }] as const
+      }
+
+      return Promise.all([
+        getInvoiceSpendCranesForLocation(location, selectedCustomer),
+        getLocationSpendPageAnalytics(location, selectedCustomer),
+      ])
+    }
+
+    loadSpend()
       .then(([nextData, pageAnalytics]) => {
         if (!isMounted) return
         const financeLocations = pageAnalytics.locationComparison
@@ -323,7 +340,7 @@ export default function LocationSpend() {
     return () => {
       isMounted = false
     }
-  }, [location, selectedCustomer])
+  }, [location, sample, selectedCustomer])
 
   const totals = useMemo(() => {
     const allocatedSpend = spendState.data.reduce((sum, crane) => sum + crane.totalSpend, 0)
@@ -398,6 +415,7 @@ export default function LocationSpend() {
         invoice.work_order_id ? String(invoice.work_order_id) : '',
         invoice.work_type,
         invoice.location,
+        invoice.asset_d_number,
       ].some((value) => value.toLowerCase().includes(query)),
     )
   }, [craneSearch, repairInvoices])
@@ -442,11 +460,17 @@ export default function LocationSpend() {
     navigate(`${customerPath('/location-spend')}?location=${encodeURIComponent(nextLocation)}`)
   }
 
+  const sampleAssetSpendPath = (propertyName: string, assetId: string) => {
+    const propertyId = sampleSpendLocations.find(({ label }) => label === propertyName)?.value ?? ''
+    const params = new URLSearchParams({ property_id: propertyId, sample_asset: assetId, tab: 'spend-analytics', from: 'location-comparison', location })
+    return customerPath(`/asset-info?${params}`)
+  }
+
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
         <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
-          Loading crane spend...
+          {sample ? 'Loading property spend...' : 'Loading crane spend...'}
         </div>
       </div>
     )
@@ -551,7 +575,7 @@ export default function LocationSpend() {
                 DESHA<span className="text-[#f2b43f]">Z</span>O
               </div>
               <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                Cranes / Service / Automation
+                {sample ? 'Branco Company · Sample data' : 'Cranes / Service / Automation'}
               </p>
               <div className="mt-[18px] h-1.5 w-full min-w-[280px] max-w-[530px] rounded-full bg-[var(--deshazo-blue)] sm:w-[530px]" />
             </div>
@@ -636,7 +660,7 @@ export default function LocationSpend() {
                   type="search"
                   value={craneSearch}
                   onChange={(event) => setCraneSearch(event.currentTarget.value)}
-                  placeholder="Crane, job, or invoice"
+                  placeholder={sample ? 'Asset, job, or invoice' : 'Crane, job, or invoice'}
                   className="min-w-0 flex-1 bg-transparent text-sm text-[var(--deshazo-text)] placeholder:text-[rgba(21,24,33,0.42)] focus:outline-none"
                 />
                 </span>
@@ -653,7 +677,7 @@ export default function LocationSpend() {
                 Location Comparison
               </Link>
               <h1 className="mt-2 text-[clamp(32px,4vw,50px)] font-black leading-[0.98] text-[var(--deshazo-text)]">
-                {location === 'all' ? 'All Locations' : location || `${customerName} Crane Spend`}
+                {location === 'all' ? 'All Locations' : location || `${customerName} ${sample ? 'Property' : 'Crane'} Spend`}
               </h1>
             </div>
           </div>
@@ -698,7 +722,7 @@ export default function LocationSpend() {
                 <div className="text-center">
                   <p className="text-[24px] font-extrabold text-[var(--deshazo-text)]">{totals.craneCount}</p>
                   <div className="mx-auto mt-1 h-[2px] w-24 bg-[#efb634]" />
-                  <p className="text-[18px] font-medium text-[#9a6a00]">Mapped Cranes</p>
+                  <p className="text-[18px] font-medium text-[#9a6a00]">{sample ? 'Mapped Assets' : 'Mapped Cranes'}</p>
                 </div>
               </div>
             </div>
@@ -712,21 +736,21 @@ export default function LocationSpend() {
           <section>
             {loading ? (
               <div className="rounded-lg border border-[var(--deshazo-border)] bg-white px-6 py-10 text-center text-sm font-semibold text-[var(--deshazo-blue)]">
-                Loading crane spend...
+                {sample ? 'Loading property spend...' : 'Loading crane spend...'}
               </div>
             ) : spendState.error ? (
               <div className="rounded-lg border border-[#f0c4bd] bg-white px-6 py-10 text-center text-sm font-semibold text-[#b42318]">{spendState.error}</div>
             ) : spendState.data.length === 0 ? (
               <div className="rounded-lg border border-[var(--deshazo-border)] bg-white px-6 py-10 text-center text-sm font-semibold text-[rgba(21,24,33,0.64)]">
-                No invoice PDF crane allocations are available for this location yet.
+                {sample ? 'No sample spend is available for this property.' : 'No invoice PDF crane allocations are available for this location yet.'}
               </div>
             ) : (
               <div className="rounded-[14px] border border-[#bfcdf1] bg-[#c7d4f5] px-3 py-4 shadow-[0_18px_40px_-34px_rgba(47,86,166,0.2)]">
                 <div className="mb-4 flex flex-col gap-3 px-2 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h2 className="text-[18px] font-black text-[var(--deshazo-text)]">Crane Cost Ranking</h2>
+                    <h2 className="text-[18px] font-black text-[var(--deshazo-text)]">{sample ? 'Asset Cost Ranking' : 'Crane Cost Ranking'}</h2>
                     <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.64)]">
-                      {visibleCranes.length} crane{visibleCranes.length === 1 ? '' : 's'}
+                      {visibleCranes.length} {sample ? 'asset' : 'crane'}{visibleCranes.length === 1 ? '' : 's'}
                       {showRepairInvoices && visibleRepairInvoices.length > 0
                         ? ` + ${visibleRepairInvoices.length} repair invoice${visibleRepairInvoices.length === 1 ? '' : 's'}`
                         : ''} shown · highest cost first
@@ -790,7 +814,7 @@ export default function LocationSpend() {
                   <div className="flex min-h-[420px] items-center justify-center rounded-[10px] bg-white px-6 text-center">
                     <div>
                     <p className="text-base font-black text-[var(--deshazo-text)]">No matching spend items</p>
-                    <p className="mt-1 text-sm text-[rgba(21,24,33,0.58)]">Try another D-number, job, or invoice.</p>
+                    <p className="mt-1 text-sm text-[rgba(21,24,33,0.58)]">Try another {sample ? 'asset' : 'D-number'}, job, or invoice.</p>
                     </div>
                   </div>
                 ) : (
@@ -798,7 +822,9 @@ export default function LocationSpend() {
                     {paginatedRankingItems.map((item) => {
                       if (item.type === 'repair-invoice') {
                         const { invoice } = item
-                        const repairInvoiceDetailsPath = invoice.work_order_id && invoice.has_report
+                        const repairInvoiceDetailsPath = sample
+                          ? sampleAssetSpendPath(invoice.location, invoice.asset_d_number)
+                          : invoice.work_order_id && invoice.has_report
                           ? `${customerPath('/deshazo-external-reports')}?workOrderId=${encodeURIComponent(invoice.work_order_id)}`
                           : `${customerPath('/deshazo-work-orders')}?search=${encodeURIComponent(invoice.job_no || String(invoice.work_order_id ?? ''))}`
                         return (
@@ -869,14 +895,14 @@ export default function LocationSpend() {
                       return (
                         <Link
                           key={crane.dNumber}
-                          to={`${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics&from=location-comparison`}
+                          to={sample ? sampleAssetSpendPath(crane.locationLabel, crane.dNumber) : `${customerPath('/asset-info')}?unit_id=${encodeURIComponent(crane.dNumber)}&tab=spend-analytics&from=location-comparison`}
                           className="group overflow-hidden rounded-[10px] border border-[var(--deshazo-border)] bg-white shadow-[0_14px_30px_-28px_rgba(47,86,166,0.22)] transition hover:border-[#9eb3d7] focus:outline-none focus:ring-2 focus:ring-[var(--deshazo-blue)]"
                         >
                           <article className="flex h-full flex-col">
                             <div className="flex-1 space-y-1 px-4 py-4">
                               <p className="text-[18px] font-extrabold uppercase leading-[1.1] text-[var(--deshazo-text)]">{crane.dNumber}</p>
                               <p className="line-clamp-2 min-h-[40px] text-[15px] font-medium leading-5 text-[rgba(21,24,33,0.72)]">
-                                {crane.craneDescription || 'No crane description'}
+                                {crane.craneDescription || (sample ? 'No asset description' : 'No crane description')}
                               </p>
                               <div className="flex items-center gap-2 pt-1 text-[15px] font-semibold text-[var(--deshazo-text)]">
                                 <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#d7b94a] bg-[#ffe680]">

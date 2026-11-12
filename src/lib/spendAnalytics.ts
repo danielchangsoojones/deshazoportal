@@ -1,4 +1,6 @@
 import { getCustomerFilterValue, getStoredCustomer, normalizeCustomer } from './customerRouting'
+import { sampleFleetLocations } from './samplePropertyFleet'
+import { buildSamplePropertyInvoices, sampleSpendLocations } from './samplePropertySpend'
 import { getInvoiceSpendLocationSummaries } from './invoiceSpend'
 import { getCustomerLocationLookup, getLocationOptionFromLabel } from './portalLocations'
 import { supabase } from './supabase'
@@ -1000,5 +1002,46 @@ export async function getSpendDashboardAnalytics(
   return {
     spendAnalytics: buildSpendAnalytics(financeRows, workOrderRows, locationLookup),
     locationComparison: buildLocationComparisonAnalytics(financeRows, workOrderRows, locationLookup, uploadedLocationSummaries),
+  }
+}
+
+function sampleSpendRows(invoices: ReturnType<typeof buildSamplePropertyInvoices>, groupByBorough = false): FinanceInvoiceRow[] {
+  return invoices.map(({ property, allocation, parts }) => {
+    const location = groupByBorough
+      ? sampleFleetLocations.find(({ label }) => property.location.endsWith(label))?.label ?? property.location
+      : property.name
+    return {
+      import_period: allocation.invoiceDate, customer: allocation.customer, job_no: allocation.jobNumber,
+      source_sheet_name: 'NY Metro', work_order_id: null, customer_location_name: location,
+      service_location_name: null, location_label: location,
+      parts_revenue: parts, service_revenue: allocation.invoiceTotal - parts, total_revenue: allocation.invoiceTotal,
+      raw_payload: { workOrderJobType: allocation.workOrderType },
+    }
+  })
+}
+
+export function getSamplePropertySpend(dateRange?: SpendAnalyticsDateRange): SpendDashboardAnalytics {
+  const rows = filterFinanceRowsByDateRange(sampleSpendRows(buildSamplePropertyInvoices(), true), dateRange)
+  const locationLookup = { options: sampleFleetLocations, aliases: new Map() }
+  return {
+    spendAnalytics: buildSpendAnalytics(rows, [], locationLookup),
+    locationComparison: buildLocationComparisonAnalytics(rows, [], locationLookup, []),
+  }
+}
+
+export function getSampleLocationSpend(location = 'all') {
+  const selectedLocation = normalizeLocationComparable(location)
+  const selectedInvoices = buildSamplePropertyInvoices().filter(({ property }) =>
+    location === 'all' || normalizeLocationComparable(property.name) === selectedLocation,
+  )
+  const rows = sampleSpendRows(selectedInvoices)
+  const locationLookup = { options: sampleSpendLocations, aliases: new Map() }
+  const assetsByJob = new Map(selectedInvoices.map(({ allocation }) => [allocation.jobNumber, allocation.dNumber]))
+  return {
+    locationComparison: buildLocationComparisonAnalytics(rows, [], locationLookup, []),
+    invoices: buildLocationSpendInvoices(location, rows, [], locationLookup).map((invoice) => ({
+      ...invoice, asset_d_number: assetsByJob.get(invoice.job_no) ?? '',
+    })),
+    allocations: selectedInvoices.map(({ allocation }) => allocation),
   }
 }

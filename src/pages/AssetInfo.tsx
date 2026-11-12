@@ -45,6 +45,7 @@ import {
   getSupabaseOpenRiskRecurringIssues,
 } from '../lib/deshazoOpenRiskSupabase'
 import {
+  buildCraneInvoiceSpendAnalytics,
   getCraneInvoiceSpendAnalytics,
   getInvoiceSpendDocumentUrl,
   type CraneInvoiceSpendAnalytics,
@@ -53,6 +54,7 @@ import {
 import { getCustomerDisplayName, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { priorities, propertyRiskFilters, sampleProperties, type Property } from '../lib/samplePropertyRisks'
 import { samplePropertyMaintenanceReports, samplePropertyRepairReports } from '../lib/samplePropertyReports'
+import { getSamplePropertyAllocations } from '../lib/samplePropertySpend'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -503,7 +505,7 @@ function GeneratedInspectionReportPreview({
 export default function AssetInfo() {
   const customer = useSelectedCustomer()
   const [searchParams] = useSearchParams()
-  const samplePropertyId = customer === phillipsCustomer && searchParams.get('view') === 'open-risk'
+  const samplePropertyId = customer === phillipsCustomer
     ? searchParams.get('property_id') ?? undefined
     : undefined
 
@@ -562,7 +564,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
     { category_display_name: 'Roof and drainage', occurrences: 3 },
   ] : [])
   const [recurringIssuesLoading, setRecurringIssuesLoading] = useState(false)
-  const [spendAnalytics, setSpendAnalytics] = useState<CraneInvoiceSpendAnalytics | null>(null)
+  const [liveSpendAnalytics, setSpendAnalytics] = useState<CraneInvoiceSpendAnalytics | null>(null)
   const [spendAnalyticsLoading, setSpendAnalyticsLoading] = useState(false)
   const [spendAnalyticsError, setSpendAnalyticsError] = useState('')
   const selectedRepairDocumentToDraft = useMemo(
@@ -582,8 +584,24 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
   const customerPath = useCustomerPath()
   const unitId = samplePropertyId ?? (searchParams.get('unit_id')?.trim() || '')
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
+  const sampleListParams = currentView === 'open-risk' ? propertyRiskFilters(searchParams) : new URLSearchParams(searchParams)
+  sampleListParams.delete('property_id')
+  sampleListParams.delete('tab')
+  sampleListParams.delete('sample_asset')
+  sampleListParams.delete('from')
+  sampleListParams.delete('location')
   const openedFromLocationComparison = searchParams.get('from') === 'location-comparison'
+  const sampleAssetId = isSampleProperty ? searchParams.get('sample_asset')?.trim().toUpperCase() || '' : ''
+  const spendSubject = isSampleProperty ? (sampleAssetId ? 'asset' : 'property') : 'crane'
+  const sampleBackLocation = searchParams.get('location') || property?.name || 'all'
   const usesSupabaseAssetData = currentView === 'open-risk' || currentView === 'asset-fleet'
+  const sampleSpendAnalytics = useMemo(() => {
+    if (!property || activeTab !== 'spend-analytics') return null
+    const allocations = getSamplePropertyAllocations(property.id, sampleAssetId || undefined)
+    if (sampleAssetId) return buildCraneInvoiceSpendAnalytics(sampleAssetId, allocations)
+    return buildCraneInvoiceSpendAnalytics(property.id, allocations.map((allocation) => ({ ...allocation, dNumber: property.id.toUpperCase() })))
+  }, [activeTab, property, sampleAssetId])
+  const spendAnalytics = isSampleProperty ? sampleSpendAnalytics : liveSpendAnalytics
 
   useEffect(() => {
     const requestedTab = searchParams.get('tab')
@@ -714,15 +732,25 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
     const monthly = spendAnalytics?.monthlySpend ?? []
     const repairMonthly = new Map((spendAnalytics?.monthlyRepairSpend ?? []).map((point) => [point.month, point.spend]))
     const inspectionMonthly = new Map((spendAnalytics?.monthlyInspectionSpend ?? []).map((point) => [point.month, point.spend]))
+    const installationMonthly = new Map<string, number>()
+    if (isSampleProperty) {
+      for (const invoice of spendAnalytics?.invoices ?? []) {
+        if (invoice.spendKind !== 'installation') continue
+        const month = invoice.invoiceDate.slice(0, 7)
+        installationMonthly.set(month, (installationMonthly.get(month) ?? 0) + invoice.allocatedAmount)
+      }
+    }
     let cumulative = 0
     const trend = monthly.map((point) => {
-      const repairSpend = repairMonthly.get(point.month) ?? 0
+      const installationSpend = installationMonthly.get(point.month) ?? 0
+      const repairSpend = (repairMonthly.get(point.month) ?? 0) - installationSpend
       const inspectionSpend = inspectionMonthly.get(point.month) ?? 0
       cumulative += point.spend
       return {
         ...point,
         monthLabel: formatSpendMonth(point.month),
         repairSpend,
+        installationSpend,
         inspectionSpend,
         cumulative,
       }
@@ -776,13 +804,14 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
       spendKindMix: [
         { name: 'Repair', value: spendAnalytics?.repairSpend ?? 0 },
         { name: 'Inspection', value: spendAnalytics?.inspectionSpend ?? 0 },
+        ...(isSampleProperty ? [{ name: 'Installation', value: spendAnalytics?.installationSpend ?? 0 }] : []),
       ].filter((item) => item.value > 0),
       allocationShare: [
         { name: 'This crane', value: allocatedSpend },
         { name: 'Other crane allocations', value: Math.max(0, grossInvoiceSpend - allocatedSpend) },
       ].filter((item) => item.value > 0),
     }
-  }, [spendAnalytics])
+  }, [spendAnalytics, isSampleProperty])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -1659,7 +1688,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
               const partialMatches = sampleProperties.filter(({ name: propertyName }) => propertyName.toLowerCase().includes(name))
               const result = match ?? (partialMatches.length === 1 ? partialMatches[0] : undefined)
               if (!result) return undefined
-              const next = propertyRiskFilters(searchParams)
+              const next = new URLSearchParams(sampleListParams)
               next.set('property_id', result.id)
               return customerPath(`/asset-info?${next}`)
             },
@@ -1745,8 +1774,8 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
             </p>
             <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
             {isSampleProperty && (
-              <Link to={customerPath(`/asset-fleet-assets?${propertyRiskFilters(searchParams)}`)} className="mt-2 inline-flex text-sm font-semibold text-[var(--deshazo-blue)] hover:underline">
-                Back to Open Risk Items
+              <Link to={customerPath(openedFromLocationComparison ? `/location-spend?location=${encodeURIComponent(sampleBackLocation)}` : `/asset-fleet-assets?${sampleListParams}`)} className="mt-2 inline-flex text-sm font-semibold text-[var(--deshazo-blue)] hover:underline">
+                {openedFromLocationComparison ? 'Back to Location Spend' : currentView === 'open-risk' ? 'Back to Open Risk Items' : 'Back to Asset Fleet'}
               </Link>
             )}
             <h1 className="text-[24px] font-black tracking-[-0.04em] text-[var(--deshazo-text)]">
@@ -2540,14 +2569,15 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                         </div>
                         <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                           <div>
-                            <h2 className="text-[28px] font-black">{spendAnalytics.dNumber}</h2>
-                            <p className="mt-1 text-sm font-semibold text-white/70">Invoice costs allocated to this crane</p>
+                            <h2 className="text-[28px] font-black">{isSampleProperty && !sampleAssetId ? property?.name : spendAnalytics.dNumber}</h2>
+                            <p className="mt-1 text-sm font-semibold text-white/70">Invoice costs allocated to this {spendSubject}{sampleAssetId && spendAnalytics.invoices[0]?.craneDescription ? ` · ${spendAnalytics.invoices[0].craneDescription}` : ''}</p>
                           </div>
                           <div className="border-l-4 border-[#f2b43f] pl-4 sm:text-right">
                             <p className="text-[11px] font-bold uppercase text-white/60">Total Allocated Cost</p>
                             <p className="mt-1 text-[34px] font-black">{formatCurrency(spendAnalytics.totalSpend)}</p>
                             <p className="mt-1 text-xs font-bold text-white/70">
                               {formatCurrency(spendAnalytics.repairSpend)} repair · {formatCurrency(spendAnalytics.inspectionSpend)} inspection
+                              {isSampleProperty && ` · ${formatCurrency(spendAnalytics.installationSpend)} installation`}
                             </p>
                           </div>
                         </div>
@@ -2557,7 +2587,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                         {[
                           ['Repair Spend', formatCurrency(spendAnalytics.repairSpend), `${spendAnalytics.repairInvoiceCount} repair invoice${spendAnalytics.repairInvoiceCount === 1 ? '' : 's'}`, '#4a9960'],
                           ['Inspection Spend', formatCurrency(spendAnalytics.inspectionSpend), `${spendAnalytics.inspectionInvoiceCount} inspection invoice${spendAnalytics.inspectionInvoiceCount === 1 ? '' : 's'}`, '#f2b43f'],
-                          ['Invoices', spendAnalytics.invoiceCount.toLocaleString(), 'Allocated to this crane', '#2f56a6'],
+                          ['Invoices', spendAnalytics.invoiceCount.toLocaleString(), `Allocated to this ${spendSubject}`, '#2f56a6'],
                           [
                             'Latest Invoice',
                             formatInvoiceDate(spendAnalytics.latestInvoiceDate),
@@ -2582,7 +2612,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className="h-3 w-1 rounded-full bg-[var(--deshazo-blue)]" />
-                                <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Monthly Repair and Inspection Spend</h3>
+                                <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">{isSampleProperty ? 'Monthly Spend by Work Type' : 'Monthly Repair and Inspection Spend'}</h3>
                               </div>
                               <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Allocated invoice cost split by work type.</p>
                             </div>
@@ -2608,7 +2638,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                                 <Tooltip
                                   formatter={(value, name) => [
                                     formatCurrency(Number(value)),
-                                    name === 'repairSpend' ? 'Repair' : name === 'inspectionSpend' ? 'Inspection' : 'Allocated spend',
+                                    name === 'repairSpend' ? 'Repair' : name === 'inspectionSpend' ? 'Inspection' : name === 'installationSpend' ? 'Installation' : name,
                                   ]}
                                   contentStyle={spendTooltipStyle}
                                   cursor={{ stroke: '#9eb3d7', strokeWidth: 1, strokeDasharray: '4 4' }}
@@ -2622,6 +2652,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                                 />
                                 <Bar dataKey="repairSpend" name="Repair" stackId="spend" fill="#4a9960" radius={[8, 8, 2, 2]} maxBarSize={72} />
                                 <Bar dataKey="inspectionSpend" name="Inspection" stackId="spend" fill="#f2b43f" radius={[8, 8, 2, 2]} maxBarSize={72} />
+                                {isSampleProperty && <Bar dataKey="installationSpend" name="Installation" stackId="spend" fill="#315caa" radius={[8, 8, 2, 2]} maxBarSize={72} />}
                               </BarChart>
                             </ResponsiveContainer>
                           ) : (
@@ -2635,9 +2666,9 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                           <div className="mb-2">
                             <div className="flex items-center gap-2">
                               <span className="h-3 w-1 rounded-full bg-[#4a9960]" />
-                              <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Repair vs Inspection Cost</h3>
+                              <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">{isSampleProperty ? 'Spend by Work Type' : 'Repair vs Inspection Cost'}</h3>
                             </div>
-                            <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Cost mix for this crane.</p>
+                            <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Cost mix for this {spendSubject}.</p>
                           </div>
                           <div className="relative">
                             <ResponsiveContainer width="100%" height={260}>
@@ -2684,7 +2715,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                               <span className="h-3 w-1 rounded-full bg-[#e05c3a]" />
                               <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Cost by Invoice</h3>
                             </div>
-                            <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Allocated crane cost from each invoice.</p>
+                            <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Allocated {spendSubject} cost from each invoice.</p>
                           </div>
                           <ResponsiveContainer width="100%" height={280}>
                             <BarChart data={spendDashboard.invoiceBreakdown} layout="vertical" margin={{ top: 4, right: 12, left: 10, bottom: 0 }} barCategoryGap="34%">
@@ -2712,7 +2743,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                                 iconSize={8}
                                 wrapperStyle={{ fontSize: 11, fontWeight: 700, color: '#687184', paddingBottom: 14 }}
                               />
-                              <Bar dataKey="value" name="This crane" stackId="invoice" fill="#2f56a6" radius={[6, 0, 0, 6]} />
+                              <Bar dataKey="value" name={`This ${spendSubject}`} stackId="invoice" fill="#2f56a6" radius={[6, 0, 0, 6]} />
                               <Bar dataKey="remainingCost" name="Other allocations" stackId="invoice" fill="#e3e9f2" radius={[0, 6, 6, 0]} />
                             </BarChart>
                           </ResponsiveContainer>
@@ -2725,7 +2756,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                                 <span className="h-3 w-1 rounded-full bg-[#f2b43f]" />
                                 <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Recent Invoices</h3>
                               </div>
-                              <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Latest allocations included in crane spend.</p>
+                              <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Latest allocations included in {spendSubject} spend.</p>
                             </div>
                             <span className="text-[12px] font-bold text-[rgba(21,24,33,0.48)]">{spendAnalytics.invoiceCount} total</span>
                           </div>
@@ -2740,7 +2771,7 @@ function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustome
                                         ? 'bg-[#fff4d7] text-[#8a6500]'
                                         : 'bg-[#e8f5ee] text-[#2f6f4f]'
                                     }`}>
-                                      {invoice.spendKind === 'inspection' ? 'Inspection' : 'Repair'}
+                                      {isSampleProperty && invoice.spendKind === 'installation' ? 'Installation' : invoice.spendKind === 'inspection' ? 'Inspection' : 'Repair'}
                                     </span>
                                   </div>
                                   <p className="mt-1 text-[12px] font-semibold text-[rgba(21,24,33,0.52)]">

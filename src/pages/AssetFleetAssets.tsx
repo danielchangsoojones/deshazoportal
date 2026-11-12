@@ -12,6 +12,7 @@ import {
 } from '../lib/portalApi'
 import { getSupabaseAssetAreaOptions, getSupabaseAssetFleetAssets, getSupabaseOpenRiskAssets } from '../lib/deshazoOpenRiskSupabase'
 import { phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getSampleFleetUnits, sampleFleetAreas, sampleFleetLocations } from '../lib/samplePropertyFleet'
 import type { User } from '@supabase/supabase-js'
 import PropertyOpenRisks from './PropertyOpenRisks'
 
@@ -105,8 +106,14 @@ function IssueRing({ unit }: { unit: AssetUnit }) {
   )
 }
 
-function AssetUnitCard({ unit, currentView }: { unit: AssetUnit; currentView: 'open-risk' | 'asset-fleet' }) {
+function AssetUnitCard({ unit, currentView, sample }: { unit: AssetUnit; currentView: 'open-risk' | 'asset-fleet'; sample: boolean }) {
   const customerPath = useCustomerPath()
+  const [searchParams] = useSearchParams()
+  const details = sample
+    ? new URLSearchParams(searchParams)
+    : new URLSearchParams({ unit_id: unit.unit_id })
+  if (sample) details.set('property_id', unit.unit_id)
+  if (currentView === 'open-risk') details.set('view', 'open-risk')
 
   return (
     <article className="overflow-hidden rounded-[10px] border border-[var(--deshazo-border)] bg-white shadow-[0_14px_30px_-28px_rgba(47,86,166,0.22)]">
@@ -127,7 +134,7 @@ function AssetUnitCard({ unit, currentView }: { unit: AssetUnit; currentView: 'o
       <div className="border-t border-[var(--deshazo-border)] px-4 py-4">
         <IssueRing unit={unit} />
         <Link
-          to={`${customerPath('/asset-info')}?unit_id=${unit.unit_id}${currentView === 'open-risk' ? '&view=open-risk' : ''}`}
+          to={customerPath(`/asset-info?${details}`)}
           className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-[4px] bg-[var(--deshazo-blue)] text-[14px] font-bold text-white"
         >
           See Details
@@ -142,22 +149,28 @@ export default function AssetFleetAssets() {
   const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
   const [searchParams, setSearchParams] = useSearchParams()
-  const [locationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
-  const [locationsLoading, setLocationsLoading] = useState(true)
+  const [liveLocationOptions, setLocationOptions] = useState<PortalLocationOption[]>([])
+  const [liveLocationsLoading, setLocationsLoading] = useState(true)
   const [selectedLocations, setSelectedLocations] = useState<string[]>([])
   const [locationMenuOpen, setLocationMenuOpen] = useState(false)
-  const [areaOptions, setAreaOptions] = useState<string[]>([])
+  const [liveAreaOptions, setAreaOptions] = useState<string[]>([])
   const [selectedAreas, setSelectedAreas] = useState<string[]>([])
   const [areaMenuOpen, setAreaMenuOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
-  const [assetsPage, setAssetsPage] = useState<AssetsPageAnalytics>(defaultAssetsPage)
-  const [loading, setLoading] = useState(true)
+  const [liveAssetsPage, setAssetsPage] = useState<AssetsPageAnalytics>(defaultAssetsPage)
+  const [liveLoading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
-  const showPropertyRisks = currentView === 'open-risk' && selectedCustomer === phillipsCustomer
+  const sample = selectedCustomer === phillipsCustomer
+  const showPropertyRisks = currentView === 'open-risk' && sample
+  const locationOptions = sample ? sampleFleetLocations : liveLocationOptions
+  const areaOptions = sample ? sampleFleetAreas : liveAreaOptions
+  const locationsLoading = !sample && liveLocationsLoading
+  const loading = !sample && liveLoading
+  const assetsPage = sample ? { unit_array: getSampleFleetUnits(selectedLocations, selectedAreas) } : liveAssetsPage
 
   const activeMenuItems = useDeveloperMenuItems(
     menuItems,
@@ -180,7 +193,7 @@ export default function AssetFleetAssets() {
   }, [searchParams, showPropertyRisks])
 
   useEffect(() => {
-    if (showPropertyRisks) return
+    if (sample) return
 
     let cancelled = false
     getSupabaseAssetAreaOptions(selectedLocations, selectedCustomer).then((options) => {
@@ -201,7 +214,7 @@ export default function AssetFleetAssets() {
       if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load areas.')
     })
     return () => { cancelled = true }
-  }, [selectedLocations, selectedCustomer, searchParams, setSearchParams, showPropertyRisks])
+  }, [selectedLocations, selectedCustomer, searchParams, setSearchParams, sample])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -222,7 +235,7 @@ export default function AssetFleetAssets() {
   }, [customerPath, navigate])
 
   useEffect(() => {
-    if (showPropertyRisks) return
+    if (sample) return
 
     let cancelled = false
 
@@ -250,10 +263,10 @@ export default function AssetFleetAssets() {
     return () => {
       cancelled = true
     }
-  }, [selectedCustomer, showPropertyRisks])
+  }, [selectedCustomer, sample])
 
   useEffect(() => {
-    if (showPropertyRisks || authLoading || !user) {
+    if (sample || authLoading || !user) {
       return
     }
 
@@ -282,7 +295,7 @@ export default function AssetFleetAssets() {
     loadAssets()
 
     return () => controller.abort()
-  }, [selectedLocations, selectedAreas, currentPage, currentView, authLoading, user, selectedCustomer, showPropertyRisks])
+  }, [selectedLocations, selectedAreas, currentPage, currentView, authLoading, user, selectedCustomer, sample])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -451,7 +464,7 @@ export default function AssetFleetAssets() {
                   DESHA<span className="text-[#f2b43f]">Z</span>O
                 </div>
                 <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                  Cranes / Service / Automation
+                  {sample ? 'Branco Company · Sample data' : 'Cranes / Service / Automation'}
                 </p>
                 <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>
@@ -557,7 +570,7 @@ export default function AssetFleetAssets() {
             </div>
           </div>
 
-          {error && (
+          {!sample && error && (
             <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
             </div>
@@ -569,7 +582,7 @@ export default function AssetFleetAssets() {
 
                 <div className="min-w-[150px]">
                   <p className="text-[14px] font-bold uppercase tracking-[0.03em] text-[rgba(21,24,33,0.58)]">
-                    Assets
+                    {sample ? 'Properties' : 'Assets'}
                   </p>
                   <p className="mt-1 text-[28px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">
                     {totalAssetsCount}
@@ -580,7 +593,7 @@ export default function AssetFleetAssets() {
                   <div className="text-center">
                     <p className="text-[24px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">{safetyCount}</p>
                     <div className="mt-1 h-[2px] w-24 bg-[#f53822]" />
-                    <p className="text-[18px] font-medium text-[#f53822]">Safety</p>
+                    <p className="text-[18px] font-medium text-[#f53822]">{sample ? 'High priority' : 'Safety'}</p>
                   </div>
                 </div>
 
@@ -597,7 +610,7 @@ export default function AssetFleetAssets() {
                   <div className="text-center">
                     <p className="text-[24px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">{monitorCount}</p>
                     <div className="mt-1 h-[2px] w-24 bg-[#efb634]" />
-                    <p className="text-[18px] font-medium text-[#efb634]">Monitor</p>
+                    <p className="text-[18px] font-medium text-[#efb634]">{sample ? 'Other risks' : 'Monitor'}</p>
                   </div>
                 </div>
               </div>
@@ -667,7 +680,7 @@ export default function AssetFleetAssets() {
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   {assetsPage.unit_array.map((unit) => (
-                    <AssetUnitCard key={unit.unit_id} unit={unit} currentView={currentView} />
+                    <AssetUnitCard key={unit.unit_id} unit={unit} currentView={currentView} sample={sample} />
                   ))}
                 </div>
               )}

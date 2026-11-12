@@ -7,7 +7,8 @@ import { DeveloperBadge } from '../components/DeveloperBadge'
 import DNumberSearchBar from '../components/DNumberSearchBar'
 import { type AssetsServicedAnalytics, type ServicedAsset } from '../lib/portalApi'
 import { getSupabaseAssetFleetServiced } from '../lib/deshazoOpenRiskSupabase'
-import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getCustomerDisplayName, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { sampleFleetSummary } from '../lib/samplePropertyFleet'
 import type { User } from '@supabase/supabase-js'
 
 const menuItems = [
@@ -41,8 +42,8 @@ const buildProgressGradient = (percent: number) => {
   return `conic-gradient(#22a06b 0deg ${progressDegrees}deg, #e6ebf2 ${progressDegrees}deg 360deg)`
 }
 
-const getProgressPercent = (safetyIssues = 0, totalIssues = 0) =>
-  totalIssues > 0 ? clampPercent(Math.round((safetyIssues / totalIssues) * 100)) : 0
+const getProgressPercent = (count = 0, total = 0) =>
+  total > 0 ? clampPercent(Math.round((count / total) * 100)) : 0
 
 function ProgressRing({ percent, size = 56 }: { percent: number; size?: number }) {
   const innerSize = size - 10
@@ -64,8 +65,10 @@ function ProgressRing({ percent, size = 56 }: { percent: number; size?: number }
   )
 }
 
-function AssetCard({ asset, customerName }: { asset: ServicedAsset; customerName: string }) {
-  const percent = getProgressPercent(asset.safety_issue_count, asset.total_open_issues)
+function AssetCard({ asset, customerName, sample }: { asset: ServicedAsset; customerName: string; sample: boolean }) {
+  const percent = sample
+    ? getProgressPercent(asset.serviced_units, asset.total_units)
+    : getProgressPercent(asset.safety_issue_count, asset.total_open_issues)
   const customerPath = useCustomerPath()
 
   return (
@@ -95,11 +98,14 @@ export default function AssetFleet() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
-  const [assetSummary, setAssetSummary] = useState<AssetsServicedAnalytics>(defaultAssetsSummary)
-  const [loading, setLoading] = useState(true)
+  const [liveSummary, setAssetSummary] = useState<AssetsServicedAnalytics>(defaultAssetsSummary)
+  const [loadingLive, setLoading] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
   const selectedCustomer = useSelectedCustomer()
+  const sample = selectedCustomer === phillipsCustomer
+  const assetSummary = sample ? sampleFleetSummary : liveSummary
+  const loading = !sample && loadingLive
   const customerPath = useCustomerPath()
 
   const activeMenuItems = useDeveloperMenuItems(menuItems, 'Asset Fleet')
@@ -123,6 +129,8 @@ export default function AssetFleet() {
   }, [customerPath, navigate])
 
   useEffect(() => {
+    if (sample) return
+
     const controller = new AbortController()
 
     const loadAssets = async () => {
@@ -130,6 +138,7 @@ export default function AssetFleet() {
         setLoading(true)
         setError('')
         const data = await getSupabaseAssetFleetServiced(selectedCustomer)
+        if (controller.signal.aborted) return
         setAssetSummary(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -144,7 +153,7 @@ export default function AssetFleet() {
     loadAssets()
 
     return () => controller.abort()
-  }, [selectedCustomer])
+  }, [sample, selectedCustomer])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -174,8 +183,10 @@ export default function AssetFleet() {
     .slice(0, 2)
     .map((part: string) => part[0]?.toUpperCase())
     .join('') || 'DP'
-  const overallPercent = getProgressPercent(assetSummary.safety_issue_count, assetSummary.total_open_issues)
-  const customerName = getCustomerDisplayName(selectedCustomer)
+  const overallPercent = sample
+    ? getProgressPercent(assetSummary.serviced_units_count, assetSummary.total_units_count)
+    : getProgressPercent(assetSummary.safety_issue_count, assetSummary.total_open_issues)
+  const customerName = sample ? 'Branco Company' : getCustomerDisplayName(selectedCustomer)
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--deshazo-text)]">
@@ -272,7 +283,7 @@ export default function AssetFleet() {
                   DESHA<span className="text-[#f2b43f]">Z</span>O
                 </div>
                 <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                  Cranes / Service / Automation
+                  {sample ? 'Branco Company · Sample data' : 'Cranes / Service / Automation'}
                 </p>
                 <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>
@@ -284,7 +295,7 @@ export default function AssetFleet() {
             </div>
           </div>
 
-          {error && (
+          {!sample && error && (
             <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
             </div>
@@ -325,7 +336,7 @@ export default function AssetFleet() {
             ) : (
               <div className="grid gap-6 lg:grid-cols-2">
                 {assetSummary.serviced_assets.map((asset) => (
-                  <AssetCard key={asset.location_value} asset={asset} customerName={customerName} />
+                  <AssetCard key={asset.location_value} asset={asset} customerName={customerName} sample={sample} />
                 ))}
               </div>
             )}

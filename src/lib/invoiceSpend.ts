@@ -487,7 +487,7 @@ async function fetchInvoiceSpendAllocations(customer?: string, options: { includ
   return Array.from(uniqueAllocations.values())
 }
 
-function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
+export function summarizeByCrane(allocations: InvoiceSpendAllocation[]) {
   const cranes = new Map<string, InvoiceSpendCraneSummary>()
 
   allocations.forEach((allocation) => {
@@ -594,8 +594,15 @@ export async function getCraneInvoiceSpendAnalytics(
   dNumber: string,
   customer?: string,
 ): Promise<CraneInvoiceSpendAnalytics> {
+  return buildCraneInvoiceSpendAnalytics(dNumber, await fetchInvoiceSpendAllocations(customer))
+}
+
+export function buildCraneInvoiceSpendAnalytics(
+  dNumber: string,
+  sourceAllocations: InvoiceSpendAllocation[],
+): CraneInvoiceSpendAnalytics {
   const normalizedDNumber = dNumber.trim().toUpperCase()
-  const allocations = (await fetchInvoiceSpendAllocations(customer))
+  const allocations = sourceAllocations
     .filter((allocation) => allocation.dNumber === normalizedDNumber)
     .sort((left, right) => right.invoiceDate.localeCompare(left.invoiceDate))
   const invoiceKeys = new Set(allocations.map(getAllocationInvoiceKey))

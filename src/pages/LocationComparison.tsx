@@ -5,9 +5,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { usePortalMenu } from '../lib/usePortalMenu'
 import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
-import { getLocationComparisonAnalytics, type LocationComparisonItem } from '../lib/spendAnalytics'
+import { getLocationComparisonAnalytics, getSampleLocationSpend, type LocationComparisonItem } from '../lib/spendAnalytics'
 import { getPendingInvoiceSpendRuns, syncInvoiceSpendRuns, uploadInvoiceSpendPdf } from '../lib/invoiceSpend'
-import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getCustomerDisplayName, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { getCurrentSupabaseUser, isConfigured, supabase } from '../lib/supabase'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
@@ -50,7 +50,8 @@ export default function LocationComparison() {
   const navigate = useNavigate()
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
-  const customerName = getCustomerDisplayName(selectedCustomer)
+  const sample = selectedCustomer === phillipsCustomer
+  const customerName = sample ? 'Branco Company' : getCustomerDisplayName(selectedCustomer)
   const [userTag, setUserTag] = useState<UserTag | null>(null)
   const [invoiceSpendUploadStatus, setInvoiceSpendUploadStatus] = useState('')
   const [invoiceSpendUploadError, setInvoiceSpendUploadError] = useState('')
@@ -105,7 +106,8 @@ export default function LocationComparison() {
       status: 'loading',
     }))
 
-    getLocationComparisonAnalytics(selectedCustomer)
+    const loadLocations = async () => sample ? getSampleLocationSpend().locationComparison : getLocationComparisonAnalytics(selectedCustomer)
+    loadLocations()
       .then((nextLocationData) => {
         if (!isMounted) return
         setComparisonState({
@@ -128,7 +130,7 @@ export default function LocationComparison() {
     return () => {
       isMounted = false
     }
-  }, [authLoading, comparisonReloadKey, selectedCustomer, user])
+  }, [authLoading, comparisonReloadKey, sample, selectedCustomer, user])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -249,7 +251,7 @@ export default function LocationComparison() {
   const locationData = comparisonState.customer === selectedCustomer ? comparisonState.data : []
   const loading = comparisonState.customer !== selectedCustomer || comparisonState.status === 'loading'
   const error = comparisonState.customer === selectedCustomer ? comparisonState.error : ''
-  const canUploadInvoiceSpend = userTag === 'developer'
+  const canUploadInvoiceSpend = !sample && userTag === 'developer'
   const initials = fullName
     .split(' ')
     .filter(Boolean)
@@ -350,7 +352,7 @@ export default function LocationComparison() {
                   DESHA<span className="text-[#f2b43f]">Z</span>O
                 </div>
                 <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                  Cranes / Service / Automation
+                  {sample ? 'Branco Company · Sample data' : 'Cranes / Service / Automation'}
                 </p>
                 <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>
@@ -434,10 +436,10 @@ export default function LocationComparison() {
                         </div>
                         <div className="rounded-xl bg-white px-3 py-3 shadow-[0_10px_24px_-20px_rgba(47,86,166,0.22)]">
                           <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--deshazo-blue-soft)]">
-                            Uploaded PDFs
+                            {sample ? 'Repair Invoices' : 'Uploaded PDFs'}
                           </p>
                           <p className="mt-1 text-[20px] font-extrabold tracking-[-0.04em] text-[var(--deshazo-text)]">
-                            {location.total_invoices}
+                            {sample ? location.repair_invoice_count : location.total_invoices}
                           </p>
                         </div>
                       </div>
@@ -468,7 +470,7 @@ export default function LocationComparison() {
                               {label}
                             </span>
                             <span className="text-sm font-bold text-[var(--deshazo-text)]">
-                              {label === 'Mapped Invoices' ? Number(value).toLocaleString() : formatCurrency(Number(value))}
+                              {label === 'Finance Invoices' ? Number(value).toLocaleString() : formatCurrency(Number(value))}
                             </span>
                           </div>
                         ))}

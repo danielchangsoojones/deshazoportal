@@ -7,6 +7,7 @@ import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 import { DeveloperBadge } from '../components/DeveloperBadge'
 import {
   clearSpendAnalyticsCache,
+  getSamplePropertySpend,
   getSpendDashboardAnalytics,
   type LocationComparisonItem,
   type MonthlySpend,
@@ -14,7 +15,7 @@ import {
   type SpendAnalytics,
 } from '../lib/spendAnalytics'
 import { uploadJpaFinanceFiles } from '../lib/jpaFinanceImport'
-import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getCustomerDisplayName, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { getCurrentSupabaseUser, isConfigured, supabase } from '../lib/supabase'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 
@@ -329,7 +330,8 @@ export default function Spend() {
   const [searchParams] = useSearchParams()
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
-  const customerName = getCustomerDisplayName(selectedCustomer)
+  const sample = selectedCustomer === phillipsCustomer
+  const customerName = sample ? 'Branco Company' : getCustomerDisplayName(selectedCustomer)
   const customAnalyticsRef = useRef<HTMLDivElement | null>(null)
   const jpaUploadInputRef = useRef<HTMLInputElement | null>(null)
   const [customAnalyticsMessage, setCustomAnalyticsMessage] = useState('')
@@ -393,7 +395,8 @@ export default function Spend() {
 
     let isMounted = true
 
-    getSpendDashboardAnalytics(selectedCustomer, reportDateRange)
+    const loadSpend = async () => sample ? getSamplePropertySpend(reportDateRange) : getSpendDashboardAnalytics(selectedCustomer, reportDateRange)
+    loadSpend()
       .then(({ spendAnalytics: nextAnalytics, locationComparison: nextLocationComparison }) => {
         if (!isMounted) return
         setSpendState({
@@ -422,7 +425,7 @@ export default function Spend() {
     return () => {
       isMounted = false
     }
-  }, [analyticsReloadKey, authLoading, reportDateRange, selectedCustomer, user])
+  }, [analyticsReloadKey, authLoading, reportDateRange, sample, selectedCustomer, user])
 
   useEffect(() => {
     if (authLoading || !user) return
@@ -435,7 +438,8 @@ export default function Spend() {
       endMonth: `${annualSpendYear}-${String(endMonth).padStart(2, '0')}`,
     }
     setAnnualSpendState({ customer: selectedCustomer, year: annualSpendYear, locations: [], status: 'loading' })
-    getSpendDashboardAnalytics(selectedCustomer, yearRange)
+    const loadAnnualSpend = async () => sample ? getSamplePropertySpend(yearRange) : getSpendDashboardAnalytics(selectedCustomer, yearRange)
+    loadAnnualSpend()
       .then(({ locationComparison }) => {
         if (isMounted) setAnnualSpendState({ customer: selectedCustomer, year: annualSpendYear, locations: locationComparison, status: 'ready' })
       })
@@ -443,7 +447,7 @@ export default function Spend() {
         if (isMounted) setAnnualSpendState({ customer: selectedCustomer, year: annualSpendYear, locations: [], status: 'ready' })
       })
     return () => { isMounted = false }
-  }, [annualSpendYear, analyticsReloadKey, authLoading, selectedCustomer, user])
+  }, [annualSpendYear, analyticsReloadKey, authLoading, sample, selectedCustomer, user])
 
   useEffect(() => {
     if (!customAnalyticsMessage) return
@@ -565,7 +569,7 @@ export default function Spend() {
   const unmappedLocationInvoiceCount = Math.max(toplineSpend.total_invoices - analytics.locationMappedInvoiceCount, 0)
   const locationMappingIsPending =
     hasFinanceData && analytics.locationMappedInvoiceCount === 0
-  const canUploadJpa = userTag === 'developer'
+  const canUploadJpa = !sample && userTag === 'developer'
   const handleDateRangePartChange = (field: keyof DateRangeDraft, value: string) => {
     setDateRangeDraft((current) => {
       const next = {
@@ -708,7 +712,7 @@ export default function Spend() {
                   DESHA<span className="text-[#f2b43f]">Z</span>O
                 </div>
                 <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                  Cranes / Service / Automation
+                  {sample ? 'Branco Company · Sample data' : 'Cranes / Service / Automation'}
                 </p>
                 <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>
@@ -1171,7 +1175,7 @@ export default function Spend() {
               <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.08em] text-[var(--deshazo-blue)]">Annual Spend</p>
-                  <h2 className="mt-1 text-[24px] font-black tracking-[-0.04em] text-[var(--deshazo-text)]">Spend by Factory</h2>
+                  <h2 className="mt-1 text-[24px] font-black tracking-[-0.04em] text-[var(--deshazo-text)]">{sample ? 'Spend by Borough' : 'Spend by Factory'}</h2>
                   <p className="mt-1 text-sm font-semibold text-[rgba(21,24,33,0.55)]">
                     January–{new Intl.DateTimeFormat(undefined, { month: 'long' }).format(new Date(annualSpendYear, annualSpendYear === currentYear ? new Date().getMonth() : 11, 1))} {annualSpendYear}
                   </p>
