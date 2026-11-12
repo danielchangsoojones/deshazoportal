@@ -7,7 +7,7 @@ import ProfileMenu from '../components/ProfileMenu'
 import { DeveloperBadge, OldDbBadge } from '../components/DeveloperBadge'
 import { getUserDisplayName, getUserInitials } from '../lib/userProfile'
 import { getCurrentUserTag, type UserTag } from '../lib/userTags'
-import { getCustomerDisplayName, hasSpareHoistManagement, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { hasSpareHoistManagement, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
 
 const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel', phillipsCustomer])
@@ -231,7 +231,7 @@ export default function Dashboard() {
                   DESHA<span className="text-[#f2b43f]">Z</span>O
                 </div>
                 <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-                  {selectedCustomer === phillipsCustomer ? getCustomerDisplayName(selectedCustomer) : 'Cranes / Service / Automation'}
+                  {selectedCustomer === phillipsCustomer ? 'Branco Company' : 'Cranes / Service / Automation'}
                 </p>
                 <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
               </div>

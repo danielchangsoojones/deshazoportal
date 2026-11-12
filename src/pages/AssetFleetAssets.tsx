@@ -11,8 +11,9 @@ import {
   type AssetsPageAnalytics,
 } from '../lib/portalApi'
 import { getSupabaseAssetAreaOptions, getSupabaseAssetFleetAssets, getSupabaseOpenRiskAssets } from '../lib/deshazoOpenRiskSupabase'
-import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import type { User } from '@supabase/supabase-js'
+import PropertyOpenRisks from './PropertyOpenRisks'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -156,6 +157,7 @@ export default function AssetFleetAssets() {
   const selectedCustomer = useSelectedCustomer()
   const customerPath = useCustomerPath()
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
+  const showPropertyRisks = currentView === 'open-risk' && selectedCustomer === phillipsCustomer
 
   const activeMenuItems = useDeveloperMenuItems(
     menuItems,
@@ -163,6 +165,8 @@ export default function AssetFleetAssets() {
   )
 
   useEffect(() => {
+    if (showPropertyRisks) return
+
     const initialLocations = searchParams.get('locations')
     const parsedLocations = initialLocations
       ? initialLocations.split(',').map((value) => value.trim()).filter(Boolean)
@@ -173,9 +177,11 @@ export default function AssetFleetAssets() {
     const initialAreas = searchParams.get('areas')
     setSelectedAreas(initialAreas ? initialAreas.split(',').map((value) => value.trim()).filter(Boolean) : [])
     setCurrentPage(Number.isFinite(initialPage) && initialPage > 0 ? initialPage : 1)
-  }, [searchParams])
+  }, [searchParams, showPropertyRisks])
 
   useEffect(() => {
+    if (showPropertyRisks) return
+
     let cancelled = false
     getSupabaseAssetAreaOptions(selectedLocations, selectedCustomer).then((options) => {
       if (cancelled) return
@@ -195,7 +201,7 @@ export default function AssetFleetAssets() {
       if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load areas.')
     })
     return () => { cancelled = true }
-  }, [selectedLocations, selectedCustomer, searchParams, setSearchParams])
+  }, [selectedLocations, selectedCustomer, searchParams, setSearchParams, showPropertyRisks])
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -216,6 +222,8 @@ export default function AssetFleetAssets() {
   }, [customerPath, navigate])
 
   useEffect(() => {
+    if (showPropertyRisks) return
+
     let cancelled = false
 
     async function loadLocations() {
@@ -242,10 +250,10 @@ export default function AssetFleetAssets() {
     return () => {
       cancelled = true
     }
-  }, [selectedCustomer])
+  }, [selectedCustomer, showPropertyRisks])
 
   useEffect(() => {
-    if (authLoading || !user) {
+    if (showPropertyRisks || authLoading || !user) {
       return
     }
 
@@ -258,6 +266,7 @@ export default function AssetFleetAssets() {
         const data = currentView === 'open-risk'
           ? await getSupabaseOpenRiskAssets(selectedLocations, currentPage - 1, selectedCustomer, selectedAreas)
           : await getSupabaseAssetFleetAssets(selectedLocations, currentPage - 1, selectedCustomer, selectedAreas)
+        if (controller.signal.aborted) return
         setAssetsPage(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -273,7 +282,7 @@ export default function AssetFleetAssets() {
     loadAssets()
 
     return () => controller.abort()
-  }, [selectedLocations, selectedAreas, currentPage, currentView, authLoading, user, selectedCustomer])
+  }, [selectedLocations, selectedAreas, currentPage, currentView, authLoading, user, selectedCustomer, showPropertyRisks])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
@@ -284,7 +293,7 @@ export default function AssetFleetAssets() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
         <div className="rounded-2xl border border-[var(--deshazo-border)] bg-white px-6 py-4 text-sm font-semibold text-[var(--deshazo-blue)] shadow-[0_18px_40px_-34px_rgba(47,86,166,0.28)]">
-          Loading asset fleet assets...
+          {showPropertyRisks ? 'Loading property risks...' : 'Loading asset fleet assets...'}
         </div>
       </div>
     )
@@ -361,7 +370,7 @@ export default function AssetFleetAssets() {
             </span>
           </button>
 
-          <DNumberSearchBar />
+          {!showPropertyRisks && <DNumberSearchBar />}
 
           <div className="hidden text-right text-sm text-white/85 sm:block">
             Signed in as <span className="font-semibold text-white">{user.email}</span>
@@ -433,6 +442,7 @@ export default function AssetFleetAssets() {
           </aside>
         )}
 
+        {showPropertyRisks ? <PropertyOpenRisks /> : (
         <section className="min-w-0 flex-1 px-5 py-5 sm:px-8 lg:px-10">
           <div className="mb-8">
             <div className="flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
@@ -664,6 +674,7 @@ export default function AssetFleetAssets() {
             </section>
           </section>
         </section>
+        )}
       </main>
     </div>
   )

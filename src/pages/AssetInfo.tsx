@@ -50,7 +50,8 @@ import {
   type CraneInvoiceSpendAnalytics,
   type InvoiceSpendAllocation,
 } from '../lib/invoiceSpend'
-import { getCustomerDisplayName, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { getCustomerDisplayName, phillipsCustomer, useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
+import { priorities, propertyRiskFilters, sampleProperties, type Property } from '../lib/samplePropertyRisks'
 
 const menuItems = [
   { label: 'Home', href: '/dashboard' },
@@ -134,6 +135,23 @@ const defaultAssetInfo: AssetInfoAnalytics = {
   unit_internal_location: '',
   unit_name: 'Asset Info',
   issues: [],
+}
+
+function samplePropertyAssetInfo(property?: Property): AssetInfoAnalytics {
+  if (!property) return { ...defaultAssetInfo, unit_name: 'Property not found' }
+
+  const inspectionDates = ['Nov 5, 2026', 'Oct 22, 2026', 'Oct 8, 2026', 'Sep 24, 2026']
+  const issues = priorities.flatMap(({ label }) => property.risks.flatMap((risk, index) => (
+    risk.priority === label ? [{
+      category: risk.title,
+      safety_category: risk.priority,
+      remarks: risk.nextStep,
+      component_type: risk.area,
+      inspection_date: inspectionDates[index % inspectionDates.length],
+    }] : []
+  )))
+
+  return { unit_name: property.name, unit_location: property.location, unit_internal_location: property.type, issues }
 }
 
 const defaultAssetDocuments: AssetPdfResponse = {
@@ -254,7 +272,8 @@ const extractDocumentNumber = (...values: Array<string | undefined>) => {
   return ''
 }
 
-const getSafetyBadgeClass = (value: string) => {
+const getSafetyBadgeClass = (value: string, isSampleProperty: boolean) => {
+  if (isSampleProperty) return priorities.find(({ label }) => label === value)?.badge ?? ''
   const normalized = value.toLowerCase()
   if (normalized === 'safety') {
     return 'bg-[#ffe1dd] text-[#bf3b2f]'
@@ -302,10 +321,12 @@ function AssetIssueRow({
   issue,
   index,
   onClick,
+  isSampleProperty,
 }: {
   issue: AssetIssue
   index: number
   onClick: () => void
+  isSampleProperty: boolean
 }) {
   return (
     <tr onClick={onClick} className={`cursor-pointer transition hover:bg-[#dbe5ff] ${index % 2 === 0 ? 'bg-[#f4f7ff]' : 'bg-white'}`}>
@@ -313,7 +334,7 @@ function AssetIssueRow({
         {issue.category}
       </td>
       <td className="w-[17%] px-4 py-3 align-top">
-        <span className={`inline-flex rounded-full px-2.5 py-1 text-[13px] font-bold ${getSafetyBadgeClass(issue.safety_category)}`}>
+        <span className={`inline-flex rounded-full px-2.5 py-1 text-[13px] font-bold ${getSafetyBadgeClass(issue.safety_category, isSampleProperty)}`}>
           {formatSafetyCategory(issue.safety_category)}
         </span>
       </td>
@@ -479,6 +500,18 @@ function GeneratedInspectionReportPreview({
 }
 
 export default function AssetInfo() {
+  const customer = useSelectedCustomer()
+  const [searchParams] = useSearchParams()
+  const samplePropertyId = customer === phillipsCustomer && searchParams.get('view') === 'open-risk'
+    ? searchParams.get('property_id') ?? undefined
+    : undefined
+
+  return <AssetInfoPage key={samplePropertyId} selectedCustomer={customer} samplePropertyId={samplePropertyId} />
+}
+
+function AssetInfoPage({ selectedCustomer, samplePropertyId }: { selectedCustomer: string; samplePropertyId?: string }) {
+  const isSampleProperty = samplePropertyId !== undefined
+  const property = sampleProperties.find(({ id }) => id === samplePropertyId)
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const { menuOpen, setMenuOpen } = usePortalMenu(false)
@@ -487,7 +520,7 @@ export default function AssetInfo() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [filterField, setFilterField] = useState<FilterField>('category')
   const [filterValue, setFilterValue] = useState('')
-  const [assetInfo, setAssetInfo] = useState<AssetInfoAnalytics>(defaultAssetInfo)
+  const [assetInfo, setAssetInfo] = useState<AssetInfoAnalytics>(() => isSampleProperty ? samplePropertyAssetInfo(property) : defaultAssetInfo)
   const [assetDocuments, setAssetDocuments] = useState<AssetPdfResponse>(defaultAssetDocuments)
   const [inspectionDocuments, setInspectionDocuments] = useState<GeneratedInspectionPdfDocument[]>([])
   const [repairDocuments, setRepairDocuments] = useState<RepairTabDocument[]>([])
@@ -504,7 +537,7 @@ export default function AssetInfo() {
   const [notesError, setNotesError] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
   const [customerIdentifierModalOpen, setCustomerIdentifierModalOpen] = useState(false)
-  const [customerIdentifier, setCustomerIdentifier] = useState('')
+  const [customerIdentifier, setCustomerIdentifier] = useState(property?.id.toUpperCase() ?? '')
   const [customerIdentifierDraft, setCustomerIdentifierDraft] = useState('')
   const [customerIdentifierLoading, setCustomerIdentifierLoading] = useState(false)
   const [customerIdentifierSaving, setCustomerIdentifierSaving] = useState(false)
@@ -521,9 +554,12 @@ export default function AssetInfo() {
   const [issueReportError, setIssueReportError] = useState('')
   const [selectedIssue, setSelectedIssue] = useState<AssetIssue | null>(null)
   const [selectedIssueMatch, setSelectedIssueMatch] = useState<GeneratedIssueReportMatch | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!isSampleProperty)
   const [error, setError] = useState('')
-  const [recurringIssues, setRecurringIssues] = useState<RecurringIssue[]>([])
+  const [recurringIssues, setRecurringIssues] = useState<RecurringIssue[]>(() => property?.id === 'mercer-square' ? [
+    { category_display_name: 'Fire protection', occurrences: 2 },
+    { category_display_name: 'Roof and drainage', occurrences: 3 },
+  ] : [])
   const [recurringIssuesLoading, setRecurringIssuesLoading] = useState(false)
   const [spendAnalytics, setSpendAnalytics] = useState<CraneInvoiceSpendAnalytics | null>(null)
   const [spendAnalyticsLoading, setSpendAnalyticsLoading] = useState(false)
@@ -536,11 +572,14 @@ export default function AssetInfo() {
     [repairDocuments, selectedDocumentUrl],
   )
   const navigate = useNavigate()
-  const selectedCustomer = useSelectedCustomer()
-  const customerName = getCustomerDisplayName(selectedCustomer)
-  const customerIdentifierLabel = `Unique ${customerName} Identifier`
+  const customerName = isSampleProperty ? 'Branco Company' : getCustomerDisplayName(selectedCustomer)
+  const customerIdentifierLabel = isSampleProperty ? 'Property Identifier' : `Unique ${customerName} Identifier`
+  const priorityLabel = isSampleProperty ? 'Priority' : 'Safety category'
+  const areaLabel = isSampleProperty ? 'Area' : 'Component'
+  const issueLabel = isSampleProperty ? 'Risk Item' : 'Category'
+  const remarksLabel = isSampleProperty ? 'Next Step' : 'Remarks'
   const customerPath = useCustomerPath()
-  const unitId = searchParams.get('unit_id')?.trim() || ''
+  const unitId = samplePropertyId ?? (searchParams.get('unit_id')?.trim() || '')
   const currentView = searchParams.get('view') === 'open-risk' ? 'open-risk' : 'asset-fleet'
   const openedFromLocationComparison = searchParams.get('from') === 'location-comparison'
   const usesSupabaseAssetData = currentView === 'open-risk' || currentView === 'asset-fleet'
@@ -596,8 +635,10 @@ export default function AssetInfo() {
       })
 
       const normalizedSafety = issue.safety_category.trim().toLowerCase()
-      if (normalizedSafety === 'safety') safetyCount += 1
-      else if (normalizedSafety === 'monitor') monitorCount += 1
+      const isSafety = normalizedSafety === (isSampleProperty ? 'high' : 'safety')
+      const isMonitor = normalizedSafety === (isSampleProperty ? 'medium' : 'monitor')
+      if (isSafety) safetyCount += 1
+      else if (isMonitor) monitorCount += 1
 
       if (parsedDate) {
         const monthKey = `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}`
@@ -612,8 +653,8 @@ export default function AssetInfo() {
         }
 
         existingMonth.total += 1
-        if (normalizedSafety === 'safety') existingMonth.safety += 1
-        else if (normalizedSafety === 'monitor') existingMonth.monitor += 1
+        if (isSafety) existingMonth.safety += 1
+        else if (isMonitor) existingMonth.monitor += 1
         else existingMonth.other += 1
         monthMap.set(monthKey, existingMonth)
 
@@ -666,7 +707,7 @@ export default function AssetInfo() {
       issuesOverTime,
       recurringPatterns,
     }
-  }, [assetInfo.issues])
+  }, [assetInfo.issues, isSampleProperty])
 
   const spendDashboard = useMemo(() => {
     const monthly = spendAnalytics?.monthlySpend ?? []
@@ -762,6 +803,8 @@ export default function AssetInfo() {
   }, [customerPath, navigate])
 
   useEffect(() => {
+    if (isSampleProperty) return
+
     if (authLoading || !user) {
       return
     }
@@ -797,9 +840,11 @@ export default function AssetInfo() {
     void loadAssetInfo()
 
     return () => controller.abort()
-  }, [unitId, usesSupabaseAssetData, authLoading, user, selectedCustomer])
+  }, [unitId, usesSupabaseAssetData, authLoading, user, selectedCustomer, isSampleProperty])
 
   useEffect(() => {
+    if (isSampleProperty) return
+
     if (authLoading || !user) {
       return
     }
@@ -822,9 +867,11 @@ export default function AssetInfo() {
 
     void loadRecurringIssues()
     return () => controller.abort()
-  }, [unitId, usesSupabaseAssetData, authLoading, user, selectedCustomer])
+  }, [unitId, usesSupabaseAssetData, authLoading, user, selectedCustomer, isSampleProperty])
 
   useEffect(() => {
+    if (isSampleProperty) return
+
     if (!user || !unitId || !supabase) {
       setNotes([])
       setNotesLoading(false)
@@ -859,9 +906,11 @@ export default function AssetInfo() {
     return () => {
       cancelled = true
     }
-  }, [unitId, user, selectedCustomer])
+  }, [unitId, user, selectedCustomer, isSampleProperty])
 
   useEffect(() => {
+    if (isSampleProperty) return
+
     if (!user || !unitId || !supabase) {
       setNotificationEmails([])
       setNotificationEmailsLoading(false)
@@ -895,9 +944,11 @@ export default function AssetInfo() {
     return () => {
       cancelled = true
     }
-  }, [unitId, user])
+  }, [unitId, user, isSampleProperty])
 
   useEffect(() => {
+    if (isSampleProperty) return
+
     if (activeTab !== 'spend-analytics') return
     const dNumber = extractDocumentNumber(assetInfo.unit_name, unitId) || unitId.trim().toUpperCase()
     if (!dNumber) {
@@ -934,9 +985,11 @@ export default function AssetInfo() {
     return () => {
       cancelled = true
     }
-  }, [activeTab, assetInfo.unit_name, unitId, selectedCustomer])
+  }, [activeTab, assetInfo.unit_name, unitId, selectedCustomer, isSampleProperty])
 
   useEffect(() => {
+    if (isSampleProperty) return
+
     if (!user || !unitId || !supabase) {
       setCustomerIdentifier('')
       setCustomerIdentifierLoading(false)
@@ -971,9 +1024,11 @@ export default function AssetInfo() {
     return () => {
       cancelled = true
     }
-  }, [unitId, user, selectedCustomer])
+  }, [unitId, user, selectedCustomer, isSampleProperty])
 
   useEffect(() => {
+    if (isSampleProperty) return
+
     if (activeTab !== 'documents') {
       return
     }
@@ -1040,7 +1095,7 @@ export default function AssetInfo() {
     return () => {
       controller.abort()
     }
-  }, [activeTab, unitId, assetInfo.unit_name, selectedCustomer])
+  }, [activeTab, unitId, assetInfo.unit_name, selectedCustomer, isSampleProperty])
 
   useEffect(() => {
     if (activeTab !== 'documents' && activeTab !== 'repair') return
@@ -1061,6 +1116,8 @@ export default function AssetInfo() {
   }, [activeTab, documentsPage, inspectionDocuments, repairDocuments, selectedDocumentUrl])
 
   useEffect(() => {
+    if (isSampleProperty) return
+
     if (activeTab !== 'repair') {
       return
     }
@@ -1151,7 +1208,7 @@ export default function AssetInfo() {
       repairDocumentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
       repairDocumentUrlsRef.current = []
     }
-  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location, assetInfo.unit_name, selectedCustomer, unitId])
+  }, [activeTab, assetInfo.unit_location, assetInfo.unit_internal_location, assetInfo.unit_name, selectedCustomer, unitId, isSampleProperty])
 
   useEffect(() => {
     return () => {
@@ -1241,6 +1298,15 @@ export default function AssetInfo() {
     const text = noteInput.trim()
     if (!text || !user || !unitId) return
 
+    if (isSampleProperty) {
+      setNotes((previous) => [{
+        id: crypto.randomUUID(), unitId, customer: selectedCustomer, authorId: user.id,
+        authorName: fullName, authorEmail: user.email ?? '', text, createdAt: new Date().toISOString(),
+      }, ...previous])
+      setNoteInput('')
+      return
+    }
+
     try {
       setNoteSaving(true)
       setNotesError('')
@@ -1267,6 +1333,12 @@ export default function AssetInfo() {
       return
     }
 
+    if (isSampleProperty) {
+      setCustomerIdentifier(value)
+      setCustomerIdentifierModalOpen(false)
+      return
+    }
+
     try {
       setCustomerIdentifierSaving(true)
       setCustomerIdentifierError('')
@@ -1288,6 +1360,11 @@ export default function AssetInfo() {
   }
 
   const refreshAssetInfo = async () => {
+    if (isSampleProperty) {
+      setAssetInfo(samplePropertyAssetInfo(property))
+      return
+    }
+
     if (!unitId) {
       setLoading(false)
       setError('A unit id is required to load asset information.')
@@ -1314,6 +1391,13 @@ export default function AssetInfo() {
     if (!user || !unitId) {
       setEmailError('Sign in and select an asset before editing email notifications.')
       return false
+    }
+
+    if (isSampleProperty) {
+      setEmailError('')
+      setNotificationEmails((previous) => [...previous.filter((entry) => entry.email !== subscriber.email), subscriber]
+        .sort((left, right) => left.email.localeCompare(right.email)))
+      return true
     }
 
     try {
@@ -1365,6 +1449,11 @@ export default function AssetInfo() {
       return
     }
 
+    if (isSampleProperty) {
+      setNotificationEmails((previous) => previous.filter((subscriber) => subscriber.email !== email))
+      return
+    }
+
     try {
       setNotificationSavingEmail(email)
       setEmailError('')
@@ -1394,6 +1483,8 @@ export default function AssetInfo() {
     setSelectedIssueMatch(null)
     setIssueReportError('')
     setIssueReportOpen(true)
+
+    if (isSampleProperty) return
 
     const docNumber = extractDocumentNumber(issue.remarks, assetInfo.unit_name, unitId)
     if (!docNumber) {
@@ -1432,7 +1523,7 @@ export default function AssetInfo() {
 
   const tabs: Array<{ id: AssetInfoTab; label: string }> = [
     { id: 'issues', label: 'Open Issues' },
-    { id: 'info', label: 'Asset Info' },
+    { id: 'info', label: isSampleProperty ? 'Property Info' : 'Asset Info' },
     { id: 'documents', label: 'Preventative Maintenance Reports' },
     { id: 'repair', label: 'Repair Reports' },
     { id: 'notes', label: 'Notes' },
@@ -1441,11 +1532,11 @@ export default function AssetInfo() {
   ]
 
   const filterFieldOptions: Array<{ value: FilterField; label: string }> = [
-    { value: 'category', label: 'Category' },
-    { value: 'safety_category', label: 'Safety category' },
+    { value: 'category', label: issueLabel },
+    { value: 'safety_category', label: priorityLabel },
     { value: 'inspection_date', label: 'Inspection date' },
-    { value: 'component_type', label: 'Component type' },
-    { value: 'remarks', label: 'Remarks' },
+    { value: 'component_type', label: isSampleProperty ? areaLabel : 'Component type' },
+    { value: 'remarks', label: remarksLabel },
   ]
 
   const filteredIssues = assetInfo.issues.filter((issue) => {
@@ -1476,7 +1567,7 @@ export default function AssetInfo() {
     ])
 
     const csv = [
-      ['Category', 'Safety category', 'Inspection date', 'Component', 'Remarks'],
+      [issueLabel, priorityLabel, 'Inspection date', areaLabel, remarksLabel],
       ...rows,
     ]
       .map((row) =>
@@ -1555,7 +1646,20 @@ export default function AssetInfo() {
             </span>
           </button>
 
-          <DNumberSearchBar />
+          <DNumberSearchBar alternateSearch={isSampleProperty ? {
+            placeholder: 'Property name…',
+            emptyMessage: 'Enter a property name.',
+            findPath: (query) => {
+              const name = query.toLowerCase()
+              const match = sampleProperties.find(({ id, name: propertyName }) => id === name || propertyName.toLowerCase() === name)
+              const partialMatches = sampleProperties.filter(({ name: propertyName }) => propertyName.toLowerCase().includes(name))
+              const result = match ?? (partialMatches.length === 1 ? partialMatches[0] : undefined)
+              if (!result) return undefined
+              const next = propertyRiskFilters(searchParams)
+              next.set('property_id', result.id)
+              return customerPath(`/asset-info?${next}`)
+            },
+          } : undefined} />
 
           <div className="hidden text-right text-sm text-white/85 sm:block">
             Signed in as <span className="font-semibold text-white">{user.email}</span>
@@ -1633,12 +1737,18 @@ export default function AssetInfo() {
               DESHA<span className="text-[#f2b43f]">Z</span>O
             </div>
             <p className="text-[13px] font-bold uppercase tracking-[0.02em] text-[#b6b8c2]">
-              Cranes / Service / Automation
+              {isSampleProperty ? 'Branco Company' : 'Cranes / Service / Automation'}
             </p>
             <div className="mt-[18px] h-1.5 w-full max-w-[530px] rounded-full bg-[var(--deshazo-blue)]" />
+            {isSampleProperty && (
+              <Link to={customerPath(`/asset-fleet-assets?${propertyRiskFilters(searchParams)}`)} className="mt-2 inline-flex text-sm font-semibold text-[var(--deshazo-blue)] hover:underline">
+                Back to Open Risk Items
+              </Link>
+            )}
             <h1 className="text-[24px] font-black tracking-[-0.04em] text-[var(--deshazo-text)]">
               {loading ? 'Loading asset...' : assetInfo.unit_name || 'Asset Info'}
             </h1>
+            {property && <p className="text-sm text-[rgba(21,24,33,0.65)]">{property.location} · {property.type} · Sample property</p>}
           </div>
 
           {error && (
@@ -1679,7 +1789,7 @@ export default function AssetInfo() {
                     className="absolute left-0 top-[calc(100%+10px)] z-20 block w-[300px] rounded-[12px] border border-[var(--deshazo-border)] bg-white p-3 text-[12px] font-medium leading-relaxed text-[rgba(21,24,33,0.68)] shadow-[0_18px_40px_-28px_rgba(47,86,166,0.28)]"
                     onClick={(event) => event.stopPropagation()}
                   >
-                    Use this field to store the company-specific internal identifier for this asset. It is shared across all users for this customer and unit, and helps your team reference the asset consistently.
+                    {isSampleProperty ? 'This identifier is used to reference the sample property.' : 'Use this field to store the company-specific internal identifier for this asset. It is shared across all users for this customer and unit, and helps your team reference the asset consistently.'}
                   </span>
                 ) : null}
               </span>
@@ -1768,11 +1878,11 @@ export default function AssetInfo() {
                     <table className="min-w-full table-fixed border-collapse">
                       <thead className="bg-[#f4f5f7]">
                         <tr className="text-left">
-                          <th className="w-[23%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Category</th>
-                          <th className="w-[17%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Safety category</th>
+                          <th className="w-[23%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">{issueLabel}</th>
+                          <th className="w-[17%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">{priorityLabel}</th>
                           <th className="w-[16%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Inspection date</th>
-                          <th className="w-[11%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Component</th>
-                          <th className="w-[33%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">Remarks</th>
+                          <th className="w-[11%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">{areaLabel}</th>
+                          <th className="w-[33%] px-4 py-3 text-[15px] font-bold text-[var(--deshazo-text)]">{remarksLabel}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1782,6 +1892,7 @@ export default function AssetInfo() {
                               key={`${issue.category}-${issue.component_type}-${index}`}
                               issue={issue}
                               index={index}
+                              isSampleProperty={isSampleProperty}
                               onClick={() => void handleIssueRowClick(issue)}
                             />
                           ))
@@ -1919,7 +2030,7 @@ export default function AssetInfo() {
                         <td className="px-4 py-3 text-[15px] font-medium text-[var(--deshazo-text)]">{assetInfo.unit_location || 'Not available'}</td>
                       </tr>
                       <tr className="border-t border-[var(--deshazo-border)]">
-                        <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">Internal Location</td>
+                        <td className="px-4 py-3 text-[15px] font-semibold text-[var(--deshazo-text)]">{isSampleProperty ? 'Property Type' : 'Internal Location'}</td>
                         <td className="px-4 py-3 text-[15px] font-medium text-[var(--deshazo-text)]">{assetInfo.unit_internal_location || 'Not available'}</td>
                       </tr>
                     </tbody>
@@ -2194,7 +2305,7 @@ export default function AssetInfo() {
                       </div>
                     ) : notes.length === 0 ? (
                       <div className="flex min-h-[200px] items-center justify-center rounded-[14px] border border-dashed border-[var(--deshazo-border)] bg-white text-sm font-semibold text-[rgba(21,24,33,0.4)]">
-                        No notes yet. Add the first one above.
+                        {isSampleProperty ? 'No notes yet. Sample notes last until you leave this page.' : 'No notes yet. Add the first one above.'}
                       </div>
                     ) : (
                       notes.map((note) => (
@@ -2223,8 +2334,8 @@ export default function AssetInfo() {
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                     {[
                       { label: 'Total Open Issues', value: String(analytics.totalIssues), color: 'text-[var(--deshazo-blue)]' },
-                      { label: 'Safety Issues', value: String(analytics.safetyCount), color: 'text-[#e05c3a]' },
-                      { label: 'Monitor Issues', value: String(analytics.monitorCount), color: 'text-[#b27d00]' },
+                      { label: isSampleProperty ? 'High Priority' : 'Safety Issues', value: String(analytics.safetyCount), color: 'text-[#e05c3a]' },
+                      { label: isSampleProperty ? 'Medium Priority' : 'Monitor Issues', value: String(analytics.monitorCount), color: 'text-[#b27d00]' },
                       { label: 'Avg Age (days)', value: String(analytics.averageAgeDays), color: 'text-[#4a9960]' },
                     ].map((card) => (
                       <div key={card.label} className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-4 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
@@ -2238,8 +2349,8 @@ export default function AssetInfo() {
                     <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
                       <div className="mb-4 flex items-start justify-between gap-4">
                         <div>
-                          <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">Safety vs Monitor Over Time</h3>
-                          <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Monthly open-issue mix for this asset based on inspection dates.</p>
+                          <h3 className="text-[15px] font-bold text-[var(--deshazo-text)]">{isSampleProperty ? 'Risk Priority Over Time' : 'Safety vs Monitor Over Time'}</h3>
+                          <p className="mt-1 text-[13px] text-[rgba(21,24,33,0.5)]">Monthly open-issue mix for this {isSampleProperty ? 'property' : 'asset'} based on inspection dates.</p>
                         </div>
                         <div className="rounded-full bg-[var(--deshazo-surface)] px-3 py-1 text-[12px] font-semibold text-[rgba(21,24,33,0.6)]">
                           Latest inspection: {analytics.latestInspectionLabel}
@@ -2253,9 +2364,9 @@ export default function AssetInfo() {
                             <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} />
                             <Tooltip contentStyle={{ borderRadius: 10, fontSize: 13 }} />
                             <Legend iconType="circle" iconSize={10} wrapperStyle={{ fontSize: 13 }} />
-                            <Bar dataKey="safety" name="Safety" stackId="issues" fill="#e05c3a" radius={[6, 6, 0, 0]} />
-                            <Bar dataKey="monitor" name="Monitor" stackId="issues" fill="#f2b43f" radius={[6, 6, 0, 0]} />
-                            <Bar dataKey="other" name="Other" stackId="issues" fill="#4a9960" radius={[6, 6, 0, 0]} />
+                            <Bar dataKey="safety" name={isSampleProperty ? 'High' : 'Safety'} stackId="issues" fill="#e05c3a" radius={[6, 6, 0, 0]} />
+                            <Bar dataKey="monitor" name={isSampleProperty ? 'Medium' : 'Monitor'} stackId="issues" fill="#f2b43f" radius={[6, 6, 0, 0]} />
+                            <Bar dataKey="other" name={isSampleProperty ? 'Low' : 'Other'} stackId="issues" fill={isSampleProperty ? priorities[2].color : '#4a9960'} radius={[6, 6, 0, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
                       ) : (
@@ -2266,7 +2377,7 @@ export default function AssetInfo() {
                     </div>
 
                     <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-white px-5 py-5 shadow-[0_12px_30px_-28px_rgba(47,86,166,0.2)]">
-                      <h3 className="mb-4 text-[15px] font-bold text-[var(--deshazo-text)]">Issue Mix by Safety Classification</h3>
+                      <h3 className="mb-4 text-[15px] font-bold text-[var(--deshazo-text)]">{isSampleProperty ? 'Issue Mix by Priority' : 'Issue Mix by Safety Classification'}</h3>
                       {analytics.safetyBreakdown.length > 0 ? (
                         <ResponsiveContainer width="100%" height={240}>
                           <PieChart>
@@ -2289,7 +2400,7 @@ export default function AssetInfo() {
                         </ResponsiveContainer>
                       ) : (
                         <div className="flex h-[240px] items-center justify-center rounded-[12px] bg-[var(--deshazo-surface)]/55 text-sm font-semibold text-[rgba(21,24,33,0.45)]">
-                          No safety classification data available.
+                          {isSampleProperty ? 'No priority data available.' : 'No safety classification data available.'}
                         </div>
                       )}
                     </div>
@@ -2374,7 +2485,7 @@ export default function AssetInfo() {
                             >
                               <div className="min-w-0">
                                 <p className="truncate text-[14px] font-bold text-[var(--deshazo-text)]">{pattern.label}</p>
-                                <p className="mt-1 text-[12px] text-[rgba(21,24,33,0.48)]">Repeated issue pattern on this asset</p>
+                                <p className="mt-1 text-[12px] text-[rgba(21,24,33,0.48)]">Repeated issue pattern on this {isSampleProperty ? 'property' : 'asset'}</p>
                               </div>
                               <div className="ml-4 shrink-0 rounded-full bg-white px-3 py-1 text-[12px] font-bold text-[var(--deshazo-blue)] shadow-[0_10px_20px_-18px_rgba(47,86,166,0.45)]">
                                 {pattern.count} issue{pattern.count === 1 ? '' : 's'}
@@ -2403,7 +2514,7 @@ export default function AssetInfo() {
                     </div>
                   ) : !spendAnalytics || spendAnalytics.invoiceCount === 0 ? (
                     <div className="rounded-[14px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/55 px-5 py-8 text-center text-sm font-semibold text-[rgba(21,24,33,0.58)]">
-                      No invoice spend has been allocated to this crane yet.
+                      {isSampleProperty ? 'No sample invoice spend is available for this property.' : 'No invoice spend has been allocated to this crane yet.'}
                     </div>
                   ) : (
                     <>
@@ -2645,9 +2756,9 @@ export default function AssetInfo() {
           <div className="flex w-full max-w-4xl flex-col overflow-hidden rounded-[18px] bg-white shadow-[0_24px_60px_-20px_rgba(0,0,0,0.4)]" style={{ height: '90vh' }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-[var(--deshazo-border)] px-5 py-4">
               <div>
-                <h2 className="text-[16px] font-black text-[var(--deshazo-text)]">Inspection Report</h2>
+                <h2 className="text-[16px] font-black text-[var(--deshazo-text)]">{isSampleProperty ? 'Property Inspection' : 'Inspection Report'}</h2>
                 <p className="text-[12px] text-[rgba(21,24,33,0.45)]">
-                  {extractDocumentNumber(selectedIssue?.remarks, assetInfo.unit_name, unitId) || 'No D number'}
+                  {isSampleProperty ? 'Sample inspection' : extractDocumentNumber(selectedIssue?.remarks, assetInfo.unit_name, unitId) || 'No D number'}
                   {' · '}
                   {assetInfo.unit_name || 'Asset'}
                   {' · '}
@@ -2663,7 +2774,13 @@ export default function AssetInfo() {
                 ×
               </button>
             </div>
-            {issueReportLoading ? (
+            {isSampleProperty && selectedIssue ? (
+              <div className="overflow-y-auto px-5 py-6">
+                <h3 className="text-lg font-bold">{selectedIssue.category}</h3>
+                <p className="mt-2 text-sm font-semibold">{selectedIssue.safety_category} priority · {selectedIssue.component_type}</p>
+                <p className="mt-4 text-sm leading-relaxed">{selectedIssue.remarks}</p>
+              </div>
+            ) : issueReportLoading ? (
               <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-semibold text-[rgba(21,24,33,0.45)]">
                 Building the matching inspection report from Supabase...
               </div>
@@ -2718,7 +2835,7 @@ export default function AssetInfo() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setEmailModalOpen(false)}>
           <div className="w-full max-w-md rounded-[18px] bg-white p-6 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.3)]" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">Email Notifications</h2>
-            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Add emails and choose what they get notified about.</p>
+            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">{isSampleProperty ? 'Preview notification settings for this sample property. Changes apply to this visit only.' : 'Add emails and choose what they get notified about.'}</p>
 
             {/* Add email input */}
             <div className="flex gap-2">
@@ -2819,7 +2936,7 @@ export default function AssetInfo() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setCustomerIdentifierModalOpen(false)}>
           <div className="w-full max-w-md rounded-[18px] bg-white p-6 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.3)]" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-1 text-[18px] font-black text-[var(--deshazo-text)]">{customerIdentifierLabel}</h2>
-            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">Edit the identifier string for this asset. This is shared across all users for this customer and unit.</p>
+            <p className="mb-5 text-[13px] text-[rgba(21,24,33,0.5)]">{isSampleProperty ? 'Edit the sample property identifier for this visit.' : 'Edit the identifier string for this asset. This is shared across all users for this customer and unit.'}</p>
             <input
               type="text"
               value={customerIdentifierDraft}

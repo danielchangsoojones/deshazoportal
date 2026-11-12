@@ -3,7 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { searchAssetByDNumber } from '../lib/portalApi'
 import { useCustomerPath } from '../lib/customerRouting'
 
-export default function DNumberSearchBar() {
+type AlternateSearch = {
+  placeholder: string
+  emptyMessage: string
+  findPath: (query: string) => string | undefined
+}
+
+export default function DNumberSearchBar({ alternateSearch }: { alternateSearch?: AlternateSearch }) {
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -14,6 +20,17 @@ export default function DNumberSearchBar() {
     e.preventDefault()
     const trimmed = query.trim()
     if (!trimmed) return
+
+    if (alternateSearch) {
+      const path = alternateSearch.findPath(trimmed)
+      if (path) {
+        setError('')
+        navigate(path)
+      } else {
+        setError(alternateSearch.emptyMessage)
+      }
+      return
+    }
 
     try {
       setLoading(true)
@@ -47,7 +64,8 @@ export default function DNumberSearchBar() {
           type="text"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setError('') }}
-          placeholder="D number…"
+          placeholder={alternateSearch?.placeholder ?? 'D number…'}
+          aria-label={alternateSearch?.placeholder ?? 'D number'}
           className="w-[130px] bg-transparent text-sm text-white placeholder-white/45 outline-none"
         />
 
