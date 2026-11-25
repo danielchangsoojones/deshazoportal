@@ -347,7 +347,7 @@ function buildAssetName(dNumber: string, description?: string | null) {
 
 function isMissingViewError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
-  return /does not exist|schema cache|Could not find|PGRST202|PGRST205|permission denied for view|function/i.test(message)
+  return /does not exist|schema cache|Could not find|PGRST202|PGRST205|permission denied for view|function|statement timeout|canceling statement|57014/i.test(message)
 }
 
 function buildIssueRows(
@@ -575,7 +575,7 @@ async function loadDatasetFromSummaryView(customer: string): Promise<OpenRiskDat
     'deshazo_open_risk_asset_summaries',
     'unit_id,unit_name,warehouse_location,interior_location,inspection_date,safety_issue_count,monitor_issue_count,total_issue_count',
     (query) => query.eq('customer', customer),
-    1000,
+    100,
   )
 
   let totalSafetyIssues = 0

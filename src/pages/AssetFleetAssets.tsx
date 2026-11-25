@@ -258,6 +258,17 @@ export default function AssetFleetAssets() {
         const data = currentView === 'open-risk'
           ? await getSupabaseOpenRiskAssets(selectedLocations, currentPage - 1, selectedCustomer, selectedAreas)
           : await getSupabaseAssetFleetAssets(selectedLocations, currentPage - 1, selectedCustomer, selectedAreas)
+        // The data loader may finish after the user has changed page or filters.
+        // Ignore that stale response so it cannot replace the page they requested.
+        if (controller.signal.aborted) return
+        const lastPage = Math.max(1, data.total_pages ?? 1)
+        if (currentPage > lastPage) {
+          const nextParams = new URLSearchParams(searchParams)
+          if (lastPage > 1) nextParams.set('page', String(lastPage))
+          else nextParams.delete('page')
+          setSearchParams(nextParams, { replace: true })
+          return
+        }
         setAssetsPage(data)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -273,7 +284,7 @@ export default function AssetFleetAssets() {
     loadAssets()
 
     return () => controller.abort()
-  }, [selectedLocations, selectedAreas, currentPage, currentView, authLoading, user, selectedCustomer])
+  }, [selectedLocations, selectedAreas, currentPage, currentView, authLoading, user, selectedCustomer, searchParams, setSearchParams])
 
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut()
