@@ -2072,7 +2072,7 @@ export default function AssetInfo() {
                                   +
                                 </button>
                                 <a
-                                  href={`/deshazo-external-reports?workOrderId=${encodeURIComponent(selectedInspectionDocument.report.workOrderId)}&dNumber=${encodeURIComponent(
+                                  href={`${customerPath('/deshazo-external-reports')}?workOrderId=${encodeURIComponent(selectedInspectionDocument.report.workOrderId)}&dNumber=${encodeURIComponent(
                                     extractDocumentNumber(assetInfo.unit_name, unitId) || unitId,
                                   )}`}
                                   target="_blank"
@@ -2687,7 +2687,7 @@ export default function AssetInfo() {
                     </p>
                   </div>
                   <a
-                    href={`/deshazo-external-reports?workOrderId=${encodeURIComponent(selectedIssueMatch.report.workOrderId)}&dNumber=${encodeURIComponent(
+                    href={`${customerPath('/deshazo-external-reports')}?workOrderId=${encodeURIComponent(selectedIssueMatch.report.workOrderId)}&dNumber=${encodeURIComponent(
                       extractDocumentNumber(selectedIssue?.remarks, assetInfo.unit_name, unitId) || unitId,
                     )}`}
                     target="_blank"

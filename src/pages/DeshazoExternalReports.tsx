@@ -104,9 +104,10 @@ function hasMeaningfulCraneIdentifier(craneReport: DeshazoCraneReport) {
 }
 
 function hasVisibleInspectionTicket(craneReport: DeshazoCraneReport) {
-  if (!hasMeaningfulCraneIdentifier(craneReport)) return false
-  const inspectionType = getInspectionType(craneReport).trim().toUpperCase()
-  return inspectionType.length > 0 && inspectionType !== 'N/A' && inspectionType !== 'NA'
+  // Some saved reports have a valid crane/contact code and inspection data, but
+  // omit the inspection type on the crane entry. Keep those tickets visible;
+  // the report renderer can still show the work-order type as a fallback.
+  return hasMeaningfulCraneIdentifier(craneReport)
 }
 
 function safeZipFolderName(value: string) {
