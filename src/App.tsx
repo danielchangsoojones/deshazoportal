@@ -31,6 +31,7 @@ const AssetFleet = lazy(() => import('./pages/AssetFleet'))
 const AssetFleetAssets = lazy(() => import('./pages/AssetFleetAssets'))
 const AssetInfo = lazy(() => import('./pages/AssetInfo'))
 const CustomerQuotes = lazy(() => import('./pages/CustomerQuotes'))
+const WabashAssetCrossReference = lazy(() => import('./pages/WabashAssetCrossReference'))
 const FullApplication = lazy(() => import('./pages/FullApplication'))
 
 function PageLoader() {
@@ -145,6 +146,7 @@ function App() {
       <Route path="asset-info" element={<AssetInfo />} />
       <Route path="spare-hoist-management" element={<SpareHoistManagement />} />
       <Route path="customer-quotes" element={<CustomerQuotes />} />
+      <Route path="wabash-asset-cross-reference" element={<WabashAssetCrossReference />} />
     </>
   )
 

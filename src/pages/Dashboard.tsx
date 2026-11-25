@@ -34,6 +34,13 @@ const portalCards = [
     wabashOnly: true,
   },
   {
+    eyebrow: 'Assets',
+    title: 'Wabash Asset Cross-Reference',
+    description: 'Search Wabash equipment IDs by plant and connect them with DeShazo D-numbers.',
+    href: '/wabash-asset-cross-reference',
+    wabashOnly: true,
+  },
+  {
     eyebrow: 'Analytics',
     title: 'Spend',
     description: 'See an analytical breakdown of your spend regarding parts, labor, and maintenance trends.',

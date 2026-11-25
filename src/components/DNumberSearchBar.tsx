@@ -101,7 +101,8 @@ export default function DNumberSearchBar() {
 
     const parsed = parseDNumberQuery(query)
     if (!parsed.normalized) return
-    if (!parsed.isValid) {
+    const isWabashAssetQuery = selectedCustomer === 'wabash' && /^[A-Za-z0-9][A-Za-z0-9 _-]{2,49}$/.test(query.trim())
+    if (!parsed.isValid && !isWabashAssetQuery) {
       setError('Enter a D number, e.g. D012345.')
       return
     }
@@ -118,11 +119,11 @@ export default function DNumberSearchBar() {
       setSubmitting(true)
       setError('')
       setHint('')
-      const matches = await findDNumberMatches(searchClient, {
+      const matches = parsed.isValid ? await findDNumberMatches(searchClient, {
         customer: customerFilter,
         input: query,
         signal: controller.signal,
-      })
+      }) : []
       if (controller.signal.aborted) return
 
       if (matches.length === 1) {
@@ -132,8 +133,40 @@ export default function DNumberSearchBar() {
         setHint('Several assets match. Pick one.')
         setListOpen(true)
       } else {
-        setListOpen(false)
-        setError(`No asset ${parsed.normalized} found for ${customerName}.`)
+        if (selectedCustomer === 'wabash' && /^[A-Za-z0-9][A-Za-z0-9 _-]{2,49}$/.test(query.trim())) {
+          const { data, error: assetLookupError } = await supabase!.from('wabash_asset_cross_references')
+            .select('wabash_asset_number,d_number,candidate_d_numbers,plant,location,equipment_type,match_status')
+            .ilike('wabash_asset_number', query.trim()).limit(50)
+          if (controller.signal.aborted) return
+          if (assetLookupError) throw assetLookupError
+          const uniqueAssets = new Map<string, DNumberMatch>()
+          for (const row of data ?? []) {
+            const dNumbers = new Set([row.d_number, ...(row.candidate_d_numbers ?? [])].filter((value): value is string => Boolean(value)))
+            for (const dNumber of dNumbers) {
+              uniqueAssets.set(dNumber, {
+                dNumber,
+                description: `${row.wabash_asset_number ?? query.trim()} · ${row.equipment_type ?? 'Wabash equipment'}${row.match_status === 'confirmed' ? '' : ' · unconfirmed match'}`,
+                location: [row.plant, row.location].filter(Boolean).join(' · '),
+                latestWorkOrderId: null,
+              })
+            }
+          }
+          if (uniqueAssets.size === 1) {
+            goToAsset([...uniqueAssets.keys()][0])
+          } else if (uniqueAssets.size > 1) {
+            setSuggestions([...uniqueAssets.values()])
+            setHint('Several DeShazo assets are associated with this Wabash number. Pick one.')
+            setListOpen(true)
+          } else {
+            setListOpen(false)
+            setError((data?.length ?? 0) > 0
+              ? `Wabash asset ${query.trim()} is in the list but has no D-number match yet.`
+              : `No Wabash asset ${query.trim()} found for ${customerName}.`)
+          }
+        } else {
+          setListOpen(false)
+          setError(`No asset ${parsed.normalized} found for ${customerName}.`)
+        }
       }
     } catch (err) {
       if (controller.signal.aborted) return
@@ -211,7 +244,7 @@ export default function DNumberSearchBar() {
           }}
           onFocus={() => setListOpen(true)}
           onKeyDown={handleKeyDown}
-          placeholder="D number…"
+          placeholder={selectedCustomer === 'wabash' ? 'D number or Wabash asset #…' : 'D number…'}
           className="w-[130px] bg-transparent text-sm text-white placeholder-white/45 outline-none"
         />
 
