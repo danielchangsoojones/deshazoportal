@@ -27,17 +27,17 @@ const portalCards = [
     href: '/asset-fleet',
   },
   {
-    eyebrow: 'Inventory',
-    title: 'Spare Hoist Management',
-    description: 'Track spare hoists, repair progress, service records, and storage locations.',
-    href: '/spare-hoist-management',
-    wabashOnly: true,
-  },
-  {
     eyebrow: 'Assets',
     title: 'Wabash Asset Cross-Reference',
     description: 'Search Wabash equipment IDs by plant and connect them with DeShazo D-numbers.',
     href: '/wabash-asset-cross-reference',
+    wabashOnly: true,
+  },
+  {
+    eyebrow: 'Inventory',
+    title: 'Spare Hoist Management',
+    description: 'Track spare hoists, repair progress, service records, and storage locations.',
+    href: '/spare-hoist-management',
     wabashOnly: true,
   },
   {

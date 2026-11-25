@@ -5,7 +5,7 @@ import { useCustomerPath, useSelectedCustomer } from './customerRouting'
 
 type PortalMenuItem = {
   label: string
-  href?: string
+  href: string
 }
 
 const developerOnlyLabels = new Set(['Spend', 'Location Comparison', 'Calendar', 'Document Reports', 'Customer Quotes'])
@@ -14,6 +14,20 @@ const financeReleasedCustomers = new Set(['wabash', 'o-neal-steel', 'oneal-steel
 const financeReleasedLabels = new Set(['Spend', 'Location Comparison'])
 const calendarMenuItem = { label: 'Calendar', href: '/calendar' }
 const customerQuotesMenuItem = { label: 'Customer Quotes', href: '/customer-quotes' }
+const wabashPortalMenuItems: PortalMenuItem[] = [
+  { label: 'Home', href: '/dashboard' },
+  { label: 'Open Risk Items', href: '/asset-fleet-assets?view=open-risk' },
+  { label: 'Asset Fleet', href: '/asset-fleet' },
+  { label: 'Wabash Asset Cross-Reference', href: '/wabash-asset-cross-reference' },
+  { label: 'Spare Hoist Management', href: '/spare-hoist-management' },
+  { label: 'Spend', href: '/spend' },
+  { label: 'Location Comparison', href: '/location-comparison' },
+  { label: 'Customer Quotes', href: '/customer-quotes' },
+  { label: 'Custom Reports', href: '/custom-reports' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
+  { label: 'Add User', href: '/add-user' },
+  { label: 'Contact Us', href: '/contact-us' },
+]
 
 function withCalendarMenuItem<T extends PortalMenuItem>(menuItems: T[]) {
   if (menuItems.some((item) => item.label === calendarMenuItem.label)) return menuItems
@@ -80,8 +94,12 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
   }, [])
 
   return useMemo(
-    () =>
-      withCustomerQuotesMenuItem(withCalendarMenuItem(menuItems))
+    () => {
+      const orderedMenuItems = selectedCustomer === 'wabash'
+        ? wabashPortalMenuItems
+        : withCustomerQuotesMenuItem(withCalendarMenuItem(menuItems))
+
+      return orderedMenuItems
         .filter((item) => !detachedLabels.has(item.label))
         .filter((item) => {
           const developerOnly =
@@ -93,11 +111,12 @@ export function useDeveloperMenuItems<T extends PortalMenuItem>(menuItems: T[], 
             developerOnlyLabels.has(item.label) && !(isFinanceReleased && financeReleasedLabels.has(item.label))
           return {
             ...item,
-            href: item.href?.startsWith('/') ? customerPath(item.href) : item.href,
+            href: item.href.startsWith('/') ? customerPath(item.href) : item.href,
             developerOnly,
             active: item.label === activeKey || item.href === activeKey,
           }
-        }),
-    [activeKey, customerPath, isFinanceReleased, menuItems, userTag],
+        })
+    },
+    [activeKey, customerPath, isFinanceReleased, menuItems, selectedCustomer, userTag],
   )
 }

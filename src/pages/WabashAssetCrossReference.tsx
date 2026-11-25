@@ -9,8 +9,22 @@ import { getCurrentUserTag, type UserTag } from '../lib/userTags'
 import { useCustomerPath, useSelectedCustomer } from '../lib/customerRouting'
 import { uploadWabashAssetFiles, type WabashAssetRow } from '../lib/wabashAssetCrossReference'
 import { usePortalMenu } from '../lib/usePortalMenu'
+import { useDeveloperMenuItems } from '../lib/useDeveloperMenuItems'
 
 type ImportRow = { id: string; file_name: string; source_row_count: number; is_duplicate: boolean; imported_at: string }
+
+const menuItems = [
+  { label: 'Home', href: '/dashboard' },
+  { label: 'Open Risk Items', href: '/asset-fleet-assets?view=open-risk' },
+  { label: 'Asset Fleet', href: '/asset-fleet' },
+  { label: 'Spend', href: '/spend' },
+  { label: 'Location Comparison', href: '/location-comparison' },
+  { label: 'Document Reports', href: '/documents-reports' },
+  { label: 'Custom Reports', href: '/custom-reports' },
+  { label: 'Documents', href: '/deshazo-work-orders' },
+  { label: 'Add User', href: '/add-user' },
+  { label: 'Contact Us', href: '/contact-us' },
+]
 
 const statusLabel: Record<WabashAssetRow['match_status'], string> = {
   confirmed: 'Confirmed', candidate: 'Candidate', review: 'Review', unmatched: 'Unmatched',
@@ -33,6 +47,7 @@ export default function WabashAssetCrossReference() {
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
   const selectedCustomer = useSelectedCustomer()
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Wabash Asset Cross-Reference')
   const canUpload = userTag === 'developer'
 
   async function loadData() {
@@ -124,7 +139,32 @@ export default function WabashAssetCrossReference() {
         </div>
       </header>
       <div className="flex w-full">
-        {menuOpen ? <aside className="hidden w-64 shrink-0 border-r bg-white p-5 lg:block"><nav className="space-y-3"><Link className="block" to={customerPath('/dashboard')}>Home</Link><Link className="block" to={customerPath('/asset-fleet')}>Asset Fleet</Link><span className="block font-bold text-[var(--deshazo-blue)]">Wabash Asset Cross-Reference</span></nav></aside> : null}
+        {menuOpen ? (
+          <aside className="sticky top-[60px] hidden h-[calc(100vh-60px)] w-[268px] shrink-0 border-r border-[var(--deshazo-border)] bg-white lg:flex lg:flex-col">
+            <div className="flex-1 px-4 py-5">
+              <div className="rounded-[24px] border border-[var(--deshazo-border)] bg-[var(--deshazo-surface)]/50 p-4">
+                <nav className="space-y-2">
+                  {activeMenuItems.map((item) => (
+                    <Link
+                      key={item.label}
+                      to={item.href}
+                      className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium transition ${
+                        item.active
+                          ? 'bg-[#dbe5ff] text-[var(--deshazo-text)] shadow-[inset_0_0_0_1px_rgba(47,86,166,0.06)]'
+                          : 'text-[rgba(21,24,33,0.7)] hover:bg-white'
+                      }`}
+                    >
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <span className="truncate">{item.label}</span>
+                        {item.developerOnly ? <DeveloperBadge /> : null}
+                      </span>
+                    </Link>
+                  ))}
+                </nav>
+              </div>
+            </div>
+          </aside>
+        ) : null}
         <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 lg:px-10">
           <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
             <div><p className="text-xs font-black uppercase tracking-wider text-[var(--deshazo-blue)]">Wabash equipment directory</p><h1 className="mt-1 text-3xl font-black">Asset Cross-Reference</h1><p className="mt-2 max-w-3xl text-sm text-slate-600">Search Wabash asset IDs, serials, plants, or DeShazo D-numbers. Select a plant to narrow the list and open matched assets.</p></div>
