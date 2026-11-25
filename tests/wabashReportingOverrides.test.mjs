@@ -3,6 +3,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
 
 async function importTypeScriptModule(sourcePath) {
@@ -16,7 +17,7 @@ async function importTypeScriptModule(sourcePath) {
   const tempDir = await mkdtemp(join(tmpdir(), 'deshazo-wabash-overrides-'))
   const modulePath = join(tempDir, 'wabashReportingOverrides.mjs')
   await writeFile(modulePath, transpiled.outputText)
-  return import(modulePath)
+  return import(pathToFileURL(modulePath).href)
 }
 
 const overrides = await importTypeScriptModule(new URL('../src/lib/wabashReportingOverrides.ts', import.meta.url))

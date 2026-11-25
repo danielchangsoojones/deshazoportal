@@ -257,6 +257,20 @@ create index if not exists deshazo_external_work_orders_customer_location_idx
 create index if not exists deshazo_external_report_cranes_work_order_idx
   on public.deshazo_external_report_cranes (work_order_id, crane_index);
 
+-- Customer scoping for crane rows. These already exist in production; they are
+-- recorded here so the repo matches the live schema. The (customer, contact_code)
+-- index serves the portal D# search: exact lookups and prefix lookups written as
+-- half-open ranges (`>= 'D12' and < 'D13'`), because the en_US collation keeps
+-- `like 'D12%'` from using a plain btree index.
+alter table public.deshazo_external_report_cranes
+  add column if not exists customer text;
+
+create index if not exists deshazo_external_report_cranes_customer_work_order_idx
+  on public.deshazo_external_report_cranes (customer, work_order_id);
+
+create index if not exists deshazo_external_report_cranes_customer_contact_code_idx
+  on public.deshazo_external_report_cranes (customer, contact_code);
+
 create index if not exists deshazo_external_report_points_condition_idx
   on public.deshazo_external_report_points (condition);
 

@@ -13,29 +13,17 @@ const parseAppId =
 
 const parseRestApiKey = (import.meta.env.VITE_PORTAL_PARSE_REST_API_KEY as string | undefined)?.trim() || ''
 
-// Avoid exposing a master key in the browser if possible.
-// Prefer a server-side proxy for privileged Parse functions.
-const parseMasterKey = (import.meta.env.VITE_PORTAL_PARSE_MASTER_KEY as string | undefined)?.trim() || ''
-
+// The Parse master key bypasses all access control, and anything prefixed VITE_ ships
+// in the public bundle, so the browser never sends it. Privileged Parse functions must
+// go through a server-side proxy.
 const isPortalApiConfigured =
-  parseBaseUrl.startsWith('http') && parseAppId.length > 0 && (parseRestApiKey.length > 0 || parseMasterKey.length > 0)
+  parseBaseUrl.startsWith('http') && parseAppId.length > 0 && parseRestApiKey.length > 0
 
-const buildParseHeaders = () => {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    'X-Parse-Application-Id': parseAppId,
-  }
-
-  if (parseRestApiKey) {
-    headers['X-Parse-REST-API-Key'] = parseRestApiKey
-  }
-
-  if (parseMasterKey) {
-    headers['X-Parse-Master-Key'] = parseMasterKey
-  }
-
-  return headers
-}
+const buildParseHeaders = (): HeadersInit => ({
+  'Content-Type': 'application/json',
+  'X-Parse-Application-Id': parseAppId,
+  'X-Parse-REST-API-Key': parseRestApiKey,
+})
 
 export async function callParseFunction<TResponse>(
   functionName: string,
@@ -165,13 +153,6 @@ export type AssetInfoAnalytics = {
   unit_internal_location: string
   unit_name: string
   issues: AssetIssue[]
-}
-
-export type AssetSearchResult = {
-  unit_id: string
-  company_id: string
-  name: string
-  warehouse_location: string
 }
 
 export type RecurringIssue = {
@@ -429,17 +410,6 @@ export async function findAssetPdfPage(
   }
 
   throw new Error('Asset PDF page lookup returned an unexpected response shape.')
-}
-
-export async function searchAssetByDNumber(dNumber: string, signal?: AbortSignal) {
-  const response = await callParseFunction<unknown>('searchAssetByDNumber', { d_number: dNumber }, signal)
-
-  const data = extractObjectPayload<AssetSearchResult>(response)
-  if (data) {
-    return data
-  }
-
-  throw new Error('Asset search returned an unexpected response shape.')
 }
 
 export async function getRecurringIssues(unitId: string, signal?: AbortSignal) {
