@@ -47,7 +47,7 @@ export default function WabashAssetCrossReference() {
   const navigate = useNavigate()
   const customerPath = useCustomerPath()
   const selectedCustomer = useSelectedCustomer()
-  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Wabash Asset Cross-Reference')
+  const activeMenuItems = useDeveloperMenuItems(menuItems, 'Asset Cross-Reference')
   const canUpload = userTag === 'developer'
 
   async function loadData() {

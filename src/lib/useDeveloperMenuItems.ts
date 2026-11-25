@@ -18,7 +18,7 @@ const wabashPortalMenuItems: PortalMenuItem[] = [
   { label: 'Home', href: '/dashboard' },
   { label: 'Open Risk Items', href: '/asset-fleet-assets?view=open-risk' },
   { label: 'Asset Fleet', href: '/asset-fleet' },
-  { label: 'Wabash Asset Cross-Reference', href: '/wabash-asset-cross-reference' },
+  { label: 'Asset Cross-Reference', href: '/wabash-asset-cross-reference' },
   { label: 'Spare Hoist Management', href: '/spare-hoist-management' },
   { label: 'Spend', href: '/spend' },
   { label: 'Location Comparison', href: '/location-comparison' },
