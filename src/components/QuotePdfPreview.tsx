@@ -35,9 +35,21 @@ export default function QuotePdfPreview({ preview, onClose }: QuotePdfPreviewPro
     return () => observer.disconnect()
   }, [])
 
-  useEffect(() => {
-    viewport.current?.scrollTo({ top: 0, left: 0 })
-  }, [page])
+  const scrollToPage = (index: number) => {
+    viewport.current?.querySelectorAll<HTMLElement>('[data-pdf-page]')[index]?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    setPage(index)
+  }
+
+  const updateVisiblePage = () => {
+    const stage = viewport.current
+    if (!stage) return
+    const pages = Array.from(stage.querySelectorAll<HTMLElement>('[data-pdf-page]'))
+    const center = stage.getBoundingClientRect().top + stage.clientHeight / 2
+    const closest = pages.reduce((best, element, index) =>
+      Math.abs(element.getBoundingClientRect().top + element.clientHeight / 2 - center) <
+      Math.abs(pages[best].getBoundingClientRect().top + pages[best].clientHeight / 2 - center) ? index : best, 0)
+    setPage(closest)
+  }
 
   const pageWidth = zoom === 'width'
     ? '100%'
@@ -91,13 +103,13 @@ export default function QuotePdfPreview({ preview, onClose }: QuotePdfPreviewPro
         </header>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2.5 sm:px-5">
           <div className="flex items-center gap-2">
-            <button type="button" aria-label="Previous page" className={controlClass} disabled={page === 0} onClick={() => setPage(page - 1)}>
+            <button type="button" aria-label="Previous page" className={controlClass} disabled={page === 0} onClick={() => scrollToPage(page - 1)}>
               <span aria-hidden="true">‹</span>
             </button>
-            <select aria-label="PDF page" className={controlClass} value={page} onChange={(event) => setPage(Number(event.currentTarget.value))}>
+            <select aria-label="PDF page" className={controlClass} value={page} onChange={(event) => scrollToPage(Number(event.currentTarget.value))}>
               {preview.pages.map((_, index) => <option key={index} value={index}>Page {index + 1} of {pageCount}</option>)}
             </select>
-            <button type="button" aria-label="Next page" className={controlClass} disabled={page === pageCount - 1} onClick={() => setPage(page + 1)}>
+            <button type="button" aria-label="Next page" className={controlClass} disabled={page === pageCount - 1} onClick={() => scrollToPage(page + 1)}>
               <span aria-hidden="true">›</span>
             </button>
           </div>
@@ -124,7 +136,7 @@ export default function QuotePdfPreview({ preview, onClose }: QuotePdfPreviewPro
                   aria-label={`Go to page ${index + 1}`}
                   aria-current={index === page ? 'page' : undefined}
                   className="mb-2 block w-full rounded-lg border border-transparent px-2 py-1.5 text-center text-xs font-semibold text-slate-700 hover:bg-[#e9eef7] aria-[current=page]:border-[#8caddd] aria-[current=page]:bg-[#e8f0fd] focus-visible:outline-2 focus-visible:outline-[#31569b]"
-                  onClick={() => setPage(index)}
+                  onClick={() => scrollToPage(index)}
                 >
                   <div className="relative mx-auto mb-1 aspect-[8.5/11] w-16 overflow-hidden border border-slate-200 bg-white shadow-sm">
                     <img src={src} loading="lazy" alt="" className="absolute block max-w-none" style={preview.placement} />
@@ -134,12 +146,13 @@ export default function QuotePdfPreview({ preview, onClose }: QuotePdfPreviewPro
               ))}
             </nav>
           ) : null}
-          <div ref={viewport} className="min-w-0 flex-1 overflow-auto bg-[#e4eaf3] px-4 py-5 sm:px-7 sm:py-7">
-            <div
-              className="mx-auto border border-slate-300 bg-white shadow-[0_12px_36px_-12px_rgba(15,35,60,0.35)]"
-              style={{ width: pageWidth || '100%' }}
-            >
-              {renderPage(page)}
+          <div ref={viewport} onScroll={updateVisiblePage} className="min-w-0 flex-1 overflow-auto bg-[#e4eaf3] px-4 py-5 sm:px-7 sm:py-7">
+            <div className="flex flex-col items-center gap-5">
+              {preview.pages.map((_, index) => (
+                <div key={index} data-pdf-page className="shrink-0 border border-slate-300 bg-white shadow-[0_12px_36px_-12px_rgba(15,35,60,0.35)]" style={{ width: pageWidth || '100%' }}>
+                  {renderPage(index)}
+                </div>
+              ))}
             </div>
           </div>
         </div>
