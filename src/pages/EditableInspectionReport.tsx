@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
 import ProfileMenu from '../components/ProfileMenu'
+import QuotePdfPreview, { type QuotePdfPreviewData } from '../components/QuotePdfPreview'
 import { isConfigured, supabase } from '../lib/supabase'
 import {
   dedupeImportedMenuItems,
@@ -1603,11 +1604,22 @@ const normalizeAdditionalNotesSignatureBody = (body: string, profile: UserProfil
     )
 }
 
+const quoteNoteBackground = '#fffdf3'
+const quoteNoteLinkColor = '#273f7a'
+const noteLinkPattern = /(https?:\/\/[^\s]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi
+
+const getAdditionalNotesStyle = (value: string) => ({
+  backgroundColor: hasReportCellValue(`Notes: ${value}`) ? quoteNoteBackground : undefined,
+})
+
 const renderAdditionalNotesHtml = (value: string, profile: UserProfile | null = null) => {
   const { body, hasFooter } = splitAdditionalNotesFooter(value || '---', profile)
 
   return `
-    ${body ? `<p>${escapeHtml(normalizeAdditionalNotesSignatureBody(body, profile))}</p>` : ''}
+    ${body ? `<p>${normalizeAdditionalNotesSignatureBody(body, profile)
+      .split(noteLinkPattern)
+      .map((part, index) => index % 2 ? `<span class="notes-link">${escapeHtml(part)}</span>` : escapeHtml(part))
+      .join('')}</p>` : ''}
     ${hasFooter ? `
       <div class="notes-footer">
         <div class="notes-footer-name">${escapeHtml(getProfileSignatureName(profile))}</div>
@@ -1620,263 +1632,6 @@ const renderAdditionalNotesHtml = (value: string, profile: UserProfile | null = 
       </div>
     ` : ''}
   `
-}
-
-const sanitizePdfText = (text: string) =>
-  text
-    .replace(/[–—]/g, '-')
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .replace(/[^\x20-\x7E]/g, '')
-
-const wrapPdfLine = (line: string, maxLength = 92) => {
-  const words = sanitizePdfText(line).split(/\s+/)
-  const wrappedLines: string[] = []
-  let currentLine = ''
-
-  words.forEach((word) => {
-    if (!word) return
-    if (!currentLine) {
-      currentLine = word
-      return
-    }
-    if (`${currentLine} ${word}`.length <= maxLength) {
-      currentLine = `${currentLine} ${word}`
-      return
-    }
-    wrappedLines.push(currentLine)
-    currentLine = word
-  })
-
-  if (currentLine) wrappedLines.push(currentLine)
-  return wrappedLines.length > 0 ? wrappedLines : ['']
-}
-
-const chunkPdfLines = (lines: string[], maxLinesPerPage = 48) => {
-  const pages: string[][] = []
-  let currentPage: string[] = []
-
-  lines.forEach((line) => {
-    const wrappedLines = line ? wrapPdfLine(line) : ['']
-    wrappedLines.forEach((wrappedLine) => {
-      if (currentPage.length >= maxLinesPerPage) {
-        pages.push(currentPage)
-        currentPage = []
-      }
-      currentPage.push(wrappedLine)
-    })
-  })
-
-  if (currentPage.length > 0) pages.push(currentPage)
-  return pages
-}
-
-const getPdfLineItemSummary = (lineItem: RepairLineItem, sectionId?: string, settings = defaultEquipmentRentalSettings) => {
-  const customerAmount = sectionId
-    ? getCostCustomerLineAmount(sectionId, lineItem, settings)
-    : getCustomerLineAmount(lineItem)
-  return [
-    lineItem.description,
-    `Qty ${lineItem.quantity || '1'}`,
-    `Customer ${formatMoney(customerAmount)}`,
-  ].join(' | ')
-}
-
-const getReportPdfLines = (source: CombinedReportPdfSource, profile: UserProfile | null = null) => {
-  const { payload } = source
-  const reportData = payload.reportData
-  const repairSections = getPrintableRepairSections(getVisibleRepairSections(
-    normalizeRepairSections(payload.repairSections as RepairSection[]),
-    payload.repairSectionVisibility,
-  ))
-  const normalizedCostSections = normalizeEstimateCostSections(payload.costSections as CostSection[])
-  const equipmentSettings = {
-    ...defaultEquipmentRentalSettings,
-    ...payload.equipmentRentalSettings,
-  } as EquipmentRentalSettings
-  const inspectionQuoteSettings = getInspectionQuoteSettings(equipmentSettings)
-  const costSections = getPrintableCostSections(getInspectionQuoteVisibleCostSections(
-    getVisibleEstimateCostSections(
-      normalizedCostSections,
-      getPayloadEstimateCostSectionVisibility(payload, normalizedCostSections),
-    ),
-    inspectionQuoteSettings,
-  ))
-  const contactLines = source.suppressContact
-    ? []
-    : [
-      '',
-      `Contact Name: ${reportData.contactName || '---'}`,
-      `Email: ${reportData.contactEmail || '---'}`,
-      `Phone: ${reportData.contactPhone || '---'}`,
-    ]
-  const lines = [
-    `D Number: ${source.dNumber}`,
-    `Report: ${source.reportName}`,
-    `Job Number: ${getJobNumberDisplayFromReport(reportData)}`,
-    '',
-    reportData.customer,
-    reportData.date,
-    reportData.summary,
-    reportData.type,
-    reportData.structure,
-    reportData.description,
-    reportData.location,
-    reportData.customerAddress,
-    reportData.purchaseOrder,
-    ...contactLines,
-    '',
-    ...(inspectionQuoteSettings
-      ? [
-          'Scope of Work: Inspections',
-          defaultInspectionQuoteScopeIntro,
-          defaultInspectionQuoteTemplateNote,
-          '',
-        ]
-      : [
-          reportData.scopeOfWorkHeader || 'Scope of Work',
-          reportData.scopeOfWork || '---',
-          '',
-        ]),
-  ]
-
-  const repairAndMonitorSections = repairSections.filter((section) => getRepairSectionKind(section.status) !== 'safety')
-  const safetySections = repairSections.filter((section) => getRepairSectionKind(section.status) === 'safety')
-
-  if (!inspectionQuoteSettings) {
-    lines.push('ACTION LIST - REPAIR ITEMS')
-    repairAndMonitorSections.forEach((section) => {
-      const repairLabel = [section.title, section.description].filter((value) => value?.trim()).join(' - ')
-      lines.push('', `${repairLabel} (${formatRepairSectionStatus(section.status)})`)
-      section.costSections.forEach((costSection) => {
-        lines.push(costSection.title)
-        costSection.lineItems.forEach((lineItem) => {
-          lines.push(getPdfLineItemSummary(lineItem))
-        })
-      })
-    })
-
-    if (safetySections.length > 0) {
-      lines.push('', 'SAFETY ITEMS')
-      safetySections.forEach((section) => {
-        const repairLabel = [section.title, section.description].filter((value) => value?.trim()).join(' - ')
-        lines.push('', `${repairLabel} (${formatRepairSectionStatus(section.status)})`)
-        section.costSections.forEach((costSection) => {
-          lines.push(costSection.title)
-          costSection.lineItems.forEach((lineItem) => {
-            lines.push(getPdfLineItemSummary(lineItem))
-          })
-        })
-      })
-    }
-  }
-
-  lines.push('', 'Estimate Summary')
-  const payloadEstimateCostSectionVisibility = getPayloadEstimateCostSectionVisibility(payload, normalizedCostSections)
-  costSections.forEach((section) => {
-    lines.push('', section.title)
-    const scopeParts = getInspectionQuoteSectionScopeParts(inspectionQuoteSettings, section)
-    if (scopeParts.intro.length > 0 || scopeParts.items.length > 0) {
-      lines.push('Scope of Work')
-      scopeParts.intro.forEach((scopeLine) => lines.push(scopeLine))
-      scopeParts.items.forEach((scopeItem) => lines.push(`- ${scopeItem}`))
-    }
-    if (isEstimateCostSectionLineItemsVisible(payloadEstimateCostSectionVisibility, section.id)) {
-      section.lineItems.forEach((lineItem) => {
-        lines.push(getPdfLineItemSummary(lineItem, section.id, equipmentSettings))
-      })
-    } else {
-      lines.push(getCondensedInspectionQuoteLineItemSummary(section, equipmentSettings, inspectionQuoteSettings))
-      const summaryNote = getInspectionQuoteSectionSummaryNote(inspectionQuoteSettings, section)
-      if (summaryNote) lines.push(summaryNote)
-    }
-  })
-
-  const repairTotal = inspectionQuoteSettings
-    ? 0
-    : repairSections.reduce(
-        (total, section) => total + getRepairSectionCustomerTotal(section),
-        0,
-      )
-  const costTotal = costSections.reduce(
-    (total, section) =>
-      total + section.lineItems.reduce(
-        (sectionTotal, lineItem) => sectionTotal + getCostCustomerLineAmount(section.id, lineItem, equipmentSettings),
-        0,
-      ),
-    0,
-  )
-
-  lines.push('', `Grand Total: ${formatMoney(repairTotal + costTotal)}`)
-
-  if (!source.suppressAdditionalNotes) {
-    const { body, hasFooter } = splitAdditionalNotesFooter(reportData.notes || '---', profile)
-    lines.push('', reportData.notesHeader || 'Additional Notes')
-    lines.push(normalizeAdditionalNotesSignatureBody(body || '---', profile))
-    if (hasFooter) {
-      lines.push('', getProfileSignatureName(profile), signatureTitle)
-      const profilePhone = getProfileSignaturePhone(profile)
-      if (profilePhone) lines.push(profilePhone)
-      lines.push('DESHAZO', 'CRANES / SERVICE / AUTOMATION')
-    }
-  }
-  return lines
-}
-
-const createCombinedReportsPdfBlob = (sources: CombinedReportPdfSource[], profile: UserProfile | null = null) => {
-  const pageLineSets = sources.flatMap((source) =>
-    chunkPdfLines(getReportPdfLines(source, profile)).map((lines, pageIndex) => ({
-      title: `${source.dNumber} - ${source.reportName}${pageIndex > 0 ? ` (continued ${pageIndex + 1})` : ''}`,
-      lines,
-    })),
-  )
-
-  const objects = [
-    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
-    `2 0 obj\n<< /Type /Pages /Kids [${pageLineSets.map((_, index) => `${3 + index} 0 R`).join(' ')}] /Count ${pageLineSets.length} >>\nendobj\n`,
-  ]
-  const contentObjects: string[] = []
-  const fontObjectId = 3 + pageLineSets.length * 2
-
-  pageLineSets.forEach((page, index) => {
-    const pageObjectId = 3 + index
-    const contentObjectId = 3 + pageLineSets.length + index
-    const contentLines = [
-      'BT',
-      '/F1 13 Tf',
-      '54 760 Td',
-      `(${escapePdfText(sanitizePdfText(page.title))}) Tj`,
-      '/F1 9 Tf',
-      '0 -22 Td',
-      ...page.lines.flatMap((line) => [`(${escapePdfText(sanitizePdfText(line))}) Tj`, '0 -12 Td']),
-      'ET',
-    ]
-    const content = contentLines.join('\n')
-
-    objects.push(`${pageObjectId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>\nendobj\n`)
-    contentObjects.push(`${contentObjectId} 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`)
-  })
-
-  objects.push(...contentObjects)
-  objects.push(`${fontObjectId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`)
-
-  let pdf = '%PDF-1.4\n'
-  const offsets = [0]
-
-  objects.forEach((object) => {
-    offsets.push(pdf.length)
-    pdf += object
-  })
-
-  const xrefOffset = pdf.length
-  pdf += `xref\n0 ${objects.length + 1}\n`
-  pdf += '0000000000 65535 f \n'
-  offsets.slice(1).forEach((offset) => {
-    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
-  })
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
-
-  return new Blob([pdf], { type: 'application/pdf' })
 }
 
 const getTemplateValue = (value: string | undefined) => escapeHtml(value?.trim() || '---')
@@ -2181,44 +1936,11 @@ function EditableInspectionQuoteScope({
   )
 }
 
-const templateEquipmentRows = [
-  [
-    ['Manufacturer', 'manufacturerCrane'],
-    ['Serial Number', 'serialCrane'],
-    ['Capacity', 'capacityCrane'],
-    ['Model #', 'modelCrane'],
-  ],
-  [
-    ['Hoist 1 Manufacturer', 'manufacturerHoist'],
-    ['Hoist 1 Serial', 'serialHoist'],
-    ['Hoist 1 Capacity', 'capacityHoist'],
-    ['Hoist 1 Model', 'modelHoist'],
-  ],
-  [
-    ['Hoist 2 Manufacturer', 'manufacturerHoist2'],
-    ['Hoist 2 Serial', 'serialHoist2'],
-    ['Hoist 2 Capacity', 'capacityHoist2'],
-    ['Hoist 2 Model', 'modelHoist2'],
-  ],
-  [
-    ['Hoist 3 Manufacturer', 'manufacturerHoist3'],
-    ['Hoist 3 Serial', 'serialHoist3'],
-    ['Hoist 3 Capacity', 'capacityHoist3'],
-    ['Hoist 3 Model', 'modelHoist3'],
-  ],
-  [
-    ['Hoist 4 Manufacturer', 'manufacturerHoist4'],
-    ['Hoist 4 Serial', 'serialHoist4'],
-    ['Hoist 4 Capacity', 'capacityHoist4'],
-    ['Hoist 4 Model', 'modelHoist4'],
-  ],
-] as const
-
-const getTemplateEquipmentCells = (reportData: ReportData) =>
-  templateEquipmentRows
-    .filter((row, rowIndex) => rowIndex <= 1 || row.some(([, fieldId]) => hasReportCellValue(reportData[fieldId])))
-    .flatMap((row) => row.map(([label, fieldId]) => getTemplateReportCell(label, reportData[fieldId])))
-    .join('')
+const renderQuoteDetailRow = (fields: string[], report: ReportData, className: string) => `
+  <div class="${className}">
+    ${fields.map((field) => `<div>${getTemplateValue(report[field])}</div>`).join('')}
+  </div>
+`
 
 const getTemplateLineItemRows = (
   lineItems: RepairLineItem[],
@@ -2242,16 +1964,6 @@ const getCostSectionCustomerTotal = (
   (total, lineItem) => total + getCostCustomerLineAmount(section.id, lineItem, settings),
   0,
 )
-
-const getCondensedInspectionQuoteLineItemSummary = (
-  section: CostSection,
-  settings: EquipmentRentalSettings,
-  inspectionQuoteSettings: InspectionQuoteSettings | null = null,
-) => [
-  section.title,
-  getCondensedCostSectionQuantityLabel(section, inspectionQuoteSettings),
-  `Customer ${formatMoney(getCostSectionCustomerTotal(section, settings))}`,
-].join(' | ')
 
 const getInspectionQuoteSectionAssetLineItem = (section: CostSection) =>
   section.lineItems.find((lineItem) => getInspectionQuoteLineItemField(lineItem) === 'assets')
@@ -2292,7 +2004,7 @@ const getTemplateCondensedCostSectionRows = (
   inspectionQuoteSettings: InspectionQuoteSettings | null = null,
   summaryNote = '',
 ) => `
-  <tr>
+  <tr class="condensed-cost-row">
     <td>${escapeHtml(section.title || 'Inspection Section')}</td>
     <td class="qty">${escapeHtml(getCondensedCostSectionQuantityLabel(section, inspectionQuoteSettings).replace(/^Qty\s*/i, '') || '1')}</td>
     <td class="money">${formatMoney(getCostSectionCustomerTotal(section, settings))}</td>
@@ -2308,6 +2020,16 @@ const getCombinedReportTemplateHtml = (
 ) => {
   const reportMarkup = sources.map((source) => {
     const reportData = addReportSummaryCraneContext(normalizeReport(source.payload.reportData))
+    const blockVisibility = {
+      ...defaultBlockVisibility,
+      ...(source.payload.pageLayoutVisibility?.blockVisibility ?? source.payload.blockVisibility),
+    }
+    const estimateNotes = {
+      ...defaultEstimateNoteVisibility,
+      ...(source.payload.pageLayoutVisibility?.estimateNoteVisibility ?? source.payload.estimateNoteVisibility),
+    }
+    const renderEstimateNote = (value: string) =>
+      value.trim() ? `<div class="estimate-note">${escapeHtml(value)}</div>` : ''
     const repairSections = getPrintableRepairSections(getVisibleRepairSections(
       normalizeRepairSections(source.payload.repairSections as RepairSection[]),
       source.payload.repairSectionVisibility,
@@ -2349,6 +2071,7 @@ const getCombinedReportTemplateHtml = (
           .map((costSection) => `
             <div class="nested-title">${escapeHtml(costSection.title)}</div>
             <table>
+              <colgroup><col /><col class="qty-col" /><col class="unit-price-col" /><col class="total-price-col" /></colgroup>
               <thead>
                 <tr>
                   <th>Description</th>
@@ -2376,6 +2099,7 @@ const getCombinedReportTemplateHtml = (
           </div>
           ${repairCostMarkup}
           <table>
+              <colgroup><col /><col class="qty-col" /><col class="unit-price-col" /><col class="total-price-col" /></colgroup>
             <tbody>
               <tr class="subtotal repair-total">
                 <td colspan="3">Repair Item Total</td>
@@ -2400,6 +2124,7 @@ const getCombinedReportTemplateHtml = (
           <div class="section-title estimate-title">${escapeHtml(section.title)}</div>
           ${scopeMarkup}
           <table>
+              <colgroup><col /><col class="qty-col" /><col class="unit-price-col" /><col class="total-price-col" /></colgroup>
             <thead>
               <tr>
                 <th>Description</th>
@@ -2447,25 +2172,18 @@ const getCombinedReportTemplateHtml = (
           <div>${escapeHtml(reportData.date || '')}</div>
         </div>`}
 
+        ${inspectionQuoteSettings ? `
         <div class="details-grid">
-          ${getTemplateReportCell('Customer', reportData.customer)}
+          ${getTemplateReportCell('Customer Name', reportData.customer)}
           ${getTemplateReportCell('Customer Address', reportData.customerAddress)}
           ${getTemplateReportCell('Date', reportData.date)}
-          ${getTemplateReportCell('Quote #', reportData.jobNumber)}
-          ${inspectionQuoteSettings ? '' : `
-            ${getTemplateReportCell('Structure', reportData.structure)}
-            ${getTemplateReportCell('Description', reportData.description)}
-            ${getTemplateReportCell('Purchase Order', reportData.purchaseOrder)}
-            ${getTemplateReportCell('Location', reportData.location)}
-          `}
-        </div>
+          ${getTemplateReportCell('Quote Number', reportData.jobNumber)}
+        </div>` : `
+        ${renderQuoteDetailRow(['structure', 'description', 'customer'], reportData, 'identity-grid')}
+        ${cells.filter((row, index) => shouldShowReportTableRow(row, index, reportData))
+          .map((row) => renderQuoteDetailRow(row, reportData, 'equipment-row')).join('')}`}
 
-        ${inspectionQuoteSettings ? '' : `
-        <div class="equipment-grid">
-          ${getTemplateEquipmentCells(reportData)}
-        </div>`}
-
-        ${source.suppressContact ? '' : `
+        ${source.suppressContact || !blockVisibility.contact ? '' : `
         <section class="contact-row">
           <div><span class="contact-label">Contact Name</span> <span class="contact-value">${getTemplateValue(reportData.contactName)}</span></div>
           <div><span class="contact-label">Email</span> <span class="contact-value contact-email">${getTemplateValue(reportData.contactEmail)}</span></div>
@@ -2473,7 +2191,7 @@ const getCombinedReportTemplateHtml = (
         </section>
         `}
 
-        ${inspectionQuoteSettings ? `<section class="scope">
+        ${!blockVisibility.scopeOfWork ? '' : inspectionQuoteSettings ? `<section class="scope">
           <h2>Scope of Work: Inspections</h2>
           <p>${escapeHtml(defaultInspectionQuoteScopeIntro)}</p>
           <p>${escapeHtml(defaultInspectionQuoteTemplateNote)}</p>
@@ -2482,26 +2200,30 @@ const getCombinedReportTemplateHtml = (
           <p>${escapeHtml(reportData.scopeOfWork || '---')}</p>
         </section>`}
 
-        ${inspectionQuoteSettings ? '' : `
-        <h2 class="band">ACTION LIST - REPAIR ITEMS</h2>
+        ${inspectionQuoteSettings || !blockVisibility.repairItems ? '' : `
+        <h2 class="band">${escapeHtml(reportData.sectionHeader || 'Action List - Repair Items')}</h2>
         ${repairMarkup}
         ${safetyMarkup ? `<h2 class="band band-safety">SAFETY ITEMS</h2>${safetyMarkup}` : ''}
         `}
 
+        ${blockVisibility.estimateSummary ? `
         <h2 class="band">Estimate Summary</h2>
+        ${estimateNotes.topNote ? renderEstimateNote(reportData.estimateTopNote || '') : ''}
         ${costMarkup}
+        ${estimateNotes.bottomNote ? renderEstimateNote(reportData.estimateBottomNote || '') : ''}
+        ` : ''}
 
+        ${blockVisibility.grandTotal ? `
         <section class="grand-total">
-          <div>
-            <span>Total</span>
-            <strong>${formatMoney(repairTotal + costTotal)}</strong>
-          </div>
-        </section>
+          <div>Grand Total</div>
+          <div>Total</div>
+          <strong>${formatMoney(repairTotal + costTotal)}</strong>
+        </section>` : ''}
 
-        ${source.suppressAdditionalNotes ? '' : `
+        ${source.suppressAdditionalNotes || !blockVisibility.notes ? '' : `
         <section class="notes">
           <h2>${escapeHtml(reportData.notesHeader || 'Additional Notes')}</h2>
-          <div class="notes-body">${renderAdditionalNotesHtml(reportData.notes || '---', profile)}</div>
+          <div class="notes-body${getAdditionalNotesStyle(reportData.notes || '').backgroundColor ? ' notes-body-filled' : ''}">${renderAdditionalNotesHtml(reportData.notes || '---', profile)}</div>
         </section>
         `}
       </article>
@@ -2534,28 +2256,30 @@ const getCombinedReportTemplateHtml = (
           .report-page:last-child { page-break-after: auto; break-after: auto; }
           .report-header {
             display: grid;
-            grid-template-columns: 1.25fr 1fr 1fr;
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.95fr);
             align-items: center;
             gap: 12px;
             min-height: 0.54in;
-            background: #f5bd00;
-            padding: 8px 14px;
+            background: #f5b400;
+            padding: 8px 24px;
           }
-          .brand { color: #001a33; font-size: 24px; font-weight: 900; line-height: 0.9; }
-          .tagline { margin-top: 3px; color: #111; font-size: 7px; font-weight: 900; text-transform: uppercase; }
-          .branch { color: #111; font-size: 8px; font-weight: 900; line-height: 1.35; }
-          h1 { margin: 0; color: #111; font-size: 15px; font-weight: 900; text-align: right; text-transform: uppercase; }
+          .brand { color: #111; font-size: 30px; font-weight: 900; line-height: 1.05; letter-spacing: -0.04em; }
+          .tagline { margin-top: 2px; color: #111; font-size: 9px; font-weight: 900; line-height: 1.2; text-transform: uppercase; }
+          .branch { color: #111; font-size: 11px; font-weight: 600; line-height: 1.25; }
+          h1 { margin: 0; color: #111; font-size: 18px; font-weight: 900; text-align: right; text-transform: uppercase; }
           .summary-row {
             display: grid;
-            grid-template-columns: 34px 1fr 1fr 1fr;
+            grid-template-columns: 34px minmax(0, 1.5fr) minmax(0, 0.85fr) minmax(0, 0.9fr);
             align-items: center;
             gap: 8px;
             min-height: 36px;
             border-bottom: 1px solid #d4d4d4;
             padding: 6px 0;
-            font-size: 9px;
-            font-weight: 900;
+            font-size: 12px;
+            line-height: 1.25;
+            font-weight: 700;
           }
+          .summary-row > div:not(.crane-mark) { overflow-wrap: anywhere; }
           .crane-mark {
             position: relative;
             width: 24px;
@@ -2581,32 +2305,43 @@ const getCombinedReportTemplateHtml = (
             height: 8px;
             border: 1px solid #111;
           }
-          .details-grid, .equipment-grid {
+          .identity-grid, .equipment-row {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            border-bottom: 1px solid #d4d4d4;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.25;
+          }
+          .identity-grid { grid-template-columns: minmax(0, 1.7fr) minmax(0, 0.9fr) minmax(0, 0.95fr); font-weight: 700; }
+          .equipment-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+          .identity-grid > div, .equipment-row > div { min-height: 21px; padding: 3px 8px; overflow-wrap: anywhere; white-space: pre-wrap; }
+          .identity-grid > div + div, .equipment-row > div + div { border-left: 1px solid #d4d4d4; }
+          .details-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             border-top: 1px solid #d4d4d4;
             border-left: 1px solid #d4d4d4;
           }
-          .details-grid { grid-template-columns: repeat(4, 1fr); }
           .info-cell {
             min-height: 25px;
             border-right: 1px solid #d4d4d4;
             border-bottom: 1px solid #d4d4d4;
-            padding: 3px 6px;
+            padding: 4px 7px;
           }
-          .cell-label { color: #111; font-size: 7px; font-weight: 900; }
-          .cell-value { margin-top: 2px; color: #111; font-size: 8px; font-weight: 900; overflow-wrap: anywhere; }
+          .cell-label { color: #555b66; font-size: 9px; font-weight: 700; line-height: 1.2; }
+          .cell-value { margin-top: 2px; color: #111; font-size: 11px; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
           .contact-row {
             display: grid;
-            grid-template-columns: 1fr 1.25fr 1fr;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             margin-top: 12px;
             border: 1px solid #d4d4d4;
             background: #fafafa;
           }
-          .contact-row div { min-height: 28px; padding: 6px; border-right: 1px solid #d4d4d4; color: #555b66; font-size: 8px; font-weight: 900; }
+          .contact-row div { min-width: 0; border-right: 1px solid #d4d4d4; }
           .contact-row div:last-child { border-right: 0; }
-          .contact-label { text-transform: none; }
-          .contact-value { text-transform: none; }
+          .contact-label, .contact-value { display: block; padding: 4px 7px; font-size: 10px; line-height: 1.25; }
+          .contact-label { border-bottom: 1px solid #d4d4d4; background: #f7f7f7; color: #555b66; font-weight: 700; }
+          .contact-value { background: #fff; color: #111; font-weight: 700; overflow-wrap: anywhere; }
           .contact-email { text-transform: lowercase; }
           .scope {
             margin-top: 12px;
@@ -2617,7 +2352,8 @@ const getCombinedReportTemplateHtml = (
             background: #f2f2f2;
             border-bottom: 1px solid #d4d4d4;
             padding: 8px 10px;
-            font-size: 14px;
+            font-size: 17px;
+            line-height: 1.25;
             font-weight: 900;
           }
           .scope p, .notes p {
@@ -2625,12 +2361,17 @@ const getCombinedReportTemplateHtml = (
             min-height: 0.56in;
             padding: 9px 10px;
             white-space: pre-wrap;
+            font-size: 14px;
+            font-weight: 600;
             line-height: 1.38;
+            overflow-wrap: anywhere;
           }
           .notes-body {
             min-height: 0.56in;
             padding: 9px 10px 12px;
           }
+          .notes-body-filled { background: ${quoteNoteBackground}; }
+          .notes-link { color: ${quoteNoteLinkColor}; text-decoration: underline; }
           .notes-body p {
             min-height: 0;
             padding: 0;
@@ -2685,6 +2426,8 @@ const getCombinedReportTemplateHtml = (
             border-color: #efb369;
             background: #fff7ee;
           }
+          .band, .notes h2 { text-transform: uppercase; }
+          .estimate-note { border: 1px solid #d8d8d8; border-top: 0; background: #fffdf3; padding: 8px 12px; white-space: pre-wrap; }
           .quote-section {
             border-right: 1px solid #d4d4d4;
             border-bottom: 1px solid #d4d4d4;
@@ -2742,6 +2485,9 @@ const getCombinedReportTemplateHtml = (
           .repair-section { background: #f4e3e3; }
           .monitor-section { background: #f6edbf; }
           .safety-section { background: #fff0e3; }
+          .repair-section .section-title { background: #f4e3e3; border-color: #e1caca; }
+          .monitor-section .section-title { background: #f6edbf; border-color: #d8c56f; }
+          .safety-section .section-title { background: #fff0e3; border-color: #efc48e; }
           .repair-section table, .monitor-section table, .safety-section table { background: #fff; }
           .nested-title {
             border-top: 1px solid #d8d8d8;
@@ -2799,22 +2545,30 @@ const getCombinedReportTemplateHtml = (
             border-bottom: 1px solid #d8d8d8;
             border-right: 1px solid #d8d8d8;
             padding: 5px 6px;
-            font-size: 7px;
+            font-size: 9px;
+            line-height: 1.2;
             font-weight: 900;
-            text-align: left;
+            text-align: right;
             text-transform: uppercase;
           }
+          th:first-child { text-align: left; }
           td {
             border-bottom: 1px solid #e5e5e5;
             border-right: 1px solid #e5e5e5;
             padding: 6px;
-            font-size: 9px;
-            font-weight: 900;
+            font-size: 12px;
+            line-height: 1.25;
+            font-weight: 600;
             vertical-align: top;
             overflow-wrap: anywhere;
           }
-          th:first-child, td:first-child { width: 56%; }
-          .money, .qty { text-align: right; white-space: nowrap; }
+          .qty-col { width: 54px; }
+          .unit-price-col { width: 110px; }
+          .total-price-col { width: 125px; }
+          .money, .qty { text-align: right; white-space: nowrap; font-weight: 700; }
+          .condensed-cost-row { background: #fbfbfb; }
+          .condensed-cost-row td:last-child { background: #f5b400; }
+          .subtotal td:first-child { text-align: right; }
           .inspection-summary-note-row td {
             background: #fff;
             color: #4d5360;
@@ -2836,18 +2590,18 @@ const getCombinedReportTemplateHtml = (
           .repair-total td { background: #f0f4fb; color: #111; }
           .grand-total {
             display: grid;
-            grid-template-columns: 1fr;
+            grid-template-columns: 1fr 180px 160px;
             margin-top: 12px;
-            margin-left: auto;
-            width: 2.2in;
             border: 2px solid #111;
+            background: #f2f2f2;
+            font-size: 16px;
+            font-weight: 900;
+            text-transform: uppercase;
+            color: #555b66;
           }
-          .grand-total div {
-            padding: 9px;
-            color: #111;
-          }
-          .grand-total span { display: block; font-size: 9px; font-weight: 900; text-transform: uppercase; }
-          .grand-total strong { display: block; margin-top: 4px; color: #111; font-size: 15px; font-weight: 900; }
+          .grand-total > * { padding: 12px 16px; }
+          .grand-total > :nth-child(2) { border-left: 1px solid #cfcfcf; text-align: right; }
+          .grand-total strong { border-left: 1px solid #111; background: #f5b400; color: #111; text-align: right; }
           .notes { margin-top: 12px; border: 1px solid #d4d4d4; break-inside: avoid; }
           @media print {
             body { background: #fff; }
@@ -3649,8 +3403,7 @@ function getDroppedMenuItem(event: DragEvent<HTMLElement>) {
 }
 
 function renderLinkifiedText(value: string) {
-  const linkPattern = /(https?:\/\/[^\s]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi
-  const parts = value.split(linkPattern)
+  const parts = value.split(noteLinkPattern)
 
   return parts.map((part, index) => {
     if (!part) return null
@@ -4053,6 +3806,13 @@ export default function EditableInspectionReport({
   const [jobReportPrintLoading, setJobReportPrintLoading] = useState(false)
   const [jobReportPrintMessage, setJobReportPrintMessage] = useState('')
   const [jobReportPrintDownloadMessage, setJobReportPrintDownloadMessage] = useState('')
+  const [quotePdfGenerating, setQuotePdfGenerating] = useState(false)
+  const [quotePdfPreview, setQuotePdfPreview] = useState<QuotePdfPreviewData | null>(null)
+
+  useEffect(() => {
+    if (!quotePdfPreview) return
+    return () => URL.revokeObjectURL(quotePdfPreview.url)
+  }, [quotePdfPreview])
   const [currentUser, setCurrentUser] = useState<User | null>(inheritedCurrentUser)
   const isEditableReportAutosaveDisabled = autosaveDisabledEmails.has((currentUser?.email || '').trim().toLowerCase())
   const canUseDeveloperReportTools = autosaveDisabledEmails.has((currentUser?.email || '').trim().toLowerCase())
@@ -6510,111 +6270,32 @@ export default function EditableInspectionReport({
     await navigateAfterSavingEditableReports('/jobsquotinglist')
   }
 
-  const showPrintWindowLoading = (printWindow: Window | null, title = 'Preparing PDF') => {
-    if (!printWindow) return
-
-    printWindow.document.write(`<!doctype html>
-      <html>
-        <head>
-          <title>${escapeHtml(title)}</title>
-          <style>
-            body {
-              display: flex;
-              min-height: 100vh;
-              margin: 0;
-              align-items: center;
-              justify-content: center;
-              background: #f4f6fb;
-              color: #1f2430;
-              font-family: Arial, Helvetica, sans-serif;
-            }
-            .loader {
-              width: min(420px, calc(100vw - 48px));
-              border: 1px solid #cfd6e5;
-              border-radius: 8px;
-              background: #fff;
-              padding: 24px;
-              text-align: center;
-              box-shadow: 0 18px 48px -34px rgba(15, 23, 42, 0.48);
-            }
-            h1 {
-              margin: 0;
-              color: #273f7a;
-              font-size: 18px;
-              font-weight: 900;
-            }
-            p {
-              margin: 10px 0 0;
-              color: #555b66;
-              font-size: 13px;
-              font-weight: 700;
-              line-height: 1.4;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="loader">
-            <h1>${escapeHtml(title)}</h1>
-            <p>Saving the latest edits and building the print view.</p>
-          </div>
-        </body>
-      </html>`)
-    printWindow.document.close()
-  }
-
-  const printReportSources = (
+  const generateQuotePdf = async (
     sources: CombinedReportPdfSource[],
-    {
-      documentTitle,
-      fallbackFilename,
-      openedMessage,
-      printWindow: openedPrintWindow,
-    }: {
-      documentTitle?: string
-      fallbackFilename: string
-      openedMessage: string
-      printWindow?: Window | null
-    },
+    documentTitle: string,
+    filename: string,
   ) => {
-    const printWindow = openedPrintWindow ?? window.open('', '_blank')
+    setJobReportPrintDownloadMessage('Generating color PDF…')
     const printableSources = applyCombinedReportSharedBlockVisibility(sources)
-
-    if (printWindow) {
-      printWindow.document.write(getCombinedReportTemplateHtml(printableSources, documentTitle, userProfile))
-      printWindow.document.close()
-      printWindow.focus()
-      printWindow.setTimeout(() => {
-        printWindow.print()
-      }, 250)
-      setJobReportPrintDownloadMessage(openedMessage)
-      return
-    }
-
-    const blob = createCombinedReportsPdfBlob(printableSources, userProfile)
-    const downloadUrl = URL.createObjectURL(blob)
-    const downloadLink = document.createElement('a')
-    downloadLink.href = downloadUrl
-    downloadLink.download = fallbackFilename
-    document.body.appendChild(downloadLink)
-    downloadLink.click()
-    downloadLink.remove()
-    URL.revokeObjectURL(downloadUrl)
-    setJobReportPrintDownloadMessage('Popup blocked. Downloaded a simplified PDF instead.')
+    const { createQuotePdf } = await import('../lib/quotePdf')
+    const { pdf, pages, placement } = await createQuotePdf(getCombinedReportTemplateHtml(printableSources, documentTitle, userProfile), documentTitle)
+    setQuotePdfPreview({ url: URL.createObjectURL(pdf), filename, title: documentTitle, pages, placement })
+    setJobReportPrintMenuOpen(false)
+    setJobReportPrintDownloadMessage('')
   }
 
-  const printEditableReport = async () => {
+  const downloadCurrentQuotePdf = async () => {
     if (
       currentInspectionQuoteSettings &&
       !currentInspectionQuoteHasSectionScope &&
       !report.scopeOfWork.trim() &&
-      !window.confirm('This inspection quote does not have a scope of work. Print it anyway?')
+      !window.confirm('This inspection quote does not have a scope of work. Export it anyway?')
     ) {
       return
     }
 
-    setJobReportPrintDownloadMessage('Saving latest edits before printing.')
-    const pendingPrintWindow = window.open('', '_blank')
-    showPrintWindowLoading(pendingPrintWindow)
+    setQuotePdfGenerating(true)
+    setJobReportPrintDownloadMessage('Saving latest edits…')
 
     try {
       const { currentReport, jobReports } = await saveEditableReportsBeforePrint()
@@ -6628,24 +6309,20 @@ export default function EditableInspectionReport({
         : currentEditableReportPayload
       const printReportName = refreshedCurrentReport?.reportName || currentReportName
 
-      printReportSources(
+      await generateQuotePdf(
         [{
           dNumber: getDNumberFromReport(printPayload.reportData) || 'Unknown D Number',
           reportName: printReportName,
           payload: printPayload,
         }],
-        {
-          documentTitle: printReportName || 'DESHAZO Quote Proposal',
-          fallbackFilename: `${(printReportName || 'editable-inspection-report').replace(/\s+/g, '-').toLowerCase()}.pdf`,
-          openedMessage: 'Saved latest edits and opened current report for PDF download.',
-          printWindow: pendingPrintWindow,
-        },
+        printReportName || 'DESHAZO Quote Proposal',
+        `${(printReportName || 'editable-inspection-report').replace(/\s+/g, '-').toLowerCase()}.pdf`,
       )
     } catch (error) {
-      pendingPrintWindow?.close()
-      setReportDatabaseStatus('error')
-      setJobReportPrintDownloadMessage(error instanceof Error ? error.message : 'Latest edits could not be saved before printing.')
-      console.error('Editable report could not be saved before printing.', error)
+      setJobReportPrintDownloadMessage(error instanceof Error ? error.message : 'Could not export the quote PDF.')
+      console.error('Quote PDF export failed.', error)
+    } finally {
+      setQuotePdfGenerating(false)
     }
   }
 
@@ -6676,11 +6353,10 @@ export default function EditableInspectionReport({
   }
 
   const downloadCheckedJobReportsPdf = async () => {
-    setJobReportPrintDownloadMessage('Saving latest edits before printing.')
+    setQuotePdfGenerating(true)
+    setJobReportPrintDownloadMessage('Saving latest edits…')
 
     let freshJobReportPrintOptions = jobReportPrintOptions
-    const pendingPrintWindow = window.open('', '_blank')
-    showPrintWindowLoading(pendingPrintWindow, 'Preparing Combined PDF')
 
     try {
       const { currentReport, jobReports } = await saveEditableReportsBeforePrint()
@@ -6705,9 +6381,9 @@ export default function EditableInspectionReport({
           currentEditableReportId: currentReport?.id || currentEditableReportId,
         })
     } catch (error) {
-      pendingPrintWindow?.close()
+      setQuotePdfGenerating(false)
       setReportDatabaseStatus('error')
-      setJobReportPrintDownloadMessage(error instanceof Error ? error.message : 'Latest edits could not be saved before printing.')
+      setJobReportPrintDownloadMessage(error instanceof Error ? error.message : 'Latest edits could not be saved before export.')
       console.error('Editable job reports could not be saved before printing.', error)
       return
     }
@@ -6721,7 +6397,7 @@ export default function EditableInspectionReport({
       }))
 
     if (selectedSources.length === 0) {
-      pendingPrintWindow?.close()
+      setQuotePdfGenerating(false)
       setJobReportPrintDownloadMessage('Select at least one D number.')
       return
     }
@@ -6729,19 +6405,21 @@ export default function EditableInspectionReport({
     const jobNumberLabel = normalizedCurrentJobNumber || 'selected'
     const combinedReportTitle = `Combined Editable Inspection Reports - Job ${jobNumberLabel}`
 
-    printReportSources(selectedSources, {
-      documentTitle: combinedReportTitle,
-      fallbackFilename: `${combinedReportTitle}.pdf`,
-      openedMessage: `Opened ${selectedSources.length} report${selectedSources.length === 1 ? '' : 's'} for PDF download.`,
-      printWindow: pendingPrintWindow,
-    })
+    try {
+      await generateQuotePdf(selectedSources, combinedReportTitle, `${combinedReportTitle}.pdf`)
+    } catch (error) {
+      setJobReportPrintDownloadMessage(error instanceof Error ? error.message : 'Could not export the combined quote PDF.')
+      console.error('Combined quote PDF export failed.', error)
+    } finally {
+      setQuotePdfGenerating(false)
+    }
   }
 
   const selectJobReportPrintOption = async (option: (typeof jobReportPrintOptions)[number]) => {
     setJobReportPrintMenuOpen(false)
 
     if (option.isCurrent || !option.reportId) {
-      printEditableReport()
+      downloadCurrentQuotePdf()
       return
     }
 
@@ -6780,6 +6458,9 @@ export default function EditableInspectionReport({
       onDrop={handlePagePdfDrop}
       onPaste={handlePagePdfPaste}
     >
+      {quotePdfPreview ? (
+        <QuotePdfPreview preview={quotePdfPreview} onClose={() => setQuotePdfPreview(null)} />
+      ) : null}
       <style>
         {`
           .editable-report-field {
@@ -7220,6 +6901,7 @@ export default function EditableInspectionReport({
                           <button
                             type="button"
                             onClick={() => selectJobReportPrintOption(option)}
+                            disabled={quotePdfGenerating}
                             className="min-w-0 flex-1 text-left"
                           >
                             <span className="flex min-w-0 items-center gap-2">
@@ -7254,25 +6936,28 @@ export default function EditableInspectionReport({
                       type="button"
                       onClick={downloadCheckedJobReportsPdf}
                       className="mb-2 w-full rounded-md bg-[#1f2430] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#343b4d] disabled:cursor-not-allowed disabled:bg-[#a7adba]"
-                      disabled={selectedJobReportPrintCount === 0}
+                      disabled={quotePdfGenerating || selectedJobReportPrintCount === 0}
                     >
                       Download Checked PDF{selectedJobReportPrintCount > 0 ? ` (${selectedJobReportPrintCount})` : ''}
                     </button>
-                    {jobReportPrintDownloadMessage ? (
-                      <div className="mb-2 px-1 text-[11px] font-bold text-[#747b8a]">{jobReportPrintDownloadMessage}</div>
-                    ) : null}
                     <button
                       type="button"
-                      onClick={() => {
-                        setJobReportPrintMenuOpen(false)
-                        printEditableReport()
-                      }}
+                      onClick={downloadCurrentQuotePdf}
+                      disabled={quotePdfGenerating}
                       className="w-full rounded-md bg-[#273f7a] px-3 py-2 text-[12px] font-black text-white transition hover:bg-[#1f3261]"
                     >
-                      Print Current Report
+                      Download Current PDF
                     </button>
+                    {jobReportPrintDownloadMessage ? (
+                      <p role="status" className="mt-2 px-1 text-[11px] font-bold text-[#555b66]">{jobReportPrintDownloadMessage}</p>
+                    ) : null}
                   </div>
                 </div>
+              ) : null}
+              {!jobReportPrintMenuOpen && jobReportPrintDownloadMessage ? (
+                <p role="status" className="absolute right-0 top-full z-50 mt-2 w-60 rounded-md border border-[#d8dce8] bg-white px-3 py-2 text-xs font-semibold text-[#273f7a] shadow-md">
+                  {jobReportPrintDownloadMessage}
+                </p>
               ) : null}
             </div>
             {currentUser ? (
@@ -7528,7 +7213,10 @@ export default function EditableInspectionReport({
                       <div className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase text-[#111]">
                         {finalJobEditNotesReport.notesHeader || 'Additional Notes'}
                       </div>
-                      <div className="min-h-[96px] px-3 py-3 text-[15px] font-semibold text-[#111]">
+                      <div
+                        className="min-h-[96px] px-3 py-3 text-[15px] font-semibold text-[#111]"
+                        style={getAdditionalNotesStyle(finalJobEditNotesReport.notes)}
+                      >
                         {renderAdditionalNotesContent(finalJobEditNotesReport.notes || '---', userProfile)}
                       </div>
                     </section>
@@ -8761,15 +8449,17 @@ export default function EditableInspectionReport({
                 onChange={updateField}
                 className="bg-[#f2f2f2] px-3 py-2 text-[17px] font-black uppercase"
               />
-              <EditableText
-                id="notes"
-                data={report}
-                onChange={updateField}
-                multiline
-                linkify
-                renderReadOnly={(value) => renderAdditionalNotesContent(value, userProfile)}
-                className="min-h-[96px] px-3 py-3 text-[15px] font-semibold"
-              />
+              <div style={getAdditionalNotesStyle(report.notes)}>
+                <EditableText
+                  id="notes"
+                  data={report}
+                  onChange={updateField}
+                  multiline
+                  linkify
+                  renderReadOnly={(value) => renderAdditionalNotesContent(value, userProfile)}
+                  className="min-h-[96px] px-3 py-3 text-[15px] font-semibold"
+                />
+              </div>
             </section>
             ) : null}
           </section>
